@@ -15,6 +15,7 @@ The library is under construction; this README grows with it.
 
 - `go/` is the Go half, module `github.com/Techrocket9/fkrecipes/go`
 - `rust/` is the Rust half, crate `fkrecipes`
+- `go/examples/datastage` and `rust/examples/datastage` are one small mod written twice, a steelworks expansion declaring the same settings, items, recipes and technologies in both languages; they are the arms of a mirror test that packages both and compares every observable effect byte for byte
 
 ## Licence
 

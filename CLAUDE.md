@@ -28,6 +28,12 @@ cd rust && cargo test         # the Rust mirror of the same pure half. No wasm t
 cd rust && cargo build --target wasm32-unknown-unknown --workspace
                               # every member compiles for the target it ships on; cargo test alone
                               # builds the std host shape and would read as green over a wasm break
+scripts/run-mirror.sh         # the cross-language mirror: both example guests packaged with a freshly
+                              # built fklua, run under lua52f against the strict stand-in, transcripts
+                              # byte-compared and pinned by testdata/mirror/transcript.golden. Needs
+                              # FKLUA_CHECKOUT (default ../FkLua), tinygo, cargo and the checkout's
+                              # bin/lua52f; anything missing fails loudly with the remedy. --update
+                              # recaptures the golden and refuses to capture a divergent mirror
 ```
 
 The mirror harness (both example guests packaged with `fklua mod`, run under lua52f against the strict stand-in, transcripts byte-compared) and the in-game `--dump-data` gate land with their own commits and get their rows here then.
@@ -44,7 +50,11 @@ go/                     the Go half: module github.com/Techrocket9/fkrecipes/go,
 rust/                   the Rust half: crate fkrecipes, workspace root. fkdata arrives as a git
                         dependency on https://github.com/Techrocket9/fklua, wasm-gated so the host
                         cargo test needs no wasm target; the [patch] one-source note is in Cargo.toml
+go/examples/datastage   the Go example guest, its own module (a consumer-shaped project; fkrecipes by
+                        replace, the FkLua substrate by the real v0.1.0 require)
 rust/examples/datastage the Rust example guest (workspace member), the mirror harness's Rust arm
+scripts/                gate scripts; run-mirror.sh is the cross-language mirror
+testdata/mirror/        the strict engine-shaped stand-in and the committed transcript golden
 agents/                 working notes; index below
 LICENSE                 MIT
 ```

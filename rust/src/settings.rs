@@ -142,7 +142,13 @@ impl Lib {
                     // looking for the wrong line.
                     let spec = self.effective_numeric_spec(i, bound);
                     if bound[i] && s.spec.min.is_none() {
-                        let generated = spec.min.unwrap_or(0.0);
+                        // Destructured, not defaulted: effective_numeric_spec
+                        // fills this arm's minimum in, so an absent one is a
+                        // broken invariant. A silent 0.0 would let this half
+                        // limp on where the Go mirror would not.
+                        let generated = spec
+                            .min
+                            .expect("a craft-time-bound setting has a generated minimum");
                         if let Some(max) = s.spec.max {
                             if generated > max {
                                 return Err(format!(
