@@ -38,6 +38,9 @@ func (l *Lib) PlanData(w World) ([]Op, error) {
 		return nil, err
 	}
 	res := l.resolve(w, prefix)
+	if err := l.checkResolvedCraftTimes(res, stage); err != nil {
+		return nil, err
+	}
 	if err := l.checkCycles(w, res, prefix, stage); err != nil {
 		return nil, err
 	}
@@ -51,7 +54,7 @@ func (l *Lib) PlanData(w World) ([]Op, error) {
 	}
 	unlocked := l.unlockedRecipes()
 	for i, r := range l.recipes {
-		ops = append(ops, extendOp(recipeProto(prefix, l, r, res.recipes[i], unlocked[i])))
+		ops = append(ops, extendOp(recipeProto(prefix, l, r, res.recipes[i], res.craftTimes[i], unlocked[i])))
 	}
 	for i, t := range l.techs {
 		ops = append(ops, extendOp(techProto(prefix, l, w, t, res.techs[i])))
@@ -133,10 +136,22 @@ func (l *Lib) validate(w World, stage, prefix string) error {
 		if !finite(r.spec.CraftTime) {
 			return errors.New(at + "the recipe " + r.name + " declares a crafting time that is not a finite number")
 		}
+		if r.spec.CraftTime != 0 && r.spec.CraftTimeFrom.index != 0 {
+			return errors.New(at + "the recipe " + r.name + " names both CraftTime and CraftTimeFrom; pick one")
+		}
+		if r.spec.CraftTimeFrom.index != 0 && !l.validDoubleSetting(r.spec.CraftTimeFrom) {
+			return errors.New(at + "the recipe " + r.name + " names a crafting-time setting that this plan never declared")
+		}
 		// A zero crafting time means the engine's own default and is emitted
 		// as no field at all; a negative one is a refusal, not a default.
 		if r.spec.CraftTime < 0 {
 			return errors.New(at + "the recipe " + r.name + " has a negative crafting time, which the engine refuses")
+		}
+		// Zero still means "say nothing and let the engine default apply". A
+		// positive value below the floor is a load failure the consumer would
+		// read as their own mod being broken, so it is refused here by name.
+		if r.spec.CraftTime > 0 && r.spec.CraftTime <= craftTimeFloor {
+			return errors.New(at + "the recipe " + r.name + " declares a crafting time the engine refuses (energy_required can't be <= 0.001)")
 		}
 		if r.spec.ResultCount < 0 {
 			return errors.New(at + "the recipe " + r.name + " has a negative result count, which the engine refuses")
@@ -244,6 +259,12 @@ func (l *Lib) validate(w World, stage, prefix string) error {
 			if holdsDroppedSubtree(u) {
 				return errors.New(at + "CostOf(" + t.spec.CostOf + "): the unit of " + t.spec.CostOf + " holds a table this library cannot copy faithfully")
 			}
+			// The level cap rides along the same way and truncates the same
+			// way: a map-shaped max_level that lost a subtree would be
+			// emitted with a hole in it.
+			if level, ok := w.TechMaxLevel(t.spec.CostOf); ok && holdsDroppedSubtree(level) {
+				return errors.New(at + "CostOf(" + t.spec.CostOf + "): the max_level of " + t.spec.CostOf + " holds a table this library cannot copy faithfully")
+			}
 		}
 		for _, u := range t.spec.Unlocks {
 			if !l.validRecipe(u) {
@@ -278,11 +299,20 @@ type resolvedTech struct {
 	rewrite      int // 1-based index into resolution.rewrites; 0 is none
 }
 
+// craftTime is what a bound recipe's energy_required resolved to, and which
+// setting answered, so a refusal can name it.
+type craftTime struct {
+	bound   bool
+	setting string
+	value   float64
+}
+
 type resolution struct {
-	logs     []string
-	recipes  [][]resolvedIngredient
-	techs    []resolvedTech
-	rewrites []rewriteRec
+	logs       []string
+	craftTimes []craftTime
+	recipes    [][]resolvedIngredient
+	techs      []resolvedTech
+	rewrites   []rewriteRec
 }
 
 // resolve asks the World everything the plan needs to know and records what
@@ -294,6 +324,24 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 	var res resolution
 
 	for _, r := range l.recipes {
+		// The crafting time first, then the ingredients: a recipe's own field
+		// before what it is made of, mirroring a technology's enablement
+		// before its tree placement.
+		var ct craftTime
+		if r.spec.CraftTimeFrom.index != 0 {
+			setting := l.settings[r.spec.CraftTimeFrom.index-1]
+			full := prefix + setting.name
+			ct.bound = true
+			ct.setting = full
+			ct.value = setting.defNum
+			if v, ok := w.StartupSetting(full); ok && v.Kind == KindNum {
+				ct.value = v.Num
+			} else {
+				res.logs = append(res.logs, "fkrecipes: the setting "+full+" was not readable, so its default applies")
+			}
+		}
+		res.craftTimes = append(res.craftTimes, ct)
+
 		list := make([]resolvedIngredient, 0, len(r.spec.Ingredients))
 		for _, ing := range r.spec.Ingredients {
 			if len(ing.candidates) == 0 {
@@ -415,6 +463,39 @@ func dropLine(tech, after string) string {
 
 // unlockedRecipes marks the recipes some technology unlocks. Those are emitted
 // disabled, because the research is what turns them on.
+// checkResolvedCraftTimes refuses a bound crafting time the engine would not
+// take. It runs after resolution because the value is a fact about what the
+// World answered, not about what the plan declared.
+//
+// The setting is generated with a minimum above the floor, so the ordinary way
+// to reach this is another mod: setting names are a global namespace and the
+// engine keeps the last declaration of a same-type name, silently. A refusal
+// naming the setting beats the engine's load failure blaming the consumer.
+func (l *Lib) checkResolvedCraftTimes(res resolution, stage string) error {
+	for i, ct := range res.craftTimes {
+		if !ct.bound {
+			continue
+		}
+		// Finiteness FIRST, and not only for the message: an infinity is
+		// above the floor, so the floor arm would wave it through and ship a
+		// recipe that never completes. This is the one float in the library
+		// that arrives from outside and so never crossed the declaration
+		// checks.
+		if !finite(ct.value) {
+			return errors.New("fkrecipes: at the " + stage + " stage, the recipe " + l.recipes[i].name +
+				" reads its crafting time from " + ct.setting +
+				", which answers a value that is not a finite number")
+		}
+		if ct.value > craftTimeFloor {
+			continue
+		}
+		return errors.New("fkrecipes: at the " + stage + " stage, the recipe " + l.recipes[i].name +
+			" reads its crafting time from " + ct.setting +
+			", which answers at or below the engine floor (energy_required can't be <= 0.001)")
+	}
+	return nil
+}
+
 func (l *Lib) unlockedRecipes() []bool {
 	marks := make([]bool, len(l.recipes))
 	for _, t := range l.techs {
@@ -448,7 +529,7 @@ func itemProto(prefix string, it itemDecl) Value {
 	return Obj(pairs...)
 }
 
-func recipeProto(prefix string, l *Lib, r recipeDecl, ings []resolvedIngredient, unlocked bool) Value {
+func recipeProto(prefix string, l *Lib, r recipeDecl, ings []resolvedIngredient, ct craftTime, unlocked bool) Value {
 	pairs := []KV{
 		kv("type", Str("recipe")),
 		kv("name", Str(prefix+r.name)),
@@ -458,8 +539,12 @@ func recipeProto(prefix string, l *Lib, r recipeDecl, ings []resolvedIngredient,
 		pairs = append(pairs, kv("category", Str(r.spec.Category)))
 	}
 	// energy_required is omitted rather than sent as zero: an absent field is
-	// the engine's own default, and a zero is a crafting time of zero.
-	if r.spec.CraftTime > 0 {
+	// the engine's own default, and a zero is a crafting time the engine
+	// refuses. A bound recipe carries whatever the player's setting answered,
+	// which the floor check has already cleared.
+	if ct.bound {
+		pairs = append(pairs, kv("energy_required", Num(ct.value)))
+	} else if r.spec.CraftTime > 0 {
 		pairs = append(pairs, kv("energy_required", Num(r.spec.CraftTime)))
 	}
 	pairs = append(pairs, kv("enabled", Bool(!unlocked)))

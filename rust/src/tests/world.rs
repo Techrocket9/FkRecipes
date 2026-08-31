@@ -15,6 +15,7 @@ pub(crate) struct FixtureWorld {
     pub(crate) recipes: Vec<String>,
     pub(crate) techs: Vec<FixtureTech>,
 
+    pub(crate) nil_unit_for: Vec<String>,
     pub(crate) nil_max_level_for: Vec<String>,
 
     /// A max_level answered for ANY name, even one no technology carries.
@@ -65,6 +66,12 @@ impl World for FixtureWorld {
     }
 
     fn tech_unit(&self, name: &str) -> Option<Value> {
+        // PRESENT and nil: the exact shape from_v produces for a unit whose
+        // table carried a numeric key, which is a different answer from "no
+        // unit".
+        if self.nil_unit_for.iter().any(|n| n.as_str() == name) {
+            return Some(Value::Nil);
+        }
         for t in &self.techs {
             if t.name.as_str() == name && t.unit != Value::Nil {
                 return Some(t.unit.clone());
@@ -136,6 +143,11 @@ impl FixtureWorld {
 
     pub(crate) fn with_setting(mut self, name: &str, v: Value) -> FixtureWorld {
         self.settings.push((String::from(name), v));
+        self
+    }
+
+    pub(crate) fn with_nil_unit(mut self, name: &str) -> FixtureWorld {
+        self.nil_unit_for.push(String::from(name));
         self
     }
 
@@ -232,6 +244,7 @@ pub(crate) fn base_world() -> FixtureWorld {
         stage: String::from("data"),
         settings: Vec::new(),
         loose_max_level: Value::Nil,
+        nil_unit_for: Vec::new(),
         nil_max_level_for: Vec::new(),
         recipes: strings(&["electronic-circuit", "iron-gear-wheel", "steel-plate"]),
         items: strings(&[

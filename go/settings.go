@@ -32,7 +32,8 @@ func (l *Lib) PlanSettings(w World) ([]Op, error) {
 		return nil, errors.New("fkrecipes: at the " + stage + " stage, the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName")
 	}
 	prefix := modName + "-"
-	if err := l.validateSettings(stage); err != nil {
+	bound := l.craftTimeBoundSettings()
+	if err := l.validateSettings(stage, bound); err != nil {
 		return nil, err
 	}
 	ops := make([]Op, 0, len(l.settings))
@@ -45,11 +46,12 @@ func (l *Lib) PlanSettings(w World) ([]Op, error) {
 			kv("order", Str(orderString(i))),
 		}
 		if s.kind == settingInt || s.kind == settingDouble {
-			if s.spec.HasMin {
-				pairs = append(pairs, kv("minimum_value", Num(s.spec.Min)))
+			spec := l.effectiveNumericSpec(i, bound)
+			if spec.HasMin {
+				pairs = append(pairs, kv("minimum_value", Num(spec.Min)))
 			}
-			if s.spec.HasMax {
-				pairs = append(pairs, kv("maximum_value", Num(s.spec.Max)))
+			if spec.HasMax {
+				pairs = append(pairs, kv("maximum_value", Num(spec.Max)))
 			}
 		}
 		if s.kind == settingDropdown {
@@ -68,7 +70,7 @@ func (l *Lib) PlanSettings(w World) ([]Op, error) {
 // No refusal here prints a number. A float rendered by two languages is two
 // different strings sooner or later, and these messages are compared byte for
 // byte, so each one names the setting and the relationship instead.
-func (l *Lib) validateSettings(stage string) error {
+func (l *Lib) validateSettings(stage string, bound []bool) error {
 	at := "fkrecipes: at the " + stage + " stage, "
 	for i, s := range l.settings {
 		if s.name == "" {
@@ -105,11 +107,35 @@ func (l *Lib) validateSettings(stage string) error {
 			if !finite(s.defNum) || (s.spec.HasMin && !finite(s.spec.Min)) || (s.spec.HasMax && !finite(s.spec.Max)) {
 				return errors.New(at + "the numeric setting " + s.name + " declares a value that is not a finite number")
 			}
-			if s.spec.HasMin && s.spec.HasMax && s.spec.Min > s.spec.Max {
-				return errors.New(at + "the numeric setting " + s.name + " declares a minimum above its maximum")
+			// A setting the player turns into a crafting time may not offer a
+			// value the engine refuses, so its own minimum has to clear the
+			// floor. Nothing here prints a number: the floor appears once, as
+			// literal text inside the message.
+			if bound[i] && s.spec.HasMin && s.spec.Min <= craftTimeFloor {
+				return errors.New(at + "the setting " + s.name + " backs a crafting time but declares a minimum at or below the engine floor (energy_required can't be <= 0.001)")
 			}
-			if (s.spec.HasMin && s.defNum < s.spec.Min) || (s.spec.HasMax && s.defNum > s.spec.Max) {
-				return errors.New(at + "the numeric setting " + s.name + " declares a default outside its own minimum and maximum")
+			// The EFFECTIVE bounds, so a generated minimum is checked against
+			// the default exactly as a declared one is. A GENERATED minimum
+			// says so in its own refusals: blaming a "declared minimum" the
+			// consumer never wrote sends them looking for the wrong line.
+			spec := l.effectiveNumericSpec(i, bound)
+			if bound[i] && !s.spec.HasMin {
+				if s.spec.HasMax && spec.Min > s.spec.Max {
+					return errors.New(at + "the setting " + s.name + " backs a crafting time, so its minimum is 0.002, which is above the declared maximum")
+				}
+				if s.defNum < spec.Min {
+					return errors.New(at + "the setting " + s.name + " backs a crafting time, so its minimum is 0.002, which is above the declared default")
+				}
+				if s.spec.HasMax && s.defNum > s.spec.Max {
+					return errors.New(at + "the numeric setting " + s.name + " declares a default outside its own minimum and maximum")
+				}
+			} else {
+				if spec.HasMin && spec.HasMax && spec.Min > spec.Max {
+					return errors.New(at + "the numeric setting " + s.name + " declares a minimum above its maximum")
+				}
+				if (spec.HasMin && s.defNum < spec.Min) || (spec.HasMax && s.defNum > spec.Max) {
+					return errors.New(at + "the numeric setting " + s.name + " declares a default outside its own minimum and maximum")
+				}
 			}
 		}
 	}

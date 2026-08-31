@@ -123,6 +123,38 @@ func TestPlanSettingsRefusals(t *testing.T) {
 			want: "fkrecipes: at the settings stage, the numeric setting axe-durability declares a default a Lua double cannot hold exactly: -9007199254740993",
 		},
 		{
+			// The auto-minimum is a real bound: a default below it is refused
+			// exactly as it would be below a declared one.
+			name: "a default below the generated craft-time minimum",
+			build: func(l *Lib) {
+				axe := l.Item("steel-axe", ItemSpec{})
+				from := l.DoubleSetting("axe-craft-time", 0.0001, NumericSpec{})
+				l.Recipe(axe, RecipeSpec{CraftTimeFrom: from})
+			},
+			want: "fkrecipes: at the settings stage, the setting axe-craft-time backs a crafting time, so its minimum is 0.002, which is above the declared default",
+		},
+		{
+			// The consumer declared only a maximum, so a refusal blaming a
+			// declared minimum would send them looking for a line they never
+			// wrote.
+			name: "a declared maximum below the generated craft-time minimum",
+			build: func(l *Lib) {
+				axe := l.Item("steel-axe", ItemSpec{})
+				from := l.DoubleSetting("axe-craft-time", 0.0015, NumericSpec{HasMax: true, Max: 0.0015})
+				l.Recipe(axe, RecipeSpec{CraftTimeFrom: from})
+			},
+			want: "fkrecipes: at the settings stage, the setting axe-craft-time backs a crafting time, so its minimum is 0.002, which is above the declared maximum",
+		},
+		{
+			name: "an explicit minimum at the engine floor on a craft-time setting",
+			build: func(l *Lib) {
+				axe := l.Item("steel-axe", ItemSpec{})
+				from := l.DoubleSetting("axe-craft-time", 2.5, Between(0.001, 60))
+				l.Recipe(axe, RecipeSpec{CraftTimeFrom: from})
+			},
+			want: "fkrecipes: at the settings stage, the setting axe-craft-time backs a crafting time but declares a minimum at or below the engine floor (energy_required can't be <= 0.001)",
+		},
+		{
 			name: "a bound that is not a number",
 			build: func(l *Lib) {
 				l.DoubleSetting("axe-craft-time", 2.5, NumericSpec{HasMax: true, Max: math.Inf(1)})
@@ -324,4 +356,52 @@ func TestIntSettingAcceptsTheExactBoundary(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		`extend {type="int-setting", name="steelworks-axe-durability", setting_type="startup", default_value=9007199254740992, order="aa"}`,
 	})
+}
+
+// A double setting nothing binds keeps the bounds the consumer gave it, so
+// the generated minimum is not imposed on every double in the plan.
+func TestAnUnboundDoubleSettingKeepsItsOwnBounds(t *testing.T) {
+	lib := New()
+	lib.DoubleSetting("axe-craft-time", 2.5, NumericSpec{})
+
+	ops, err := lib.PlanSettings(settingsWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="double-setting", name="steelworks-axe-craft-time", setting_type="startup", default_value=2.5000000000000000e0, order="aa"}`,
+	})
+}
+
+// The marking scan follows only handles THIS plan issued. A handle from
+// another plan lands on a live index here, and following it would bind a
+// setting the consumer never bound: this plan's setting would pick up a
+// generated minimum above the maximum it declares, and a clean settings stage
+// would start refusing.
+func TestAForeignCraftTimeHandleMarksNothing(t *testing.T) {
+	other := New()
+	stray := other.DoubleSetting("other-craft-time", 2.5, NumericSpec{})
+
+	lib := New()
+	// Index 1 in this plan too, and a maximum the generated minimum of 0.002
+	// would exceed.
+	lib.DoubleSetting("axe-craft-time", 0.001, NumericSpec{HasMax: true, Max: 0.0015})
+	axe := lib.Item("steel-axe", ItemSpec{})
+	lib.Recipe(axe, RecipeSpec{CraftTimeFrom: stray})
+
+	ops, err := lib.PlanSettings(settingsWorld())
+	assertNoError(t, err)
+	assertLines(t, transcript(ops), []string{
+		`extend {type="double-setting", name="steelworks-axe-craft-time", setting_type="startup", default_value=1.0000000000000000e-3, order="aa", maximum_value=1.5000000000000000e-3}`,
+	})
+
+	// The same handle is refused by name at the data stage, which is where a
+	// reference to another plan gets answered.
+	_, err = lib.PlanData(baseWorld())
+	if err == nil {
+		t.Fatal("the data plan was accepted with a handle from another plan")
+	}
+	want := "fkrecipes: at the data stage, the recipe steel-axe names a crafting-time setting that this plan never declared"
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
 }

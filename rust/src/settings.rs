@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 
 use crate::op::Op;
 use crate::plan::{Lib, SettingDecl, SettingKind};
-use crate::value::{finite, kv, str_arr, Value, MAX_EXACT_INT};
+use crate::value::{finite, kv, str_arr, Value, CRAFT_TIME_FLOOR, MAX_EXACT_INT};
 use crate::world::World;
 
 impl Lib {
@@ -37,7 +37,8 @@ impl Lib {
             ));
         }
         let prefix = format!("{}-", mod_name);
-        self.validate_settings(&stage)?;
+        let bound = self.craft_time_bound_settings();
+        self.validate_settings(&stage, &bound)?;
 
         let mut ops = Vec::with_capacity(self.settings.len());
         for (i, s) in self.settings.iter().enumerate() {
@@ -49,10 +50,11 @@ impl Lib {
                 kv("order", Value::Str(order_string(i))),
             ];
             if s.kind == SettingKind::Int || s.kind == SettingKind::Double {
-                if let Some(min) = s.spec.min {
+                let spec = self.effective_numeric_spec(i, &bound);
+                if let Some(min) = spec.min {
                     pairs.push(kv("minimum_value", Value::Num(min)));
                 }
-                if let Some(max) = s.spec.max {
+                if let Some(max) = spec.max {
                     pairs.push(kv("maximum_value", Value::Num(max)));
                 }
             }
@@ -73,7 +75,7 @@ impl Lib {
     /// two different strings sooner or later, and these messages are compared
     /// byte for byte, so each one names the setting and the relationship
     /// instead.
-    fn validate_settings(&self, stage: &str) -> Result<(), String> {
+    fn validate_settings(&self, stage: &str, bound: &[bool]) -> Result<(), String> {
         let at = format!("fkrecipes: at the {} stage, ", stage);
         for (i, s) in self.settings.iter().enumerate() {
             if s.name.is_empty() {
@@ -123,21 +125,61 @@ impl Lib {
                             at, s.name
                         ));
                     }
-                    if let (Some(min), Some(max)) = (s.spec.min, s.spec.max) {
-                        if min > max {
+                    // A setting the player turns into a crafting time may not
+                    // offer a value the engine refuses, so its own minimum has
+                    // to clear the floor. Nothing here prints a number: the
+                    // floor appears once, as literal text inside the message.
+                    if bound[i] && s.spec.min.map(|m| m <= CRAFT_TIME_FLOOR).unwrap_or(false) {
+                        return Err(format!(
+                            "{}the setting {} backs a crafting time but declares a minimum at or below the engine floor (energy_required can't be <= 0.001)",
+                            at, s.name
+                        ));
+                    }
+                    // The EFFECTIVE bounds, so a generated minimum is checked
+                    // against the default exactly as a declared one is. A
+                    // GENERATED minimum says so in its own refusals: blaming a
+                    // "declared minimum" the consumer never wrote sends them
+                    // looking for the wrong line.
+                    let spec = self.effective_numeric_spec(i, bound);
+                    if bound[i] && s.spec.min.is_none() {
+                        let generated = spec.min.unwrap_or(0.0);
+                        if let Some(max) = s.spec.max {
+                            if generated > max {
+                                return Err(format!(
+                                    "{}the setting {} backs a crafting time, so its minimum is 0.002, which is above the declared maximum",
+                                    at, s.name
+                                ));
+                            }
+                        }
+                        if s.def_num < generated {
                             return Err(format!(
-                                "{}the numeric setting {} declares a minimum above its maximum",
+                                "{}the setting {} backs a crafting time, so its minimum is 0.002, which is above the declared default",
                                 at, s.name
                             ));
                         }
-                    }
-                    let below = s.spec.min.map(|min| s.def_num < min).unwrap_or(false);
-                    let above = s.spec.max.map(|max| s.def_num > max).unwrap_or(false);
-                    if below || above {
-                        return Err(format!(
-                            "{}the numeric setting {} declares a default outside its own minimum and maximum",
-                            at, s.name
-                        ));
+                        if s.spec.max.map(|max| s.def_num > max).unwrap_or(false) {
+                            return Err(format!(
+                                "{}the numeric setting {} declares a default outside its own minimum and maximum",
+                                at, s.name
+                            ));
+                        }
+                    } else {
+                        if let (Some(min), Some(max)) = (spec.min, spec.max) {
+                            if min > max {
+                                return Err(format!(
+                                    "{}the numeric setting {} declares a minimum above its maximum",
+                                    at, s.name
+                                ));
+                            }
+                        }
+                        let below = spec.min.map(|min| s.def_num < min).unwrap_or(false);
+                        let above = spec.max.map(|max| s.def_num > max).unwrap_or(false);
+                        if below || above {
+                            return Err(format!(
+                                "{}the numeric setting {} declares a default outside its own minimum and maximum",
+                                at, s.name
+                            ));
+                        }
                     }
                 }
                 SettingKind::Bool => {}

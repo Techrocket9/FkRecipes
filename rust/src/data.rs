@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use crate::op::{path_key, Op};
 use crate::plan::{ItemDecl, Lib, RecipeDecl, TechDecl};
-use crate::value::{finite, kv, localised, str_arr, Value, MAX_EXACT_INT};
+use crate::value::{finite, kv, localised, str_arr, Value, CRAFT_TIME_FLOOR, MAX_EXACT_INT};
 use crate::world::World;
 
 impl Lib {
@@ -40,6 +40,7 @@ impl Lib {
 
         self.validate(w, &stage, &prefix)?;
         let res = self.resolve(w, &prefix);
+        self.check_resolved_craft_times(&res, &stage)?;
         self.check_cycles(w, &res, &prefix, &stage)?;
 
         let mut ops = Vec::with_capacity(
@@ -58,6 +59,7 @@ impl Lib {
                 self,
                 r,
                 &res.recipes[i],
+                &res.craft_times[i],
                 unlocked[i],
             )));
         }
@@ -177,12 +179,36 @@ impl Lib {
                     at, r.name
                 ));
             }
+            if r.spec.craft_time != 0.0 && r.spec.craft_time_from.index != 0 {
+                return Err(format!(
+                    "{}the recipe {} names both CraftTime and CraftTimeFrom; pick one",
+                    at, r.name
+                ));
+            }
+            if r.spec.craft_time_from.index != 0
+                && !self.valid_double_setting(r.spec.craft_time_from)
+            {
+                return Err(format!(
+                    "{}the recipe {} names a crafting-time setting that this plan never declared",
+                    at, r.name
+                ));
+            }
             // A zero crafting time means the engine's own default and is
             // emitted as no field at all; a negative one is a refusal, not a
             // default.
             if r.spec.craft_time < 0.0 {
                 return Err(format!(
                     "{}the recipe {} has a negative crafting time, which the engine refuses",
+                    at, r.name
+                ));
+            }
+            // Zero still means "say nothing and let the engine default
+            // apply". A positive value below the floor is a load failure the
+            // consumer would read as their own mod being broken, so it is
+            // refused here by name.
+            if r.spec.craft_time > 0.0 && r.spec.craft_time <= CRAFT_TIME_FLOOR {
+                return Err(format!(
+                    "{}the recipe {} declares a crafting time the engine refuses (energy_required can't be <= 0.001)",
                     at, r.name
                 ));
             }
@@ -377,6 +403,18 @@ impl Lib {
                                     at, t.spec.cost_of, t.spec.cost_of
                                 ));
                             }
+                            // The level cap rides along the same way and
+                            // truncates the same way: a map-shaped max_level
+                            // that lost a subtree would be emitted with a hole
+                            // in it.
+                            if let Some(level) = w.tech_max_level(&t.spec.cost_of) {
+                                if holds_dropped_subtree(&level) {
+                                    return Err(format!(
+                                        "{}CostOf({}): the max_level of {} holds a table this library cannot copy faithfully",
+                                        at, t.spec.cost_of, t.spec.cost_of
+                                    ));
+                                }
+                            }
                         }
                         Some(_) => {
                             return Err(format!(
@@ -414,6 +452,26 @@ impl Lib {
         let mut res = Resolution::default();
 
         for r in &self.recipes {
+            // The crafting time first, then the ingredients: a recipe's own
+            // field before what it is made of, mirroring a technology's
+            // enablement before its tree placement.
+            let mut ct = CraftTime::default();
+            if r.spec.craft_time_from.index != 0 {
+                let setting = &self.settings[r.spec.craft_time_from.index - 1];
+                let full = format!("{}{}", prefix, setting.name);
+                ct.bound = true;
+                ct.value = setting.def_num;
+                match w.startup_setting(&full) {
+                    Some(Value::Num(n)) => ct.value = n,
+                    _ => res.logs.push(format!(
+                        "fkrecipes: the setting {} was not readable, so its default applies",
+                        full
+                    )),
+                }
+                ct.setting = full;
+            }
+            res.craft_times.push(ct);
+
             let mut list = Vec::with_capacity(r.spec.ingredients.len());
             for ing in &r.spec.ingredients {
                 if ing.candidates.is_empty() {
@@ -540,6 +598,42 @@ impl Lib {
         res
     }
 
+    /// Refuses a bound crafting time the engine would not take. It runs after
+    /// resolution because the value is a fact about what the World answered,
+    /// not about what the plan declared.
+    ///
+    /// The setting is generated with a minimum above the floor, so the
+    /// ordinary way to reach this is another mod: setting names are a global
+    /// namespace and the engine keeps the last declaration of a same-type
+    /// name, silently. A refusal naming the setting beats the engine's load
+    /// failure blaming the consumer.
+    fn check_resolved_craft_times(&self, res: &Resolution, stage: &str) -> Result<(), String> {
+        for (i, ct) in res.craft_times.iter().enumerate() {
+            if !ct.bound {
+                continue;
+            }
+            // Finiteness FIRST, and not only for the message: an infinity is
+            // above the floor, so the floor arm would wave it through and ship
+            // a recipe that never completes. This is the one float in the
+            // library that arrives from outside and so never crossed the
+            // declaration checks.
+            if !finite(ct.value) {
+                return Err(format!(
+                    "fkrecipes: at the {} stage, the recipe {} reads its crafting time from {}, which answers a value that is not a finite number",
+                    stage, self.recipes[i].name, ct.setting
+                ));
+            }
+            if ct.value > CRAFT_TIME_FLOOR {
+                continue;
+            }
+            return Err(format!(
+                "fkrecipes: at the {} stage, the recipe {} reads its crafting time from {}, which answers at or below the engine floor (energy_required can't be <= 0.001)",
+                stage, self.recipes[i].name, ct.setting
+            ));
+        }
+        Ok(())
+    }
+
     /// Marks the recipes some technology unlocks. Those are emitted disabled,
     /// because the research is what turns them on.
     fn unlocked_recipes(&self) -> Vec<bool> {
@@ -575,9 +669,19 @@ pub(crate) struct ResolvedTech {
     pub(crate) rewrite: usize,
 }
 
+/// What a bound recipe's energy_required resolved to, and which setting
+/// answered, so a refusal can name it.
+#[derive(Default)]
+pub(crate) struct CraftTime {
+    pub(crate) bound: bool,
+    pub(crate) setting: String,
+    pub(crate) value: f64,
+}
+
 #[derive(Default)]
 pub(crate) struct Resolution {
     pub(crate) logs: Vec<String>,
+    pub(crate) craft_times: Vec<CraftTime>,
     pub(crate) recipes: Vec<Vec<ResolvedIngredient>>,
     pub(crate) techs: Vec<ResolvedTech>,
     pub(crate) rewrites: Vec<RewriteRec>,
@@ -643,6 +747,7 @@ fn recipe_proto(
     l: &Lib,
     r: &RecipeDecl,
     ings: &[ResolvedIngredient],
+    ct: &CraftTime,
     unlocked: bool,
 ) -> Value {
     let mut pairs = vec![
@@ -654,8 +759,12 @@ fn recipe_proto(
         pairs.push(kv("category", Value::string(&r.spec.category)));
     }
     // energy_required is omitted rather than sent as zero: an absent field is
-    // the engine's own default, and a zero is a crafting time of zero.
-    if r.spec.craft_time > 0.0 {
+    // the engine's own default, and a zero is a crafting time the engine
+    // refuses. A bound recipe carries whatever the player's setting answered,
+    // which the floor check has already cleared.
+    if ct.bound {
+        pairs.push(kv("energy_required", Value::Num(ct.value)));
+    } else if r.spec.craft_time > 0.0 {
         pairs.push(kv("energy_required", Value::Num(r.spec.craft_time)));
     }
     pairs.push(kv("enabled", Value::Bool(!unlocked)));

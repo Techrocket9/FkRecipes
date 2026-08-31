@@ -999,6 +999,169 @@ fn plan_data_refusals() {
             want: "fkrecipes: at the data stage, the technology steel-axes prices itself in a pack with an empty name",
         },
         Case {
+            name: "both a fixed and a bound crafting time",
+            world: |w: FixtureWorld| w,
+            build: |l: &mut Lib| {
+                let axe = l.item("steel-axe", ItemSpec::default());
+                let from = l.double_setting("axe-craft-time", 2.5, NumericSpec::default());
+                l.recipe(
+                    axe,
+                    RecipeSpec {
+                        craft_time: 2.5,
+                        craft_time_from: from,
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: at the data stage, the recipe steel-axe names both CraftTime and CraftTimeFrom; pick one",
+        },
+        Case {
+            name: "a crafting-time setting from another plan",
+            world: |w: FixtureWorld| w,
+            build: |l: &mut Lib| {
+                let mut other = Lib::new();
+                let stray = other.double_setting("axe-craft-time", 2.5, NumericSpec::default());
+                let axe = l.item("steel-axe", ItemSpec::default());
+                l.recipe(
+                    axe,
+                    RecipeSpec {
+                        craft_time_from: stray,
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: at the data stage, the recipe steel-axe names a crafting-time setting that this plan never declared",
+        },
+        Case {
+            // Measured: the engine refuses energy_required <= 0.001.
+            name: "a declared crafting time below the engine floor",
+            world: |w: FixtureWorld| w,
+            build: |l: &mut Lib| {
+                let axe = l.item("steel-axe", ItemSpec::default());
+                l.recipe(
+                    axe,
+                    RecipeSpec {
+                        craft_time: 0.001,
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: at the data stage, the recipe steel-axe declares a crafting time the engine refuses (energy_required can't be <= 0.001)",
+        },
+        Case {
+            // The generated setting's own minimum clears the floor, so this is
+            // what a colliding mod's setting looks like: same name, same type,
+            // last declaration wins, silently.
+            name: "a bound crafting time answered below the engine floor",
+            world: |w: FixtureWorld| {
+                w.with_setting("steelworks-axe-craft-time", Value::Num(0.001))
+            },
+            build: |l: &mut Lib| {
+                let axe = l.item("steel-axe", ItemSpec::default());
+                let from = l.double_setting("axe-craft-time", 2.5, NumericSpec::default());
+                l.recipe(
+                    axe,
+                    RecipeSpec {
+                        craft_time_from: from,
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: at the data stage, the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers at or below the engine floor (energy_required can't be <= 0.001)",
+        },
+        Case {
+            // An infinity is ABOVE the floor, so the floor arm would wave it
+            // through and ship a recipe that never completes.
+            name: "a bound crafting time answered as an infinity",
+            world: |w: FixtureWorld| {
+                w.with_setting("steelworks-axe-craft-time", Value::Num(f64::INFINITY))
+            },
+            build: |l: &mut Lib| {
+                let axe = l.item("steel-axe", ItemSpec::default());
+                let from = l.double_setting("axe-craft-time", 2.5, NumericSpec::default());
+                l.recipe(
+                    axe,
+                    RecipeSpec {
+                        craft_time_from: from,
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: at the data stage, the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers a value that is not a finite number",
+        },
+        Case {
+            // A NaN compares false against the floor, so it reached the floor
+            // arm and was reported as a value at or below it, which it is not.
+            name: "a bound crafting time answered as a NaN",
+            world: |w: FixtureWorld| {
+                w.with_setting("steelworks-axe-craft-time", Value::Num(f64::NAN))
+            },
+            build: |l: &mut Lib| {
+                let axe = l.item("steel-axe", ItemSpec::default());
+                let from = l.double_setting("axe-craft-time", 2.5, NumericSpec::default());
+                l.recipe(
+                    axe,
+                    RecipeSpec {
+                        craft_time_from: from,
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: at the data stage, the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers a value that is not a finite number",
+        },
+        Case {
+            // PRESENT and nil, which is what a unit whose table carried a
+            // numeric key collapses to: a different answer from "no unit".
+            name: "a CostOf source whose unit arrives as nil",
+            world: |w: FixtureWorld| w.with_nil_unit("steel-processing"),
+            build: |l: &mut Lib| {
+                l.technology(
+                    "steel-axes",
+                    TechSpec {
+                        cost_of: "steel-processing".into(),
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: at the data stage, CostOf(steel-processing): steel-processing has a unit that is not a dictionary",
+        },
+        Case {
+            name: "a CostOf source whose max_level lost a subtree on the way in",
+            world: |w: FixtureWorld| {
+                w.with_max_level(
+                    "steel-processing",
+                    Value::Map(vec![kv("levels", Value::Nil)]),
+                )
+            },
+            build: |l: &mut Lib| {
+                l.technology(
+                    "steel-axes",
+                    TechSpec {
+                        cost_of: "steel-processing".into(),
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: at the data stage, CostOf(steel-processing): the max_level of steel-processing holds a table this library cannot copy faithfully",
+        },
+        Case {
+            // The World says the technology is there and is not a research
+            // trigger, but hands back no unit: the arm the emit layer's
+            // tech_unit read lands on.
+            name: "a CostOf source that carries no unit at all",
+            world: |w: FixtureWorld| w.with_unit("steel-processing", Value::Nil),
+            build: |l: &mut Lib| {
+                l.technology(
+                    "steel-axes",
+                    TechSpec {
+                        cost_of: "steel-processing".into(),
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: at the data stage, CostOf(steel-processing): steel-processing carries no unit to copy",
+        },
+        Case {
             name: "a negative stack size",
             world: |w: FixtureWorld| w,
             build: |l: &mut Lib| {
@@ -1540,4 +1703,69 @@ fn no_planned_set_op_carries_a_nil_value() {
         }
     }
     assert_eq!(sets, 2, "expected two splices");
+}
+
+/// The whole binding, end to end: the settings stage generates the setting
+/// with a minimum that clears the engine floor, and the data stage reads the
+/// player's answer back into energy_required.
+#[test]
+fn craft_time_binding_round_trip() {
+    let mut lib = Lib::new();
+    let axe = lib.item("steel-axe", ItemSpec::default());
+    let from = lib.double_setting("axe-craft-time", 2.5, NumericSpec::default());
+    lib.recipe(
+        axe,
+        RecipeSpec {
+            craft_time_from: from,
+            ingredients: vec![Ingredient::named(4, "steel-plate", &[])],
+            ..Default::default()
+        },
+    );
+
+    let settings_ops = lib.plan_settings(&settings_world()).expect("plan refused");
+    assert_lines(
+        &transcript(&settings_ops),
+        &[
+            r#"extend {type="double-setting", name="steelworks-axe-craft-time", setting_type="startup", default_value=2.5000000000000000e0, order="aa", minimum_value=2.0000000000000000e-3}"#,
+        ],
+    );
+
+    // The player set it to four seconds.
+    let data_ops = lib
+        .plan_data(&base_world().with_setting("steelworks-axe-craft-time", Value::Num(4.0)))
+        .expect("plan refused");
+    assert_lines(
+        &transcript(&data_ops),
+        &[
+            r#"extend {type="item", name="steelworks-steel-axe", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-steel-axe", energy_required=4, enabled=true, ingredients=[{type="item", name="steel-plate", amount=4}], results=[{type="item", name="steelworks-steel-axe", amount=1}]}"#,
+        ],
+    );
+}
+
+/// An unreadable setting degrades the same way an unreadable enablement does:
+/// one log line, and the declared default applies.
+#[test]
+fn craft_time_binding_falls_back_to_its_default() {
+    let mut lib = Lib::new();
+    let axe = lib.item("steel-axe", ItemSpec::default());
+    let from = lib.double_setting("axe-craft-time", 2.5, NumericSpec::default());
+    lib.recipe(
+        axe,
+        RecipeSpec {
+            craft_time_from: from,
+            ..Default::default()
+        },
+    );
+
+    let ops = lib.plan_data(&base_world()).expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: the setting steelworks-axe-craft-time was not readable, so its default applies",
+            r#"extend {type="item", name="steelworks-steel-axe", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-steel-axe", energy_required=2.5000000000000000e0, enabled=true, ingredients=[], results=[{type="item", name="steelworks-steel-axe", amount=1}]}"#,
+        ],
+    );
 }

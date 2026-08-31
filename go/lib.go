@@ -225,13 +225,23 @@ func IngredientNamed(amount int64, first string, fallbacks ...string) Ingredient
 
 // RecipeSpec describes a generated recipe prototype.
 type RecipeSpec struct {
-	Name        string // empty means the result item's name
-	CraftTime   float64
-	Ingredients []Ingredient
-	ResultCount int64 // zero means 1
-	Category    string
-	DisplayName string
-	Description string
+	Name string // empty means the result item's name
+
+	// Exactly one of CraftTime and CraftTimeFrom, or neither: a fixed
+	// crafting time, or one the PLAYER sets through a generated double
+	// setting. Zero and a zero handle both mean "say nothing", and the engine
+	// applies its own default.
+	//
+	// ONLY A DOUBLE SETTING IS BINDABLE, and the handle's type is what says
+	// so: there is no int-setting arm to get wrong, because an IntSettingRef
+	// does not fit here. That is the same shape EnabledBy uses for a bool.
+	CraftTime     float64
+	CraftTimeFrom DoubleSettingRef
+	Ingredients   []Ingredient
+	ResultCount   int64 // zero means 1
+	Category      string
+	DisplayName   string
+	Description   string
 }
 
 type recipeDecl struct {
@@ -322,6 +332,40 @@ func (l *Lib) validTech(r TechRef) bool {
 
 func (l *Lib) validBoolSetting(r BoolSettingRef) bool {
 	return r.lib == l.id && r.index >= 1 && r.index <= len(l.settings)
+}
+
+func (l *Lib) validDoubleSetting(r DoubleSettingRef) bool {
+	return r.lib == l.id && r.index >= 1 && r.index <= len(l.settings)
+}
+
+// craftTimeBoundSettings marks the double settings some recipe reads its
+// crafting time from. The settings stage needs it too, which is why the
+// binding lives in the plan rather than in the data pass: the generated
+// setting's minimum depends on what it backs.
+//
+// A handle from another plan is SKIPPED rather than followed, so a bad
+// reference cannot mark the wrong setting here; PlanData is what refuses it
+// by name.
+func (l *Lib) craftTimeBoundSettings() []bool {
+	bound := make([]bool, len(l.settings))
+	for _, r := range l.recipes {
+		if l.validDoubleSetting(r.spec.CraftTimeFrom) {
+			bound[r.spec.CraftTimeFrom.index-1] = true
+		}
+	}
+	return bound
+}
+
+// effectiveNumericSpec is the setting's bounds as EMITTED: a craft-time-bound
+// double with no minimum of its own gets the floor-safe one. The auto-minimum
+// is a real bound and is validated exactly like a declared one.
+func (l *Lib) effectiveNumericSpec(i int, bound []bool) NumericSpec {
+	spec := l.settings[i].spec
+	if bound[i] && !spec.HasMin {
+		spec.HasMin = true
+		spec.Min = craftTimeAutoMinimum
+	}
+	return spec
 }
 
 // A plan is a snapshot taken at the moment of declaration: everything a spec

@@ -175,7 +175,18 @@ impl Ingredient {
 pub struct RecipeSpec {
     /// Empty means the result item's name.
     pub name: String,
+
+    /// Exactly one of `craft_time` and `craft_time_from`, or neither: a fixed
+    /// crafting time, or one the PLAYER sets through a generated double
+    /// setting. Zero and a defaulted handle both mean "say nothing", and the
+    /// engine applies its own default.
+    ///
+    /// ONLY A DOUBLE SETTING IS BINDABLE, and the handle's type is what says
+    /// so: there is no int-setting arm to get wrong, because an
+    /// `IntSettingRef` does not fit here. That is the same shape `enabled_by`
+    /// uses for a bool.
     pub craft_time: f64,
+    pub craft_time_from: DoubleSettingRef,
     pub ingredients: Vec<Ingredient>,
     /// Zero means 1.
     pub result_count: i64,
@@ -402,5 +413,38 @@ impl Lib {
 
     pub(crate) fn valid_bool_setting(&self, r: BoolSettingRef) -> bool {
         r.lib == self.id && r.index >= 1 && r.index <= self.settings.len()
+    }
+
+    pub(crate) fn valid_double_setting(&self, r: DoubleSettingRef) -> bool {
+        r.lib == self.id && r.index >= 1 && r.index <= self.settings.len()
+    }
+
+    /// Marks the double settings some recipe reads its crafting time from. The
+    /// settings stage needs it too, which is why the binding lives in the plan
+    /// rather than in the data pass: the generated setting's minimum depends
+    /// on what it backs.
+    ///
+    /// A handle from another plan is SKIPPED rather than followed, so a bad
+    /// reference cannot mark the wrong setting here; `plan_data` is what
+    /// refuses it by name.
+    pub(crate) fn craft_time_bound_settings(&self) -> Vec<bool> {
+        let mut bound = alloc::vec![false; self.settings.len()];
+        for r in &self.recipes {
+            if self.valid_double_setting(r.spec.craft_time_from) {
+                bound[r.spec.craft_time_from.index - 1] = true;
+            }
+        }
+        bound
+    }
+
+    /// The setting's bounds as EMITTED: a craft-time-bound double with no
+    /// minimum of its own gets the floor-safe one. The auto-minimum is a real
+    /// bound and is validated exactly like a declared one.
+    pub(crate) fn effective_numeric_spec(&self, i: usize, bound: &[bool]) -> NumericSpec {
+        let mut spec = self.settings[i].spec;
+        if bound[i] && spec.min.is_none() {
+            spec.min = Some(crate::value::CRAFT_TIME_AUTO_MINIMUM);
+        }
+        spec
     }
 }

@@ -13,6 +13,7 @@ type fixtureWorld struct {
 	recipes  []string
 	techs    []fixtureTech
 
+	nilUnitFor     []string
 	nilMaxLevelFor []string
 
 	// A max_level answered for ANY name, even one no technology carries.
@@ -59,6 +60,13 @@ func (w *fixtureWorld) TechPrereqs(name string) []string {
 }
 
 func (w *fixtureWorld) TechUnit(name string) (Value, bool) {
+	// PRESENT and nil: the exact shape fromV produces for a unit whose table
+	// carried a numeric key, which is a different answer from "no unit".
+	for _, n := range w.nilUnitFor {
+		if n == name {
+			return Nil(), true
+		}
+	}
 	for _, t := range w.techs {
 		if t.name == name && t.unit.Kind != KindNil {
 			return t.unit, true
@@ -158,6 +166,11 @@ func (w *fixtureWorld) withPrereqs(name string, prereqs ...string) *fixtureWorld
 
 func (w *fixtureWorld) withSetting(name string, v Value) *fixtureWorld {
 	w.settings = append(w.settings, KV{Key: name, Val: v})
+	return w
+}
+
+func (w *fixtureWorld) withNilUnit(name string) *fixtureWorld {
+	w.nilUnitFor = append(w.nilUnitFor, name)
 	return w
 }
 

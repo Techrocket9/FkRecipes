@@ -89,3 +89,24 @@ func finite(n float64) bool { return !math.IsNaN(n) && !math.IsInf(n, 0) }
 // amount above it would emit a different one, silently. The planner refuses
 // instead. The Rust mirror carries the same constant.
 const maxExactInt int64 = 9007199254740992
+
+// craftTimeFloor is the engine's exclusive floor for a recipe's
+// energy_required. A value must be STRICTLY GREATER than this.
+//
+// MEASURED, not assumed (Factorio 2.0.77, build 84539, mac-arm64, steam; the
+// binary was re-asked its version before the runs). energy_required = 0 and
+// energy_required = -1 both refuse the load, exit 1, with the engine's own
+// message: Error while loading recipe prototype "..." (recipe):
+// energy_required can't be <= 0.001. Values 0.0011 and 0.002 load (exit 0)
+// and reach data-raw-dump.json unchanged. An omitted energy_required stays
+// absent, and the engine applies its 0.5 default at runtime.
+//
+// Compared against, never computed with: a const expression folded by two
+// languages is the measured FkLua trap this repository already carries.
+const craftTimeFloor float64 = 0.001
+
+// craftTimeAutoMinimum is the smallest round value safely above the floor. A
+// generated setting that backs a crafting time gets it as its minimum unless
+// the consumer set one, so the settings GUI cannot produce a value that kills
+// the load.
+const craftTimeAutoMinimum float64 = 0.002

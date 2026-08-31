@@ -2,7 +2,7 @@ use alloc::format;
 use alloc::vec::Vec;
 
 use crate::op::Op;
-use crate::plan::{ItemSpec, Lib, NumericSpec, TechSpec};
+use crate::plan::{ItemSpec, Lib, NumericSpec, RecipeSpec, TechSpec};
 use crate::tests::data::STEEL_PROCESSING_UNIT;
 use crate::tests::*;
 use crate::value::Value;
@@ -131,6 +131,63 @@ fn plan_settings_refusals() {
                 l.int_setting("axe-durability", -9007199254740993, NumericSpec::default());
             },
             want: "fkrecipes: at the settings stage, the numeric setting axe-durability declares a default a Lua double cannot hold exactly: -9007199254740993",
+        },
+        Case {
+            // The auto-minimum is a real bound: a default below it is refused
+            // exactly as it would be below a declared one.
+            name: "a default below the generated craft-time minimum",
+            build: |l: &mut Lib| {
+                let axe = l.item("steel-axe", ItemSpec::default());
+                let from = l.double_setting("axe-craft-time", 0.0001, NumericSpec::default());
+                l.recipe(
+                    axe,
+                    RecipeSpec {
+                        craft_time_from: from,
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: at the settings stage, the setting axe-craft-time backs a crafting time, so its minimum is 0.002, which is above the declared default",
+        },
+        Case {
+            // The consumer declared only a maximum, so a refusal blaming a
+            // declared minimum would send them looking for a line they never
+            // wrote.
+            name: "a declared maximum below the generated craft-time minimum",
+            build: |l: &mut Lib| {
+                let axe = l.item("steel-axe", ItemSpec::default());
+                let from = l.double_setting(
+                    "axe-craft-time",
+                    0.0015,
+                    NumericSpec {
+                        min: None,
+                        max: Some(0.0015),
+                    },
+                );
+                l.recipe(
+                    axe,
+                    RecipeSpec {
+                        craft_time_from: from,
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: at the settings stage, the setting axe-craft-time backs a crafting time, so its minimum is 0.002, which is above the declared maximum",
+        },
+        Case {
+            name: "an explicit minimum at the engine floor on a craft-time setting",
+            build: |l: &mut Lib| {
+                let axe = l.item("steel-axe", ItemSpec::default());
+                let from = l.double_setting("axe-craft-time", 2.5, NumericSpec::between(0.001, 60.0));
+                l.recipe(
+                    axe,
+                    RecipeSpec {
+                        craft_time_from: from,
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: at the settings stage, the setting axe-craft-time backs a crafting time but declares a minimum at or below the engine floor (energy_required can't be <= 0.001)",
         },
         Case {
             name: "a bound that is not a number",
@@ -316,4 +373,70 @@ fn int_setting_accepts_the_exact_boundary() {
             r#"extend {type="int-setting", name="steelworks-axe-durability", setting_type="startup", default_value=9007199254740992, order="aa"}"#,
         ],
     );
+}
+
+/// A double setting nothing binds keeps the bounds the consumer gave it, so
+/// the generated minimum is not imposed on every double in the plan.
+#[test]
+fn an_unbound_double_setting_keeps_its_own_bounds() {
+    let mut lib = Lib::new();
+    lib.double_setting("axe-craft-time", 2.5, NumericSpec::default());
+
+    let ops = lib.plan_settings(&settings_world()).expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            r#"extend {type="double-setting", name="steelworks-axe-craft-time", setting_type="startup", default_value=2.5000000000000000e0, order="aa"}"#,
+        ],
+    );
+}
+
+/// The marking scan follows only handles THIS plan issued. A handle from
+/// another plan lands on a live index here, and following it would bind a
+/// setting the consumer never bound: this plan's setting would pick up a
+/// generated minimum above the maximum it declares, and a clean settings stage
+/// would start refusing.
+#[test]
+fn a_foreign_craft_time_handle_marks_nothing() {
+    let mut other = Lib::new();
+    let stray = other.double_setting("other-craft-time", 2.5, NumericSpec::default());
+
+    let mut lib = Lib::new();
+    // Index 1 in this plan too, and a maximum the generated minimum of 0.002
+    // would exceed.
+    lib.double_setting(
+        "axe-craft-time",
+        0.001,
+        NumericSpec {
+            min: None,
+            max: Some(0.0015),
+        },
+    );
+    let axe = lib.item("steel-axe", ItemSpec::default());
+    lib.recipe(
+        axe,
+        RecipeSpec {
+            craft_time_from: stray,
+            ..Default::default()
+        },
+    );
+
+    let ops = lib.plan_settings(&settings_world()).expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            r#"extend {type="double-setting", name="steelworks-axe-craft-time", setting_type="startup", default_value=1.0000000000000000e-3, order="aa", maximum_value=1.5000000000000000e-3}"#,
+        ],
+    );
+
+    // The same handle is refused by name at the data stage, which is where a
+    // reference to another plan gets answered.
+    match lib.plan_data(&base_world()) {
+        Ok(ops) => panic!("the data plan was accepted with {} ops", ops.len()),
+        Err(got) => assert_eq!(
+            got,
+            "fkrecipes: at the data stage, the recipe steel-axe names a crafting-time setting that this plan never declared"
+        ),
+    }
 }

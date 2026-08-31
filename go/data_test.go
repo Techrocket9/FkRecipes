@@ -615,6 +615,108 @@ func TestPlanDataRefusals(t *testing.T) {
 			want: "fkrecipes: at the data stage, the technology steel-axes prices itself in a pack with an empty name",
 		},
 		{
+			name: "both a fixed and a bound crafting time",
+			build: func(l *Lib) {
+				axe := l.Item("steel-axe", ItemSpec{})
+				from := l.DoubleSetting("axe-craft-time", 2.5, NumericSpec{})
+				l.Recipe(axe, RecipeSpec{CraftTime: 2.5, CraftTimeFrom: from})
+			},
+			want: "fkrecipes: at the data stage, the recipe steel-axe names both CraftTime and CraftTimeFrom; pick one",
+		},
+		{
+			name: "a crafting-time setting from another plan",
+			build: func(l *Lib) {
+				other := New()
+				stray := other.DoubleSetting("axe-craft-time", 2.5, NumericSpec{})
+				axe := l.Item("steel-axe", ItemSpec{})
+				l.Recipe(axe, RecipeSpec{CraftTimeFrom: stray})
+			},
+			want: "fkrecipes: at the data stage, the recipe steel-axe names a crafting-time setting that this plan never declared",
+		},
+		{
+			// Measured: the engine refuses energy_required <= 0.001.
+			name: "a declared crafting time below the engine floor",
+			build: func(l *Lib) {
+				axe := l.Item("steel-axe", ItemSpec{})
+				l.Recipe(axe, RecipeSpec{CraftTime: 0.001})
+			},
+			want: "fkrecipes: at the data stage, the recipe steel-axe declares a crafting time the engine refuses (energy_required can't be <= 0.001)",
+		},
+		{
+			// The generated setting's own minimum clears the floor, so this
+			// is what a colliding mod's setting looks like: same name, same
+			// type, last declaration wins, silently.
+			name: "a bound crafting time answered below the engine floor",
+			build: func(l *Lib) {
+				axe := l.Item("steel-axe", ItemSpec{})
+				from := l.DoubleSetting("axe-craft-time", 2.5, NumericSpec{})
+				l.Recipe(axe, RecipeSpec{CraftTimeFrom: from})
+			},
+			world: func(w *fixtureWorld) *fixtureWorld {
+				return w.withSetting("steelworks-axe-craft-time", Num(0.001))
+			},
+			want: "fkrecipes: at the data stage, the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers at or below the engine floor (energy_required can't be <= 0.001)",
+		},
+		{
+			// An infinity is ABOVE the floor, so the floor arm would wave it
+			// through and ship a recipe that never completes.
+			name: "a bound crafting time answered as an infinity",
+			build: func(l *Lib) {
+				axe := l.Item("steel-axe", ItemSpec{})
+				from := l.DoubleSetting("axe-craft-time", 2.5, NumericSpec{})
+				l.Recipe(axe, RecipeSpec{CraftTimeFrom: from})
+			},
+			world: func(w *fixtureWorld) *fixtureWorld {
+				return w.withSetting("steelworks-axe-craft-time", Num(math.Inf(1)))
+			},
+			want: "fkrecipes: at the data stage, the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers a value that is not a finite number",
+		},
+		{
+			// A NaN compares false against the floor, so it reached the floor
+			// arm and was reported as a value at or below it, which it is not.
+			name: "a bound crafting time answered as a NaN",
+			build: func(l *Lib) {
+				axe := l.Item("steel-axe", ItemSpec{})
+				from := l.DoubleSetting("axe-craft-time", 2.5, NumericSpec{})
+				l.Recipe(axe, RecipeSpec{CraftTimeFrom: from})
+			},
+			world: func(w *fixtureWorld) *fixtureWorld {
+				return w.withSetting("steelworks-axe-craft-time", Num(math.NaN()))
+			},
+			want: "fkrecipes: at the data stage, the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers a value that is not a finite number",
+		},
+		{
+			// PRESENT and nil, which is what a unit whose table carried a
+			// numeric key collapses to: a different answer from "no unit".
+			name:  "a CostOf source whose unit arrives as nil",
+			world: func(w *fixtureWorld) *fixtureWorld { return w.withNilUnit("steel-processing") },
+			build: func(l *Lib) {
+				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing"})
+			},
+			want: "fkrecipes: at the data stage, CostOf(steel-processing): steel-processing has a unit that is not a dictionary",
+		},
+		{
+			name: "a CostOf source whose max_level lost a subtree on the way in",
+			world: func(w *fixtureWorld) *fixtureWorld {
+				return w.withMaxLevel("steel-processing", Obj(kv("levels", Nil())))
+			},
+			build: func(l *Lib) {
+				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing"})
+			},
+			want: "fkrecipes: at the data stage, CostOf(steel-processing): the max_level of steel-processing holds a table this library cannot copy faithfully",
+		},
+		{
+			// The World says the technology is there and is not a research
+			// trigger, but hands back no unit: the arm the emit layer's
+			// TechUnit read lands on.
+			name:  "a CostOf source that carries no unit at all",
+			world: func(w *fixtureWorld) *fixtureWorld { return w.withUnit("steel-processing", Nil()) },
+			build: func(l *Lib) {
+				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing"})
+			},
+			want: "fkrecipes: at the data stage, CostOf(steel-processing): steel-processing carries no unit to copy",
+		},
+		{
 			name: "a negative stack size",
 			build: func(l *Lib) {
 				l.Item("steel-axe", ItemSpec{StackSize: -20})
@@ -988,4 +1090,49 @@ func TestNoPlannedSetOpCarriesANilValue(t *testing.T) {
 	if sets != 2 {
 		t.Fatalf("expected two splices, got %d", sets)
 	}
+}
+
+// The whole binding, end to end: the settings stage generates the setting
+// with a minimum that clears the engine floor, and the data stage reads the
+// player's answer back into energy_required.
+func TestCraftTimeBindingRoundTrip(t *testing.T) {
+	lib := New()
+	axe := lib.Item("steel-axe", ItemSpec{})
+	from := lib.DoubleSetting("axe-craft-time", 2.5, NumericSpec{})
+	lib.Recipe(axe, RecipeSpec{
+		CraftTimeFrom: from,
+		Ingredients:   []Ingredient{IngredientNamed(4, "steel-plate")},
+	})
+
+	settingsOps, err := lib.PlanSettings(settingsWorld())
+	assertNoError(t, err)
+	assertLines(t, transcript(settingsOps), []string{
+		`extend {type="double-setting", name="steelworks-axe-craft-time", setting_type="startup", default_value=2.5000000000000000e0, order="aa", minimum_value=2.0000000000000000e-3}`,
+	})
+
+	// The player set it to four seconds.
+	dataOps, err := lib.PlanData(baseWorld().withSetting("steelworks-axe-craft-time", Num(4)))
+	assertNoError(t, err)
+	assertLines(t, transcript(dataOps), []string{
+		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-steel-axe", energy_required=4, enabled=true, ingredients=[{type="item", name="steel-plate", amount=4}], results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
+	})
+}
+
+// An unreadable setting degrades the same way an unreadable enablement does:
+// one log line, and the declared default applies.
+func TestCraftTimeBindingFallsBackToItsDefault(t *testing.T) {
+	lib := New()
+	axe := lib.Item("steel-axe", ItemSpec{})
+	from := lib.DoubleSetting("axe-craft-time", 2.5, NumericSpec{})
+	lib.Recipe(axe, RecipeSpec{CraftTimeFrom: from})
+
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: the setting steelworks-axe-craft-time was not readable, so its default applies`,
+		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-steel-axe", energy_required=2.5000000000000000e0, enabled=true, ingredients=[], results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
+	})
 }

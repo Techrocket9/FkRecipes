@@ -179,6 +179,7 @@ fn ring_world(n: usize) -> FixtureWorld {
         stage: String::from("data"),
         settings: Vec::new(),
         loose_max_level: Value::Nil,
+        nil_unit_for: Vec::new(),
         nil_max_level_for: Vec::new(),
         recipes: Vec::new(),
         items: strings(&["automation-science-pack"]),
