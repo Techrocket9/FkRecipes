@@ -55,6 +55,8 @@ go/examples/datastage   the Go example guest, its own module (a consumer-shaped 
 rust/examples/datastage the Rust example guest (workspace member), the mirror harness's Rust arm
 scripts/                gate scripts; run-mirror.sh is the cross-language mirror
 testdata/mirror/        the strict engine-shaped stand-in and the committed transcript golden
+testdata/locale/        the locale checker's committed fixture cfg and findings golden, the
+                        cross-language pin that needs no toolchain (both suites reproduce it)
 agents/                 working notes; index below
 LICENSE                 MIT
 ```
