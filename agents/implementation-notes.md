@@ -146,4 +146,20 @@ Planner and validators, 2026-08-31, after the adversarial round:
 
 ## What v1 leaves open
 
-Collected as the build proceeds.
+From the design's own scope fences: no removal pre-check for content other mods depend on (Q5, a v2 feature with its own design); no arithmetic on count_formula (scaling a formula needs the MathExpression grammar); no control-stage half (a real consumer need ships as a separate package so the data half stays pin-free); no cached indexes (enumeration is linear on demand, measured affordable).
+
+From the build and reviews, recorded rather than resolved:
+
+- A min-only NumericSpec is exercised by unit tests but not by the example golden (max-only is; the one-sided shape is covered, the specific arm is not).
+- The engine gate's SKIPPED outcome (mod-set mismatch) exits 0 per the FkLua convention; a CI flag to make it nonzero is a one-line addition when someone wires CI.
+- The locale checker's [mod-setting-name] orphan rule polices by mod prefix, so a same-prefix setting the consumer wrote by hand reports as an orphan; an opt-out parameter is the honest mechanism if a consumer asks.
+- fkdata's settings-updates and settings-final-fixes stages are deliberately unwired upstream; if FkLua wires them, Emit's stage dispatch has two new cases to decide.
+- The two-data-hook refusal means a consumer cannot split creation (fk_data) from patching another mod's tree (fk_data_updates) in one mod using this library alone; v1 documents one hook, and a split-emission design is future work if a consumer needs both.
+
+Asks for FkLua, from the dogfooding (the reason this repo exists):
+
+- A guest-facing raise import in the fkdata ABI: a data-stage validation library's whole product is its diagnostics, and today the loudest channel is a log line above a generic "fklua trap: unreachable". Message in, Lua error out, formatted like the host's own stage errors.
+- The NaN advisory fires on library internals in every consumer's packaging output (22 entries naming this library's functions); an advisory that names code the consumer did not write is noise they cannot action. A per-dependency suppression, or attribution to the importing module, would fix it.
+- fklua mod --report's pruning block says complete false for a data-only mod with no fkapi, which is correct and reads like a problem; a data-only report could say not applicable.
+- fklua init --library could grow a data-stage flavor (or one sentence in its closing message): the scaffold is control-stage shaped and both dependency declarations plus both guest halves needed hand-rewriting for a data library.
+- The scaffolded go.mod's rename-me comment could mention that a module in a subdirectory needs the directory suffix in its path; the refusal message that prescribes sibling directories sets up exactly that trap.

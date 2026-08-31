@@ -65,6 +65,7 @@ testdata/mirror/        the strict engine-shaped stand-in and the committed tran
 testdata/locale/        the locale checker's committed fixture cfg and findings golden, the
                         cross-language pin that needs no toolchain (both suites reproduce it)
 testdata/ingame/        the engine gate's per-engine golden: two dump hashes and the mod set
+docs/                   human-facing docs (usage.md; docs-style.md governs, run its grep before commit)
 agents/                 working notes; index below
 LICENSE                 MIT
 ```
