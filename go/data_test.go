@@ -572,6 +572,49 @@ func TestPlanDataRefusals(t *testing.T) {
 			want: "fkrecipes: at the data stage, the technology steel-axes declares a research time that is not a finite number",
 		},
 		{
+			name: "an item with an empty name",
+			build: func(l *Lib) {
+				l.Item("", ItemSpec{})
+			},
+			want: "fkrecipes: at the data stage, an item was declared with an empty name",
+		},
+		{
+			name: "a technology with an empty name",
+			build: func(l *Lib) {
+				l.Technology("", TechSpec{CostOf: "steel-processing"})
+			},
+			want: "fkrecipes: at the data stage, a technology was declared with an empty name",
+		},
+		{
+			// A holed or mixed Lua table crosses as a number-keyed map, which
+			// converts to nil as a whole subtree rather than being half kept.
+			// A unit that lost its ingredient list is a technology researchable
+			// for free, so the copy is refused rather than emitted.
+			name: "a CostOf source whose unit lost a subtree on the way in",
+			world: func(w *fixtureWorld) *fixtureWorld {
+				return w.withUnit("steel-processing", Obj(
+					kv("count", Num(50)),
+					kv("ingredients", Nil()),
+					kv("time", Num(15)),
+				))
+			},
+			build: func(l *Lib) {
+				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing"})
+			},
+			want: "fkrecipes: at the data stage, CostOf(steel-processing): the unit of steel-processing holds a table this library cannot copy faithfully",
+		},
+		{
+			name: "a science pack with an empty name",
+			build: func(l *Lib) {
+				l.Technology("steel-axes", TechSpec{Unit: &UnitSpec{
+					Count:   50,
+					Seconds: 15,
+					Packs:   []Pack{{Name: "", Amount: 1}},
+				}})
+			},
+			want: "fkrecipes: at the data stage, the technology steel-axes prices itself in a pack with an empty name",
+		},
+		{
 			name: "a negative stack size",
 			build: func(l *Lib) {
 				l.Item("steel-axe", ItemSpec{StackSize: -20})
@@ -900,5 +943,49 @@ func TestPlanningRefusesANilWorld(t *testing.T) {
 	}
 	if _, err := lib.PlanSettings(nil); err == nil || err.Error() != "fkrecipes: PlanSettings was given a nil World" {
 		t.Errorf("PlanSettings(nil) gave %v", err)
+	}
+}
+
+// A max_level the World reports as present but nil is a value this library
+// could not carry across; writing it would put a nil into the prototype.
+func TestANilMaxLevelIsNotEmitted(t *testing.T) {
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{CostOf: "steel-processing"})
+
+	ops, err := lib.PlanData(baseWorld().withNilMaxLevel("steel-processing"))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="technology", name="steelworks-steel-axes", unit=` + steelProcessingUnit + `}`,
+	})
+}
+
+// A Set op's value reaches fkdata.Set, where a nil DELETES the key instead of
+// writing one. Nothing plans a deletion, and this is what says so.
+func TestNoPlannedSetOpCarriesANilValue(t *testing.T) {
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{CostOf: "steel-processing", After: "logistics-2", Before: "logistics-3"})
+	lib.Technology("bronze-axes", TechSpec{CostOf: "steel-processing", After: "electronics", Before: "logistics-3"})
+
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	sets := 0
+	for _, op := range ops {
+		if op.Kind != OpSet {
+			continue
+		}
+		sets++
+		if op.Val.Kind == KindNil {
+			t.Errorf("a Set op at %s carries nil, which would delete the key", renderPath(op.Path))
+		}
+		for _, entry := range op.Val.Arr {
+			if entry.Kind == KindNil {
+				t.Errorf("a Set op at %s carries a nil entry", renderPath(op.Path))
+			}
+		}
+	}
+	if sets != 2 {
+		t.Fatalf("expected two splices, got %d", sets)
 	}
 }

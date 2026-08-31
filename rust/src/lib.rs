@@ -43,6 +43,10 @@ extern crate alloc;
 
 mod cycle;
 mod data;
+// The emit layer, and the only module that touches fkdata. Gated so the host
+// gates compile the pure half with no wasm target and no fkdata at all.
+#[cfg(target_family = "wasm")]
+mod emit;
 mod op;
 mod plan;
 mod settings;

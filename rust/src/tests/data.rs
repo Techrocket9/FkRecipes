@@ -4,7 +4,7 @@ use crate::plan::{
     UnitSpec,
 };
 use crate::tests::*;
-use crate::value::Value;
+use crate::value::{kv, Value};
 
 // A believable little mod: an axe head, a steel axe made from it, and the
 // research that unlocks the recipe.
@@ -929,6 +929,76 @@ fn plan_data_refusals() {
             want: "fkrecipes: at the data stage, the technology steel-axes declares a research time that is not a finite number",
         },
         Case {
+            name: "an item with an empty name",
+            world: |w: FixtureWorld| w,
+            build: |l: &mut Lib| {
+                l.item("", ItemSpec::default());
+            },
+            want: "fkrecipes: at the data stage, an item was declared with an empty name",
+        },
+        Case {
+            name: "a technology with an empty name",
+            world: |w: FixtureWorld| w,
+            build: |l: &mut Lib| {
+                l.technology(
+                    "",
+                    TechSpec {
+                        cost_of: "steel-processing".into(),
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: at the data stage, a technology was declared with an empty name",
+        },
+        Case {
+            // A holed or mixed Lua table crosses as a number-keyed map, which
+            // converts to nil as a whole subtree rather than being half kept.
+            // A unit that lost its ingredient list is a technology researchable
+            // for free, so the copy is refused rather than emitted.
+            name: "a CostOf source whose unit lost a subtree on the way in",
+            world: |w: FixtureWorld| {
+                w.with_unit(
+                    "steel-processing",
+                    Value::Map(vec![
+                        kv("count", Value::Num(50.0)),
+                        kv("ingredients", Value::Nil),
+                        kv("time", Value::Num(15.0)),
+                    ]),
+                )
+            },
+            build: |l: &mut Lib| {
+                l.technology(
+                    "steel-axes",
+                    TechSpec {
+                        cost_of: "steel-processing".into(),
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: at the data stage, CostOf(steel-processing): the unit of steel-processing holds a table this library cannot copy faithfully",
+        },
+        Case {
+            name: "a science pack with an empty name",
+            world: |w: FixtureWorld| w,
+            build: |l: &mut Lib| {
+                l.technology(
+                    "steel-axes",
+                    TechSpec {
+                        unit: Some(UnitSpec {
+                            count: 50,
+                            seconds: 15.0,
+                            packs: vec![Pack {
+                                name: String::new(),
+                                amount: 1,
+                            }],
+                        }),
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: at the data stage, the technology steel-axes prices itself in a pack with an empty name",
+        },
+        Case {
             name: "a negative stack size",
             world: |w: FixtureWorld| w,
             build: |l: &mut Lib| {
@@ -1395,4 +1465,79 @@ fn wide_amounts_survive_the_emit() {
             r#"extend {type="technology", name="steelworks-steel-axes", unit={count=5000000000, time=15, ingredients=[["automation-science-pack", 3000000000]]}}"#,
         ],
     );
+}
+
+/// A max_level the World reports as present but nil is a value this library
+/// could not carry across; writing it would put a nil into the prototype.
+#[test]
+fn a_nil_max_level_is_not_emitted() {
+    let mut lib = Lib::new();
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            cost_of: "steel-processing".into(),
+            ..Default::default()
+        },
+    );
+
+    let ops = lib
+        .plan_data(&base_world().with_nil_max_level("steel-processing"))
+        .expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[&alloc::format!(
+            r#"extend {{type="technology", name="steelworks-steel-axes", unit={}}}"#,
+            STEEL_PROCESSING_UNIT
+        )],
+    );
+}
+
+/// A Set op's value reaches fkdata::set, where a nil DELETES the key instead
+/// of writing one. Nothing plans a deletion, and this is what says so.
+#[test]
+fn no_planned_set_op_carries_a_nil_value() {
+    let mut lib = Lib::new();
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            cost_of: "steel-processing".into(),
+            after: "logistics-2".into(),
+            before: "logistics-3".into(),
+            ..Default::default()
+        },
+    );
+    lib.technology(
+        "bronze-axes",
+        TechSpec {
+            cost_of: "steel-processing".into(),
+            after: "electronics".into(),
+            before: "logistics-3".into(),
+            ..Default::default()
+        },
+    );
+
+    let ops = lib.plan_data(&base_world()).expect("plan refused");
+
+    let mut sets = 0;
+    for op in &ops {
+        if let Op::Set(path, val) = op {
+            sets += 1;
+            assert!(
+                !matches!(val, Value::Nil),
+                "a Set op at {} carries nil, which would delete the key",
+                render_path(path)
+            );
+            if let Value::Arr(entries) = val {
+                for entry in entries {
+                    assert!(
+                        !matches!(entry, Value::Nil),
+                        "a Set op at {} carries a nil entry",
+                        render_path(path)
+                    );
+                }
+            }
+        }
+    }
+    assert_eq!(sets, 2, "expected two splices");
 }

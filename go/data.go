@@ -62,6 +62,10 @@ func (l *Lib) PlanData(w World) ([]Op, error) {
 			continue
 		}
 		rw := res.rewrites[rt.rewrite-1]
+		// A Set op's value is ALWAYS a real value, never Nil: the emit layer
+		// hands it to fkdata.Set, and a nil there DELETES the key rather than
+		// writing one. Nothing plans a deletion today, and the invariant is
+		// asserted in the pure half so it cannot start silently.
 		ops = append(ops, setOp([]PathEl{pathKey("technology"), pathKey(rw.before), pathKey("prerequisites")}, strArr(rw.list)))
 	}
 	return ops, nil
@@ -79,6 +83,9 @@ func (l *Lib) validate(w World, stage, prefix string) error {
 	at := "fkrecipes: at the " + stage + " stage, "
 
 	for i, it := range l.items {
+		if it.name == "" {
+			return errors.New(at + "an item was declared with an empty name")
+		}
 		for j := 0; j < i; j++ {
 			if l.items[j].name == it.name {
 				return errors.New(at + "two items share the name " + it.name + "; the second would overwrite the first")
@@ -110,6 +117,13 @@ func (l *Lib) validate(w World, stage, prefix string) error {
 		// is a worse answer than the one that says what is actually wrong.
 		if !l.validItem(r.result) {
 			return errors.New(at + "a recipe was declared with no result item; Recipe needs an item this plan declared")
+		}
+		// A recipe with no name of its own inherits the item's, which is the
+		// common shape and stays legal. This fires only when that name is
+		// empty too, which today the item check above has already caught: it
+		// is the guard that keeps the two checks independent.
+		if r.name == "" {
+			return errors.New(at + "a recipe was declared with an empty name")
 		}
 		for j := 0; j < i; j++ {
 			if l.recipes[j].name == r.name {
@@ -147,6 +161,9 @@ func (l *Lib) validate(w World, stage, prefix string) error {
 	}
 
 	for i, t := range l.techs {
+		if t.name == "" {
+			return errors.New(at + "a technology was declared with an empty name")
+		}
 		for j := 0; j < i; j++ {
 			if l.techs[j].name == t.name {
 				return errors.New(at + "two technologies share the name " + t.name + "; the second would overwrite the first")
@@ -198,6 +215,9 @@ func (l *Lib) validate(w World, stage, prefix string) error {
 				if p.Amount > maxExactInt {
 					return errors.New(at + "the technology " + t.name + " declares a science pack amount a Lua double cannot hold exactly: " + strconv.FormatInt(p.Amount, 10))
 				}
+				if p.Name == "" {
+					return errors.New(at + "the technology " + t.name + " prices itself in a pack with an empty name")
+				}
 				if !w.ItemExists(p.Name) {
 					return errors.New(at + "the technology " + t.name + " prices itself in " + p.Name + ", which does not exist")
 				}
@@ -220,6 +240,9 @@ func (l *Lib) validate(w World, stage, prefix string) error {
 			// exactly one of the things this refuses.
 			if u.Kind != KindMap {
 				return errors.New(at + "CostOf(" + t.spec.CostOf + "): " + t.spec.CostOf + " has a unit that is not a dictionary")
+			}
+			if holdsDroppedSubtree(u) {
+				return errors.New(at + "CostOf(" + t.spec.CostOf + "): the unit of " + t.spec.CostOf + " holds a table this library cannot copy faithfully")
 			}
 		}
 		for _, u := range t.spec.Unlocks {
@@ -488,7 +511,10 @@ func techProto(prefix string, l *Lib, w World, t techDecl, rt resolvedTech) Valu
 	// infinite source technology produces an infinite copy. A hand-rolled
 	// UnitSpec has no source to read, and gets no cap.
 	if t.spec.Unit == nil {
-		if level, ok := w.TechMaxLevel(t.spec.CostOf); ok {
+		// A present-but-nil read is a value this library could not carry (a
+		// LuaObject, or a table with a key it drops); emitting it would write
+		// a nil max_level into the prototype.
+		if level, ok := w.TechMaxLevel(t.spec.CostOf); ok && level.Kind != KindNil {
 			pairs = append(pairs, kv("max_level", level))
 		}
 	}
@@ -550,4 +576,31 @@ func appendLocalised(pairs []KV, displayName, description string) []KV {
 		pairs = append(pairs, kv("localised_description", localised(description)))
 	}
 	return pairs
+}
+
+// holdsDroppedSubtree reports the marker a lossy read leaves behind.
+//
+// A value this library cannot carry faithfully converts to Nil as a WHOLE
+// subtree rather than being partly kept, and fkdata never delivers a nil map
+// value or array element of its own (its write side skips nils), so a Nil
+// anywhere inside a value that came out of data.raw means exactly one thing:
+// a table was dropped on the way in. A copied unit that lost a subtree is a
+// technology researchable for free, which is why this is a refusal rather
+// than a log line.
+func holdsDroppedSubtree(v Value) bool {
+	switch v.Kind {
+	case KindMap:
+		for _, p := range v.Map {
+			if p.Val.Kind == KindNil || holdsDroppedSubtree(p.Val) {
+				return true
+			}
+		}
+	case KindArr:
+		for _, item := range v.Arr {
+			if item.Kind == KindNil || holdsDroppedSubtree(item) {
+				return true
+			}
+		}
+	}
+	return false
 }

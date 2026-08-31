@@ -28,6 +28,11 @@ pub trait World {
     fn tech_names(&self) -> Vec<String>;
 
     /// One technology's prerequisite list, in its own order.
+    ///
+    /// STRING ENTRIES ONLY. An entry that is not a string is invisible to this
+    /// library, so a splice that rewrites the list drops it. The engine
+    /// refuses a non-string prerequisite anyway, so such an entry is somebody
+    /// else's load failure already, not one this rewrite introduces.
     fn tech_prereqs(&self, name: &str) -> Vec<String>;
 
     /// A technology's whole unit, copied verbatim by `cost_of`. Read the

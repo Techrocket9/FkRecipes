@@ -25,6 +25,11 @@ type World interface {
 	TechNames() []string
 
 	// TechPrereqs is one technology's prerequisite list, in its own order.
+	//
+	// STRING ENTRIES ONLY. An entry that is not a string is invisible to this
+	// library, so a splice that rewrites the list drops it. The engine refuses
+	// a non-string prerequisite anyway, so such an entry is somebody else's
+	// load failure already, not one this rewrite introduces.
 	TechPrereqs(name string) []string
 
 	// TechUnit is a technology's whole unit, copied verbatim by CostOf. Read

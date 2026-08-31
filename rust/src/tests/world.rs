@@ -15,6 +15,8 @@ pub(crate) struct FixtureWorld {
     pub(crate) recipes: Vec<String>,
     pub(crate) techs: Vec<FixtureTech>,
 
+    pub(crate) nil_max_level_for: Vec<String>,
+
     /// A max_level answered for ANY name, even one no technology carries.
     /// Some Worlds are loose about lookups; the planner must not ask a
     /// question it has no source technology for.
@@ -72,6 +74,11 @@ impl World for FixtureWorld {
     }
 
     fn tech_max_level(&self, name: &str) -> Option<Value> {
+        // A read that is PRESENT and nil: what a LuaObject or a table this
+        // library cannot carry collapses to on the way in.
+        if self.nil_max_level_for.iter().any(|n| n.as_str() == name) {
+            return Some(Value::Nil);
+        }
         for t in &self.techs {
             if t.name.as_str() == name && t.max_level != Value::Nil {
                 return Some(t.max_level.clone());
@@ -129,6 +136,11 @@ impl FixtureWorld {
 
     pub(crate) fn with_setting(mut self, name: &str, v: Value) -> FixtureWorld {
         self.settings.push((String::from(name), v));
+        self
+    }
+
+    pub(crate) fn with_nil_max_level(mut self, name: &str) -> FixtureWorld {
+        self.nil_max_level_for.push(String::from(name));
         self
     }
 
@@ -220,6 +232,7 @@ pub(crate) fn base_world() -> FixtureWorld {
         stage: String::from("data"),
         settings: Vec::new(),
         loose_max_level: Value::Nil,
+        nil_max_level_for: Vec::new(),
         recipes: strings(&["electronic-circuit", "iron-gear-wheel", "steel-plate"]),
         items: strings(&[
             "automation-science-pack",

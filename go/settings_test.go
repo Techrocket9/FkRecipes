@@ -71,6 +71,13 @@ func TestPlanSettingsRefusals(t *testing.T) {
 			want: "fkrecipes: at the settings stage, two settings share the name hardened-tools; the engine keeps the last one silently",
 		},
 		{
+			name: "a setting with an empty name",
+			build: func(l *Lib) {
+				l.BoolSetting("", true)
+			},
+			want: "fkrecipes: at the settings stage, a setting was declared with an empty name",
+		},
+		{
 			name: "dropdown default is not an allowed value",
 			build: func(l *Lib) {
 				l.DropdownSettingNeedingLocale("smelting-style", "electric-furnace", []string{"furnace", "foundry"})
@@ -236,19 +243,19 @@ func TestSettingsAndDataAgreeOnTheSettingName(t *testing.T) {
 	})
 }
 
-// The stage in a settings refusal comes from the World too. Factorio runs
-// three settings stages, and a consumer patching another mod's settings from
-// settings-updates should be told which of their own calls raised.
-func TestSettingsRefusalsNameTheStageTheWorldReports(t *testing.T) {
+// The stage in a refusal comes from the World, not from a constant. Factorio
+// runs four stages and fkdata reports whichever is live, so a consumer
+// patching from data-updates is told which of their own calls raised.
+func TestRefusalsNameTheStageTheWorldReports(t *testing.T) {
 	lib := New()
-	lib.BoolSetting("hardened-tools", true)
-	lib.IntSetting("hardened-tools", 3, NumericSpec{})
+	lib.Item("steel-axe", ItemSpec{})
+	lib.Item("steel-axe", ItemSpec{})
 
-	_, err := lib.PlanSettings(settingsWorld().withStage("settings-updates"))
+	_, err := lib.PlanData(baseWorld().withStage("data-updates"))
 	if err == nil {
 		t.Fatal("the plan was accepted, want a duplicate-name refusal")
 	}
-	want := "fkrecipes: at the settings-updates stage, two settings share the name hardened-tools; the engine keeps the last one silently"
+	want := "fkrecipes: at the data-updates stage, two items share the name steel-axe; the second would overwrite the first"
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}

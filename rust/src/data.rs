@@ -69,6 +69,11 @@ impl Lib {
                 continue;
             }
             let rw = &res.rewrites[rt.rewrite - 1];
+            // A Set op's value is ALWAYS a real value, never Nil: the emit
+            // layer hands it to fkdata::set, and a nil there DELETES the key
+            // rather than writing one. Nothing plans a deletion today, and the
+            // invariant is asserted in the pure half so it cannot start
+            // silently.
             ops.push(Op::Set(
                 vec![
                     path_key("technology"),
@@ -93,6 +98,9 @@ impl Lib {
         let at = format!("fkrecipes: at the {} stage, ", stage);
 
         for (i, it) in self.items.iter().enumerate() {
+            if it.name.is_empty() {
+                return Err(format!("{}an item was declared with an empty name", at));
+            }
             for other in self.items.iter().take(i) {
                 if other.name == it.name {
                     return Err(format!(
@@ -147,6 +155,13 @@ impl Lib {
                     "{}a recipe was declared with no result item; Recipe needs an item this plan declared",
                     at
                 ));
+            }
+            // A recipe with no name of its own inherits the item's, which is
+            // the common shape and stays legal. This fires only when that name
+            // is empty too, which today the item check above has already
+            // caught: it is the guard that keeps the two checks independent.
+            if r.name.is_empty() {
+                return Err(format!("{}a recipe was declared with an empty name", at));
             }
             for other in self.recipes.iter().take(i) {
                 if other.name == r.name {
@@ -212,6 +227,12 @@ impl Lib {
         }
 
         for (i, t) in self.techs.iter().enumerate() {
+            if t.name.is_empty() {
+                return Err(format!(
+                    "{}a technology was declared with an empty name",
+                    at
+                ));
+            }
             for other in self.techs.iter().take(i) {
                 if other.name == t.name {
                     return Err(format!(
@@ -309,6 +330,12 @@ impl Lib {
                                 at, t.name, p.amount
                             ));
                         }
+                        if p.name.is_empty() {
+                            return Err(format!(
+                                "{}the technology {} prices itself in a pack with an empty name",
+                                at, t.name
+                            ));
+                        }
                         if !w.item_exists(&p.name) {
                             return Err(format!(
                                 "{}the technology {} prices itself in {}, which does not exist",
@@ -343,7 +370,14 @@ impl Lib {
                         // load failure. "Dictionary", not "table": a Lua
                         // sequence is a table as well, and an array-shaped
                         // unit is exactly one of the things this refuses.
-                        Some(Value::Map(_)) => {}
+                        Some(Value::Map(pairs)) => {
+                            if holds_dropped_subtree(&Value::Map(pairs)) {
+                                return Err(format!(
+                                    "{}CostOf({}): the unit of {} holds a table this library cannot copy faithfully",
+                                    at, t.spec.cost_of, t.spec.cost_of
+                                ));
+                            }
+                        }
                         Some(_) => {
                             return Err(format!(
                                 "{}CostOf({}): {} has a unit that is not a dictionary",
@@ -680,8 +714,12 @@ fn tech_proto(prefix: &str, l: &Lib, w: &dyn World, t: &TechDecl, rt: &ResolvedT
     // too: an infinite source technology produces an infinite copy. A
     // hand-rolled UnitSpec has no source to read, and gets no cap.
     if t.spec.unit.is_none() {
-        if let Some(level) = w.tech_max_level(&t.spec.cost_of) {
-            pairs.push(kv("max_level", level));
+        // A present-but-nil read is a value this library could not carry (a
+        // LuaObject, or a table with a key it drops); emitting it would write
+        // a nil max_level into the prototype.
+        match w.tech_max_level(&t.spec.cost_of) {
+            Some(Value::Nil) | None => {}
+            Some(level) => pairs.push(kv("max_level", level)),
         }
     }
     if !t.spec.unlocks.is_empty() {
@@ -745,5 +783,26 @@ fn append_localised(pairs: &mut Vec<(String, Value)>, display_name: &str, descri
     }
     if !description.is_empty() {
         pairs.push(kv("localised_description", localised(description)));
+    }
+}
+
+/// Reports the marker a lossy read leaves behind.
+///
+/// A value this library cannot carry faithfully converts to Nil as a WHOLE
+/// subtree rather than being partly kept, and fkdata never delivers a nil map
+/// value or array element of its own (its write side skips nils), so a Nil
+/// anywhere inside a value that came out of data.raw means exactly one thing:
+/// a table was dropped on the way in. A copied unit that lost a subtree is a
+/// technology researchable for free, which is why this is a refusal rather
+/// than a log line.
+pub(crate) fn holds_dropped_subtree(v: &Value) -> bool {
+    match v {
+        Value::Map(pairs) => pairs
+            .iter()
+            .any(|(_, val)| matches!(val, Value::Nil) || holds_dropped_subtree(val)),
+        Value::Arr(items) => items
+            .iter()
+            .any(|item| matches!(item, Value::Nil) || holds_dropped_subtree(item)),
+        _ => false,
     }
 }

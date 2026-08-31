@@ -71,6 +71,9 @@ func (l *Lib) PlanSettings(w World) ([]Op, error) {
 func (l *Lib) validateSettings(stage string) error {
 	at := "fkrecipes: at the " + stage + " stage, "
 	for i, s := range l.settings {
+		if s.name == "" {
+			return errors.New(at + "a setting was declared with an empty name")
+		}
 		for j := 0; j < i; j++ {
 			if l.settings[j].name == s.name {
 				return errors.New(at + "two settings share the name " + s.name + "; the engine keeps the last one silently")

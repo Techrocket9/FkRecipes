@@ -2,7 +2,7 @@ use alloc::format;
 use alloc::vec::Vec;
 
 use crate::op::Op;
-use crate::plan::{Lib, NumericSpec, TechSpec};
+use crate::plan::{ItemSpec, Lib, NumericSpec, TechSpec};
 use crate::tests::data::STEEL_PROCESSING_UNIT;
 use crate::tests::*;
 use crate::value::Value;
@@ -75,6 +75,13 @@ fn plan_settings_refusals() {
                 l.int_setting("hardened-tools", 3, NumericSpec::default());
             },
             want: "fkrecipes: at the settings stage, two settings share the name hardened-tools; the engine keeps the last one silently",
+        },
+        Case {
+            name: "a setting with an empty name",
+            build: |l: &mut Lib| {
+                l.bool_setting("", true);
+            },
+            want: "fkrecipes: at the settings stage, a setting was declared with an empty name",
         },
         Case {
             name: "dropdown default is not an allowed value",
@@ -277,20 +284,20 @@ fn settings_and_data_agree_on_the_setting_name() {
     );
 }
 
-/// The stage in a settings refusal comes from the World too. Factorio runs
-/// three settings stages, and a consumer patching another mod's settings from
-/// settings-updates should be told which of their own calls raised.
+/// The stage in a refusal comes from the World, not from a constant. Factorio
+/// runs four stages and fkdata reports whichever is live, so a consumer
+/// patching from data-updates is told which of their own calls raised.
 #[test]
-fn settings_refusals_name_the_stage_the_world_reports() {
+fn refusals_name_the_stage_the_world_reports() {
     let mut lib = Lib::new();
-    lib.bool_setting("hardened-tools", true);
-    lib.int_setting("hardened-tools", 3, NumericSpec::default());
+    lib.item("steel-axe", ItemSpec::default());
+    lib.item("steel-axe", ItemSpec::default());
 
-    match lib.plan_settings(&settings_world().with_stage("settings-updates")) {
+    match lib.plan_data(&base_world().with_stage("data-updates")) {
         Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
         Err(got) => assert_eq!(
             got,
-            "fkrecipes: at the settings-updates stage, two settings share the name hardened-tools; the engine keeps the last one silently"
+            "fkrecipes: at the data-updates stage, two items share the name steel-axe; the second would overwrite the first"
         ),
     }
 }

@@ -76,6 +76,9 @@ impl Lib {
     fn validate_settings(&self, stage: &str) -> Result<(), String> {
         let at = format!("fkrecipes: at the {} stage, ", stage);
         for (i, s) in self.settings.iter().enumerate() {
+            if s.name.is_empty() {
+                return Err(format!("{}a setting was declared with an empty name", at));
+            }
             for other in self.settings.iter().take(i) {
                 if other.name == s.name {
                     return Err(format!(

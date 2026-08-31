@@ -13,6 +13,8 @@ type fixtureWorld struct {
 	recipes  []string
 	techs    []fixtureTech
 
+	nilMaxLevelFor []string
+
 	// A max_level answered for ANY name, even one no technology carries.
 	// Some Worlds are loose about lookups; the planner must not ask a
 	// question it has no source technology for.
@@ -66,6 +68,13 @@ func (w *fixtureWorld) TechUnit(name string) (Value, bool) {
 }
 
 func (w *fixtureWorld) TechMaxLevel(name string) (Value, bool) {
+	// A read that is PRESENT and nil: what a LuaObject or a table this
+	// library cannot carry collapses to on the way in.
+	for _, n := range w.nilMaxLevelFor {
+		if n == name {
+			return Nil(), true
+		}
+	}
 	for _, t := range w.techs {
 		if t.name == name && t.maxLevel.Kind != KindNil {
 			return t.maxLevel, true
@@ -149,6 +158,11 @@ func (w *fixtureWorld) withPrereqs(name string, prereqs ...string) *fixtureWorld
 
 func (w *fixtureWorld) withSetting(name string, v Value) *fixtureWorld {
 	w.settings = append(w.settings, KV{Key: name, Val: v})
+	return w
+}
+
+func (w *fixtureWorld) withNilMaxLevel(name string) *fixtureWorld {
+	w.nilMaxLevelFor = append(w.nilMaxLevelFor, name)
 	return w
 }
 
