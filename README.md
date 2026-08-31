@@ -15,7 +15,6 @@ The library is under construction; this README grows with it.
 
 - `go/` is the Go half, module `github.com/Techrocket9/fkrecipes/go`
 - `rust/` is the Rust half, crate `fkrecipes`
-- `docs/` holds the usage documentation
 
 ## Licence
 

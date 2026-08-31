@@ -1,0 +1,553 @@
+package fkrecipes
+
+import (
+	"errors"
+	"strconv"
+	"strings"
+)
+
+// PlanData turns the declared items, recipes and technologies into an Op
+// stream: validate first and refuse with the FIRST problem found, then resolve
+// what the game actually has, then emit.
+//
+// The stream's order is fixed, because the two language halves are compared
+// through it: every degradation log at the point the planner decided it, then
+// the item prototypes in declaration order, then the recipes, then the
+// technologies, then the prerequisite splices into other mods' technologies.
+//
+// This is the seam the emit layer stands on at the data stage; consumers call
+// Emit and never this.
+func (l *Lib) PlanData(w World) ([]Op, error) {
+	// A nil World is a Go-only hazard: the Rust mirror takes &dyn World,
+	// which cannot be null, so it needs no guard. Here the alternative is a
+	// nil dereference inside somebody's data stage.
+	if w == nil {
+		return nil, errors.New("fkrecipes: PlanData was given a nil World")
+	}
+	stage := w.StageName()
+	if l.id == 0 {
+		return nil, errors.New("fkrecipes: at the " + stage + " stage, this Lib was built without New, so its handles cannot be validated")
+	}
+	modName := w.ModName()
+	if modName == "" {
+		return nil, errors.New("fkrecipes: at the " + stage + " stage, the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName")
+	}
+	prefix := modName + "-"
+
+	if err := l.validate(w, stage, prefix); err != nil {
+		return nil, err
+	}
+	res := l.resolve(w, prefix)
+	if err := l.checkCycles(w, res, prefix, stage); err != nil {
+		return nil, err
+	}
+
+	ops := make([]Op, 0, len(res.logs)+len(l.items)+len(l.recipes)+2*len(l.techs))
+	for _, line := range res.logs {
+		ops = append(ops, logOp(line))
+	}
+	for _, it := range l.items {
+		ops = append(ops, extendOp(itemProto(prefix, it)))
+	}
+	unlocked := l.unlockedRecipes()
+	for i, r := range l.recipes {
+		ops = append(ops, extendOp(recipeProto(prefix, l, r, res.recipes[i], unlocked[i])))
+	}
+	for i, t := range l.techs {
+		ops = append(ops, extendOp(techProto(prefix, l, w, t, res.techs[i])))
+	}
+	for i := range l.techs {
+		rt := res.techs[i]
+		if rt.rewrite == 0 {
+			continue
+		}
+		rw := res.rewrites[rt.rewrite-1]
+		ops = append(ops, setOp([]PathEl{pathKey("technology"), pathKey(rw.before), pathKey("prerequisites")}, strArr(rw.list)))
+	}
+	return ops, nil
+}
+
+// validate returns the first refusal in a fixed scan order: items, then
+// recipes, then technologies, each in declaration order. The cycle overlay is
+// checked separately, after resolution, because it needs to know which
+// splices actually survived.
+//
+// Every handle is checked here, not where it is read: an index that reaches
+// resolve unchecked is a panic in somebody's data stage, and a handle from
+// another plan is in range for this one.
+func (l *Lib) validate(w World, stage, prefix string) error {
+	at := "fkrecipes: at the " + stage + " stage, "
+
+	for i, it := range l.items {
+		for j := 0; j < i; j++ {
+			if l.items[j].name == it.name {
+				return errors.New(at + "two items share the name " + it.name + "; the second would overwrite the first")
+			}
+		}
+		// V1 never rewrites another mod's prototype except to splice a
+		// prerequisite, and the cycle overlay counts on every planned name
+		// being new: two nodes with one name is a walk that misses the ring.
+		if w.ItemExists(prefix + it.name) {
+			return errors.New(at + "the item " + prefix + it.name + " already exists in data.raw; this plan would overwrite it")
+		}
+		if it.spec.StackSize < 0 {
+			return errors.New(at + "the item " + it.name + " has a negative stack size, which the engine refuses")
+		}
+		if it.spec.StackSize > maxExactInt {
+			return errors.New(at + "the item " + it.name + " declares a stack size a Lua double cannot hold exactly: " + strconv.FormatInt(it.spec.StackSize, 10))
+		}
+		if it.spec.IconSize < 0 {
+			return errors.New(at + "the item " + it.name + " has a negative icon size, which the engine refuses")
+		}
+		if it.spec.IconSize > maxExactInt {
+			return errors.New(at + "the item " + it.name + " declares an icon size a Lua double cannot hold exactly: " + strconv.FormatInt(it.spec.IconSize, 10))
+		}
+	}
+
+	for i, r := range l.recipes {
+		// The result handle first: a recipe with no result has no name to
+		// report either, and "two recipes share the name" with an empty name
+		// is a worse answer than the one that says what is actually wrong.
+		if !l.validItem(r.result) {
+			return errors.New(at + "a recipe was declared with no result item; Recipe needs an item this plan declared")
+		}
+		for j := 0; j < i; j++ {
+			if l.recipes[j].name == r.name {
+				return errors.New(at + "two recipes share the name " + r.name + "; the second would overwrite the first")
+			}
+		}
+		if !finite(r.spec.CraftTime) {
+			return errors.New(at + "the recipe " + r.name + " declares a crafting time that is not a finite number")
+		}
+		// A zero crafting time means the engine's own default and is emitted
+		// as no field at all; a negative one is a refusal, not a default.
+		if r.spec.CraftTime < 0 {
+			return errors.New(at + "the recipe " + r.name + " has a negative crafting time, which the engine refuses")
+		}
+		if r.spec.ResultCount < 0 {
+			return errors.New(at + "the recipe " + r.name + " has a negative result count, which the engine refuses")
+		}
+		if r.spec.ResultCount > maxExactInt {
+			return errors.New(at + "the recipe " + r.name + " declares a result count a Lua double cannot hold exactly: " + strconv.FormatInt(r.spec.ResultCount, 10))
+		}
+		if w.RecipeExists(prefix + r.name) {
+			return errors.New(at + "the recipe " + prefix + r.name + " already exists in data.raw; this plan would overwrite it")
+		}
+		for _, ing := range r.spec.Ingredients {
+			if ing.amount < 1 {
+				return errors.New(at + "the recipe " + r.name + " has an ingredient amount below 1, which the engine refuses")
+			}
+			if ing.amount > maxExactInt {
+				return errors.New(at + "the recipe " + r.name + " declares an ingredient amount a Lua double cannot hold exactly: " + strconv.FormatInt(ing.amount, 10))
+			}
+			if len(ing.candidates) == 0 && !l.validItem(ing.item) {
+				return errors.New(at + "the recipe " + r.name + " names an ingredient item that this plan never declared")
+			}
+		}
+	}
+
+	for i, t := range l.techs {
+		for j := 0; j < i; j++ {
+			if l.techs[j].name == t.name {
+				return errors.New(at + "two technologies share the name " + t.name + "; the second would overwrite the first")
+			}
+		}
+		if w.TechExists(prefix + t.name) {
+			return errors.New(at + "the technology " + prefix + t.name + " already exists in data.raw; this plan would overwrite it")
+		}
+		hasCost := t.spec.CostOf != ""
+		hasUnit := t.spec.Unit != nil
+		if hasCost == hasUnit {
+			return errors.New(at + "the technology " + t.name + " must name exactly one of CostOf or Unit")
+		}
+		if t.spec.After != "" && t.spec.AfterTech.index != 0 {
+			return errors.New(at + "the technology " + t.name + " names both After and AfterTech; pick one anchor")
+		}
+		if t.spec.Before != "" && t.spec.AfterTech.index != 0 {
+			return errors.New(at + "the technology " + t.name + " names Before with AfterTech; InsertBetween splices around a technology that already exists")
+		}
+		if t.spec.Before != "" && t.spec.After == "" {
+			return errors.New(at + "the technology " + t.name + " names Before without After; InsertBetween needs both ends")
+		}
+		if t.spec.AfterTech.index != 0 && !l.validTech(t.spec.AfterTech) {
+			return errors.New(at + "the technology " + t.name + " names an AfterTech technology that this plan never declared")
+		}
+		if t.spec.IconSize < 0 {
+			return errors.New(at + "the technology " + t.name + " has a negative icon size, which the engine refuses")
+		}
+		if t.spec.IconSize > maxExactInt {
+			return errors.New(at + "the technology " + t.name + " declares an icon size a Lua double cannot hold exactly: " + strconv.FormatInt(t.spec.IconSize, 10))
+		}
+		if hasUnit {
+			if t.spec.Unit.Count < 1 {
+				return errors.New(at + "the technology " + t.name + " has a unit count below 1, which the engine refuses")
+			}
+			if t.spec.Unit.Count > maxExactInt {
+				return errors.New(at + "the technology " + t.name + " declares a unit count a Lua double cannot hold exactly: " + strconv.FormatInt(t.spec.Unit.Count, 10))
+			}
+			if !finite(t.spec.Unit.Seconds) {
+				return errors.New(at + "the technology " + t.name + " declares a research time that is not a finite number")
+			}
+			if t.spec.Unit.Seconds <= 0 {
+				return errors.New(at + "the technology " + t.name + " has a research time at or below zero, which the engine refuses")
+			}
+			for _, p := range t.spec.Unit.Packs {
+				if p.Amount < 1 {
+					return errors.New(at + "the technology " + t.name + " has a science pack amount below 1, which the engine refuses")
+				}
+				if p.Amount > maxExactInt {
+					return errors.New(at + "the technology " + t.name + " declares a science pack amount a Lua double cannot hold exactly: " + strconv.FormatInt(p.Amount, 10))
+				}
+				if !w.ItemExists(p.Name) {
+					return errors.New(at + "the technology " + t.name + " prices itself in " + p.Name + ", which does not exist")
+				}
+			}
+		} else {
+			if !w.TechExists(t.spec.CostOf) {
+				return errors.New(at + "CostOf(" + t.spec.CostOf + "): no technology of that name exists")
+			}
+			if w.TechHasResearchTrigger(t.spec.CostOf) {
+				return errors.New(at + "CostOf(" + t.spec.CostOf + "): " + t.spec.CostOf + " is a research_trigger technology with no unit to copy; name a unit-carrying technology instead")
+			}
+			u, ok := w.TechUnit(t.spec.CostOf)
+			if !ok {
+				return errors.New(at + "CostOf(" + t.spec.CostOf + "): " + t.spec.CostOf + " carries no unit to copy")
+			}
+			// The unit is copied verbatim into a prototype, so it has to BE a
+			// prototype's field map. Anything else is another mod's mistake
+			// arriving as this mod's load failure. "Dictionary", not "table":
+			// a Lua sequence is a table as well, and an array-shaped unit is
+			// exactly one of the things this refuses.
+			if u.Kind != KindMap {
+				return errors.New(at + "CostOf(" + t.spec.CostOf + "): " + t.spec.CostOf + " has a unit that is not a dictionary")
+			}
+		}
+		for _, u := range t.spec.Unlocks {
+			if !l.validRecipe(u) {
+				return errors.New(at + "the technology " + t.name + " unlocks a recipe that this plan never declared")
+			}
+		}
+		if t.spec.EnabledBy.index != 0 && !l.validBoolSetting(t.spec.EnabledBy) {
+			return errors.New(at + "the technology " + t.name + " names an EnabledBy setting that this plan never declared")
+		}
+	}
+	return nil
+}
+
+type resolvedIngredient struct {
+	name   string
+	amount int64
+}
+
+// rewriteRec is one planned rewrite of another technology's prerequisite
+// list. A second splice into the same technology builds on the first: two
+// Set ops on one path would otherwise mean the last one silently undoes the
+// earlier splice.
+type rewriteRec struct {
+	before string
+	list   []string
+}
+
+type resolvedTech struct {
+	prereqs      []string
+	hasEnabledBy bool
+	on           bool
+	rewrite      int // 1-based index into resolution.rewrites; 0 is none
+}
+
+type resolution struct {
+	logs     []string
+	recipes  [][]resolvedIngredient
+	techs    []resolvedTech
+	rewrites []rewriteRec
+}
+
+// resolve asks the World everything the plan needs to know and records what
+// degraded. The pass order IS the log order, and it is part of the contract
+// the Rust mirror holds to: recipes in declaration order, then technologies
+// in declaration order, and within a technology its enablement before its
+// tree placement.
+func (l *Lib) resolve(w World, prefix string) resolution {
+	var res resolution
+
+	for _, r := range l.recipes {
+		list := make([]resolvedIngredient, 0, len(r.spec.Ingredients))
+		for _, ing := range r.spec.Ingredients {
+			if len(ing.candidates) == 0 {
+				list = append(list, resolvedIngredient{name: prefix + l.items[ing.item.index-1].name, amount: ing.amount})
+				continue
+			}
+			picked := ""
+			for _, c := range ing.candidates {
+				if w.ItemExists(c) {
+					picked = c
+					break
+				}
+			}
+			if picked == "" {
+				res.logs = append(res.logs, "fkrecipes: "+r.name+": none of "+strings.Join(ing.candidates, ", ")+" is present, so the ingredient is dropped")
+				continue
+			}
+			list = append(list, resolvedIngredient{name: picked, amount: ing.amount})
+		}
+		res.recipes = append(res.recipes, list)
+	}
+
+	for _, t := range l.techs {
+		var rt resolvedTech
+
+		if t.spec.EnabledBy.index != 0 {
+			s := l.settings[t.spec.EnabledBy.index-1]
+			full := prefix + s.name
+			rt.hasEnabledBy = true
+			rt.on = s.defBool
+			if v, ok := w.StartupSetting(full); ok && v.Kind == KindBool {
+				rt.on = v.Bool
+			} else {
+				res.logs = append(res.logs, "fkrecipes: the setting "+full+" was not readable, so its default applies")
+			}
+		}
+
+		after, before := t.spec.After, t.spec.Before
+		newName := prefix + t.name
+		switch {
+		case t.spec.AfterTech.index != 0:
+			// An anchor this plan declares itself needs no presence probe and
+			// cannot degrade: the prototype is emitted by the same plan.
+			//
+			// THE OVERLAY IS WHAT CATCHES A RING, not the argument below.
+			// This edge joins it like any other prerequisite and must never
+			// be left out of it on the argument's strength. The argument is
+			// defence in depth and it only covers handles THIS plan issued:
+			// such a handle exists only after the technology it names, so
+			// those edges run backwards through declaration order, and a
+			// technology anchored this way takes no Before, so nothing in the
+			// game's tree is rewritten to require it. A handle from anywhere
+			// else can point forwards or at itself, and the walk is what
+			// answers that.
+			rt.prereqs = []string{prefix + l.techs[t.spec.AfterTech.index-1].name}
+		case after == "":
+			// Before without After was refused in validate; nothing to place.
+		case before == "":
+			if w.TechExists(after) {
+				rt.prereqs = []string{after}
+			} else {
+				res.logs = append(res.logs, dropLine(t.name, after))
+			}
+		case !w.TechExists(before):
+			res.logs = append(res.logs, "fkrecipes: "+t.name+": "+before+" is absent, so InsertBetween degrades to After("+after+")")
+			if w.TechExists(after) {
+				rt.prereqs = []string{after}
+			} else {
+				res.logs = append(res.logs, dropLine(t.name, after))
+			}
+		case !w.TechExists(after):
+			// The anchor is gone, so there is nothing to splice between and
+			// nothing to replace in the other technology's list. Emit the
+			// technology unattached rather than guess a substitute.
+			res.logs = append(res.logs, dropLine(t.name, after))
+		default:
+			rt.prereqs = []string{after}
+			base := res.currentPrereqs(w, before)
+			list := make([]string, 0, len(base)+1)
+			replaced := false
+			for _, p := range base {
+				if p == after {
+					list = append(list, newName)
+					replaced = true
+					continue
+				}
+				list = append(list, p)
+			}
+			if !replaced {
+				list = append(list, newName)
+				res.logs = append(res.logs, "fkrecipes: "+t.name+": "+before+" does not require "+after+", so the new technology is appended to its prerequisites")
+			}
+			res.rewrites = append(res.rewrites, rewriteRec{before: before, list: list})
+			rt.rewrite = len(res.rewrites)
+		}
+
+		res.techs = append(res.techs, rt)
+	}
+	return res
+}
+
+// currentPrereqs is the prerequisite list a splice should build on: the one an
+// earlier splice in this same plan already planned, or the game's own.
+func (r *resolution) currentPrereqs(w World, tech string) []string {
+	for i := len(r.rewrites) - 1; i >= 0; i-- {
+		if r.rewrites[i].before == tech {
+			// Cloned because the Rust mirror clones: an aliased list here is
+			// a caller that can rewrite a planned splice through the slice it
+			// was handed.
+			return copyStrings(r.rewrites[i].list)
+		}
+	}
+	return w.TechPrereqs(tech)
+}
+
+func dropLine(tech, after string) string {
+	return "fkrecipes: " + tech + ": " + after + " is absent, so the prerequisite is dropped"
+}
+
+// unlockedRecipes marks the recipes some technology unlocks. Those are emitted
+// disabled, because the research is what turns them on.
+func (l *Lib) unlockedRecipes() []bool {
+	marks := make([]bool, len(l.recipes))
+	for _, t := range l.techs {
+		for _, u := range t.spec.Unlocks {
+			marks[u.index-1] = true
+		}
+	}
+	return marks
+}
+
+func itemProto(prefix string, it itemDecl) Value {
+	pairs := []KV{
+		kv("type", Str("item")),
+		kv("name", Str(prefix+it.name)),
+	}
+	pairs = appendLocalised(pairs, it.spec.DisplayName, it.spec.Description)
+	if it.spec.Icon != "" {
+		pairs = append(pairs, kv("icon", Str(it.spec.Icon)))
+	}
+	if it.spec.IconSize != 0 {
+		pairs = append(pairs, kv("icon_size", Num(float64(it.spec.IconSize))))
+	}
+	stack := it.spec.StackSize
+	if stack == 0 {
+		stack = 50
+	}
+	pairs = append(pairs, kv("stack_size", Num(float64(stack))))
+	if it.spec.Subgroup != "" {
+		pairs = append(pairs, kv("subgroup", Str(it.spec.Subgroup)))
+	}
+	return Obj(pairs...)
+}
+
+func recipeProto(prefix string, l *Lib, r recipeDecl, ings []resolvedIngredient, unlocked bool) Value {
+	pairs := []KV{
+		kv("type", Str("recipe")),
+		kv("name", Str(prefix+r.name)),
+	}
+	pairs = appendLocalised(pairs, r.spec.DisplayName, r.spec.Description)
+	if r.spec.Category != "" {
+		pairs = append(pairs, kv("category", Str(r.spec.Category)))
+	}
+	// energy_required is omitted rather than sent as zero: an absent field is
+	// the engine's own default, and a zero is a crafting time of zero.
+	if r.spec.CraftTime > 0 {
+		pairs = append(pairs, kv("energy_required", Num(r.spec.CraftTime)))
+	}
+	pairs = append(pairs, kv("enabled", Bool(!unlocked)))
+
+	// Recipe ingredients are the LONG DICT form. The technology unit's short
+	// tuple form is REFUSED here and the other way round; measured, not
+	// generalised from one to the other.
+	items := make([]Value, 0, len(ings))
+	for _, ing := range ings {
+		items = append(items, Obj(
+			kv("type", Str("item")),
+			kv("name", Str(ing.name)),
+			kv("amount", Num(float64(ing.amount))),
+		))
+	}
+	pairs = append(pairs, kv("ingredients", Arr(items...)))
+
+	count := r.spec.ResultCount
+	if count == 0 {
+		count = 1
+	}
+	pairs = append(pairs, kv("results", Arr(Obj(
+		kv("type", Str("item")),
+		kv("name", Str(prefix+l.items[r.result.index-1].name)),
+		kv("amount", Num(float64(count))),
+	))))
+	return Obj(pairs...)
+}
+
+func techProto(prefix string, l *Lib, w World, t techDecl, rt resolvedTech) Value {
+	pairs := []KV{
+		kv("type", Str("technology")),
+		kv("name", Str(prefix+t.name)),
+	}
+	pairs = appendLocalised(pairs, t.spec.DisplayName, t.spec.Description)
+	if t.spec.Icon != "" {
+		pairs = append(pairs, kv("icon", Str(t.spec.Icon)))
+	}
+	if t.spec.IconSize != 0 {
+		pairs = append(pairs, kv("icon_size", Num(float64(t.spec.IconSize))))
+	}
+	if len(rt.prereqs) > 0 {
+		pairs = append(pairs, kv("prerequisites", strArr(rt.prereqs)))
+	}
+	pairs = append(pairs, kv("unit", techUnit(w, t)))
+	// max_level lives on the TECHNOLOGY, not in its unit, so copying the unit
+	// verbatim carries a count_formula but leaves the level cap behind. CostOf
+	// is one named point for cost AND position, so it reads the cap too: an
+	// infinite source technology produces an infinite copy. A hand-rolled
+	// UnitSpec has no source to read, and gets no cap.
+	if t.spec.Unit == nil {
+		if level, ok := w.TechMaxLevel(t.spec.CostOf); ok {
+			pairs = append(pairs, kv("max_level", level))
+		}
+	}
+	if len(t.spec.Unlocks) > 0 {
+		effects := make([]Value, 0, len(t.spec.Unlocks))
+		for _, u := range t.spec.Unlocks {
+			effects = append(effects, Obj(
+				kv("type", Str("unlock-recipe")),
+				kv("recipe", Str(prefix+l.recipes[u.index-1].name)),
+			))
+		}
+		pairs = append(pairs, kv("effects", Arr(effects...)))
+	}
+	// HIDDEN, NOT ABSENT. A technology researched in an existing save whose
+	// prototype vanishes is dropped from that save, and flipping a startup
+	// setting is exactly the mid-save event this library invites, so a
+	// switched-off technology keeps its prototype and loses its visibility.
+	if rt.hasEnabledBy {
+		if rt.on {
+			pairs = append(pairs, kv("enabled", Bool(true)))
+		} else {
+			pairs = append(pairs, kv("enabled", Bool(false)), kv("hidden", Bool(true)))
+		}
+	}
+	return Obj(pairs...)
+}
+
+func techUnit(w World, t techDecl) Value {
+	if t.spec.Unit == nil {
+		// Verbatim, whatever it holds: a count_formula is a string and
+		// copying one needs no evaluator, so multi-level and infinite
+		// technologies come along for free. Validation proved the unit is
+		// there; the flag is still read rather than dropped, because the
+		// Rust mirror maps its absent case to the same nil.
+		u, ok := w.TechUnit(t.spec.CostOf)
+		if !ok {
+			return Nil()
+		}
+		return u
+	}
+	// Technology unit ingredients are the SHORT TUPLE form. The dict form is
+	// refused here by the engine.
+	packs := make([]Value, 0, len(t.spec.Unit.Packs))
+	for _, p := range t.spec.Unit.Packs {
+		packs = append(packs, Arr(Str(p.Name), Num(float64(p.Amount))))
+	}
+	return Obj(
+		kv("count", Num(float64(t.spec.Unit.Count))),
+		kv("time", Num(t.spec.Unit.Seconds)),
+		kv("ingredients", Arr(packs...)),
+	)
+}
+
+func appendLocalised(pairs []KV, displayName, description string) []KV {
+	if displayName != "" {
+		pairs = append(pairs, kv("localised_name", localised(displayName)))
+	}
+	if description != "" {
+		pairs = append(pairs, kv("localised_description", localised(description)))
+	}
+	return pairs
+}

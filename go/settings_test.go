@@ -1,0 +1,320 @@
+package fkrecipes
+
+import (
+	"math"
+	"slices"
+	"strconv"
+	"sync"
+	"testing"
+)
+
+func field(v Value, key string) (Value, bool) {
+	for _, p := range v.Map {
+		if p.Key == key {
+			return p.Val, true
+		}
+	}
+	return Nil(), false
+}
+
+func TestPlanSettingsPrototypes(t *testing.T) {
+	lib := New()
+	lib.BoolSetting("hardened-tools", true)
+	lib.IntSetting("axe-durability", 250, Between(50, 1000))
+	lib.DoubleSetting("axe-craft-time", 2.5, NumericSpec{HasMin: true, Min: 0.5})
+	lib.DropdownSettingNeedingLocale("smelting-style", "furnace", []string{"furnace", "foundry"})
+
+	ops, err := lib.PlanSettings(settingsWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="bool-setting", name="steelworks-hardened-tools", setting_type="startup", default_value=true, order="aa"}`,
+		`extend {type="int-setting", name="steelworks-axe-durability", setting_type="startup", default_value=250, order="ab", minimum_value=50, maximum_value=1000}`,
+		`extend {type="double-setting", name="steelworks-axe-craft-time", setting_type="startup", default_value=2.5000000000000000e0, order="ac", minimum_value=5.0000000000000000e-1}`,
+		`extend {type="string-setting", name="steelworks-smelting-style", setting_type="startup", default_value="furnace", order="ad", allowed_values=["furnace", "foundry"]}`,
+	})
+}
+
+// The order strings are what puts the settings screen in the order the
+// consumer wrote them, so the second letter has to roll over into the first.
+func TestPlanSettingsOrderStringsRollOver(t *testing.T) {
+	lib := New()
+	for i := 0; i < 28; i++ {
+		lib.BoolSetting("toggle-"+strconv.Itoa(i), false)
+	}
+	ops, err := lib.PlanSettings(settingsWorld())
+	assertNoError(t, err)
+
+	for _, want := range []struct {
+		at    int
+		order string
+	}{{0, "aa"}, {25, "az"}, {26, "ba"}, {27, "bb"}} {
+		got, ok := field(ops[want.at].Proto, "order")
+		if !ok || got.Str != want.order {
+			t.Errorf("setting %d has order %q, want %q", want.at, got.Str, want.order)
+		}
+	}
+}
+
+func TestPlanSettingsRefusals(t *testing.T) {
+	cases := []struct {
+		name  string
+		build func(*Lib)
+		want  string
+	}{
+		{
+			name: "two settings share a name",
+			build: func(l *Lib) {
+				l.BoolSetting("hardened-tools", true)
+				l.IntSetting("hardened-tools", 3, NumericSpec{})
+			},
+			want: "fkrecipes: at the settings stage, two settings share the name hardened-tools; the engine keeps the last one silently",
+		},
+		{
+			name: "dropdown default is not an allowed value",
+			build: func(l *Lib) {
+				l.DropdownSettingNeedingLocale("smelting-style", "electric-furnace", []string{"furnace", "foundry"})
+			},
+			want: "fkrecipes: at the settings stage, the dropdown setting smelting-style defaults to electric-furnace, which is not one of its allowed values",
+		},
+		{
+			name: "minimum above maximum",
+			build: func(l *Lib) {
+				l.IntSetting("axe-durability", 250, Between(1000, 50))
+			},
+			want: "fkrecipes: at the settings stage, the numeric setting axe-durability declares a minimum above its maximum",
+		},
+		{
+			name: "default outside the bounds",
+			build: func(l *Lib) {
+				l.DoubleSetting("axe-craft-time", 12, Between(0.5, 8))
+			},
+			want: "fkrecipes: at the settings stage, the numeric setting axe-craft-time declares a default outside its own minimum and maximum",
+		},
+		{
+			name: "a default that is not a number",
+			build: func(l *Lib) {
+				l.DoubleSetting("axe-craft-time", math.NaN(), NumericSpec{})
+			},
+			want: "fkrecipes: at the settings stage, the numeric setting axe-craft-time declares a value that is not a finite number",
+		},
+		{
+			// The declared int64 is the one number the plan converts to a
+			// double on the way in, so it is the one the entry point has to
+			// check while it is still an integer.
+			name: "an int default past what a double holds",
+			build: func(l *Lib) {
+				l.IntSetting("axe-durability", 9007199254740993, NumericSpec{})
+			},
+			want: "fkrecipes: at the settings stage, the numeric setting axe-durability declares a default a Lua double cannot hold exactly: 9007199254740993",
+		},
+		{
+			name: "an int default past what a double holds, negative",
+			build: func(l *Lib) {
+				l.IntSetting("axe-durability", -9007199254740993, NumericSpec{})
+			},
+			want: "fkrecipes: at the settings stage, the numeric setting axe-durability declares a default a Lua double cannot hold exactly: -9007199254740993",
+		},
+		{
+			name: "a bound that is not a number",
+			build: func(l *Lib) {
+				l.DoubleSetting("axe-craft-time", 2.5, NumericSpec{HasMax: true, Max: math.Inf(1)})
+			},
+			want: "fkrecipes: at the settings stage, the numeric setting axe-craft-time declares a value that is not a finite number",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			lib := New()
+			c.build(lib)
+			ops, err := lib.PlanSettings(settingsWorld())
+			if err == nil {
+				t.Fatalf("plan was accepted, want refusal %q", c.want)
+			}
+			if err.Error() != c.want {
+				t.Errorf("\n got: %s\nwant: %s", err.Error(), c.want)
+			}
+			if ops != nil {
+				t.Errorf("a refused plan still produced %d ops", len(ops))
+			}
+		})
+	}
+}
+
+// The prefix comes from the packaged mod, and there is no prefix parameter to
+// fall back on: with no mod name there is nothing safe to emit.
+func TestPlanSettingsRefusesAnEmptyModName(t *testing.T) {
+	lib := New()
+	lib.BoolSetting("hardened-tools", true)
+
+	ops, err := lib.PlanSettings(settingsWorld().withModName(""))
+	if err == nil {
+		t.Fatal("plan was accepted with no mod name")
+	}
+	want := "fkrecipes: at the settings stage, the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName"
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+	if ops != nil {
+		t.Errorf("a refused plan still produced %d ops", len(ops))
+	}
+}
+
+// A Lib that never went through New carries no id, and every such plan would
+// carry the SAME one, so its handles cannot be told apart from another
+// plan's. Both entry points refuse rather than validate against an identity
+// nothing owns.
+func TestPlanningRefusesALibBuiltWithoutNew(t *testing.T) {
+	var settingsPlan Lib
+	settingsPlan.BoolSetting("hardened-tools", true)
+
+	ops, err := settingsPlan.PlanSettings(settingsWorld())
+	if err == nil {
+		t.Fatal("the settings plan was accepted from a Lib with no id")
+	}
+	want := "fkrecipes: at the settings stage, this Lib was built without New, so its handles cannot be validated"
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+	if ops != nil {
+		t.Errorf("a refused plan still produced %d ops", len(ops))
+	}
+
+	var dataPlan Lib
+	dataPlan.Item("steel-axe", ItemSpec{})
+
+	ops, err = dataPlan.PlanData(baseWorld())
+	if err == nil {
+		t.Fatal("the data plan was accepted from a Lib with no id")
+	}
+	want = "fkrecipes: at the data stage, this Lib was built without New, so its handles cannot be validated"
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+	if ops != nil {
+		t.Errorf("a refused plan still produced %d ops", len(ops))
+	}
+}
+
+// The id is what tells two plans apart, so it is never zero and it increases.
+// This is the sequential half of the property; the concurrent half, which is
+// where a plain increment loses ids, is below.
+func TestNewGivesEveryPlanItsOwnID(t *testing.T) {
+	first := New()
+	second := New()
+	if first.id == 0 || second.id == 0 {
+		t.Fatalf("New handed out a zero id: %d then %d", first.id, second.id)
+	}
+	if second.id <= first.id {
+		t.Errorf("ids are not increasing: %d then %d", first.id, second.id)
+	}
+}
+
+// The two stages have to agree on a setting's name to the byte. They derive
+// it from the same World, so this asserts the whole round trip: the name the
+// settings stage creates is the name the data stage finds, and finding it is
+// visible as the technology being hidden with no degradation log.
+func TestSettingsAndDataAgreeOnTheSettingName(t *testing.T) {
+	lib := New()
+	on := lib.BoolSetting("hardened-tools", true)
+	lib.Technology("steel-axes", TechSpec{CostOf: "steel-processing", EnabledBy: on})
+
+	settingsOps, err := lib.PlanSettings(settingsWorld())
+	assertNoError(t, err)
+	declared, ok := field(settingsOps[0].Proto, "name")
+	if !ok {
+		t.Fatalf("the setting prototype carries no name: %s", renderValue(settingsOps[0].Proto))
+	}
+
+	// The game now holds exactly the setting the settings stage declared,
+	// switched off by the player.
+	dataOps, err := lib.PlanData(baseWorld().withSetting(declared.Str, Bool(false)))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(dataOps), []string{
+		`extend {type="technology", name="steelworks-steel-axes", unit=` + steelProcessingUnit + `, enabled=false, hidden=true}`,
+	})
+}
+
+// The stage in a settings refusal comes from the World too. Factorio runs
+// three settings stages, and a consumer patching another mod's settings from
+// settings-updates should be told which of their own calls raised.
+func TestSettingsRefusalsNameTheStageTheWorldReports(t *testing.T) {
+	lib := New()
+	lib.BoolSetting("hardened-tools", true)
+	lib.IntSetting("hardened-tools", 3, NumericSpec{})
+
+	_, err := lib.PlanSettings(settingsWorld().withStage("settings-updates"))
+	if err == nil {
+		t.Fatal("the plan was accepted, want a duplicate-name refusal")
+	}
+	want := "fkrecipes: at the settings-updates stage, two settings share the name hardened-tools; the engine keeps the last one silently"
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+}
+
+// The counter is atomic, and this is what says so. A plain increment is a
+// read, an add and a write, so two goroutines calling New at once can come
+// away with the SAME id, and two plans with one id resolve each other's
+// handles in silence. A consumer's own `go test` is parallel by default.
+func TestNewGivesDistinctIDsUnderConcurrency(t *testing.T) {
+	const workers, each = 8, 500
+	ids := make([]uint64, workers*each)
+
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; i < each; i++ {
+				ids[w*each+i] = New().id
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	slices.Sort(ids)
+	if ids[0] == 0 {
+		t.Fatal("a plan came out with id 0")
+	}
+	for i := 1; i < len(ids); i++ {
+		if ids[i] == ids[i-1] {
+			t.Fatalf("two plans share id %d", ids[i])
+		}
+	}
+}
+
+// The dropdown's allowed values are the consumer's slice; the plan takes a
+// copy, so editing it afterwards cannot change what a second plan emits.
+func TestDropdownValuesDoNotAliasTheCallerSlice(t *testing.T) {
+	values := []string{"furnace", "foundry"}
+	lib := New()
+	lib.DropdownSettingNeedingLocale("smelting-style", "furnace", values)
+
+	first, err := lib.PlanSettings(settingsWorld())
+	assertNoError(t, err)
+
+	values[1] = "electric-furnace"
+
+	second, err := lib.PlanSettings(settingsWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(second), transcript(first))
+	assertLines(t, transcript(second), []string{
+		`extend {type="string-setting", name="steelworks-smelting-style", setting_type="startup", default_value="furnace", order="aa", allowed_values=["furnace", "foundry"]}`,
+	})
+}
+
+// The boundary itself is exact, so it is accepted and comes back unchanged.
+func TestIntSettingAcceptsTheExactBoundary(t *testing.T) {
+	lib := New()
+	lib.IntSetting("axe-durability", 9007199254740992, NumericSpec{})
+
+	ops, err := lib.PlanSettings(settingsWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="int-setting", name="steelworks-axe-durability", setting_type="startup", default_value=9007199254740992, order="aa"}`,
+	})
+}

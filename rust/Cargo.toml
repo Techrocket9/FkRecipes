@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "User-configurable crafting recipes and research for Factorio mods built with FkLua"
 license = "MIT"
+# cargo would otherwise scan examples/ for auto example targets of this
+# package; the directory holds workspace members instead, and a stray main.rs
+# would make one file both a member and an example.
+autoexamples = false
 
 [lib]
 crate-type = ["rlib"]
@@ -18,10 +22,11 @@ crate-type = ["rlib"]
 #   fkdata = { path = "../FkLua/guest/rust/fkdata" }
 #   fk     = { path = "../FkLua/guest/rust/fk" }
 #
-# WASM-GATED, the fkipc arrangement: on the host this crate has no
-# dependencies at all, which is what lets `cargo test` run the pure half
-# (the planner, the validators, the locale checker) with no wasm target
-# installed.
+# WASM-GATED, the fkipc arrangement: on the host nothing here is compiled
+# into the crate, which is what lets `cargo test` run the pure half (the
+# planner, the validators) with no wasm target installed. Cargo still
+# RESOLVES the whole graph first, so the git source is cloned even for a
+# host test run; the gate needs the network once, not a wasm toolchain.
 [target.'cfg(target_family = "wasm")'.dependencies]
 fkdata = { git = "https://github.com/Techrocket9/fklua" }
 
@@ -31,4 +36,14 @@ fkdata = { git = "https://github.com/Techrocket9/fklua" }
 # decision.
 
 [workspace]
+resolver = "2"
 members = ["examples/datastage"]
+
+# The profile is not a preference: FkLua's guest workspace carries exactly
+# this block, and the example guest built from this workspace root ships
+# through fklua mod like any consumer's module would.
+[profile.release]
+opt-level = "s"
+lto = true
+panic = "abort"
+codegen-units = 1

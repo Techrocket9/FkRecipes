@@ -22,8 +22,12 @@ Run every gate that exists before a commit; a gate added by a commit is listed h
 ```sh
 cd go && gofmt -l . | tee /dev/stderr | (! read)   # formatting; any filename is a failure
 cd go && go vet ./...
-cd go && go test ./...        # pure half on the host: planner, validators, locale checker. No wasm toolchain needed
+cd go && go test ./...        # pure half on the host: planner, validators. No wasm toolchain needed
+cd go && go test -race ./...  # the id counter is atomic for consumers' parallel tests; -race is what proves it stays so
 cd rust && cargo test         # the Rust mirror of the same pure half. No wasm target needed
+cd rust && cargo build --target wasm32-unknown-unknown --workspace
+                              # every member compiles for the target it ships on; cargo test alone
+                              # builds the std host shape and would read as green over a wasm break
 ```
 
 The mirror harness (both example guests packaged with `fklua mod`, run under lua52f against the strict stand-in, transcripts byte-compared) and the in-game `--dump-data` gate land with their own commits and get their rows here then.
@@ -42,8 +46,6 @@ rust/                   the Rust half: crate fkrecipes, workspace root. fkdata a
                         cargo test needs no wasm target; the [patch] one-source note is in Cargo.toml
 rust/examples/datastage the Rust example guest (workspace member), the mirror harness's Rust arm
 agents/                 working notes; index below
-docs/                   human-facing docs (docs-style.md governs)
-scripts/                gate scripts
 LICENSE                 MIT
 ```
 
