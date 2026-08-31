@@ -24,7 +24,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FKLUA_CHECKOUT="${FKLUA_CHECKOUT:-$ROOT/../FkLua}"
-TMP="$ROOT/tmp"
+# THIS SCRIPT OWNS tmp/mirror AND NOTHING ELSE. It used to own all of tmp and
+# wipe it, which took scripts/run-ingame.sh's tree with it: a concurrent
+# in-game run lost its packaged mod mid-flight and reported a failure that
+# blamed the engine. Each gate wipes only its own subtree.
+TMP="$ROOT/tmp/mirror"
 GOLDEN="$ROOT/testdata/mirror/transcript.golden"
 STANDIN="$ROOT/testdata/mirror/standin.lua"
 MODNAME=fkrecipes-example
@@ -50,12 +54,11 @@ command -v cargo  >/dev/null || refuse "cargo is not on PATH; the Rust guest can
 command -v jq     >/dev/null || refuse "jq is not on PATH; the packaging report cannot be read"
 [ -f "$STANDIN" ] || refuse "no stand-in at $STANDIN"
 
-# EVERY RUN STARTS FROM NOTHING. A leftover in tmp survives a green run and is
-# then indistinguishable from something this run produced: a poisoned
-# tmp/bin/fklua (a text file, or worse a directory) bricks every later run
-# behind a message about the build rather than about the leftover. Wiping costs
-# a cold cargo build of the wasm dependencies and buys a run that means what it
-# says.
+# EVERY RUN STARTS FROM NOTHING. A leftover in tmp/mirror survives a green run
+# and is then indistinguishable from something this run produced: a poisoned
+# bin/fklua (a text file, or worse a directory) bricks every later run behind a
+# message about the build rather than about the leftover. Wiping costs a cold
+# cargo build of the wasm dependencies and buys a run that means what it says.
 rm -rf "$TMP"
 mkdir -p "$TMP/bin"
 FKLUA="$TMP/bin/fklua"

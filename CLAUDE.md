@@ -34,6 +34,13 @@ scripts/run-mirror.sh         # the cross-language mirror: both example guests p
                               # FKLUA_CHECKOUT (default ../FkLua), tinygo, cargo and the checkout's
                               # bin/lua52f; anything missing fails loudly with the remedy. --update
                               # recaptures the golden and refuses to capture a divergent mirror
+scripts/run-ingame.sh         # the engine gate: both packaged examples under a real Factorio via
+                              # --dump-data, hashes of BOTH normalised dumps pinned per engine in
+                              # testdata/ingame/dump-sha256.txt with the mod set recorded. Re-asks the
+                              # binary its version first; FACTORIO_USERDIR=/tmp/fkrecipes so a running
+                              # game's lock cannot kill it; needs FACTORIO_BIN (or the Steam default)
+                              # and jq. About 18 seconds. The mirror covers the flipped-settings side
+                              # of every decision; this gate covers the defaults side
 ```
 
 The mirror harness (both example guests packaged with `fklua mod`, run under lua52f against the strict stand-in, transcripts byte-compared) and the in-game `--dump-data` gate land with their own commits and get their rows here then.
@@ -57,6 +64,7 @@ scripts/                gate scripts; run-mirror.sh is the cross-language mirror
 testdata/mirror/        the strict engine-shaped stand-in and the committed transcript golden
 testdata/locale/        the locale checker's committed fixture cfg and findings golden, the
                         cross-language pin that needs no toolchain (both suites reproduce it)
+testdata/ingame/        the engine gate's per-engine golden: two dump hashes and the mod set
 agents/                 working notes; index below
 LICENSE                 MIT
 ```

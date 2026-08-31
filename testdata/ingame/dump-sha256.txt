@@ -1,0 +1,19 @@
+# The in-game dump hashes, one line per engine.
+#
+#   <engine> <data-sha256> <settings-sha256> <mod set, name@version, sorted>
+#
+# ENGINE, because a dump is a function of the engine that produced it: a new
+# Factorio moves base prototypes and every hash with them, and a line keyed by
+# version lets one file hold several without either one being wrong.
+#
+# TWO HASHES, because setting prototypes never reach the data dump: a golden
+# over the data dump alone stays green for a guest whose settings stage did
+# nothing at all.
+#
+# THE MOD SET, because the dump is a function of every mod that ran. Factorio's
+# bundled DLC data loads whatever --mod-directory says, so a machine owning
+# different DLC produces a different dump for a mod that is perfectly fine.
+# A mismatch here is ENVIRONMENTAL and reports SKIPPED, not FAILED.
+#
+# Capture a line with: scripts/run-ingame.sh --update
+2.0.77 9f39a8b4ce15a2080075217625824cdb82c68ed7836b18bb44e801410fb0ba25 fdd9e66d0eefe17f978297a0d5f1d96b7b7b273c3393086f3f314d3b48ec86aa base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
