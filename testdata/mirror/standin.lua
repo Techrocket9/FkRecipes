@@ -143,6 +143,17 @@ data:extend{
     unit = { count_formula = "2^(L-7)*1000", time = 60,
              ingredients = { { "automation-science-pack", 1 },
                              { "logistic-science-pack", 1 } } } },
+  -- A military-shaped technology: the other end of the example's cost ladder.
+  -- It prices itself in a pack this stand-in carries no item row for, which is
+  -- legal here for the same reason it is in the game: a copied unit is copied
+  -- verbatim, not rebuilt out of the fields the planner knows.
+  { type = "technology", name = "military-4",
+    icon = "__base__/military-4.png", icon_size = 128,
+    prerequisites = { "steel-processing" },
+    unit = { count = 250, time = 30,
+             ingredients = { { "automation-science-pack", 1 },
+                             { "logistic-science-pack", 1 },
+                             { "military-science-pack", 1 } } } },
   -- A research_trigger technology: no unit at all, the measured crash class
   -- CostOf refuses. Present so the packaged module meets one.
   { type = "technology", name = "steam-power",
@@ -167,6 +178,10 @@ settings = { startup = {
   -- Left ON, so the technology it gates comes out enabled with no hidden
   -- field at all: the other side of the switched-off branch above.
   ["fkrecipes-example-bonus-research"] = { value = true },
+  -- The MILITARY ladder, which the game's own default does not take: the
+  -- in-game gate runs on declared defaults and walks the projectile ladder
+  -- instead, so the two gates cover one branch each.
+  ["fkrecipes-example-tips-research-tier"] = { value = "military" },
 } }
 require("data")
 

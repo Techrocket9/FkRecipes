@@ -5,6 +5,8 @@ rust/examples/*/target/
 # Go and wasm build artifacts
 *.wasm
 go/examples/*/[a-z]*.wasm
+# a tinygo build run without -o drops an extensionless binary named after the package
+go/examples/datastage/datastage
 
 # Harness scratch output (transcripts under test live in testdata/, not here)
 tmp/

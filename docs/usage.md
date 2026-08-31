@@ -56,6 +56,8 @@ let forging = lib.double_setting("forging-time", 3.0, NumericSpec { min: None, m
 lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "oil"]);
 ```
 
+If your mod already ships settings under names of its own, there are four `Legacy` constructors that take a full name and an explicit order and emit both verbatim. See [Migrating a mod that already ships settings](migration.md).
+
 `NumericSpec` bounds an int or double setting and both bounds are optional: a zero value in Go, `None` in Rust, means unbounded rather than pinned to zero. `Between` and `NumericSpec::between` are shorthand for the common case of setting both.
 
 Settings are emitted in declaration order and given `order` strings from that order, so the settings screen shows them the way you wrote them.
@@ -141,6 +143,10 @@ fkrecipes: hardened-steel-plate-quenching: none of tungsten-carbide, titanium-pl
 
 Dropping rather than guessing is deliberate. An ingredient the game does not have is a hard load failure that names your mod, inside whatever overhaul pack the player has installed, and a substituted guess is a recipe you did not design. Use the ladder for anything optional, and put a staple last when the ingredient is required.
 
+### Ingredients a dropdown chooses
+
+`IngredientsBy` binds the whole ingredient list to a dropdown setting: one plan per value, resolved by the ordinary ladder rules. It is mutually exclusive with `Ingredients`, and the values it offers must equal the setting's allowed values in the same order. A chosen plan that resolves to nothing falls back to the default option's plan, with a line saying so. See [Migrating a mod that already ships settings](migration.md) for the full shape and the refusals.
+
 ### Crafting time
 
 `CraftTime` is a fixed number of seconds. Zero means "say nothing", and the engine applies its own default.
@@ -190,6 +196,8 @@ Some base technologies are `research_trigger` technologies and carry no unit at 
 ```
 fkrecipes: at the data stage, CostOf(steam-power): steam-power is a research_trigger technology with no unit to copy; name a unit-carrying technology instead
 ```
+
+`CostBy` is `CostOf` with a ladder per dropdown value: the player picks a tier, and the ladder is walked to the first technology that exists and carries a unit. That unit is copied verbatim with its `max_level`, and the source becomes the technology's sole prerequisite, so it does not combine with any of the placement fields. A `Fallback` unit applies when no rung works out. See [Migrating a mod that already ships settings](migration.md).
 
 `Unit` is the escape hatch when no existing technology has the price you want. It takes a count, a time in seconds and a list of science packs, each of which must exist.
 
@@ -291,7 +299,7 @@ the [string-mod-setting] entry steelworks-quench-medium-brine matches no dropdow
 
 **Pass the name your mod is packaged under.** Every other prefix in this library is derived from the packaged mod at emit time, where it cannot disagree; a host test has no `fkdata` to ask, so this one is a parameter. A wrong name is a wrong prefix for every key at once, which shows up as every setting reported missing and every entry reported orphaned rather than as a subtle miss.
 
-Two limits worth knowing. In `[string-mod-setting]` only keys under one of your own dropdown settings are considered, so another mod's string setting in the same file is left alone. In the name and description sections the only available rule is the mod prefix, so a setting you wrote by hand rather than declaring through this library is reported as an orphan.
+Two limits worth knowing. In `[string-mod-setting]` only keys under one of your own dropdown settings are considered, so another mod's string setting in the same file is left alone. In the name and description sections the orphan rule is the mod prefix, so an entry matching no setting you declared is reported only when it carries that prefix: one under a name of its own, such as a setting you wrote by hand or a legacy name you have since renamed, is not reported at all. [Migrating a mod that already ships settings](migration.md) says why that arm cannot be widened soundly.
 
 ## Gates in this repository
 
@@ -300,5 +308,7 @@ Two scripts check the library end to end, and both need a local FkLua checkout.
 [`scripts/run-mirror.sh`](../scripts/run-mirror.sh) builds both example guests, packages each with `fklua mod`, runs their settings and data stages under FkLua's Lua interpreter against a strict engine stand-in, and compares the two transcripts against each other and against a committed golden. The stand-in validates prototypes the way the engine does, so a prototype that would fail in game fails here.
 
 [`scripts/run-ingame.sh`](../scripts/run-ingame.sh) runs both packaged mods in a real Factorio with `--dump-data` and hashes the normalised data and settings dumps against a golden keyed by engine version. It also asserts, with queries over the dump, the things a hash cannot name: that the prerequisite splice landed, that the bound crafting time reached the recipe, and that the copied research cost matches its source prototype in the same dump.
+
+[Migrating a mod that already ships settings](migration.md) covers the surfaces an existing mod needs: settings whose names it keeps verbatim, and ingredients and research costs a dropdown chooses.
 
 Maintainer design notes, including the measured engine behaviour these rules come from, live in the repository's `agents/` directory.

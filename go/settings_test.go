@@ -68,7 +68,7 @@ func TestPlanSettingsRefusals(t *testing.T) {
 				l.BoolSetting("hardened-tools", true)
 				l.IntSetting("hardened-tools", 3, NumericSpec{})
 			},
-			want: "fkrecipes: at the settings stage, two settings share the name hardened-tools; the engine keeps the last one silently",
+			want: "fkrecipes: at the settings stage, two settings share the name steelworks-hardened-tools; the engine keeps the last one silently",
 		},
 		{
 			name: "a setting with an empty name",

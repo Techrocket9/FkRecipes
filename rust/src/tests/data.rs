@@ -656,7 +656,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes must name exactly one of CostOf or Unit",
+            want: "fkrecipes: at the data stage, the technology steel-axes must name exactly one of CostOf, Unit or CostBy",
         },
         Case {
             name: "both cost_of and unit",
@@ -678,7 +678,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes must name exactly one of CostOf or Unit",
+            want: "fkrecipes: at the data stage, the technology steel-axes must name exactly one of CostOf, Unit or CostBy",
         },
         Case {
             name: "before without after",

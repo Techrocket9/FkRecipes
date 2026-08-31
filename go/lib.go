@@ -127,8 +127,16 @@ const (
 )
 
 type settingDecl struct {
-	kind    settingKind
-	name    string
+	kind settingKind
+	// name is what the consumer declared. It is emitted with the mod prefix
+	// in front of it, unless legacy is set, in which case it IS the emitted
+	// name.
+	name string
+	// legacy marks a setting whose name predates this library. See the
+	// Legacy constructors: the name crosses verbatim and the order string is
+	// the consumer's rather than one derived from declaration order.
+	legacy  bool
+	order   string
 	defBool bool
 	defNum  float64
 	// The int setting's default as it was DECLARED. defNum has already been
@@ -138,6 +146,15 @@ type settingDecl struct {
 	defStr string
 	spec   NumericSpec
 	values []string
+}
+
+// emittedName is the name a setting prototype actually carries: prefixed for a
+// generated setting, verbatim for a legacy one.
+func (s settingDecl) emittedName(prefix string) string {
+	if s.legacy {
+		return s.name
+	}
+	return prefix + s.name
 }
 
 // BoolSetting declares a startup bool setting. The name is prefixed on the
@@ -223,6 +240,47 @@ func IngredientNamed(amount int64, first string, fallbacks ...string) Ingredient
 	return Ingredient{amount: amount, candidates: candidates}
 }
 
+// IngredientChoice is one dropdown value and the ingredients it selects.
+type IngredientChoice struct {
+	Value       string
+	Ingredients []Ingredient
+}
+
+// IngredientChoices binds a recipe's ingredients to a dropdown setting: the
+// player picks a value and the matching plan is what the recipe is made of.
+//
+// Every plan is resolved by the ordinary ladder rules, so a plan may name
+// things another mod provides. A chosen plan that resolves to nothing falls
+// back to the DEFAULT option's plan, with a line saying so, rather than
+// emitting a recipe made of nothing.
+type IngredientChoices struct {
+	Setting DropdownSettingRef
+	Choices []IngredientChoice
+}
+
+// CostChoice is one dropdown value and the technologies whose cost it selects,
+// in ladder order.
+type CostChoice struct {
+	Value   string
+	Sources []string
+}
+
+// CostChoices binds a technology's research cost to a dropdown setting.
+//
+// THE PREREQUISITE MOVES WITH THE UNIT. The source whose cost is copied also
+// becomes the technology's sole prerequisite, so price and tree position come
+// from one named point. That is the rule this surface exists to make easy, and
+// it is why CostBy does not combine with After, Before or AfterTech.
+//
+// Fallback is what applies when no source in the chosen ladder carries a unit
+// this library can copy. It is a hand-rolled cost, validated exactly like one,
+// and a technology that falls back has no prerequisite at all.
+type CostChoices struct {
+	Setting  DropdownSettingRef
+	Choices  []CostChoice
+	Fallback UnitSpec
+}
+
 // RecipeSpec describes a generated recipe prototype.
 type RecipeSpec struct {
 	Name string // empty means the result item's name
@@ -237,6 +295,11 @@ type RecipeSpec struct {
 	// does not fit here. That is the same shape EnabledBy uses for a bool.
 	CraftTime     float64
 	CraftTimeFrom DoubleSettingRef
+
+	// Exactly one of Ingredients and IngredientsBy, or neither. Ingredients
+	// is one fixed list; IngredientsBy lets a dropdown setting choose between
+	// several.
+	IngredientsBy *IngredientChoices
 	Ingredients   []Ingredient
 	ResultCount   int64 // zero means 1
 	Category      string
@@ -257,6 +320,7 @@ func (l *Lib) Recipe(result ItemRef, spec RecipeSpec) RecipeRef {
 		name = l.items[result.index-1].name
 	}
 	spec.Ingredients = copyIngredients(spec.Ingredients)
+	spec.IngredientsBy = copyIngredientChoices(spec.IngredientsBy)
 	l.recipes = append(l.recipes, recipeDecl{name: name, result: result, spec: spec})
 	return RecipeRef{lib: l.id, index: len(l.recipes)}
 }
@@ -281,10 +345,13 @@ type TechSpec struct {
 	Icon     string
 	IconSize int64
 
-	// Exactly one of CostOf and Unit. CostOf copies a named technology's
-	// whole unit verbatim, count_formula and all.
+	// Exactly one of CostOf, Unit and CostBy. CostOf copies a named
+	// technology's whole unit verbatim, count_formula and all. CostBy lets a
+	// dropdown setting choose between several sources, and places the
+	// technology as well: see CostChoices.
 	CostOf string
 	Unit   *UnitSpec
+	CostBy *CostChoices
 
 	// Tree placement, and exactly one anchor. After names a technology the
 	// GAME has; AfterTech names one THIS PLAN declares, which is how a plan
@@ -311,6 +378,7 @@ type techDecl struct {
 func (l *Lib) Technology(name string, spec TechSpec) TechRef {
 	spec.Unlocks = copyRecipeRefs(spec.Unlocks)
 	spec.Unit = copyUnit(spec.Unit)
+	spec.CostBy = copyCostChoices(spec.CostBy)
 	l.techs = append(l.techs, techDecl{name: name, spec: spec})
 	return TechRef{lib: l.id, index: len(l.techs)}
 }
@@ -416,4 +484,105 @@ func copyUnit(in *UnitSpec) *UnitSpec {
 		copy(out.Packs, in.Packs)
 	}
 	return &out
+}
+
+// ---------------------------------------------------------------------------
+// The Legacy constructors.
+//
+// THESE ARE FOR MIGRATING A MOD THAT ALREADY SHIPPED. Factorio persists a
+// player's startup choices in mod-settings.dat keyed by the setting's NAME,
+// and it has no rename mechanism: a setting that comes back under a different
+// name is a new setting, and every player who had chosen a value gets the
+// default instead. A mod whose settings predate this library therefore cannot
+// adopt the generated names without discarding what its players chose.
+//
+// So the name crosses VERBATIM, with no prefix, and the order string is the
+// consumer's own because a historic mod picked its own (generated settings get
+// two letters from declaration order; a mod that shipped "a" and "b" keeps
+// them, and a settings dump hash pins that).
+//
+// THE INVARIANT THIS BENDS, SAID PLAINLY. Everywhere else in this library an
+// unprefixed name is unrepresentable. Here it is representable through a
+// constructor whose name says Legacy, which is the same signposting
+// DropdownSettingNeedingLocale uses: the deviation is in the call site, where
+// a reviewer sees it.
+//
+// A NEW SETTING USES THE PREFIXED CONSTRUCTORS. Nothing about these is a
+// shortcut around the prefix; they exist so a migration can preserve values,
+// and a mod with no shipped settings has nothing to preserve.
+// ---------------------------------------------------------------------------
+
+// LegacyBoolSetting declares a bool setting under a name this mod already
+// ships. See the note above the Legacy constructors.
+func (l *Lib) LegacyBoolSetting(fullName string, def bool, order string) BoolSettingRef {
+	l.settings = append(l.settings, settingDecl{
+		kind: settingBool, name: fullName, legacy: true, order: order, defBool: def,
+	})
+	return BoolSettingRef{lib: l.id, index: len(l.settings)}
+}
+
+// LegacyIntSetting declares an int setting under a name this mod already
+// ships. See the note above the Legacy constructors.
+func (l *Lib) LegacyIntSetting(fullName string, def int64, spec NumericSpec, order string) IntSettingRef {
+	l.settings = append(l.settings, settingDecl{
+		kind: settingInt, name: fullName, legacy: true, order: order,
+		defNum: float64(def), defInt: def, spec: spec,
+	})
+	return IntSettingRef{lib: l.id, index: len(l.settings)}
+}
+
+// LegacyDoubleSetting declares a double setting under a name this mod already
+// ships. See the note above the Legacy constructors.
+func (l *Lib) LegacyDoubleSetting(fullName string, def float64, spec NumericSpec, order string) DoubleSettingRef {
+	l.settings = append(l.settings, settingDecl{
+		kind: settingDouble, name: fullName, legacy: true, order: order,
+		defNum: def, spec: spec,
+	})
+	return DoubleSettingRef{lib: l.id, index: len(l.settings)}
+}
+
+// LegacyDropdownSettingNeedingLocale declares a string setting under a name
+// this mod already ships. See the note above the Legacy constructors, and the
+// note on DropdownSettingNeedingLocale: the values still need locale entries,
+// and a migrated mod already has them under exactly these keys.
+func (l *Lib) LegacyDropdownSettingNeedingLocale(fullName string, def string, values []string, order string) DropdownSettingRef {
+	l.settings = append(l.settings, settingDecl{
+		kind: settingDropdown, name: fullName, legacy: true, order: order,
+		defStr: def, values: copyStrings(values),
+	})
+	return DropdownSettingRef{lib: l.id, index: len(l.settings)}
+}
+
+func copyIngredientChoices(in *IngredientChoices) *IngredientChoices {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Choices = make([]IngredientChoice, len(in.Choices))
+	for i, c := range in.Choices {
+		c.Ingredients = copyIngredients(c.Ingredients)
+		out.Choices[i] = c
+	}
+	return &out
+}
+
+func copyCostChoices(in *CostChoices) *CostChoices {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Choices = make([]CostChoice, len(in.Choices))
+	for i, c := range in.Choices {
+		c.Sources = copyStrings(c.Sources)
+		out.Choices[i] = c
+	}
+	if in.Fallback.Packs != nil {
+		out.Fallback.Packs = make([]Pack, len(in.Fallback.Packs))
+		copy(out.Fallback.Packs, in.Fallback.Packs)
+	}
+	return &out
+}
+
+func (l *Lib) validDropdownSetting(r DropdownSettingRef) bool {
+	return r.lib == l.id && r.index >= 1 && r.index <= len(l.settings)
 }

@@ -23,7 +23,10 @@ extern crate alloc;
 mod guest {
     use alloc::string::String;
     use alloc::vec;
-    use fkrecipes::{Ingredient, ItemSpec, Lib, NumericSpec, Pack, RecipeSpec, TechSpec, UnitSpec};
+    use fkrecipes::{
+        CostChoice, CostChoices, Ingredient, IngredientChoice, IngredientChoices, ItemSpec, Lib,
+        NumericSpec, Pack, RecipeSpec, TechSpec, UnitSpec,
+    };
 
     /// Declares the whole mod. Both stages call it, because the module is
     /// instantiated fresh per stage and nothing carries across: the settings
@@ -45,8 +48,17 @@ mod guest {
                 max: Some(120.0),
             },
         );
-        lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "oil"]);
+        let medium =
+            lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "oil"]);
         let bonuses = lib.bool_setting("bonus-research", true);
+        // Declared LAST on purpose: the generated order is derived from the
+        // declaration index, so a new setting at the end leaves every existing
+        // order alone.
+        let tier = lib.dropdown_setting_needing_locale(
+            "tips-research-tier",
+            "projectile",
+            &["projectile", "military"],
+        );
 
         let plate = lib.item(
             "hardened-steel-plate",
@@ -85,19 +97,43 @@ mod guest {
             plate,
             RecipeSpec {
                 craft_time_from: forging,
-                ingredients: vec![
-                    // The ladder: tungsten is another mod's plate and is
-                    // absent from the stand-in, so the second rung answers and
-                    // the drop of the first is visible in the transcript.
-                    Ingredient::named(2, "tungsten-plate", &["steel-plate"]),
-                    Ingredient::of(rivet, 4),
-                    // An optional hardener only an overhaul pack provides.
-                    // Neither candidate is in the stand-in, so the whole
-                    // ingredient is DROPPED with a log line rather than
-                    // guessed at, which is the other half of the ladder and
-                    // the only line the transcript carries from fkdata::log.
-                    Ingredient::named(1, "tungsten-carbide", &["titanium-plate"]),
-                ],
+                // The player picks what the plate is quenched in, and each
+                // medium is a whole ingredient plan rather than one
+                // substituted line.
+                ingredients_by: Some(IngredientChoices {
+                    setting: medium,
+                    choices: vec![
+                        IngredientChoice {
+                            value: String::from("water"),
+                            ingredients: vec![
+                                // The ladder: tungsten is another mod's plate
+                                // and is absent from the stand-in, so the
+                                // second rung answers and the drop of the
+                                // first is visible in the transcript.
+                                Ingredient::named(2, "tungsten-plate", &["steel-plate"]),
+                                Ingredient::of(rivet, 4),
+                                // An optional hardener only an overhaul pack
+                                // provides. Neither candidate is in the
+                                // stand-in, so the whole ingredient is DROPPED
+                                // with a log line rather than guessed at,
+                                // which is the other half of the ladder.
+                                Ingredient::named(1, "tungsten-carbide", &["titanium-plate"]),
+                            ],
+                        },
+                        // The organic bath: cheaper in rivets, and it wants an
+                        // oil this stand-in does not have, so the drop line
+                        // fires on this branch too. Enough survives that the
+                        // water plan is not reached for.
+                        IngredientChoice {
+                            value: String::from("oil"),
+                            ingredients: vec![
+                                Ingredient::named(2, "steel-plate", &[]),
+                                Ingredient::of(rivet, 2),
+                                Ingredient::named(1, "light-oil-barrel", &["crude-oil-barrel"]),
+                            ],
+                        },
+                    ],
+                }),
                 name: String::from("hardened-steel-plate-quenching"),
                 category: String::from("smelting"),
                 display_name: String::from("Hardened steel plate"),
@@ -153,15 +189,48 @@ mod guest {
                 ..Default::default()
             },
         );
-        // A bonus line: it unlocks nothing, hangs off nothing, and prices
-        // itself from a multi-level technology, so the formula and the level
-        // cap come across with the unit.
+        // A bonus line the player prices for themselves. Each ladder is walked
+        // to the first technology that is actually there and carries a cost,
+        // and THE PREREQUISITE MOVES WITH THE UNIT: whichever source pays for
+        // this one also becomes the thing it hangs off, so cost and tree
+        // position never disagree.
         lib.technology(
             "hardened-tips",
             TechSpec {
                 icon: String::from("__fkrecipes-example__/graphics/technology/hardened-tips.png"),
                 icon_size: 128,
-                cost_of: String::from("physical-projectile-damage-7"),
+                cost_by: Some(CostChoices {
+                    setting: tier,
+                    choices: vec![
+                        // The first rung is an overhaul pack's technology and
+                        // is in neither the stand-in nor the game, so the
+                        // ladder steps past it to the multi-level one, whose
+                        // count_formula and level cap come across with the
+                        // unit.
+                        CostChoice {
+                            value: String::from("projectile"),
+                            sources: vec![
+                                String::from("tungsten-hardening"),
+                                String::from("physical-projectile-damage-7"),
+                            ],
+                        },
+                        CostChoice {
+                            value: String::from("military"),
+                            sources: vec![String::from("military-4")],
+                        },
+                    ],
+                    // What applies when a ladder finds nothing at all: the
+                    // technology is still researchable, and still says so in
+                    // the log.
+                    fallback: UnitSpec {
+                        count: 200,
+                        seconds: 30.0,
+                        packs: vec![Pack {
+                            name: String::from("automation-science-pack"),
+                            amount: 1,
+                        }],
+                    },
+                }),
                 enabled_by: bonuses,
                 display_name: String::from("Hardened tool tips"),
                 description: String::from("Every level puts a harder edge on the same tools."),

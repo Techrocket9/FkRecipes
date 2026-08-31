@@ -42,13 +42,21 @@ impl Lib {
     /// key at once: the result is every setting reported missing and every
     /// entry reported orphaned, which is loud rather than subtle.
     ///
-    /// WHAT IT POLICES is this plan's own names. In `[string-mod-setting]`
-    /// only keys under one of this plan's dropdown settings are considered, so
-    /// another setting's values are not this checker's business. In
-    /// `[mod-setting-name]` and `[mod-setting-description]` the rule can only
-    /// be the mod prefix, so a setting the consumer wrote BY HAND rather than
-    /// declaring here is reported as an orphan; that is the honest limit of
-    /// what this function can know.
+    /// WHAT IT POLICES is the mod-prefix namespace plus this plan's own
+    /// declared names, legacy names included. In `[string-mod-setting]` only
+    /// keys under one of this plan's dropdown settings are considered, so
+    /// another setting's values are not this checker's business; a legacy
+    /// dropdown is policed under the name it actually carries, so a stale
+    /// value key beneath it IS caught. In `[mod-setting-name]` and
+    /// `[mod-setting-description]` the orphan arm fires only on keys CARRYING
+    /// THE MOD PREFIX, so an entry that matches no declared setting and
+    /// carries no prefix is invisible here: a renamed legacy setting's
+    /// leftover entry goes unreported, and so does a setting the consumer
+    /// wrote by hand under a name of its own. That arm cannot be widened
+    /// soundly, because a stale legacy name and a deliberately hand-rolled one
+    /// are the same string to this function; policing them needs a
+    /// known-hand-rolled parameter it does not have rather than a guess over
+    /// unrecognized names.
     ///
     /// A DESCRIPTION IS OPTIONAL HERE, AND THAT IS A DELIBERATE DIVERGENCE
     /// from BetterBeltBalancer, which requires one. The engine's failure mode
@@ -63,7 +71,7 @@ impl Lib {
         // (1) and (2): what the player cannot read, in DECLARATION order, and
         // a setting's own name before the values it offers.
         for s in &self.settings {
-            let full = format!("{}{}", prefix, s.name);
+            let full = s.emitted_name(&prefix);
             if !locale_has(&sections, "mod-setting-name", &full) {
                 findings.push(format!(
                     "the setting {} has no [mod-setting-name] entry{}",
@@ -132,7 +140,7 @@ impl Lib {
             if s.kind != SettingKind::Dropdown {
                 continue;
             }
-            let full = format!("{}{}", prefix, s.name);
+            let full = s.emitted_name(&prefix);
             for v in &s.values {
                 let key = format!("{}-{}", full, v);
                 let owner = format!("{}/{}", full, v);
@@ -163,9 +171,7 @@ impl Lib {
     }
 
     fn declares_setting(&self, prefix: &str, key: &str) -> bool {
-        self.settings
-            .iter()
-            .any(|s| format!("{}{}", prefix, s.name) == key)
+        self.settings.iter().any(|s| s.emitted_name(prefix) == key)
     }
 
     /// BetterBeltBalancer's rule: a key belongs to this checker only when it
@@ -173,7 +179,8 @@ impl Lib {
     /// else's string setting is not this function's business.
     fn polices_value_key(&self, prefix: &str, key: &str) -> bool {
         self.settings.iter().any(|s| {
-            s.kind == SettingKind::Dropdown && key.starts_with(&format!("{}{}-", prefix, s.name))
+            s.kind == SettingKind::Dropdown
+                && key.starts_with(&format!("{}-", s.emitted_name(prefix)))
         })
     }
 
@@ -183,7 +190,7 @@ impl Lib {
                 continue;
             }
             for v in &s.values {
-                if format!("{}{}-{}", prefix, s.name, v) == key {
+                if format!("{}-{}", s.emitted_name(prefix), v) == key {
                     return true;
                 }
             }

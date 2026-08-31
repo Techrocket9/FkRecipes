@@ -159,6 +159,8 @@ Both guests above declare the same mod. Package either with `fklua mod --data-mo
 - **Prefixes everything.** The prefix comes from the mod name FkLua packaged, read at emit time. There is no prefix parameter, so a generated name cannot drift from the mod it ships in.
 - **Resolves ingredient names, or drops them.** `IngredientNamed` takes a list of candidates and uses the first one the game actually has. If none is present the ingredient is dropped and a line is written to the log, because a name the game does not have is a hard load failure that names your mod, and a guess is worse than an omission.
 - **Copies a research cost from a technology you name.** `CostOf` takes the source's whole `unit` unchanged, so a `count_formula` and a multi-level technology's `max_level` come across without this library needing to understand either.
+- **Lets a setting choose the ingredients or the cost.** `IngredientsBy` binds a recipe's whole ingredient list to a dropdown, one plan per value. `CostBy` binds a technology's research cost to a dropdown, walking a ladder of source technologies per value to the first one the game actually has; the source it settles on also becomes the technology's prerequisite.
+- **Keeps the names an existing mod already ships.** Four `Legacy` constructors take a full setting name and an explicit order and emit both verbatim, because Factorio persists startup values by name with no rename mechanism and a regenerated name resets every existing save to its default.
 - **Places a technology in the tree.** Behind an existing one, between two of them, or behind another technology from your own plan. If an endpoint is missing because another mod removed it, the placement degrades and logs the degradation rather than guessing a substitute.
 - **Hides rather than deletes.** A technology whose bool setting is off is emitted with `enabled = false` and `hidden = true`. A prototype that vanishes is dropped from any save that had researched it, and flipping a startup setting is exactly the mid-save event this library invites.
 - **Refuses before the game does.** Prerequisite cycles (with the full ring named), duplicate names, a name your plan would overwrite, a `CostOf` source that is a `research_trigger` technology and therefore has no unit to copy, a science pack that does not exist, a crafting time the engine will not take, and handles from a different plan.
@@ -193,6 +195,7 @@ Numbers here carry the environment that produced them.
 - [`scripts/run-ingame.sh`](scripts/run-ingame.sh) runs both in a real Factorio with `--dump-data` and hashes the result against a golden keyed by engine version.
 - `testdata/` holds those goldens and the locale checker's fixture.
 - [`docs/usage.md`](docs/usage.md) is the consumer's tour of every verb.
+- [`docs/migration.md`](docs/migration.md) is the path for a mod that already ships hand-rolled settings, with BetterBeltBalancer as the worked example.
 
 ## Licence
 

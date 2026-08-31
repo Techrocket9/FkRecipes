@@ -162,12 +162,24 @@ fi
 T="$TMP/transcript-go.txt"
 echo "== checking the transcript says something"
 grep -q "TRANSCRIPT extend#" "$T" || fail "no prototype was ever extended"
-# The ladder, both halves: the first rung fell back to a present candidate,
-# and a rung with nothing present was dropped with a line through fkdata.Log.
+# The ladder, both halves, inside the ingredient plan the OIL medium selects:
+# a rung fell back to a present candidate, and a rung with nothing present was
+# dropped with a line through fkdata.Log.
 grep -q '"name"="steel-plate"' "$T" || fail "the ingredient ladder did not fall back to steel-plate"
-grep -q "^LOG fkrecipes: hardened-steel-plate-quenching: none of tungsten-carbide, titanium-plate is present, so the ingredient is dropped$" "$T" ||
+grep -q "^LOG fkrecipes: hardened-steel-plate-quenching: none of light-oil-barrel, crude-oil-barrel is present, so the ingredient is dropped$" "$T" ||
   fail "the dropped ladder logged nothing"
 if grep -q '"tungsten-plate"' "$T"; then fail "an absent ingredient reached a prototype"; fi
+# The chosen medium is the one that reached the prototype, and the plan the
+# player did NOT pick left nothing behind. Matched on the WHOLE ingredient
+# list rather than on one amount: the recipe name is serialised after the
+# ingredients, and "amount"=4 on its own also appears in an unrelated recipe's
+# results. The water plan asks for four rivets, the oil plan for two.
+oil_plan='"ingredients"={1={"amount"=2,"name"="steel-plate","type"="item"},2={"amount"=2,"name"="fkrecipes-example-steel-rivet","type"="item"}}'
+water_plan='"ingredients"={1={"amount"=2,"name"="steel-plate","type"="item"},2={"amount"=4,"name"="fkrecipes-example-steel-rivet","type"="item"}}'
+grep -qF "$oil_plan" "$T" || fail "the chosen ingredient plan did not reach the recipe"
+if grep -qF "$water_plan" "$T"; then
+  fail "the ingredient plan nobody chose reached a prototype"
+fi
 grep -q '"enabled"=false' "$T" || fail "no prototype came out disabled"
 grep -q '"hidden"=true' "$T" || fail "the switched-off technology is not hidden"
 grep -q '"energy_required"=7.5' "$T" || fail "the bound crafting time did not reach a recipe"
@@ -182,8 +194,15 @@ grep -q 'FINAL .*"fkrecipes-example-hardened-tips"[^}]*"enabled"=true' "$T" ||
 if grep -q '"fkrecipes-example-hardened-tips"[^}]*"hidden"' "$T"; then
   fail "a switched-on technology must carry no hidden field"
 fi
-grep -q '"max_level"="infinite"' "$T" || fail "the copied level cap never reached a prototype"
-grep -q '"count_formula"' "$T" || fail "the formula-priced unit was not copied"
+# The cost ladder. These name the GENERATED prototype rather than any unit
+# field on its own: the stand-in's own rows carry those fields too, so a grep
+# for the field alone would pass whether or not anything was copied. The level
+# cap and the count_formula are the in-game gate's subject, where the declared
+# default walks the other ladder and copies them out of the real base.
+grep -q '^TRANSCRIPT extend#[0-9]*.*"name"="fkrecipes-example-hardened-tips".*"count"=250' "$T" ||
+  fail "the ladder did not copy the chosen source unit"
+grep -q '^TRANSCRIPT extend#[0-9]*.*"name"="fkrecipes-example-hardened-tips".*"prerequisites"={1="military-4"}' "$T" ||
+  fail "the prerequisite did not move with the copied unit"
 grep -q "fkrecipes-example-hardened-steel" "$T" || fail "the generated technology is missing"
 grep -q 'FINAL .*"logistics-2".*fkrecipes-example-hardened-steel' "$T" ||
   fail "the prerequisite splice is not visible in the final data.raw"

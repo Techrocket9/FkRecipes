@@ -1,5 +1,6 @@
 mod cycle;
 pub(crate) mod data;
+mod migration;
 mod settings;
 mod transcript;
 mod world;

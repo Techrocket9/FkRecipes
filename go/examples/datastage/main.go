@@ -27,8 +27,13 @@ func plan() *fkrecipes.Lib {
 	// beside the declared ceiling, so both bounds are in the golden and the
 	// single-bound spec is exercised.
 	forging := lib.DoubleSetting("forging-time", 3, fkrecipes.NumericSpec{HasMax: true, Max: 120})
-	lib.DropdownSettingNeedingLocale("quench-medium", "water", []string{"water", "oil"})
+	medium := lib.DropdownSettingNeedingLocale("quench-medium", "water", []string{"water", "oil"})
 	bonuses := lib.BoolSetting("bonus-research", true)
+	// Declared LAST on purpose: the generated order is derived from the
+	// declaration index, so a new setting at the end leaves every existing
+	// order alone.
+	tier := lib.DropdownSettingNeedingLocale("tips-research-tier", "projectile",
+		[]string{"projectile", "military"})
 
 	plate := lib.Item("hardened-steel-plate", fkrecipes.ItemSpec{
 		Icon:        "__fkrecipes-example__/graphics/icons/hardened-steel-plate.png",
@@ -55,18 +60,33 @@ func plan() *fkrecipes.Lib {
 	})
 	plates := lib.Recipe(plate, fkrecipes.RecipeSpec{
 		CraftTimeFrom: forging,
-		Ingredients: []fkrecipes.Ingredient{
-			// The ladder: tungsten is another mod's plate and is absent from
-			// the stand-in, so the second rung answers and the drop of the
-			// first is visible in the transcript.
-			fkrecipes.IngredientNamed(2, "tungsten-plate", "steel-plate"),
-			fkrecipes.IngredientOf(rivet, 4),
-			// An optional hardener only an overhaul pack provides. Neither
-			// candidate is in the stand-in, so the whole ingredient is
-			// DROPPED with a log line rather than guessed at, which is the
-			// other half of the ladder and the only line the transcript
-			// carries from fkdata.Log.
-			fkrecipes.IngredientNamed(1, "tungsten-carbide", "titanium-plate"),
+		// The player picks what the plate is quenched in, and each medium is
+		// a whole ingredient plan rather than one substituted line.
+		IngredientsBy: &fkrecipes.IngredientChoices{
+			Setting: medium,
+			Choices: []fkrecipes.IngredientChoice{
+				{Value: "water", Ingredients: []fkrecipes.Ingredient{
+					// The ladder: tungsten is another mod's plate and is
+					// absent from the stand-in, so the second rung answers
+					// and the drop of the first is visible in the transcript.
+					fkrecipes.IngredientNamed(2, "tungsten-plate", "steel-plate"),
+					fkrecipes.IngredientOf(rivet, 4),
+					// An optional hardener only an overhaul pack provides.
+					// Neither candidate is in the stand-in, so the whole
+					// ingredient is DROPPED with a log line rather than
+					// guessed at, which is the other half of the ladder.
+					fkrecipes.IngredientNamed(1, "tungsten-carbide", "titanium-plate"),
+				}},
+				// The organic bath: cheaper in rivets, and it wants an oil
+				// this stand-in does not have, so the drop line fires on this
+				// branch too. Enough survives that the water plan is not
+				// reached for.
+				{Value: "oil", Ingredients: []fkrecipes.Ingredient{
+					fkrecipes.IngredientNamed(2, "steel-plate"),
+					fkrecipes.IngredientOf(rivet, 2),
+					fkrecipes.IngredientNamed(1, "light-oil-barrel", "crude-oil-barrel"),
+				}},
+			},
 		},
 		Name:        "hardened-steel-plate-quenching",
 		Category:    "smelting",
@@ -108,13 +128,34 @@ func plan() *fkrecipes.Lib {
 		AfterTech:   hardenedSteel,
 		DisplayName: "Steel riveting",
 	})
-	// A bonus line: it unlocks nothing, hangs off nothing, and prices itself
-	// from a multi-level technology, so the formula and the level cap come
-	// across with the unit.
+	// A bonus line the player prices for themselves. Each ladder is walked to
+	// the first technology that is actually there and carries a cost, and THE
+	// PREREQUISITE MOVES WITH THE UNIT: whichever source pays for this one
+	// also becomes the thing it hangs off, so cost and tree position never
+	// disagree.
 	lib.Technology("hardened-tips", fkrecipes.TechSpec{
-		Icon:        "__fkrecipes-example__/graphics/technology/hardened-tips.png",
-		IconSize:    128,
-		CostOf:      "physical-projectile-damage-7",
+		Icon:     "__fkrecipes-example__/graphics/technology/hardened-tips.png",
+		IconSize: 128,
+		CostBy: &fkrecipes.CostChoices{
+			Setting: tier,
+			Choices: []fkrecipes.CostChoice{
+				// The first rung is an overhaul pack's technology and is in
+				// neither the stand-in nor the game, so the ladder steps past
+				// it to the multi-level one, whose count_formula and level cap
+				// come across with the unit.
+				{Value: "projectile", Sources: []string{
+					"tungsten-hardening", "physical-projectile-damage-7",
+				}},
+				{Value: "military", Sources: []string{"military-4"}},
+			},
+			// What applies when a ladder finds nothing at all: the technology
+			// is still researchable, and still says so in the log.
+			Fallback: fkrecipes.UnitSpec{
+				Count:   200,
+				Seconds: 30,
+				Packs:   []fkrecipes.Pack{{Name: "automation-science-pack", Amount: 1}},
+			},
+		},
 		EnabledBy:   bonuses,
 		DisplayName: "Hardened tool tips",
 		Description: "Every level puts a harder edge on the same tools.",

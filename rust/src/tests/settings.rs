@@ -74,7 +74,7 @@ fn plan_settings_refusals() {
                 l.bool_setting("hardened-tools", true);
                 l.int_setting("hardened-tools", 3, NumericSpec::default());
             },
-            want: "fkrecipes: at the settings stage, two settings share the name hardened-tools; the engine keeps the last one silently",
+            want: "fkrecipes: at the settings stage, two settings share the name steelworks-hardened-tools; the engine keeps the last one silently",
         },
         Case {
             name: "a setting with an empty name",

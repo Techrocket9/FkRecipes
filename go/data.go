@@ -139,6 +139,29 @@ func (l *Lib) validate(w World, stage, prefix string) error {
 		if r.spec.CraftTime != 0 && r.spec.CraftTimeFrom.index != 0 {
 			return errors.New(at + "the recipe " + r.name + " names both CraftTime and CraftTimeFrom; pick one")
 		}
+		if len(r.spec.Ingredients) > 0 && r.spec.IngredientsBy != nil {
+			return errors.New(at + "the recipe " + r.name + " names both Ingredients and IngredientsBy; pick one")
+		}
+		if r.spec.IngredientsBy != nil {
+			by := r.spec.IngredientsBy
+			if !l.validDropdownSetting(by.Setting) {
+				return errors.New(at + "the recipe " + r.name + " names an ingredients setting that this plan never declared")
+			}
+			values := l.settings[by.Setting.index-1].values
+			offered := make([]string, 0, len(by.Choices))
+			for _, c := range by.Choices {
+				offered = append(offered, c.Value)
+			}
+			if err := matchesAllowedValues(at, "the recipe "+r.name,
+				l.settings[by.Setting.index-1].emittedName(prefix), offered, values); err != nil {
+				return err
+			}
+			for _, c := range by.Choices {
+				if err := l.validateIngredients(at, "the recipe "+r.name, c.Ingredients); err != nil {
+					return err
+				}
+			}
+		}
 		if r.spec.CraftTimeFrom.index != 0 && !l.validDoubleSetting(r.spec.CraftTimeFrom) {
 			return errors.New(at + "the recipe " + r.name + " names a crafting-time setting that this plan never declared")
 		}
@@ -162,16 +185,8 @@ func (l *Lib) validate(w World, stage, prefix string) error {
 		if w.RecipeExists(prefix + r.name) {
 			return errors.New(at + "the recipe " + prefix + r.name + " already exists in data.raw; this plan would overwrite it")
 		}
-		for _, ing := range r.spec.Ingredients {
-			if ing.amount < 1 {
-				return errors.New(at + "the recipe " + r.name + " has an ingredient amount below 1, which the engine refuses")
-			}
-			if ing.amount > maxExactInt {
-				return errors.New(at + "the recipe " + r.name + " declares an ingredient amount a Lua double cannot hold exactly: " + strconv.FormatInt(ing.amount, 10))
-			}
-			if len(ing.candidates) == 0 && !l.validItem(ing.item) {
-				return errors.New(at + "the recipe " + r.name + " names an ingredient item that this plan never declared")
-			}
+		if err := l.validateIngredients(at, "the recipe "+r.name, r.spec.Ingredients); err != nil {
+			return err
 		}
 	}
 
@@ -189,8 +204,39 @@ func (l *Lib) validate(w World, stage, prefix string) error {
 		}
 		hasCost := t.spec.CostOf != ""
 		hasUnit := t.spec.Unit != nil
-		if hasCost == hasUnit {
-			return errors.New(at + "the technology " + t.name + " must name exactly one of CostOf or Unit")
+		hasCostBy := t.spec.CostBy != nil
+		named := 0
+		for _, set := range []bool{hasCost, hasUnit, hasCostBy} {
+			if set {
+				named++
+			}
+		}
+		if named != 1 {
+			return errors.New(at + "the technology " + t.name + " must name exactly one of CostOf, Unit or CostBy")
+		}
+		// CostBy carries the prerequisite with the unit, so it is the thing
+		// that places the technology. A second placement would be a second
+		// opinion about the same edge.
+		if hasCostBy && (t.spec.After != "" || t.spec.Before != "" || t.spec.AfterTech.index != 0) {
+			return errors.New(at + "the technology " + t.name + " names CostBy with a placement; the prerequisite moves with the unit, so CostBy places the technology itself")
+		}
+		if hasCostBy {
+			by := t.spec.CostBy
+			if !l.validDropdownSetting(by.Setting) {
+				return errors.New(at + "the technology " + t.name + " names a cost setting that this plan never declared")
+			}
+			values := l.settings[by.Setting.index-1].values
+			offered := make([]string, 0, len(by.Choices))
+			for _, c := range by.Choices {
+				offered = append(offered, c.Value)
+			}
+			if err := matchesAllowedValues(at, "the technology "+t.name,
+				l.settings[by.Setting.index-1].emittedName(prefix), offered, values); err != nil {
+				return err
+			}
+			if err := l.validateUnit(at, w, t.name, &by.Fallback); err != nil {
+				return err
+			}
 		}
 		if t.spec.After != "" && t.spec.AfterTech.index != 0 {
 			return errors.New(at + "the technology " + t.name + " names both After and AfterTech; pick one anchor")
@@ -211,33 +257,10 @@ func (l *Lib) validate(w World, stage, prefix string) error {
 			return errors.New(at + "the technology " + t.name + " declares an icon size a Lua double cannot hold exactly: " + strconv.FormatInt(t.spec.IconSize, 10))
 		}
 		if hasUnit {
-			if t.spec.Unit.Count < 1 {
-				return errors.New(at + "the technology " + t.name + " has a unit count below 1, which the engine refuses")
+			if err := l.validateUnit(at, w, t.name, t.spec.Unit); err != nil {
+				return err
 			}
-			if t.spec.Unit.Count > maxExactInt {
-				return errors.New(at + "the technology " + t.name + " declares a unit count a Lua double cannot hold exactly: " + strconv.FormatInt(t.spec.Unit.Count, 10))
-			}
-			if !finite(t.spec.Unit.Seconds) {
-				return errors.New(at + "the technology " + t.name + " declares a research time that is not a finite number")
-			}
-			if t.spec.Unit.Seconds <= 0 {
-				return errors.New(at + "the technology " + t.name + " has a research time at or below zero, which the engine refuses")
-			}
-			for _, p := range t.spec.Unit.Packs {
-				if p.Amount < 1 {
-					return errors.New(at + "the technology " + t.name + " has a science pack amount below 1, which the engine refuses")
-				}
-				if p.Amount > maxExactInt {
-					return errors.New(at + "the technology " + t.name + " declares a science pack amount a Lua double cannot hold exactly: " + strconv.FormatInt(p.Amount, 10))
-				}
-				if p.Name == "" {
-					return errors.New(at + "the technology " + t.name + " prices itself in a pack with an empty name")
-				}
-				if !w.ItemExists(p.Name) {
-					return errors.New(at + "the technology " + t.name + " prices itself in " + p.Name + ", which does not exist")
-				}
-			}
-		} else {
+		} else if hasCost {
 			if !w.TechExists(t.spec.CostOf) {
 				return errors.New(at + "CostOf(" + t.spec.CostOf + "): no technology of that name exists")
 			}
@@ -293,6 +316,13 @@ type rewriteRec struct {
 }
 
 type resolvedTech struct {
+	// The cost a CostBy ladder settled on, and the level cap that rode along
+	// with it. Resolved rather than emitted straight from the spec, because
+	// which source answered is a fact about the game.
+	unit        Value
+	maxLevel    Value
+	hasMaxLevel bool
+
 	prereqs      []string
 	hasEnabledBy bool
 	on           bool
@@ -330,7 +360,7 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 		var ct craftTime
 		if r.spec.CraftTimeFrom.index != 0 {
 			setting := l.settings[r.spec.CraftTimeFrom.index-1]
-			full := prefix + setting.name
+			full := setting.emittedName(prefix)
 			ct.bound = true
 			ct.setting = full
 			ct.value = setting.defNum
@@ -342,26 +372,24 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 		}
 		res.craftTimes = append(res.craftTimes, ct)
 
-		list := make([]resolvedIngredient, 0, len(r.spec.Ingredients))
-		for _, ing := range r.spec.Ingredients {
-			if len(ing.candidates) == 0 {
-				list = append(list, resolvedIngredient{name: prefix + l.items[ing.item.index-1].name, amount: ing.amount})
-				continue
+		declared := r.spec.Ingredients
+		if by := r.spec.IngredientsBy; by != nil {
+			setting := l.settings[by.Setting.index-1]
+			chosen := res.readDropdown(w, setting, prefix)
+			declared = choiceFor(by.Choices, chosen)
+			list := l.resolveIngredients(w, &res, prefix, r.name, declared)
+			// A plan that named things and got none of them is a recipe made
+			// of nothing. The DEFAULT option is what applies then, because it
+			// is the one the mod ships as its own answer.
+			if len(declared) > 0 && len(list) == 0 && chosen != setting.defStr {
+				res.logs = append(res.logs, "fkrecipes: "+r.name+": the "+chosen+
+					" ingredients name nothing this game has, so the "+setting.defStr+" ingredients apply")
+				list = l.resolveIngredients(w, &res, prefix, r.name, choiceFor(by.Choices, setting.defStr))
 			}
-			picked := ""
-			for _, c := range ing.candidates {
-				if w.ItemExists(c) {
-					picked = c
-					break
-				}
-			}
-			if picked == "" {
-				res.logs = append(res.logs, "fkrecipes: "+r.name+": none of "+strings.Join(ing.candidates, ", ")+" is present, so the ingredient is dropped")
-				continue
-			}
-			list = append(list, resolvedIngredient{name: picked, amount: ing.amount})
+			res.recipes = append(res.recipes, list)
+		} else {
+			res.recipes = append(res.recipes, l.resolveIngredients(w, &res, prefix, r.name, declared))
 		}
-		res.recipes = append(res.recipes, list)
 	}
 
 	for _, t := range l.techs {
@@ -369,7 +397,7 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 
 		if t.spec.EnabledBy.index != 0 {
 			s := l.settings[t.spec.EnabledBy.index-1]
-			full := prefix + s.name
+			full := s.emittedName(prefix)
 			rt.hasEnabledBy = true
 			rt.on = s.defBool
 			if v, ok := w.StartupSetting(full); ok && v.Kind == KindBool {
@@ -377,6 +405,42 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 			} else {
 				res.logs = append(res.logs, "fkrecipes: the setting "+full+" was not readable, so its default applies")
 			}
+		}
+
+		if by := t.spec.CostBy; by != nil {
+			setting := l.settings[by.Setting.index-1]
+			chosen := res.readDropdown(w, setting, prefix)
+			source := ""
+			for _, name := range sourcesFor(by.Choices, chosen) {
+				if !w.TechExists(name) || w.TechHasResearchTrigger(name) {
+					continue
+				}
+				u, ok := w.TechUnit(name)
+				// A unit that is not a dictionary, or that lost a subtree on
+				// the way in, is not one this library can copy faithfully, so
+				// the ladder steps past it exactly as it steps past a
+				// technology that is not there.
+				if !ok || u.Kind != KindMap || holdsDroppedSubtree(u) {
+					continue
+				}
+				rt.unit = u
+				if level, ok := w.TechMaxLevel(name); ok && level.Kind != KindNil && !holdsDroppedSubtree(level) {
+					rt.maxLevel = level
+					rt.hasMaxLevel = true
+				}
+				source = name
+				break
+			}
+			if source == "" {
+				rt.unit = unitValue(&by.Fallback)
+				res.logs = append(res.logs, "fkrecipes: "+t.name+": no source for the "+chosen+
+					" cost carries a unit, so the fallback cost applies and the technology has no prerequisite")
+			} else {
+				// THE PREREQUISITE MOVES WITH THE UNIT.
+				rt.prereqs = []string{source}
+			}
+			res.techs = append(res.techs, rt)
+			continue
 		}
 
 		after, before := t.spec.After, t.spec.Before
@@ -589,19 +653,14 @@ func techProto(prefix string, l *Lib, w World, t techDecl, rt resolvedTech) Valu
 	if len(rt.prereqs) > 0 {
 		pairs = append(pairs, kv("prerequisites", strArr(rt.prereqs)))
 	}
-	pairs = append(pairs, kv("unit", techUnit(w, t)))
+	pairs = append(pairs, kv("unit", techUnit(w, t, rt)))
 	// max_level lives on the TECHNOLOGY, not in its unit, so copying the unit
 	// verbatim carries a count_formula but leaves the level cap behind. CostOf
 	// is one named point for cost AND position, so it reads the cap too: an
 	// infinite source technology produces an infinite copy. A hand-rolled
 	// UnitSpec has no source to read, and gets no cap.
-	if t.spec.Unit == nil {
-		// A present-but-nil read is a value this library could not carry (a
-		// LuaObject, or a table with a key it drops); emitting it would write
-		// a nil max_level into the prototype.
-		if level, ok := w.TechMaxLevel(t.spec.CostOf); ok && level.Kind != KindNil {
-			pairs = append(pairs, kv("max_level", level))
-		}
+	if level, ok := techMaxLevel(w, t, rt); ok {
+		pairs = append(pairs, kv("max_level", level))
 	}
 	if len(t.spec.Unlocks) > 0 {
 		effects := make([]Value, 0, len(t.spec.Unlocks))
@@ -627,7 +686,10 @@ func techProto(prefix string, l *Lib, w World, t techDecl, rt resolvedTech) Valu
 	return Obj(pairs...)
 }
 
-func techUnit(w World, t techDecl) Value {
+func techUnit(w World, t techDecl, rt resolvedTech) Value {
+	if t.spec.CostBy != nil {
+		return rt.unit
+	}
 	if t.spec.Unit == nil {
 		// Verbatim, whatever it holds: a count_formula is a string and
 		// copying one needs no evaluator, so multi-level and infinite
@@ -640,15 +702,35 @@ func techUnit(w World, t techDecl) Value {
 		}
 		return u
 	}
-	// Technology unit ingredients are the SHORT TUPLE form. The dict form is
-	// refused here by the engine.
-	packs := make([]Value, 0, len(t.spec.Unit.Packs))
-	for _, p := range t.spec.Unit.Packs {
+	return unitValue(t.spec.Unit)
+}
+
+// techMaxLevel is the level cap a technology carries, if any. A hand-rolled
+// cost has none; a copied one carries the source's.
+func techMaxLevel(w World, t techDecl, rt resolvedTech) (Value, bool) {
+	if t.spec.CostBy != nil {
+		return rt.maxLevel, rt.hasMaxLevel
+	}
+	if t.spec.Unit != nil {
+		return Nil(), false
+	}
+	// A present-but-nil read is a value this library could not carry (a
+	// LuaObject, or a table with a key it drops); emitting it would write a
+	// nil max_level into the prototype.
+	level, ok := w.TechMaxLevel(t.spec.CostOf)
+	return level, ok && level.Kind != KindNil
+}
+
+// unitValue is the hand-rolled cost's wire shape. Technology unit ingredients
+// are the SHORT TUPLE form; the dict form is refused here by the engine.
+func unitValue(u *UnitSpec) Value {
+	packs := make([]Value, 0, len(u.Packs))
+	for _, p := range u.Packs {
 		packs = append(packs, Arr(Str(p.Name), Num(float64(p.Amount))))
 	}
 	return Obj(
-		kv("count", Num(float64(t.spec.Unit.Count))),
-		kv("time", Num(t.spec.Unit.Seconds)),
+		kv("count", Num(float64(u.Count))),
+		kv("time", Num(u.Seconds)),
 		kv("ingredients", Arr(packs...)),
 	)
 }
@@ -688,4 +770,124 @@ func holdsDroppedSubtree(v Value) bool {
 		}
 	}
 	return false
+}
+
+// validateIngredients is the ordinary ingredient check, shared by a fixed
+// ingredient list and by every plan a dropdown can select.
+func (l *Lib) validateIngredients(at, who string, ings []Ingredient) error {
+	for _, ing := range ings {
+		if ing.amount < 1 {
+			return errors.New(at + who + " has an ingredient amount below 1, which the engine refuses")
+		}
+		if ing.amount > maxExactInt {
+			return errors.New(at + who + " declares an ingredient amount a Lua double cannot hold exactly: " + strconv.FormatInt(ing.amount, 10))
+		}
+		if len(ing.candidates) == 0 && !l.validItem(ing.item) {
+			return errors.New(at + who + " names an ingredient item that this plan never declared")
+		}
+	}
+	return nil
+}
+
+// validateUnit is the hand-rolled cost check, shared by Unit and by CostBy's
+// fallback: a fallback the engine would refuse is not a fallback.
+func (l *Lib) validateUnit(at string, w World, name string, u *UnitSpec) error {
+	if u.Count < 1 {
+		return errors.New(at + "the technology " + name + " has a unit count below 1, which the engine refuses")
+	}
+	if u.Count > maxExactInt {
+		return errors.New(at + "the technology " + name + " declares a unit count a Lua double cannot hold exactly: " + strconv.FormatInt(u.Count, 10))
+	}
+	if !finite(u.Seconds) {
+		return errors.New(at + "the technology " + name + " declares a research time that is not a finite number")
+	}
+	if u.Seconds <= 0 {
+		return errors.New(at + "the technology " + name + " has a research time at or below zero, which the engine refuses")
+	}
+	for _, p := range u.Packs {
+		if p.Amount < 1 {
+			return errors.New(at + "the technology " + name + " has a science pack amount below 1, which the engine refuses")
+		}
+		if p.Amount > maxExactInt {
+			return errors.New(at + "the technology " + name + " declares a science pack amount a Lua double cannot hold exactly: " + strconv.FormatInt(p.Amount, 10))
+		}
+		if p.Name == "" {
+			return errors.New(at + "the technology " + name + " prices itself in a pack with an empty name")
+		}
+		if !w.ItemExists(p.Name) {
+			return errors.New(at + "the technology " + name + " prices itself in " + p.Name + ", which does not exist")
+		}
+	}
+	return nil
+}
+
+// matchesAllowedValues checks a choice list against the dropdown it is driven
+// by. They have to line up exactly, in order: a plan for a value the setting
+// does not offer is unreachable, and a value with no plan is a player choice
+// with nothing behind it.
+func matchesAllowedValues(at, who, setting string, offered, allowed []string) error {
+	for i := 0; i < len(offered) || i < len(allowed); i++ {
+		switch {
+		case i >= len(offered):
+			return errors.New(at + who + " offers nothing for the value " + allowed[i] + " that the setting " + setting + " allows")
+		case i >= len(allowed):
+			return errors.New(at + who + " offers something for " + offered[i] + ", which the setting " + setting + " does not allow")
+		case offered[i] != allowed[i]:
+			return errors.New(at + who + " offers something for " + offered[i] + " where the setting " + setting + " allows " + allowed[i])
+		}
+	}
+	return nil
+}
+
+// readDropdown answers with the value a dropdown setting holds, or with the
+// declared default and the ordinary unreadable line.
+func (r *resolution) readDropdown(w World, s settingDecl, prefix string) string {
+	full := s.emittedName(prefix)
+	if v, ok := w.StartupSetting(full); ok && v.Kind == KindStr {
+		return v.Str
+	}
+	r.logs = append(r.logs, "fkrecipes: the setting "+full+" was not readable, so its default applies")
+	return s.defStr
+}
+
+func choiceFor(choices []IngredientChoice, value string) []Ingredient {
+	for _, c := range choices {
+		if c.Value == value {
+			return c.Ingredients
+		}
+	}
+	return nil
+}
+
+func sourcesFor(choices []CostChoice, value string) []string {
+	for _, c := range choices {
+		if c.Value == value {
+			return c.Sources
+		}
+	}
+	return nil
+}
+
+// resolveIngredients walks each ladder and drops what the game does not have.
+func (l *Lib) resolveIngredients(w World, res *resolution, prefix, recipe string, ings []Ingredient) []resolvedIngredient {
+	list := make([]resolvedIngredient, 0, len(ings))
+	for _, ing := range ings {
+		if len(ing.candidates) == 0 {
+			list = append(list, resolvedIngredient{name: prefix + l.items[ing.item.index-1].name, amount: ing.amount})
+			continue
+		}
+		picked := ""
+		for _, c := range ing.candidates {
+			if w.ItemExists(c) {
+				picked = c
+				break
+			}
+		}
+		if picked == "" {
+			res.logs = append(res.logs, "fkrecipes: "+recipe+": none of "+strings.Join(ing.candidates, ", ")+" is present, so the ingredient is dropped")
+			continue
+		}
+		list = append(list, resolvedIngredient{name: picked, amount: ing.amount})
+	}
+	return list
 }

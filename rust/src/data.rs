@@ -4,7 +4,10 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::op::{path_key, Op};
-use crate::plan::{ItemDecl, Lib, RecipeDecl, TechDecl};
+use crate::plan::{
+    CostChoice, Ingredient, IngredientChoice, ItemDecl, Lib, RecipeDecl, SettingDecl, TechDecl,
+    UnitSpec,
+};
 use crate::value::{finite, kv, localised, str_arr, Value, CRAFT_TIME_FLOOR, MAX_EXACT_INT};
 use crate::world::World;
 
@@ -185,6 +188,36 @@ impl Lib {
                     at, r.name
                 ));
             }
+            if !r.spec.ingredients.is_empty() && r.spec.ingredients_by.is_some() {
+                return Err(format!(
+                    "{}the recipe {} names both Ingredients and IngredientsBy; pick one",
+                    at, r.name
+                ));
+            }
+            if let Some(by) = &r.spec.ingredients_by {
+                if !self.valid_dropdown_setting(by.setting) {
+                    return Err(format!(
+                        "{}the recipe {} names an ingredients setting that this plan never declared",
+                        at, r.name
+                    ));
+                }
+                let setting = &self.settings[by.setting.index - 1];
+                let offered: Vec<String> = by.choices.iter().map(|c| c.value.clone()).collect();
+                matches_allowed_values(
+                    &at,
+                    &format!("the recipe {}", r.name),
+                    &setting.emitted_name(prefix),
+                    &offered,
+                    &setting.values,
+                )?;
+                for c in &by.choices {
+                    self.validate_ingredients(
+                        &at,
+                        &format!("the recipe {}", r.name),
+                        &c.ingredients,
+                    )?;
+                }
+            }
             if r.spec.craft_time_from.index != 0
                 && !self.valid_double_setting(r.spec.craft_time_from)
             {
@@ -230,26 +263,7 @@ impl Lib {
                     at, prefix, r.name
                 ));
             }
-            for ing in &r.spec.ingredients {
-                if ing.amount < 1 {
-                    return Err(format!(
-                        "{}the recipe {} has an ingredient amount below 1, which the engine refuses",
-                        at, r.name
-                    ));
-                }
-                if ing.amount > MAX_EXACT_INT {
-                    return Err(format!(
-                        "{}the recipe {} declares an ingredient amount a Lua double cannot hold exactly: {}",
-                        at, r.name, ing.amount
-                    ));
-                }
-                if ing.candidates.is_empty() && !self.valid_item(ing.item) {
-                    return Err(format!(
-                        "{}the recipe {} names an ingredient item that this plan never declared",
-                        at, r.name
-                    ));
-                }
-            }
+            self.validate_ingredients(&at, &format!("the recipe {}", r.name), &r.spec.ingredients)?;
         }
 
         for (i, t) in self.techs.iter().enumerate() {
@@ -275,11 +289,47 @@ impl Lib {
             }
             let has_cost = !t.spec.cost_of.is_empty();
             let has_unit = t.spec.unit.is_some();
-            if has_cost == has_unit {
+            let has_cost_by = t.spec.cost_by.is_some();
+            let named = [has_cost, has_unit, has_cost_by]
+                .iter()
+                .filter(|x| **x)
+                .count();
+            if named != 1 {
                 return Err(format!(
-                    "{}the technology {} must name exactly one of CostOf or Unit",
+                    "{}the technology {} must name exactly one of CostOf, Unit or CostBy",
                     at, t.name
                 ));
+            }
+            // CostBy carries the prerequisite with the unit, so it is the
+            // thing that places the technology. A second placement would be a
+            // second opinion about the same edge.
+            if has_cost_by
+                && (!t.spec.after.is_empty()
+                    || !t.spec.before.is_empty()
+                    || t.spec.after_tech.index != 0)
+            {
+                return Err(format!(
+                    "{}the technology {} names CostBy with a placement; the prerequisite moves with the unit, so CostBy places the technology itself",
+                    at, t.name
+                ));
+            }
+            if let Some(by) = &t.spec.cost_by {
+                if !self.valid_dropdown_setting(by.setting) {
+                    return Err(format!(
+                        "{}the technology {} names a cost setting that this plan never declared",
+                        at, t.name
+                    ));
+                }
+                let setting = &self.settings[by.setting.index - 1];
+                let offered: Vec<String> = by.choices.iter().map(|c| c.value.clone()).collect();
+                matches_allowed_values(
+                    &at,
+                    &format!("the technology {}", t.name),
+                    &setting.emitted_name(prefix),
+                    &offered,
+                    &setting.values,
+                )?;
+                self.validate_unit(&at, w, &t.name, &by.fallback)?;
             }
             if !t.spec.after.is_empty() && t.spec.after_tech.index != 0 {
                 return Err(format!(
@@ -319,57 +369,13 @@ impl Lib {
             }
             match &t.spec.unit {
                 Some(unit) => {
-                    if unit.count < 1 {
-                        return Err(format!(
-                            "{}the technology {} has a unit count below 1, which the engine refuses",
-                            at, t.name
-                        ));
-                    }
-                    if unit.count > MAX_EXACT_INT {
-                        return Err(format!(
-                            "{}the technology {} declares a unit count a Lua double cannot hold exactly: {}",
-                            at, t.name, unit.count
-                        ));
-                    }
-                    if !finite(unit.seconds) {
-                        return Err(format!(
-                            "{}the technology {} declares a research time that is not a finite number",
-                            at, t.name
-                        ));
-                    }
-                    if unit.seconds <= 0.0 {
-                        return Err(format!(
-                            "{}the technology {} has a research time at or below zero, which the engine refuses",
-                            at, t.name
-                        ));
-                    }
-                    for p in &unit.packs {
-                        if p.amount < 1 {
-                            return Err(format!(
-                                "{}the technology {} has a science pack amount below 1, which the engine refuses",
-                                at, t.name
-                            ));
-                        }
-                        if p.amount > MAX_EXACT_INT {
-                            return Err(format!(
-                                "{}the technology {} declares a science pack amount a Lua double cannot hold exactly: {}",
-                                at, t.name, p.amount
-                            ));
-                        }
-                        if p.name.is_empty() {
-                            return Err(format!(
-                                "{}the technology {} prices itself in a pack with an empty name",
-                                at, t.name
-                            ));
-                        }
-                        if !w.item_exists(&p.name) {
-                            return Err(format!(
-                                "{}the technology {} prices itself in {}, which does not exist",
-                                at, t.name, p.name
-                            ));
-                        }
-                    }
+                    self.validate_unit(&at, w, &t.name, unit)?;
                 }
+                // A CostBy technology reaches here with neither field set,
+                // and has nothing named to check: its ladder is walked at
+                // resolution, where a source that cannot be used is stepped
+                // past rather than refused.
+                None if has_cost_by => {}
                 None => {
                     if !w.tech_exists(&t.spec.cost_of) {
                         return Err(format!(
@@ -458,7 +464,7 @@ impl Lib {
             let mut ct = CraftTime::default();
             if r.spec.craft_time_from.index != 0 {
                 let setting = &self.settings[r.spec.craft_time_from.index - 1];
-                let full = format!("{}{}", prefix, setting.name);
+                let full = setting.emitted_name(prefix);
                 ct.bound = true;
                 ct.value = setting.def_num;
                 match w.startup_setting(&full) {
@@ -472,35 +478,37 @@ impl Lib {
             }
             res.craft_times.push(ct);
 
-            let mut list = Vec::with_capacity(r.spec.ingredients.len());
-            for ing in &r.spec.ingredients {
-                if ing.candidates.is_empty() {
-                    list.push(ResolvedIngredient {
-                        name: format!("{}{}", prefix, self.items[ing.item.index - 1].name),
-                        amount: ing.amount,
-                    });
-                    continue;
-                }
-                let mut picked: Option<String> = None;
-                for c in &ing.candidates {
-                    if w.item_exists(c) {
-                        picked = Some(c.clone());
-                        break;
+            match &r.spec.ingredients_by {
+                Some(by) => {
+                    let setting = &self.settings[by.setting.index - 1];
+                    let chosen = res.read_dropdown(w, setting, prefix);
+                    let declared = choice_for(&by.choices, &chosen);
+                    let mut list = self.resolve_ingredients(w, &mut res, prefix, &r.name, declared);
+                    // A plan that named things and got none of them is a
+                    // recipe made of nothing. The DEFAULT option is what
+                    // applies then, because it is the one the mod ships as
+                    // its own answer.
+                    if !declared.is_empty() && list.is_empty() && chosen != setting.def_str {
+                        res.logs.push(format!(
+                            "fkrecipes: {}: the {} ingredients name nothing this game has, so the {} ingredients apply",
+                            r.name, chosen, setting.def_str
+                        ));
+                        list = self.resolve_ingredients(
+                            w,
+                            &mut res,
+                            prefix,
+                            &r.name,
+                            choice_for(&by.choices, &setting.def_str),
+                        );
                     }
+                    res.recipes.push(list);
                 }
-                match picked {
-                    Some(name) => list.push(ResolvedIngredient {
-                        name,
-                        amount: ing.amount,
-                    }),
-                    None => res.logs.push(format!(
-                        "fkrecipes: {}: none of {} is present, so the ingredient is dropped",
-                        r.name,
-                        join_names(&ing.candidates, ", ")
-                    )),
+                None => {
+                    let list =
+                        self.resolve_ingredients(w, &mut res, prefix, &r.name, &r.spec.ingredients);
+                    res.recipes.push(list);
                 }
             }
-            res.recipes.push(list);
         }
 
         for t in &self.techs {
@@ -508,7 +516,7 @@ impl Lib {
 
             if t.spec.enabled_by.index != 0 {
                 let s = &self.settings[t.spec.enabled_by.index - 1];
-                let full = format!("{}{}", prefix, s.name);
+                let full = s.emitted_name(prefix);
                 rt.has_enabled_by = true;
                 rt.on = s.def_bool;
                 match w.startup_setting(&full) {
@@ -518,6 +526,45 @@ impl Lib {
                         full
                     )),
                 }
+            }
+
+            if let Some(by) = &t.spec.cost_by {
+                let setting = &self.settings[by.setting.index - 1];
+                let chosen = res.read_dropdown(w, setting, prefix);
+                let mut source = String::new();
+                for name in sources_for(&by.choices, &chosen) {
+                    if !w.tech_exists(name) || w.tech_has_research_trigger(name) {
+                        continue;
+                    }
+                    // A unit that is not a dictionary, or that lost a subtree
+                    // on the way in, is not one this library can copy
+                    // faithfully, so the ladder steps past it exactly as it
+                    // steps past a technology that is not there.
+                    let u = match w.tech_unit(name) {
+                        Some(u) if matches!(u, Value::Map(_)) && !holds_dropped_subtree(&u) => u,
+                        _ => continue,
+                    };
+                    rt.unit = Some(u);
+                    if let Some(level) = w.tech_max_level(name) {
+                        if !matches!(level, Value::Nil) && !holds_dropped_subtree(&level) {
+                            rt.max_level = Some(level);
+                        }
+                    }
+                    source = name.clone();
+                    break;
+                }
+                if source.is_empty() {
+                    rt.unit = Some(unit_value(&by.fallback));
+                    res.logs.push(format!(
+                        "fkrecipes: {}: no source for the {} cost carries a unit, so the fallback cost applies and the technology has no prerequisite",
+                        t.name, chosen
+                    ));
+                } else {
+                    // THE PREREQUISITE MOVES WITH THE UNIT.
+                    rt.prereqs = vec![source];
+                }
+                res.techs.push(rt);
+                continue;
             }
 
             let after = t.spec.after.as_str();
@@ -663,6 +710,10 @@ pub(crate) struct RewriteRec {
 #[derive(Default)]
 pub(crate) struct ResolvedTech {
     pub(crate) prereqs: Vec<String>,
+    /// The cost a CostBy ladder settled on, and the level cap that rode
+    /// along with it. Both are None for every other cost shape.
+    pub(crate) unit: Option<Value>,
+    pub(crate) max_level: Option<Value>,
     pub(crate) has_enabled_by: bool,
     pub(crate) on: bool,
     /// A 1-based index into `Resolution::rewrites`; zero is none.
@@ -816,13 +867,19 @@ fn tech_proto(prefix: &str, l: &Lib, w: &dyn World, t: &TechDecl, rt: &ResolvedT
     if !rt.prereqs.is_empty() {
         pairs.push(kv("prerequisites", str_arr(&rt.prereqs)));
     }
-    pairs.push(kv("unit", tech_unit(w, t)));
+    pairs.push(kv("unit", tech_unit(w, t, rt)));
     // max_level lives on the TECHNOLOGY, not in its unit, so copying the unit
     // verbatim carries a count_formula but leaves the level cap behind.
     // cost_of is one named point for cost AND position, so it reads the cap
     // too: an infinite source technology produces an infinite copy. A
     // hand-rolled UnitSpec has no source to read, and gets no cap.
-    if t.spec.unit.is_none() {
+    if t.spec.cost_by.is_some() {
+        // The ladder already read the cap off the source it settled on, and
+        // dropped it if it was one this library could not carry.
+        if let Some(level) = &rt.max_level {
+            pairs.push(kv("max_level", level.clone()));
+        }
+    } else if t.spec.unit.is_none() {
         // A present-but-nil read is a value this library could not carry (a
         // LuaObject, or a table with a key it drops); emitting it would write
         // a nil max_level into the prototype.
@@ -859,7 +916,11 @@ fn tech_proto(prefix: &str, l: &Lib, w: &dyn World, t: &TechDecl, rt: &ResolvedT
     Value::Map(pairs)
 }
 
-fn tech_unit(w: &dyn World, t: &TechDecl) -> Value {
+fn tech_unit(w: &dyn World, t: &TechDecl, rt: &ResolvedTech) -> Value {
+    if t.spec.cost_by.is_some() {
+        // Resolution walked the ladder and settled this, fallback included.
+        return rt.unit.clone().unwrap_or(Value::Nil);
+    }
     match &t.spec.unit {
         // Technology unit ingredients are the SHORT TUPLE form. The dict form
         // is refused here by the engine.
@@ -914,4 +975,216 @@ pub(crate) fn holds_dropped_subtree(v: &Value) -> bool {
             .any(|item| matches!(item, Value::Nil) || holds_dropped_subtree(item)),
         _ => false,
     }
+}
+
+impl Lib {
+    fn validate_ingredients(&self, at: &str, who: &str, ings: &[Ingredient]) -> Result<(), String> {
+        for ing in ings {
+            if ing.amount < 1 {
+                return Err(format!(
+                    "{}{} has an ingredient amount below 1, which the engine refuses",
+                    at, who
+                ));
+            }
+            if ing.amount > MAX_EXACT_INT {
+                return Err(format!(
+                    "{}{} declares an ingredient amount a Lua double cannot hold exactly: {}",
+                    at, who, ing.amount
+                ));
+            }
+            if ing.candidates.is_empty() && !self.valid_item(ing.item) {
+                return Err(format!(
+                    "{}{} names an ingredient item that this plan never declared",
+                    at, who
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_unit(
+        &self,
+        at: &str,
+        w: &dyn World,
+        name: &str,
+        u: &UnitSpec,
+    ) -> Result<(), String> {
+        if u.count < 1 {
+            return Err(format!(
+                "{}the technology {} has a unit count below 1, which the engine refuses",
+                at, name
+            ));
+        }
+        if u.count > MAX_EXACT_INT {
+            return Err(format!(
+                "{}the technology {} declares a unit count a Lua double cannot hold exactly: {}",
+                at, name, u.count
+            ));
+        }
+        if !u.seconds.is_finite() {
+            return Err(format!(
+                "{}the technology {} declares a research time that is not a finite number",
+                at, name
+            ));
+        }
+        if u.seconds <= 0.0 {
+            return Err(format!(
+                "{}the technology {} has a research time at or below zero, which the engine refuses",
+                at, name
+            ));
+        }
+        for p in &u.packs {
+            if p.amount < 1 {
+                return Err(format!(
+                    "{}the technology {} has a science pack amount below 1, which the engine refuses",
+                    at, name
+                ));
+            }
+            if p.amount > MAX_EXACT_INT {
+                return Err(format!(
+                    "{}the technology {} declares a science pack amount a Lua double cannot hold exactly: {}",
+                    at, name, p.amount
+                ));
+            }
+            if p.name.is_empty() {
+                return Err(format!(
+                    "{}the technology {} prices itself in a pack with an empty name",
+                    at, name
+                ));
+            }
+            if !w.item_exists(&p.name) {
+                return Err(format!(
+                    "{}the technology {} prices itself in {}, which does not exist",
+                    at, name, p.name
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn matches_allowed_values(
+    at: &str,
+    who: &str,
+    setting: &str,
+    offered: &[String],
+    allowed: &[String],
+) -> Result<(), String> {
+    let n = offered.len().max(allowed.len());
+    for i in 0..n {
+        if i >= offered.len() {
+            return Err(format!(
+                "{}{} offers nothing for the value {} that the setting {} allows",
+                at, who, allowed[i], setting
+            ));
+        }
+        if i >= allowed.len() {
+            return Err(format!(
+                "{}{} offers something for {}, which the setting {} does not allow",
+                at, who, offered[i], setting
+            ));
+        }
+        if offered[i] != allowed[i] {
+            return Err(format!(
+                "{}{} offers something for {} where the setting {} allows {}",
+                at, who, offered[i], setting, allowed[i]
+            ));
+        }
+    }
+    Ok(())
+}
+
+impl Resolution {
+    /// The dropdown's chosen value, or its default when the game does not
+    /// answer with a string. An unreadable setting is logged once here, the
+    /// same way enablement and crafting time log theirs.
+    fn read_dropdown(&mut self, w: &dyn World, s: &SettingDecl, prefix: &str) -> String {
+        let full = s.emitted_name(prefix);
+        if let Some(Value::Str(v)) = w.startup_setting(&full) {
+            return v;
+        }
+        self.logs.push(format!(
+            "fkrecipes: the setting {} was not readable, so its default applies",
+            full
+        ));
+        s.def_str.clone()
+    }
+}
+
+fn choice_for<'a>(choices: &'a [IngredientChoice], value: &str) -> &'a [Ingredient] {
+    for c in choices {
+        if c.value == value {
+            return &c.ingredients;
+        }
+    }
+    &[]
+}
+
+fn sources_for<'a>(choices: &'a [CostChoice], value: &str) -> &'a [String] {
+    for c in choices {
+        if c.value == value {
+            return &c.sources;
+        }
+    }
+    &[]
+}
+
+impl Lib {
+    fn resolve_ingredients(
+        &self,
+        w: &dyn World,
+        res: &mut Resolution,
+        prefix: &str,
+        recipe: &str,
+        ings: &[Ingredient],
+    ) -> Vec<ResolvedIngredient> {
+        let mut list = Vec::with_capacity(ings.len());
+        for ing in ings {
+            if ing.candidates.is_empty() {
+                list.push(ResolvedIngredient {
+                    name: format!("{}{}", prefix, self.items[ing.item.index - 1].name),
+                    amount: ing.amount,
+                });
+                continue;
+            }
+            let mut picked: Option<String> = None;
+            for c in &ing.candidates {
+                if w.item_exists(c) {
+                    picked = Some(c.clone());
+                    break;
+                }
+            }
+            match picked {
+                Some(name) => list.push(ResolvedIngredient {
+                    name,
+                    amount: ing.amount,
+                }),
+                None => res.logs.push(format!(
+                    "fkrecipes: {}: none of {} is present, so the ingredient is dropped",
+                    recipe,
+                    join_names(&ing.candidates, ", ")
+                )),
+            }
+        }
+        list
+    }
+}
+
+/// A hand-rolled cost as the engine wants it.
+fn unit_value(u: &UnitSpec) -> Value {
+    let packs: Vec<Value> = u
+        .packs
+        .iter()
+        .map(|p| {
+            Value::Arr(vec![
+                Value::Str(p.name.clone()),
+                Value::Num(p.amount as f64),
+            ])
+        })
+        .collect();
+    Value::Map(vec![
+        kv("count", Value::Num(u.count as f64)),
+        kv("time", Value::Num(u.seconds)),
+        kv("ingredients", Value::Arr(packs)),
+    ])
 }

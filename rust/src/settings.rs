@@ -38,16 +38,23 @@ impl Lib {
         }
         let prefix = format!("{}-", mod_name);
         let bound = self.craft_time_bound_settings();
-        self.validate_settings(&stage, &bound)?;
+        self.validate_settings(&stage, &prefix, &bound)?;
 
         let mut ops = Vec::with_capacity(self.settings.len());
         for (i, s) in self.settings.iter().enumerate() {
+            // A legacy setting carries the name and the order the mod already
+            // ships; everything else is prefixed and ordered by declaration.
+            let order = if s.legacy {
+                s.order.clone()
+            } else {
+                order_string(i)
+            };
             let mut pairs = alloc::vec![
                 kv("type", Value::string(setting_type_name(s.kind))),
-                kv("name", Value::Str(format!("{}{}", prefix, s.name))),
+                kv("name", Value::Str(s.emitted_name(&prefix))),
                 kv("setting_type", Value::string("startup")),
                 kv("default_value", default_value(s)),
-                kv("order", Value::Str(order_string(i))),
+                kv("order", Value::Str(order)),
             ];
             if s.kind == SettingKind::Int || s.kind == SettingKind::Double {
                 let spec = self.effective_numeric_spec(i, &bound);
@@ -75,17 +82,29 @@ impl Lib {
     /// two different strings sooner or later, and these messages are compared
     /// byte for byte, so each one names the setting and the relationship
     /// instead.
-    fn validate_settings(&self, stage: &str, bound: &[bool]) -> Result<(), String> {
+    fn validate_settings(&self, stage: &str, prefix: &str, bound: &[bool]) -> Result<(), String> {
         let at = format!("fkrecipes: at the {} stage, ", stage);
         for (i, s) in self.settings.iter().enumerate() {
             if s.name.is_empty() {
                 return Err(format!("{}a setting was declared with an empty name", at));
             }
+            // A legacy setting supplies its own order because a mod that
+            // already shipped chose one; an empty string is not a choice.
+            if s.legacy && s.order.is_empty() {
+                return Err(format!(
+                    "{}the legacy setting {} was declared with an empty order",
+                    at, s.name
+                ));
+            }
+            // Compared on the EMITTED names, which is the namespace the engine
+            // keeps: a legacy name and a generated one can arrive at the same
+            // string from different declarations, and only one survives.
             for other in self.settings.iter().take(i) {
-                if other.name == s.name {
+                if other.emitted_name(prefix) == s.emitted_name(prefix) {
                     return Err(format!(
                         "{}two settings share the name {}; the engine keeps the last one silently",
-                        at, s.name
+                        at,
+                        s.emitted_name(prefix)
                     ));
                 }
             }

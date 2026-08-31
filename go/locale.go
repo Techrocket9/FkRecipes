@@ -41,12 +41,19 @@ const localeFindingCap = 100
 // setting reported missing and every entry reported orphaned, which is loud
 // rather than subtle.
 //
-// WHAT IT POLICES is this plan's own names. In [string-mod-setting] only keys
-// under one of this plan's dropdown settings are considered, so another
-// setting's values are not this checker's business. In [mod-setting-name] and
-// [mod-setting-description] the rule can only be the mod prefix, so a setting
-// the consumer wrote BY HAND rather than declaring here is reported as an
-// orphan; that is the honest limit of what this function can know.
+// WHAT IT POLICES is the mod-prefix namespace plus this plan's own declared
+// names, legacy names included. In [string-mod-setting] only keys under one of
+// this plan's dropdown settings are considered, so another setting's values
+// are not this checker's business; a legacy dropdown is policed under the name
+// it actually carries, so a stale value key beneath it IS caught. In
+// [mod-setting-name] and [mod-setting-description] the orphan arm fires only
+// on keys CARRYING THE MOD PREFIX, so an entry that matches no declared
+// setting and carries no prefix is invisible here: a renamed legacy setting's
+// leftover entry goes unreported, and so does a setting the consumer wrote by
+// hand under a name of its own. That arm cannot be widened soundly, because a
+// stale legacy name and a deliberately hand-rolled one are the same string to
+// this function; policing them needs a known-hand-rolled parameter it does not
+// have rather than a guess over unrecognized names.
 //
 // A DESCRIPTION IS OPTIONAL HERE, AND THAT IS A DELIBERATE DIVERGENCE from
 // BetterBeltBalancer, which requires one. The engine's failure mode for a
@@ -61,7 +68,7 @@ func (l *Lib) CheckLocale(modName string, cfg string) []string {
 	// (1) and (2): what the player cannot read, in DECLARATION order, and a
 	// setting's own name before the values it offers.
 	for _, s := range l.settings {
-		full := prefix + s.name
+		full := s.emittedName(prefix)
 		if !localeHas(sections, "mod-setting-name", full) {
 			findings = append(findings, "the setting "+full+" has no [mod-setting-name] entry"+
 				elsewhere(sections, "mod-setting-name", full))
@@ -107,7 +114,7 @@ func (l *Lib) CheckLocale(modName string, cfg string) []string {
 		if s.kind != settingDropdown {
 			continue
 		}
-		full := prefix + s.name
+		full := s.emittedName(prefix)
 		for _, v := range s.values {
 			key := full + "-" + v
 			owner := full + "/" + v
@@ -177,7 +184,7 @@ func asciiLower(s string) string {
 
 func (l *Lib) declaresSetting(prefix, key string) bool {
 	for _, s := range l.settings {
-		if prefix+s.name == key {
+		if s.emittedName(prefix) == key {
 			return true
 		}
 	}
@@ -189,7 +196,7 @@ func (l *Lib) declaresSetting(prefix, key string) bool {
 // somebody else's string setting is not this function's business.
 func (l *Lib) policesValueKey(prefix, key string) bool {
 	for _, s := range l.settings {
-		if s.kind == settingDropdown && strings.HasPrefix(key, prefix+s.name+"-") {
+		if s.kind == settingDropdown && strings.HasPrefix(key, s.emittedName(prefix)+"-") {
 			return true
 		}
 	}
@@ -202,7 +209,7 @@ func (l *Lib) declaresValue(prefix, key string) bool {
 			continue
 		}
 		for _, v := range s.values {
-			if prefix+s.name+"-"+v == key {
+			if s.emittedName(prefix)+"-"+v == key {
 				return true
 			}
 		}

@@ -442,7 +442,7 @@ func TestPlanDataRefusals(t *testing.T) {
 			build: func(l *Lib) {
 				l.Technology("steel-axes", TechSpec{After: "steel-processing"})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes must name exactly one of CostOf or Unit",
+			want: "fkrecipes: at the data stage, the technology steel-axes must name exactly one of CostOf, Unit or CostBy",
 		},
 		{
 			name: "both CostOf and Unit",
@@ -452,7 +452,7 @@ func TestPlanDataRefusals(t *testing.T) {
 					Unit:   &UnitSpec{Count: 50, Seconds: 15, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
 				})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes must name exactly one of CostOf or Unit",
+			want: "fkrecipes: at the data stage, the technology steel-axes must name exactly one of CostOf, Unit or CostBy",
 		},
 		{
 			name: "Before without After",

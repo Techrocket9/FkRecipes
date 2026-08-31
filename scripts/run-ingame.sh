@@ -279,12 +279,24 @@ jqassert "the recipe nothing unlocks is enabled from the start" "$DUMP" \
 # moves. Compared against the SOURCE prototype in the same dump rather than
 # against a number written here, so this asserts "the copy is faithful" rather
 # than "the copy is what I typed".
-jqassert "CostOf copied the real formula out of base" "$DUMP" \
+#
+# NO PLAYER HAS TOUCHED A SETTING HERE either, so tips-research-tier reads its
+# declared default and the ladder walked is the PROJECTILE one. The mirror's
+# stand-in sets that setting to military and walks the other; between them the
+# two gates cover both ladders, and neither could cover both alone.
+jqassert "the cost ladder copied the real formula out of base" "$DUMP" \
   '.technology["fkrecipes-example-hardened-tips"].unit == .technology["physical-projectile-damage-7"].unit'
-jqassert "CostOf carried the real level cap out of base" "$DUMP" \
+jqassert "the cost ladder carried the real level cap out of base" "$DUMP" \
   '.technology["fkrecipes-example-hardened-tips"].max_level == .technology["physical-projectile-damage-7"].max_level'
-jqassert "all five generated settings reached the settings dump" "$SDUMP" \
-  '[paths(scalars) | select(length > 1) | .[1]] | map(select(startswith("fkrecipes-example-"))) | unique | length == 5'
+# THE PREREQUISITE MOVES WITH THE UNIT, and the first rung of that ladder names
+# a technology no vanilla install has, so this also says the ladder stepped
+# past what is not there rather than stopping at it.
+jqassert "the prerequisite moved with the copied unit" "$DUMP" \
+  '.technology["fkrecipes-example-hardened-tips"].prerequisites == ["physical-projectile-damage-7"]'
+jqassert "the ladder stepped past the technology no install has" "$DUMP" \
+  '.technology["tungsten-hardening"] == null'
+jqassert "all six generated settings reached the settings dump" "$SDUMP" \
+  '[paths(scalars) | select(length > 1) | .[1]] | map(select(startswith("fkrecipes-example-"))) | unique | length == 6'
 jqassert "the generated craft-time minimum reached the settings dump" "$SDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-forging-time") | .minimum_value] | any(. == 0.002)'
 

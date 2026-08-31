@@ -59,8 +59,9 @@ mod tests;
 
 pub use op::{Op, PathEl};
 pub use plan::{
-    BoolSettingRef, DoubleSettingRef, DropdownSettingRef, Ingredient, IntSettingRef, ItemRef,
-    ItemSpec, Lib, NumericSpec, Pack, RecipeRef, RecipeSpec, TechRef, TechSpec, UnitSpec,
+    BoolSettingRef, CostChoice, CostChoices, DoubleSettingRef, DropdownSettingRef, Ingredient,
+    IngredientChoice, IngredientChoices, IntSettingRef, ItemRef, ItemSpec, Lib, NumericSpec, Pack,
+    RecipeRef, RecipeSpec, TechRef, TechSpec, UnitSpec,
 };
 pub use value::{kv, Value};
 pub use world::World;

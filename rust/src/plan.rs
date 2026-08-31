@@ -99,7 +99,14 @@ pub(crate) enum SettingKind {
 
 pub(crate) struct SettingDecl {
     pub(crate) kind: SettingKind,
+    /// What the consumer declared. It is emitted with the mod prefix in front
+    /// of it, unless `legacy` is set, in which case it IS the emitted name.
     pub(crate) name: String,
+    /// Marks a setting whose name predates this library. See the Legacy
+    /// constructors: the name crosses verbatim and the order string is the
+    /// consumer's rather than one derived from declaration order.
+    pub(crate) legacy: bool,
+    pub(crate) order: String,
     pub(crate) def_bool: bool,
     pub(crate) def_num: f64,
     /// The int setting's default as it was DECLARED. `def_num` has already
@@ -170,6 +177,52 @@ impl Ingredient {
     }
 }
 
+/// One dropdown value and the ingredients it selects.
+#[derive(Clone, Default)]
+pub struct IngredientChoice {
+    pub value: String,
+    pub ingredients: Vec<Ingredient>,
+}
+
+/// Binds a recipe's ingredients to a dropdown setting: the player picks a
+/// value and the matching plan is what the recipe is made of.
+///
+/// Every plan is resolved by the ordinary ladder rules, so a plan may name
+/// things another mod provides. A chosen plan that resolves to nothing falls
+/// back to the DEFAULT option's plan, with a line saying so, rather than
+/// emitting a recipe made of nothing.
+#[derive(Clone, Default)]
+pub struct IngredientChoices {
+    pub setting: DropdownSettingRef,
+    pub choices: Vec<IngredientChoice>,
+}
+
+/// One dropdown value and the technologies whose cost it selects, in ladder
+/// order.
+#[derive(Clone, Default)]
+pub struct CostChoice {
+    pub value: String,
+    pub sources: Vec<String>,
+}
+
+/// Binds a technology's research cost to a dropdown setting.
+///
+/// THE PREREQUISITE MOVES WITH THE UNIT. The source whose cost is copied also
+/// becomes the technology's sole prerequisite, so price and tree position come
+/// from one named point. That is the rule this surface exists to make easy,
+/// and it is why `cost_by` does not combine with `after`, `before` or
+/// `after_tech`.
+///
+/// `fallback` is what applies when no source in the chosen ladder carries a
+/// unit this library can copy. It is a hand-rolled cost, validated exactly
+/// like one, and a technology that falls back has no prerequisite at all.
+#[derive(Clone, Default)]
+pub struct CostChoices {
+    pub setting: DropdownSettingRef,
+    pub choices: Vec<CostChoice>,
+    pub fallback: UnitSpec,
+}
+
 /// A generated recipe prototype.
 #[derive(Clone, Default)]
 pub struct RecipeSpec {
@@ -187,6 +240,11 @@ pub struct RecipeSpec {
     /// uses for a bool.
     pub craft_time: f64,
     pub craft_time_from: DoubleSettingRef,
+
+    /// Exactly one of `ingredients` and `ingredients_by`, or neither.
+    /// `ingredients` is one fixed list; `ingredients_by` lets a dropdown
+    /// setting choose between several.
+    pub ingredients_by: Option<IngredientChoices>,
     pub ingredients: Vec<Ingredient>,
     /// Zero means 1.
     pub result_count: i64,
@@ -228,6 +286,9 @@ pub struct TechSpec {
     /// technology's whole unit verbatim, count_formula and all.
     pub cost_of: String,
     pub unit: Option<UnitSpec>,
+    /// Lets a dropdown setting choose between several sources, and places the
+    /// technology as well: see [`CostChoices`].
+    pub cost_by: Option<CostChoices>,
 
     /// Tree placement, and exactly one anchor. `after` names a technology the
     /// GAME has; `after_tech` names one THIS PLAN declares, which is how a
@@ -253,6 +314,17 @@ pub(crate) struct TechDecl {
     pub(crate) spec: TechSpec,
 }
 
+impl SettingDecl {
+    /// The name a setting prototype actually carries: prefixed for a generated
+    /// setting, verbatim for a legacy one.
+    pub(crate) fn emitted_name(&self, prefix: &str) -> String {
+        if self.legacy {
+            return self.name.clone();
+        }
+        alloc::format!("{}{}", prefix, self.name)
+    }
+}
+
 impl Lib {
     /// Starts an empty plan. The only way to get one.
     // A Default is exactly what must not exist here: it would hand out plans
@@ -275,6 +347,8 @@ impl Lib {
         self.settings.push(SettingDecl {
             kind: SettingKind::Bool,
             name: String::from(name),
+            legacy: false,
+            order: String::new(),
             def_bool: def,
             def_num: 0.0,
             def_int: 0,
@@ -293,6 +367,8 @@ impl Lib {
         self.settings.push(SettingDecl {
             kind: SettingKind::Int,
             name: String::from(name),
+            legacy: false,
+            order: String::new(),
             def_bool: false,
             def_num: def as f64,
             def_int: def,
@@ -311,6 +387,8 @@ impl Lib {
         self.settings.push(SettingDecl {
             kind: SettingKind::Double,
             name: String::from(name),
+            legacy: false,
+            order: String::new(),
             def_bool: false,
             def_num: def,
             def_int: 0,
@@ -346,6 +424,8 @@ impl Lib {
         self.settings.push(SettingDecl {
             kind: SettingKind::Dropdown,
             name: String::from(name),
+            legacy: false,
+            order: String::new(),
             def_bool: false,
             def_num: 0.0,
             def_int: 0,
@@ -409,6 +489,146 @@ impl Lib {
 
     pub(crate) fn valid_tech(&self, r: TechRef) -> bool {
         r.lib == self.id && r.index >= 1 && r.index <= self.techs.len()
+    }
+
+    // -----------------------------------------------------------------------
+    // The Legacy constructors.
+    //
+    // THESE ARE FOR MIGRATING A MOD THAT ALREADY SHIPPED. Factorio persists a
+    // player's startup choices in mod-settings.dat keyed by the setting's
+    // NAME, and it has no rename mechanism: a setting that comes back under a
+    // different name is a new setting, and every player who had chosen a
+    // value gets the default instead. A mod whose settings predate this
+    // library therefore cannot adopt the generated names without discarding
+    // what its players chose.
+    //
+    // So the name crosses VERBATIM, with no prefix, and the order string is
+    // the consumer's own because a historic mod picked its own (generated
+    // settings get two letters from declaration order; a mod that shipped "a"
+    // and "b" keeps them, and a settings dump hash pins that).
+    //
+    // THE INVARIANT THIS BENDS, SAID PLAINLY. Everywhere else in this library
+    // an unprefixed name is unrepresentable. Here it is representable through
+    // a constructor whose name says Legacy, which is the same signposting
+    // `dropdown_setting_needing_locale` uses: the deviation is at the call
+    // site, where a reviewer sees it.
+    //
+    // A NEW SETTING USES THE PREFIXED CONSTRUCTORS. Nothing about these is a
+    // shortcut around the prefix; they exist so a migration can preserve
+    // values, and a mod with no shipped settings has nothing to preserve.
+    // -----------------------------------------------------------------------
+
+    /// Declares a bool setting under a name this mod already ships.
+    pub fn legacy_bool_setting(
+        &mut self,
+        full_name: &str,
+        def: bool,
+        order: &str,
+    ) -> BoolSettingRef {
+        self.settings.push(SettingDecl {
+            kind: SettingKind::Bool,
+            name: String::from(full_name),
+            legacy: true,
+            order: String::from(order),
+            def_bool: def,
+            def_num: 0.0,
+            def_int: 0,
+            def_str: String::new(),
+            spec: NumericSpec::default(),
+            values: Vec::new(),
+        });
+        BoolSettingRef {
+            lib: self.id,
+            index: self.settings.len(),
+        }
+    }
+
+    /// Declares an int setting under a name this mod already ships.
+    pub fn legacy_int_setting(
+        &mut self,
+        full_name: &str,
+        def: i64,
+        spec: NumericSpec,
+        order: &str,
+    ) -> IntSettingRef {
+        self.settings.push(SettingDecl {
+            kind: SettingKind::Int,
+            name: String::from(full_name),
+            legacy: true,
+            order: String::from(order),
+            def_bool: false,
+            def_num: def as f64,
+            def_int: def,
+            def_str: String::new(),
+            spec,
+            values: Vec::new(),
+        });
+        IntSettingRef {
+            lib: self.id,
+            index: self.settings.len(),
+        }
+    }
+
+    /// Declares a double setting under a name this mod already ships.
+    pub fn legacy_double_setting(
+        &mut self,
+        full_name: &str,
+        def: f64,
+        spec: NumericSpec,
+        order: &str,
+    ) -> DoubleSettingRef {
+        self.settings.push(SettingDecl {
+            kind: SettingKind::Double,
+            name: String::from(full_name),
+            legacy: true,
+            order: String::from(order),
+            def_bool: false,
+            def_num: def,
+            def_int: 0,
+            def_str: String::new(),
+            spec,
+            values: Vec::new(),
+        });
+        DoubleSettingRef {
+            lib: self.id,
+            index: self.settings.len(),
+        }
+    }
+
+    /// Declares a string setting under a name this mod already ships. The
+    /// values still need locale entries, and a migrated mod already has them
+    /// under exactly these keys.
+    pub fn legacy_dropdown_setting_needing_locale(
+        &mut self,
+        full_name: &str,
+        def: &str,
+        values: &[&str],
+        order: &str,
+    ) -> DropdownSettingRef {
+        let mut allowed = Vec::with_capacity(values.len());
+        for v in values {
+            allowed.push(String::from(*v));
+        }
+        self.settings.push(SettingDecl {
+            kind: SettingKind::Dropdown,
+            name: String::from(full_name),
+            legacy: true,
+            order: String::from(order),
+            def_bool: false,
+            def_num: 0.0,
+            def_int: 0,
+            def_str: String::from(def),
+            spec: NumericSpec::default(),
+            values: allowed,
+        });
+        DropdownSettingRef {
+            lib: self.id,
+            index: self.settings.len(),
+        }
+    }
+
+    pub(crate) fn valid_dropdown_setting(&self, r: DropdownSettingRef) -> bool {
+        r.lib == self.id && r.index >= 1 && r.index <= self.settings.len()
     }
 
     pub(crate) fn valid_bool_setting(&self, r: BoolSettingRef) -> bool {

@@ -33,17 +33,23 @@ func (l *Lib) PlanSettings(w World) ([]Op, error) {
 	}
 	prefix := modName + "-"
 	bound := l.craftTimeBoundSettings()
-	if err := l.validateSettings(stage, bound); err != nil {
+	if err := l.validateSettings(stage, prefix, bound); err != nil {
 		return nil, err
 	}
 	ops := make([]Op, 0, len(l.settings))
 	for i, s := range l.settings {
+		// A legacy setting carries the name and the order the mod already
+		// ships; everything else is prefixed and ordered by declaration.
+		order := orderString(i)
+		if s.legacy {
+			order = s.order
+		}
 		pairs := []KV{
 			kv("type", Str(settingTypeName(s.kind))),
-			kv("name", Str(prefix+s.name)),
+			kv("name", Str(s.emittedName(prefix))),
 			kv("setting_type", Str("startup")),
 			kv("default_value", s.defaultValue()),
-			kv("order", Str(orderString(i))),
+			kv("order", Str(order)),
 		}
 		if s.kind == settingInt || s.kind == settingDouble {
 			spec := l.effectiveNumericSpec(i, bound)
@@ -70,15 +76,23 @@ func (l *Lib) PlanSettings(w World) ([]Op, error) {
 // No refusal here prints a number. A float rendered by two languages is two
 // different strings sooner or later, and these messages are compared byte for
 // byte, so each one names the setting and the relationship instead.
-func (l *Lib) validateSettings(stage string, bound []bool) error {
+func (l *Lib) validateSettings(stage, prefix string, bound []bool) error {
 	at := "fkrecipes: at the " + stage + " stage, "
 	for i, s := range l.settings {
 		if s.name == "" {
 			return errors.New(at + "a setting was declared with an empty name")
 		}
+		// A legacy setting supplies its own order because a mod that already
+		// shipped chose one; an empty string is not a choice.
+		if s.legacy && s.order == "" {
+			return errors.New(at + "the legacy setting " + s.name + " was declared with an empty order")
+		}
+		// Compared on the EMITTED names, which is the namespace the engine
+		// keeps: a legacy name and a generated one can arrive at the same
+		// string from different declarations, and only one of them survives.
 		for j := 0; j < i; j++ {
-			if l.settings[j].name == s.name {
-				return errors.New(at + "two settings share the name " + s.name + "; the engine keeps the last one silently")
+			if l.settings[j].emittedName(prefix) == s.emittedName(prefix) {
+				return errors.New(at + "two settings share the name " + s.emittedName(prefix) + "; the engine keeps the last one silently")
 			}
 		}
 		switch s.kind {
