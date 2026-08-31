@@ -1,0 +1,10 @@
+# Rust build output
+rust/target/
+rust/examples/*/target/
+
+# Go and wasm build artifacts
+*.wasm
+go/examples/*/[a-z]*.wasm
+
+# Harness scratch output (transcripts under test live in testdata/, not here)
+tmp/

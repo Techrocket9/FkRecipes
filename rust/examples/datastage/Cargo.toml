@@ -1,0 +1,16 @@
+[package]
+name = "datastage"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "datastage"
+crate-type = ["cdylib"]
+
+# The example is a consumer: fkrecipes by path (it lives in this repo), the
+# FkLua substrate through the real git channel. Both are wasm-gated so a host
+# `cargo test` at the workspace root never needs a wasm target.
+[target.'cfg(target_family = "wasm")'.dependencies]
+fkrecipes = { path = "../.." }
+fkdata = { git = "https://github.com/Techrocket9/fklua" }
+fk = { git = "https://github.com/Techrocket9/fklua" }

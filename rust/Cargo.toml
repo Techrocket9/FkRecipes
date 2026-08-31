@@ -1,0 +1,34 @@
+[package]
+name = "fkrecipes"
+version = "0.1.0"
+edition = "2021"
+description = "User-configurable crafting recipes and research for Factorio mods built with FkLua"
+license = "MIT"
+
+[lib]
+crate-type = ["rlib"]
+
+# The fkdata dependency resolves from the FkLua repository; fkdata itself
+# pulls in fk, which supplies the allocator. ONE SOURCE RULE: if your
+# consumer uses a vendored FkLua checkout (a path dependency), they must
+# [patch] this git source onto their path -- two fk crates in one build
+# is a duplicate #[global_allocator] link error:
+#
+#   [patch."https://github.com/Techrocket9/fklua"]
+#   fkdata = { path = "../FkLua/guest/rust/fkdata" }
+#   fk     = { path = "../FkLua/guest/rust/fk" }
+#
+# WASM-GATED, the fkipc arrangement: on the host this crate has no
+# dependencies at all, which is what lets `cargo test` run the pure half
+# (the planner, the validators, the locale checker) with no wasm target
+# installed.
+[target.'cfg(target_family = "wasm")'.dependencies]
+fkdata = { git = "https://github.com/Techrocket9/fklua" }
+
+# NEVER declare fk/fkgc here. Cargo unifies features across the consumer's
+# whole build, so a library that turned the collector on would turn it on for
+# every crate in the graph -- whether the mod is collected is the CONSUMER's
+# decision.
+
+[workspace]
+members = ["examples/datastage"]
