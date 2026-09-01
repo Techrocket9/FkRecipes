@@ -50,10 +50,11 @@ const localeFindingCap = 100
 // on keys CARRYING THE MOD PREFIX, so an entry that matches no declared
 // setting and carries no prefix is invisible here: a renamed legacy setting's
 // leftover entry goes unreported, and so does a setting the consumer wrote by
-// hand under a name of its own. That arm cannot be widened soundly, because a
-// stale legacy name and a deliberately hand-rolled one are the same string to
-// this function; policing them needs a known-hand-rolled parameter it does not
-// have rather than a guess over unrecognized names.
+// hand under a name of its own. That arm cannot be widened on a GUESS, because
+// a stale legacy name and a deliberately hand-rolled one are the same string
+// to this function. CheckLocaleWith is the version that widens it on a FACT:
+// told what the mod declares elsewhere, it polices those two sections against
+// the complete set of the mod's setting names instead of against the prefix.
 //
 // A DESCRIPTION IS OPTIONAL HERE, AND THAT IS A DELIBERATE DIVERGENCE from
 // BetterBeltBalancer, which requires one. The engine's failure mode for a
@@ -62,8 +63,62 @@ const localeFindingCap = 100
 // description that names nothing is still reported: a renamed setting leaves
 // one behind exactly as it leaves a name behind.
 func (l *Lib) CheckLocale(modName string, cfg string) []string {
+	return l.checkLocale(modName, cfg, nil, false)
+}
+
+// CheckLocaleWith is CheckLocale told what this mod declares OUTSIDE this
+// library, which is what lets the name and description orphan scan be
+// COMPLETE rather than prefix-shaped.
+//
+// handRolled is the consumer's whole set of settings declared elsewhere: the
+// ones written straight into an fk_settings hook beside Emit, under whatever
+// names they carry. Given that list, this function knows every setting name
+// the mod has, so an entry under [mod-setting-name] or
+// [mod-setting-description] matching no declared, legacy or hand-rolled name
+// is an orphan REGARDLESS OF PREFIX. That closes both halves of the gap the
+// prefix rule leaves: a renamed legacy setting's leftover entry carries no
+// prefix and is now caught, and a hand-rolled setting that happens to carry
+// the mod prefix is no longer reported as an orphan for existing.
+//
+// THE LIST SUPPRESSES ORPHANS; IT DOES NOT CREATE OBLIGATIONS. A name in it
+// is not reported missing, because this library knows the name and nothing
+// else: whether that setting is a dropdown needing per-value entries, or a
+// runtime-global one, or a bool, is the consumer's business. The value
+// direction is unchanged for the same reason, so another mod's string setting
+// in the same file is still left alone.
+//
+// AN EMPTY LIST IS NOT THE PLAIN CALL. It is the assertion that this mod
+// declares nothing outside this library, so every [mod-setting-name] and
+// [mod-setting-description] entry in the file must match a declared or legacy
+// setting and anything else is an orphan, another mod's entry in the same file
+// included. That is the strictest reading available and it is the right one
+// for a mod that declares everything here; use CheckLocale when you have not
+// enumerated the rest, because it is the call that assumes nothing.
+//
+// A name in the list that this plan also declares is a contradiction rather
+// than a fact about the file, and is reported FIRST in the checker's own
+// voice: the list is by definition what this plan does not declare, so one of
+// the two is wrong and no orphan verdict over that name would mean anything.
+func (l *Lib) CheckLocaleWith(modName string, cfg string, handRolled []string) []string {
+	return l.checkLocale(modName, cfg, handRolled, true)
+}
+
+// checkLocale is both entry points. complete says whether handRolled is the
+// authoritative rest of the mod's settings; without it the name and
+// description orphan rule can only be the mod prefix.
+func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, complete bool) []string {
 	prefix := modName + "-"
 	sections, findings := parseLocale(cfg)
+
+	// The contradiction first, before anything reads the list as truth.
+	if complete {
+		for _, n := range handRolled {
+			if l.declaresSetting(prefix, n) {
+				findings = append(findings, "the hand-rolled name "+localeShow(n)+
+					" is also a setting this plan declares; the list names only settings declared outside this library")
+			}
+		}
+	}
 
 	// (1) and (2): what the player cannot read, in DECLARATION order, and a
 	// setting's own name before the values it offers.
@@ -92,7 +147,13 @@ func (l *Lib) CheckLocale(modName string, cfg string) []string {
 		for _, e := range sec.entries {
 			switch sec.name {
 			case "mod-setting-name", "mod-setting-description":
-				if strings.HasPrefix(e.key, prefix) && !l.declaresSetting(prefix, e.key) {
+				// COMPLETE-LIST policing when the caller supplied the rest of
+				// the mod's settings, prefix-shaped policing when it did not.
+				// The prefix gate is not a rule anybody wants; it is the only
+				// one available when the set of names is unknown.
+				owned := l.declaresSetting(prefix, e.key) || nameListed(handRolled, e.key)
+				scanned := complete || strings.HasPrefix(e.key, prefix)
+				if scanned && !owned {
 					findings = append(findings, "the ["+localeShow(sec.name)+"] entry "+
 						localeShow(e.key)+" matches no setting this plan declares")
 				}
@@ -180,6 +241,18 @@ func asciiLower(s string) string {
 		}
 	}
 	return string(b)
+}
+
+// nameListed reports whether the consumer named this setting as one of its
+// own. Compared verbatim: a hand-rolled name is whatever the mod ships, and
+// deriving anything from it is the guessing this parameter exists to replace.
+func nameListed(handRolled []string, key string) bool {
+	for _, n := range handRolled {
+		if n == key {
+			return true
+		}
+	}
+	return false
 }
 
 func (l *Lib) declaresSetting(prefix, key string) bool {

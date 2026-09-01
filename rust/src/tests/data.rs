@@ -1769,3 +1769,174 @@ fn craft_time_binding_falls_back_to_its_default() {
         ],
     );
 }
+
+/// The same, for the two technologies the split-emission test prices from.
+const LOGISTICS_2_UNIT: &str = r#"{count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}"#;
+const LOGISTICS_3_UNIT: &str = r#"{count=400, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1], ["chemical-science-pack", 1]], time=60}"#;
+
+fn logistics_2_unit_value() -> Value {
+    unit_of(
+        200,
+        30.0,
+        &["automation-science-pack", "logistic-science-pack"],
+    )
+}
+
+/// THE ONE-DATA-HOOK RULE IS PER Lib, NOT PER MOD, and this is what says so.
+///
+/// A single Lib emitted from two data-family hooks refuses, because the second
+/// pass finds the first pass's prototypes already in data.raw and reports the
+/// overwrite. That is a real rule and it is not the rule "a mod gets one data
+/// hook": a mod may carry TWO plans, one creating its own content at `fk_data`
+/// and one patching another mod's tree at `fk_data_updates`, each emitting its
+/// own settings at `fk_settings`. The stages share one data.raw, so what makes
+/// it work is that the two plans declare different names; nothing else is
+/// needed.
+///
+/// The patching plan is planned against a world that carries the creating
+/// plan's prototypes, which is what data.raw actually looks like by the time
+/// `fk_data_updates` runs.
+#[test]
+fn two_libs_split_creation_from_patching() {
+    // PLAN A, at fk_data: this mod's own content.
+    let mut creation = Lib::new();
+    let hardened = creation.bool_setting("hardened-tools", true);
+    let plate = creation.item("hardened-steel-plate", ItemSpec::default());
+    creation.recipe(
+        plate,
+        RecipeSpec {
+            ingredients: vec![Ingredient::named(2, "steel-plate", &[])],
+            ..Default::default()
+        },
+    );
+    creation.technology(
+        "hardened-steel",
+        TechSpec {
+            cost_of: String::from("logistics-2"),
+            after: String::from("steel-processing"),
+            enabled_by: hardened,
+            ..Default::default()
+        },
+    );
+
+    // The setting is answered rather than left unreadable, so the transcript
+    // is the split itself and not a degradation log.
+    let a_ops = creation
+        .plan_data(&base_world().with_setting("steelworks-hardened-tools", Value::Bool(true)))
+        .expect("the creating plan was refused");
+    assert_lines(
+        &transcript(&a_ops),
+        &[
+            r#"extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-hardened-steel-plate", enabled=true, ingredients=[{type="item", name="steel-plate", amount=2}], results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}"#,
+            &alloc::format!(
+                r#"extend {{type="technology", name="steelworks-hardened-steel", prerequisites=["steel-processing"], unit={}, enabled=true}}"#,
+                LOGISTICS_2_UNIT
+            ),
+        ],
+    );
+
+    // data.raw AS PLAN A LEFT IT. The patching plan runs a stage later, so
+    // everything above is already there and is what it plans against.
+    let after = base_world()
+        .with_setting("steelworks-deep-tempering", Value::Bool(true))
+        .with_item("steelworks-hardened-steel-plate")
+        .with_recipe("steelworks-hardened-steel-plate")
+        .with_tech(FixtureTech {
+            name: String::from("steelworks-hardened-steel"),
+            prereqs: alloc::vec![String::from("steel-processing")],
+            unit: logistics_2_unit_value(),
+            max_level: Value::Nil,
+            trigger: false,
+        });
+
+    // PLAN B, at fk_data_updates: a patch, spliced around plan A's OWN
+    // technology by name. It cannot use after_tech, because that takes a
+    // handle and handles do not cross plans; a name is how one plan reaches
+    // another's emitted prototype, which is the same way it reaches any other
+    // mod's.
+    let mut patch = Lib::new();
+    let deep = patch.bool_setting("deep-tempering", true);
+    patch.technology(
+        "tempering",
+        TechSpec {
+            cost_of: String::from("logistics-3"),
+            after: String::from("steel-processing"),
+            before: String::from("steelworks-hardened-steel"),
+            enabled_by: deep,
+            ..Default::default()
+        },
+    );
+
+    let b_ops = patch
+        .plan_data(&after)
+        .expect("the patching plan was refused");
+    assert_lines(
+        &transcript(&b_ops),
+        &[
+            &alloc::format!(
+                r#"extend {{type="technology", name="steelworks-tempering", prerequisites=["steel-processing"], unit={}, enabled=true}}"#,
+                LOGISTICS_3_UNIT
+            ),
+            r#"set technology.steelworks-hardened-steel.prerequisites = ["steelworks-tempering"]"#,
+        ],
+    );
+
+    // Each plan emits ITS OWN settings, and the two sets are disjoint: the
+    // settings stage runs once, so both hooks route into it and a shared name
+    // would be the silent last-writer-wins the settings validator refuses
+    // within one plan and cannot see across two.
+    let a_settings = creation
+        .plan_settings(&settings_world())
+        .expect("plan refused");
+    let b_settings = patch
+        .plan_settings(&settings_world())
+        .expect("plan refused");
+    assert_lines(
+        &transcript(&a_settings),
+        &[
+            r#"extend {type="bool-setting", name="steelworks-hardened-tools", setting_type="startup", default_value=true, order="aa"}"#,
+        ],
+    );
+    assert_lines(
+        &transcript(&b_settings),
+        &[
+            r#"extend {type="bool-setting", name="steelworks-deep-tempering", setting_type="startup", default_value=true, order="aa"}"#,
+        ],
+    );
+}
+
+/// The other half of the rule, so the pair cannot both pass on a library that
+/// never refuses an overwrite: two plans that DO share a name are refused, and
+/// the refusal comes from the world carrying the first plan's prototype rather
+/// than from anything the second plan knows about the first.
+#[test]
+fn a_second_lib_sharing_a_name_is_still_refused() {
+    let mut patch = Lib::new();
+    patch.technology(
+        "hardened-steel",
+        TechSpec {
+            cost_of: String::from("logistics-3"),
+            ..Default::default()
+        },
+    );
+
+    let after = base_world().with_tech(FixtureTech {
+        name: String::from("steelworks-hardened-steel"),
+        prereqs: alloc::vec![String::from("steel-processing")],
+        unit: logistics_2_unit_value(),
+        max_level: Value::Nil,
+        trigger: false,
+    });
+
+    match patch.plan_data(&after) {
+        Ok(ops) => panic!(
+            "the plan was accepted with {} ops, want an overwrite refusal",
+            ops.len()
+        ),
+        Err(got) => assert_eq!(
+            got,
+            "fkrecipes: the technology steelworks-hardened-steel already exists in data.raw; this plan would overwrite it"
+        ),
+    }
+}

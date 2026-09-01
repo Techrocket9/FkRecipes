@@ -14,6 +14,14 @@ import (
 // library builds itself is pre-sort and keeps its authored order.
 const steelProcessingUnit = `{count=50, ingredients=[["automation-science-pack", 1]], time=15}`
 
+// The same, for the two technologies the split-emission test prices from.
+const logistics2Unit = `{count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}`
+const logistics3Unit = `{count=400, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1], ["chemical-science-pack", 1]], time=60}`
+
+func logistics2UnitValue() Value {
+	return unitOf(200, 30, "automation-science-pack", "logistic-science-pack")
+}
+
 func TestPlanDataItemAndRecipeShapes(t *testing.T) {
 	lib := New()
 	axe := lib.Item("steel-axe", ItemSpec{
@@ -1135,4 +1143,117 @@ func TestCraftTimeBindingFallsBackToItsDefault(t *testing.T) {
 		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-steel-axe", energy_required=2.5000000000000000e0, enabled=true, ingredients=[], results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Two Libs, two data hooks: the split-emission pattern.
+// ---------------------------------------------------------------------------
+
+// THE ONE-DATA-HOOK RULE IS PER Lib, NOT PER MOD, and this is what says so.
+//
+// A single Lib emitted from two data-family hooks refuses, because the second
+// pass finds the first pass's prototypes already in data.raw and reports the
+// overwrite. That is a real rule and it is not the rule "a mod gets one data
+// hook": a mod may carry TWO plans, one creating its own content at fk_data
+// and one patching another mod's tree at fk_data_updates, each emitting its
+// own settings at fk_settings. The stages share one data.raw, so what makes it
+// work is that the two plans declare different names; nothing else is needed.
+//
+// The patching plan is planned against a world that carries the creating
+// plan's prototypes, which is what data.raw actually looks like by the time
+// fk_data_updates runs.
+func TestTwoLibsSplitCreationFromPatching(t *testing.T) {
+	// PLAN A, at fk_data: this mod's own content.
+	creation := New()
+	hardened := creation.BoolSetting("hardened-tools", true)
+	plate := creation.Item("hardened-steel-plate", ItemSpec{})
+	creation.Recipe(plate, RecipeSpec{Ingredients: []Ingredient{IngredientNamed(2, "steel-plate")}})
+	creation.Technology("hardened-steel", TechSpec{
+		CostOf:    "logistics-2",
+		After:     "steel-processing",
+		EnabledBy: hardened,
+	})
+
+	// The setting is answered rather than left unreadable, so the transcript
+	// is the split itself and not a degradation log.
+	aOps, err := creation.PlanData(baseWorld().withSetting("steelworks-hardened-tools", Bool(true)))
+	assertNoError(t, err)
+	assertLines(t, transcript(aOps), []string{
+		`extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-hardened-steel-plate", enabled=true, ingredients=[{type="item", name="steel-plate", amount=2}], results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}`,
+		`extend {type="technology", name="steelworks-hardened-steel", prerequisites=["steel-processing"], unit=` + logistics2Unit + `, enabled=true}`,
+	})
+
+	// data.raw AS PLAN A LEFT IT. The patching plan runs a stage later, so
+	// everything above is already there and is what it plans against.
+	after := baseWorld().
+		withSetting("steelworks-deep-tempering", Bool(true)).
+		withItem("steelworks-hardened-steel-plate").
+		withRecipe("steelworks-hardened-steel-plate").
+		withTech(fixtureTech{
+			name:    "steelworks-hardened-steel",
+			prereqs: []string{"steel-processing"},
+			unit:    logistics2UnitValue(),
+		})
+
+	// PLAN B, at fk_data_updates: a patch, spliced around plan A's OWN
+	// technology by name. It cannot use AfterTech, because that takes a handle
+	// and handles do not cross plans; a name is how one plan reaches another's
+	// emitted prototype, which is the same way it reaches any other mod's.
+	patch := New()
+	deep := patch.BoolSetting("deep-tempering", true)
+	patch.Technology("tempering", TechSpec{
+		CostOf:    "logistics-3",
+		After:     "steel-processing",
+		Before:    "steelworks-hardened-steel",
+		EnabledBy: deep,
+	})
+
+	bOps, err := patch.PlanData(after)
+	if err != nil {
+		t.Fatalf("the patching plan was refused: %v", err)
+	}
+	assertLines(t, transcript(bOps), []string{
+		`extend {type="technology", name="steelworks-tempering", prerequisites=["steel-processing"], unit=` + logistics3Unit + `, enabled=true}`,
+		`set technology.steelworks-hardened-steel.prerequisites = ["steelworks-tempering"]`,
+	})
+
+	// Each plan emits ITS OWN settings, and the two sets are disjoint: the
+	// settings stage runs once, so both hooks route into it and a shared name
+	// would be the silent last-writer-wins the settings validator refuses
+	// within one plan and cannot see across two.
+	aSettings, err := creation.PlanSettings(settingsWorld())
+	assertNoError(t, err)
+	bSettings, err := patch.PlanSettings(settingsWorld())
+	assertNoError(t, err)
+	assertLines(t, transcript(aSettings), []string{
+		`extend {type="bool-setting", name="steelworks-hardened-tools", setting_type="startup", default_value=true, order="aa"}`,
+	})
+	assertLines(t, transcript(bSettings), []string{
+		`extend {type="bool-setting", name="steelworks-deep-tempering", setting_type="startup", default_value=true, order="aa"}`,
+	})
+}
+
+// The other half of the rule, so the pair cannot both pass on a library that
+// never refuses an overwrite: two plans that DO share a name are refused, and
+// the refusal comes from the world carrying the first plan's prototype rather
+// than from anything the second plan knows about the first.
+func TestASecondLibSharingANameIsStillRefused(t *testing.T) {
+	patch := New()
+	patch.Technology("hardened-steel", TechSpec{CostOf: "logistics-3"})
+
+	after := baseWorld().withTech(fixtureTech{
+		name:    "steelworks-hardened-steel",
+		prereqs: []string{"steel-processing"},
+		unit:    logistics2UnitValue(),
+	})
+
+	_, err := patch.PlanData(after)
+	if err == nil {
+		t.Fatal("the plan was accepted, want an overwrite refusal")
+	}
+	want := "fkrecipes: the technology steelworks-hardened-steel already exists in data.raw; this plan would overwrite it"
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
 }

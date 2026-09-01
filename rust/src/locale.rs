@@ -52,11 +52,12 @@ impl Lib {
     /// THE MOD PREFIX, so an entry that matches no declared setting and
     /// carries no prefix is invisible here: a renamed legacy setting's
     /// leftover entry goes unreported, and so does a setting the consumer
-    /// wrote by hand under a name of its own. That arm cannot be widened
-    /// soundly, because a stale legacy name and a deliberately hand-rolled one
-    /// are the same string to this function; policing them needs a
-    /// known-hand-rolled parameter it does not have rather than a guess over
-    /// unrecognized names.
+    /// wrote by hand under a name of its own. That arm cannot be widened on a
+    /// GUESS, because a stale legacy name and a deliberately hand-rolled one
+    /// are the same string to this function. `check_locale_with` is the
+    /// version that widens it on a FACT: told what the mod declares
+    /// elsewhere, it polices those two sections against the complete set of
+    /// the mod's setting names instead of against the prefix.
     ///
     /// A DESCRIPTION IS OPTIONAL HERE, AND THAT IS A DELIBERATE DIVERGENCE
     /// from BetterBeltBalancer, which requires one. The engine's failure mode
@@ -65,8 +66,78 @@ impl Lib {
     /// exists for. A description that names nothing is still reported: a
     /// renamed setting leaves one behind exactly as it leaves a name behind.
     pub fn check_locale(&self, mod_name: &str, cfg: &str) -> Vec<String> {
+        self.check_locale_inner(mod_name, cfg, &[], false)
+    }
+
+    /// `check_locale` told what this mod declares OUTSIDE this library, which
+    /// is what lets the name and description orphan scan be COMPLETE rather
+    /// than prefix-shaped.
+    ///
+    /// `hand_rolled` is the consumer's whole set of settings declared
+    /// elsewhere: the ones written straight into an `fk_settings` hook beside
+    /// `emit`, under whatever names they carry. Given that list, this function
+    /// knows every setting name the mod has, so an entry under
+    /// `[mod-setting-name]` or `[mod-setting-description]` matching no
+    /// declared, legacy or hand-rolled name is an orphan REGARDLESS OF PREFIX.
+    /// That closes both halves of the gap the prefix rule leaves: a renamed
+    /// legacy setting's leftover entry carries no prefix and is now caught,
+    /// and a hand-rolled setting that happens to carry the mod prefix is no
+    /// longer reported as an orphan for existing.
+    ///
+    /// THE LIST SUPPRESSES ORPHANS; IT DOES NOT CREATE OBLIGATIONS. A name in
+    /// it is not reported missing, because this library knows the name and
+    /// nothing else: whether that setting is a dropdown needing per-value
+    /// entries, or a runtime-global one, or a bool, is the consumer's
+    /// business. The value direction is unchanged for the same reason, so
+    /// another mod's string setting in the same file is still left alone.
+    ///
+    /// AN EMPTY LIST IS NOT THE PLAIN CALL. It is the assertion that this mod
+    /// declares nothing outside this library, so every `[mod-setting-name]`
+    /// and `[mod-setting-description]` entry in the file must match a declared
+    /// or legacy setting and anything else is an orphan, another mod's entry
+    /// in the same file included. That is the strictest reading available and
+    /// it is the right one for a mod that declares everything here; use
+    /// `check_locale` when you have not enumerated the rest, because it is the
+    /// call that assumes nothing.
+    ///
+    /// A name in the list that this plan also declares is a contradiction
+    /// rather than a fact about the file, and is reported FIRST in the
+    /// checker's own voice: the list is by definition what this plan does not
+    /// declare, so one of the two is wrong and no orphan verdict over that
+    /// name would mean anything.
+    pub fn check_locale_with(
+        &self,
+        mod_name: &str,
+        cfg: &str,
+        hand_rolled: &[&str],
+    ) -> Vec<String> {
+        self.check_locale_inner(mod_name, cfg, hand_rolled, true)
+    }
+
+    /// Both entry points. `complete` says whether `hand_rolled` is the
+    /// authoritative rest of the mod's settings; without it the name and
+    /// description orphan rule can only be the mod prefix.
+    fn check_locale_inner(
+        &self,
+        mod_name: &str,
+        cfg: &str,
+        hand_rolled: &[&str],
+        complete: bool,
+    ) -> Vec<String> {
         let prefix = format!("{}-", mod_name);
         let (sections, mut findings) = parse_locale(cfg);
+
+        // The contradiction first, before anything reads the list as truth.
+        if complete {
+            for n in hand_rolled {
+                if self.declares_setting(&prefix, n) {
+                    findings.push(format!(
+                        "the hand-rolled name {} is also a setting this plan declares; the list names only settings declared outside this library",
+                        locale_show(n)
+                    ));
+                }
+            }
+        }
 
         // (1) and (2): what the player cannot read, in DECLARATION order, and
         // a setting's own name before the values it offers.
@@ -103,7 +174,15 @@ impl Lib {
             for e in &sec.entries {
                 match sec.name.as_str() {
                     "mod-setting-name" | "mod-setting-description" => {
-                        if e.key.starts_with(&prefix) && !self.declares_setting(&prefix, &e.key) {
+                        // COMPLETE-LIST policing when the caller supplied the
+                        // rest of the mod's settings, prefix-shaped policing
+                        // when it did not. The prefix gate is not a rule
+                        // anybody wants; it is the only one available when the
+                        // set of names is unknown.
+                        let owned = self.declares_setting(&prefix, &e.key)
+                            || name_listed(hand_rolled, &e.key);
+                        let scanned = complete || e.key.starts_with(&prefix);
+                        if scanned && !owned {
                             findings.push(format!(
                                 "the [{}] entry {} matches no setting this plan declares",
                                 locale_show(&sec.name),
@@ -277,6 +356,13 @@ fn locale_has(sections: &[LocaleSect], section: &str, key: &str) -> bool {
 /// Quotes a key or section name whose whitespace would otherwise be invisible
 /// in the sentence. Everything else is rendered bare, so the ordinary finding
 /// reads as prose.
+/// Whether the consumer named this setting as one of its own. Compared
+/// verbatim: a hand-rolled name is whatever the mod ships, and deriving
+/// anything from it is the guessing this parameter exists to replace.
+fn name_listed(hand_rolled: &[&str], key: &str) -> bool {
+    hand_rolled.contains(&key)
+}
+
 fn locale_show(s: &str) -> String {
     if s != s.trim() {
         return format!("\"{}\"", s);
@@ -760,5 +846,165 @@ fkrecipes-example-quench-medium-oil=Oil
                 f
             );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // check_locale_with: the complete-list orphan rule.
+    // -----------------------------------------------------------------------
+
+    /// The migration pilot's shape: two legacy dropdowns declared here, and a
+    /// third setting the mod declares itself.
+    fn bbb_plan() -> Lib {
+        let mut lib = Lib::new();
+        lib.legacy_dropdown_setting_needing_locale(
+            "bbb-recipe-cost",
+            "vanilla",
+            &["vanilla", "cheap"],
+            "a",
+        );
+        lib.legacy_dropdown_setting_needing_locale(
+            "bbb-tech-cost",
+            "logistics",
+            &["logistics", "logistics-2"],
+            "b",
+        );
+        lib
+    }
+
+    const BBB_CFG: &str = "[mod-setting-name]\n\
+        bbb-recipe-cost=Recipe cost\n\
+        bbb-tech-cost=Research cost\n\
+        bbb-multi-edge-parts=Multi-edge parts\n\
+        bbb-renamed-away=Left over from a rename\n\
+        \n\
+        [string-mod-setting]\n\
+        bbb-recipe-cost-vanilla=Vanilla\n\
+        bbb-recipe-cost-cheap=Cheap\n\
+        bbb-tech-cost-logistics=Logistics\n\
+        bbb-tech-cost-logistics-2=Logistics 2\n";
+
+    /// The GAP THIS PARAMETER EXISTS FOR, stated as the difference between the
+    /// two calls over one file. Neither the hand-rolled name nor the leftover
+    /// carries the mod prefix, so the plain call cannot see either of them.
+    #[test]
+    fn plain_check_locale_cannot_see_unprefixed_entries() {
+        let got = bbb_plan().check_locale("better-belt-balancer", BBB_CFG);
+        assert_eq!(got, Vec::<String>::new());
+    }
+
+    /// Told what the mod declares elsewhere, the same file gives up the
+    /// leftover and stays quiet about the hand-rolled one.
+    #[test]
+    fn check_locale_with_polices_the_complete_list() {
+        let got = bbb_plan().check_locale_with(
+            "better-belt-balancer",
+            BBB_CFG,
+            &["bbb-multi-edge-parts"],
+        );
+        assert_eq!(
+            got,
+            ["the [mod-setting-name] entry bbb-renamed-away matches no setting this plan declares"]
+        );
+    }
+
+    /// The list is what suppresses the hand-rolled entry, so leaving it out
+    /// reports that entry too. This is the other side of the test above:
+    /// without it the pair could both pass on a checker that reported nothing.
+    #[test]
+    fn check_locale_with_reports_an_unlisted_hand_rolled_entry() {
+        let got = bbb_plan().check_locale_with("better-belt-balancer", BBB_CFG, &[]);
+        assert_eq!(
+            got,
+            [
+                "the [mod-setting-name] entry bbb-multi-edge-parts matches no setting this plan declares",
+                "the [mod-setting-name] entry bbb-renamed-away matches no setting this plan declares",
+            ]
+        );
+    }
+
+    /// The prefix-only FALSE POSITIVE, closed: a hand-rolled setting that
+    /// happens to carry the mod prefix is an orphan to the plain call and is
+    /// not one here.
+    #[test]
+    fn check_locale_with_clears_a_prefixed_hand_rolled_name() {
+        let mut lib = Lib::new();
+        lib.bool_setting("hardened-tools", true);
+        let cfg = "[mod-setting-name]\n\
+            steelworks-hardened-tools=Hardened tools\n\
+            steelworks-written-by-hand=Written by hand\n";
+        assert_eq!(
+            lib.check_locale("steelworks", cfg),
+            ["the [mod-setting-name] entry steelworks-written-by-hand matches no setting this plan declares"]
+        );
+        assert_eq!(
+            lib.check_locale_with("steelworks", cfg, &["steelworks-written-by-hand"]),
+            Vec::<String>::new()
+        );
+    }
+
+    /// The list names what this plan does NOT declare, so a name in both is a
+    /// contradiction and is said first, before any verdict that would rest on
+    /// it.
+    #[test]
+    fn check_locale_with_refuses_a_contradictory_list() {
+        let got = bbb_plan().check_locale_with(
+            "better-belt-balancer",
+            BBB_CFG,
+            &["bbb-recipe-cost", "bbb-multi-edge-parts"],
+        );
+        assert_eq!(
+            got,
+            [
+                "the hand-rolled name bbb-recipe-cost is also a setting this plan declares; the list names only settings declared outside this library",
+                "the [mod-setting-name] entry bbb-renamed-away matches no setting this plan declares",
+            ]
+        );
+    }
+
+    /// THE MISSING DIRECTION IS UNCHANGED, and that is the point of the
+    /// parameter suppressing orphans without creating obligations: this
+    /// library knows a hand-rolled setting's NAME and nothing else, so it
+    /// cannot say what entries that setting needs. The declared settings are
+    /// still held to theirs.
+    #[test]
+    fn check_locale_with_leaves_the_missing_direction_alone() {
+        let cfg = "[mod-setting-name]\n\
+            bbb-recipe-cost=Recipe cost\n\
+            \n\
+            [string-mod-setting]\n\
+            bbb-recipe-cost-vanilla=Vanilla\n\
+            bbb-recipe-cost-cheap=Cheap\n";
+        let got =
+            bbb_plan().check_locale_with("better-belt-balancer", cfg, &["bbb-multi-edge-parts"]);
+        assert_eq!(
+            got,
+            [
+                "the setting bbb-tech-cost has no [mod-setting-name] entry",
+                "the dropdown setting bbb-tech-cost has no [string-mod-setting] entry for its value logistics",
+                "the dropdown setting bbb-tech-cost has no [string-mod-setting] entry for its value logistics-2",
+            ]
+        );
+    }
+
+    /// The VALUE direction is unchanged too: another mod's string setting in
+    /// the same file is not this checker's business whether or not a complete
+    /// list was given, because a name alone says nothing about what values a
+    /// setting offers.
+    #[test]
+    fn check_locale_with_leaves_foreign_value_keys_alone() {
+        let cfg = "[mod-setting-name]\n\
+            bbb-recipe-cost=Recipe cost\n\
+            bbb-tech-cost=Research cost\n\
+            bbb-multi-edge-parts=Multi-edge parts\n\
+            \n\
+            [string-mod-setting]\n\
+            bbb-recipe-cost-vanilla=Vanilla\n\
+            bbb-recipe-cost-cheap=Cheap\n\
+            bbb-tech-cost-logistics=Logistics\n\
+            bbb-tech-cost-logistics-2=Logistics 2\n\
+            bbb-multi-edge-parts-aggressive=Aggressive\n";
+        let got =
+            bbb_plan().check_locale_with("better-belt-balancer", cfg, &["bbb-multi-edge-parts"]);
+        assert_eq!(got, Vec::<String>::new());
     }
 }

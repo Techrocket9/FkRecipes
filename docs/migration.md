@@ -46,7 +46,7 @@ Two more refusals are worth knowing. An empty name is refused as it is for a gen
 fkrecipes: two settings share the name steelworks-hardened-tools; the engine keeps the last one silently
 ```
 
-`CheckLocale` reads legacy settings under the names they actually carry, and keys their dropdown values `<legacy-name>-<value>` rather than `<prefix><legacy-name>-<value>`, so the locale file you already ship keeps validating. There is one thing it still cannot see once names stop carrying the mod prefix, described under the worked example below.
+`CheckLocale` reads legacy settings under the names they actually carry, and keys their dropdown values `<legacy-name>-<value>` rather than `<prefix><legacy-name>-<value>`, so the locale file you already ship keeps validating. Once your names stop carrying the mod prefix, though, its orphan scan has nothing to work with: use `CheckLocaleWith` instead, as the worked example below does.
 
 ## Ingredients a dropdown chooses
 
@@ -197,9 +197,16 @@ Two facts about that mod shape the migration beyond the names:
 
 `bbb-multi-edge-parts` is **runtime-global**, not startup, and is declared only on Factorio 2.0 engines. This library generates startup settings only, and reads only startup settings, so that one stays hand-rolled. A mod can declare some settings through FkRecipes and others itself, and the library validates what it was told about.
 
-Know what `CheckLocale` can and cannot see in that arrangement. It polices two namespaces: the mod-prefix namespace, and the names your plan declared, legacy names included. The missing direction covers every declared setting, so a legacy setting with no `[mod-setting-name]` entry is reported under the name it actually carries. The value direction polices every declared dropdown, so a stale `[string-mod-setting]` key under `bbb-recipe-cost` is reported as matching no value this plan declares.
+Use `CheckLocaleWith` rather than `CheckLocale` in that arrangement, and pass the hand-rolled setting:
 
-What it cannot see is a `[mod-setting-name]` or `[mod-setting-description]` entry that matches no declared setting **and** does not carry the mod prefix. For a migrated mod that means a renamed legacy setting's leftover name entry goes unreported. The reason has to stay that way: a stale legacy name carries no recognizable prefix, so nothing sound distinguishes it from a setting deliberately hand-rolled beside the library, which is the composition this page just recommended for `bbb-multi-edge-parts`. An orphan arm over unrecognized names would fire on every mod that does that. If you want those entries policed, the honest mechanism is telling the checker which names are hand-rolled rather than having it guess; that parameter does not exist yet and is on the open-items list.
+```go
+findings := plan().CheckLocaleWith("better-belt-balancer", cfg,
+	[]string{"bbb-multi-edge-parts"})
+```
+
+That is the whole difference, and it is what makes the check complete for a migrated mod. Plain `CheckLocale` polices two namespaces: the mod-prefix namespace, and the names your plan declared. For BBB those barely overlap, because every name carries the historical `bbb-` prefix and none carries `better-belt-balancer-`. The missing direction still works (a legacy setting with no `[mod-setting-name]` entry is reported under the name it actually carries) and so does the value direction (a stale `[string-mod-setting]` key under `bbb-recipe-cost` is reported), but the name and description **orphan** scan sees nothing at all: no entry in the file carries the mod prefix, so a leftover from a setting you renamed during the migration goes unreported, and that is exactly the mistake a migration makes.
+
+Given the hand-rolled list, the checker knows every setting name the mod has and the orphan scan becomes complete: an entry matching no declared, legacy or hand-rolled name is reported whatever it is called. `bbb-multi-edge-parts` is recognised rather than flagged, and a stale `bbb-renamed-away` is caught. The list suppresses orphans without creating obligations, so naming the runtime-global setting there does not make this library start demanding locale entries for it.
 
 `bbb-multi-edge-parts` is also written by the mod itself at runtime. Nothing in this library reads or writes settings at runtime, so that behaviour is untouched by the migration either way.
 
@@ -211,5 +218,5 @@ Nothing forces an all-at-once move. A plan may mix legacy and generated settings
 
 1. Declare the existing settings with the legacy constructors, keeping every name, default, allowed-value list and order exactly as shipped. Check the settings prototypes hash the way they did before.
 2. Move the recipes and technologies across, using `IngredientsBy` and `CostBy` where a setting was driving a hand-rolled branch.
-3. Run `CheckLocale` from your own test suite against the `.cfg` you already ship. It should be clean, because the names have not moved.
+3. Run `CheckLocaleWith` from your own test suite against the `.cfg` you already ship, passing the settings you still declare by hand. It should be clean, because the names have not moved, and anything it does report is a leftover the migration created.
 4. Add new settings with the generated constructors. Those get the prefix and a derived order, and they cost nothing to rename later because no save has ever seen them.

@@ -34,6 +34,14 @@ func plan() *fkrecipes.Lib {
 	// order alone.
 	tier := lib.DropdownSettingNeedingLocale("tips-research-tier", "projectile",
 		[]string{"projectile", "military"})
+	// A FLOOR AND NO CEILING, the one NumericSpec arm the goldens did not
+	// carry. Organic here: a longer hold keeps tempering, so there is nothing
+	// to cap, but below half a second the plate never reaches temperature.
+	// Bound as a crafting time too, which is what shows that a DECLARED
+	// minimum stands rather than being replaced by the generated floor-safe
+	// one: the generated minimum fills in only where the consumer named none.
+	tempering := lib.DoubleSetting("tempering-hold", 1.5,
+		fkrecipes.NumericSpec{HasMin: true, Min: 0.5})
 
 	plate := lib.Item("hardened-steel-plate", fkrecipes.ItemSpec{
 		Icon:        "__fkrecipes-example__/graphics/icons/hardened-steel-plate.png",
@@ -95,11 +103,11 @@ func plan() *fkrecipes.Lib {
 	})
 
 	// Reclaimed from worn plate, and known from the start: nothing unlocks it,
-	// so it is enabled without research, and it names no crafting time, so the
-	// engine's own default applies.
+	// so it is enabled without research.
 	lib.Recipe(rivet, fkrecipes.RecipeSpec{
-		Name:        "salvaged-steel-rivet",
-		ResultCount: 3,
+		Name:          "salvaged-steel-rivet",
+		CraftTimeFrom: tempering,
+		ResultCount:   3,
 		Ingredients: []fkrecipes.Ingredient{
 			fkrecipes.IngredientOf(plate, 1),
 		},

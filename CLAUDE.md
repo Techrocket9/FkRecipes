@@ -40,7 +40,10 @@ scripts/run-ingame.sh         # the engine gate: both packaged examples under a 
                               # binary its version first; FACTORIO_USERDIR=/tmp/fkrecipes so a running
                               # game's lock cannot kill it; needs FACTORIO_BIN (or the Steam default)
                               # and jq. About 18 seconds. The mirror covers the flipped-settings side
-                              # of every decision; this gate covers the defaults side
+                              # of every decision; this gate covers the defaults side. A mod-set
+                              # mismatch reports SKIPPED and exits 0 (an environmental difference,
+                              # the FkLua convention); --strict or FKRECIPES_STRICT=1 makes it exit 1
+                              # for a CI job that only reads exit codes
 ```
 
 The mirror harness (both example guests packaged with `fklua mod`, run under lua52f against the strict stand-in, transcripts byte-compared) and the in-game `--dump-data` gate land with their own commits and get their rows here then.

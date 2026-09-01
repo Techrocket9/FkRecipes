@@ -20,7 +20,7 @@ There is no published version tag yet, so both halves are consumed from a checko
 
 ## Quickstart
 
-Your mod owns the stage exports; this library never declares one. Route `fk_settings` and exactly one data-family hook into `Emit`, which plans and writes.
+Your mod owns the stage exports; this library never declares one. Route `fk_settings` and one data-family hook into `Emit`, which plans and writes. That is one data hook per plan rather than per mod: a mod may carry a second plan on another data stage, which [the usage guide](docs/usage.md) shows.
 
 ### Go
 

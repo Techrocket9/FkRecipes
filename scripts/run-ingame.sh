@@ -29,6 +29,28 @@
 #   4. Cause-naming assertions a hash cannot make. A hash says "different"; jq
 #      over the dump says WHICH decision moved.
 #
+# FLAGS:
+#   --update   capture the golden line for this engine, deliberately.
+#   --strict   make an environmental SKIP a FAILURE (exit 1), and refuse to
+#              RECORD a golden whose mod set differs from the one the golden
+#              already carries. Also set by FKRECIPES_STRICT=1, which is the
+#              form CI wants and the reason the capture needs its own guard:
+#              a job that sets it once covers every run in the job, --update
+#              included.
+#
+# WHY --strict IS OPT-IN RATHER THAN THE DEFAULT. A mod-set mismatch means the
+# machine owns different DLC from the machine that captured the golden, so the
+# hashes describe two different worlds and neither one is wrong. Failing a
+# developer's run for that would be a gate crying wolf, and FkLua's convention
+# is to skip. CI is the other case: there the mod set is fixed by the image, so
+# a skip means the gate silently stopped running, and a gate that can quietly
+# stop running is worse than one that is occasionally inconvenient.
+#
+# --strict AND --update TOGETHER MEAN "re-record, but not from a world the
+# golden does not describe". Plain --update still re-records any mod set,
+# because re-recording after a deliberate environment change is exactly what
+# it is for; strict only removes the case where nobody meant to change worlds.
+#
 # THE PROTOTYPE LIST CHECKSUM IS NOT USED AS A GATE. It is order-insensitive,
 # which sounds right, and it is blind to field values (FkLua measured it
 # unchanged when a stack_size went 1 -> 42), so quoting it as an equivalence
@@ -57,7 +79,17 @@ MODNAME=fkrecipes-example
 MODVER=0.1.0
 
 UPDATE=0
-if [ "${1:-}" = "--update" ]; then UPDATE=1; fi
+# Defaults to the environment so CI can set it once for the whole job; the flag
+# is the interactive form of the same switch.
+STRICT=0
+if [ "${FKRECIPES_STRICT:-0}" = "1" ]; then STRICT=1; fi
+for arg in "$@"; do
+  case "$arg" in
+    --update) UPDATE=1 ;;
+    --strict) STRICT=1 ;;
+    *) echo "run-ingame: unknown argument $arg; --update and --strict are the only ones" >&2; exit 1 ;;
+  esac
+done
 
 FAIL=0
 SKIPPED=0
@@ -295,8 +327,15 @@ jqassert "the prerequisite moved with the copied unit" "$DUMP" \
   '.technology["fkrecipes-example-hardened-tips"].prerequisites == ["physical-projectile-damage-7"]'
 jqassert "the ladder stepped past the technology no install has" "$DUMP" \
   '.technology["tungsten-hardening"] == null'
-jqassert "all six generated settings reached the settings dump" "$SDUMP" \
-  '[paths(scalars) | select(length > 1) | .[1]] | map(select(startswith("fkrecipes-example-"))) | unique | length == 6'
+jqassert "all seven generated settings reached the settings dump" "$SDUMP" \
+  '[paths(scalars) | select(length > 1) | .[1]] | map(select(startswith("fkrecipes-example-"))) | unique | length == 7'
+# The one-sided NumericSpec arms, in the engine's own settings dump rather than
+# only in the stand-in's: a declared maximum with no minimum of its own, and a
+# declared minimum with no maximum. The second is craft-time-bound, so a
+# maximum appearing on it would mean the generated floor-safe bound had
+# replaced the consumer's declaration rather than filling a gap.
+jqassert "the min-only setting kept its declared minimum and gained no maximum" "$SDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-tempering-hold")] | length > 0 and all(.minimum_value == 0.5 and (has("maximum_value") | not))'
 jqassert "the generated craft-time minimum reached the settings dump" "$SDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-forging-time") | .minimum_value] | any(. == 0.002)'
 
@@ -307,7 +346,26 @@ LINE="$ENGINE $FIRSTHASH $MODSET"
 mkdir -p "$(dirname "$GOLDEN")"
 
 if [ "$UPDATE" = 1 ]; then
-  if [ "$FAIL" != 0 ]; then
+  # THE CAPTURE NEEDS ITS OWN STRICT GUARD, because SKIPPED is set in the
+  # comparison branch below and is structurally 0 here: --strict on its own
+  # would guard the comparison and wave the capture straight through, which is
+  # the worse of the two. A wrong comparison reports; a wrong capture WRITES
+  # the wrong world into the file every later run is measured against, and the
+  # header above invites a CI job to set FKRECIPES_STRICT=1 once for
+  # everything it runs.
+  #
+  # Only against an EXISTING line for this engine: a first capture has nothing
+  # to disagree with, so strict has nothing to say about it.
+  strict_mods=""
+  if [ "$STRICT" != 0 ] && [ -f "$GOLDEN" ]; then
+    strict_mods="$(grep "^$ENGINE " "$GOLDEN" | cut -d' ' -f4- || true)"
+  fi
+  if [ -n "$strict_mods" ] && [ "$strict_mods" != "$MODSET" ]; then
+    echo "  refusing to record a golden from a mod set the golden does not carry; drop --strict to re-record after an environment change" >&2
+    echo "    golden: $strict_mods" >&2
+    echo "    here:   $MODSET" >&2
+    FAIL=1
+  elif [ "$FAIL" != 0 ]; then
     echo "  refusing to record a golden from a failing run" >&2
   else
     if [ -f "$GOLDEN" ]; then
@@ -371,7 +429,13 @@ if [ "$FAIL" != 0 ]; then
   exit 1
 fi
 if [ "$SKIPPED" != 0 ]; then
-  echo "run-ingame: SKIPPED (environmental: the mod set is not the golden's)"
+  # BOTH SETS ARE ALREADY PRINTED ABOVE, in the same words either way: the
+  # report is what a reader acts on, and only the verdict changes here.
+  if [ "$STRICT" != 0 ]; then
+    echo "run-ingame: FAILED (--strict: an environmental skip is a failure, because a gate that skips is a gate that stopped running)" >&2
+    exit 1
+  fi
+  echo "run-ingame: SKIPPED (environmental: the mod set is not the golden's; --strict makes this a failure)"
   exit 0
 fi
 echo "run-ingame: OK"

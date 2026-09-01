@@ -262,7 +262,24 @@ fkrecipes: a prerequisite cycle: logistics-2 -> steel-processing -> steelworks-s
 
 `Emit` (`emit`) is the only call that touches `fkdata`. It reads the stage it is running in, plans, and then writes: settings prototypes at the settings stage, everything else at a data stage.
 
-**Route `fk_settings` and exactly one data-family hook into it.** The three data stages (`fk_data`, `fk_data_updates`, `fk_data_final_fixes`) share one Lua state and one `data.raw`, so a second call would find the first pass's prototypes already there and refuse as an overwrite. Which one you pick is yours: `fk_data` for content of your own, `fk_data_updates` to sit after other mods.
+**Route each plan's `Emit` into `fk_settings` and exactly one data-family hook.** The three data stages (`fk_data`, `fk_data_updates`, `fk_data_final_fixes`) share one Lua state and one `data.raw`, so emitting **the same plan** twice would find the first pass's prototypes already there and refuse as an overwrite. Which stage you pick is yours: `fk_data` for content of your own, `fk_data_updates` to sit after other mods.
+
+**The rule is one data hook per plan, not one per mod.** A mod that wants both can carry two plans: one creating its own content at `fk_data`, one patching another mod's tree at `fk_data_updates`, each routed into `fk_settings` as well. Nothing special is needed to make that work, because the two plans are independent and the later one sees the earlier one's prototypes exactly as it sees any other mod's.
+
+```go
+var creation, patch = buildCreation(), buildPatch()
+
+//go:wasmexport fk_settings
+func onSettings() { creation.Emit(); patch.Emit() }
+
+//go:wasmexport fk_data
+func onData() { creation.Emit() }
+
+//go:wasmexport fk_data_updates
+func onDataUpdates() { patch.Emit() }
+```
+
+Two things follow from the plans being independent. **Their names must differ**, in settings and in prototypes: the overwrite refusal is what catches a collision between a plan and `data.raw`, and the duplicate-name refusal only ever sees inside one plan, so two plans that both declare `hardened-steel` are caught at the second one's data stage rather than at declaration. And the patching plan reaches the creating plan's technologies **by name**, not by handle: `AfterTech` takes a handle, and a handle is a fact about one plan.
 
 When the plan is refused, the load stops with the sentence itself. `Emit` hands the message to `fkdata.Raise`, which is the same exit FkLua's own data-stage failures take: the host prefixes the stage and reports it, so the player reads one line naming the stage, this library and the declaration to fix.
 
@@ -305,7 +322,34 @@ the [string-mod-setting] entry steelworks-quench-medium-brine matches no dropdow
 
 **Pass the name your mod is packaged under.** Every other prefix in this library is derived from the packaged mod at emit time, where it cannot disagree; a host test has no `fkdata` to ask, so this one is a parameter. A wrong name is a wrong prefix for every key at once, which shows up as every setting reported missing and every entry reported orphaned rather than as a subtle miss.
 
-Two limits worth knowing. In `[string-mod-setting]` only keys under one of your own dropdown settings are considered, so another mod's string setting in the same file is left alone. In the name and description sections the orphan rule is the mod prefix, so an entry matching no setting you declared is reported only when it carries that prefix: one under a name of its own, such as a setting you wrote by hand or a legacy name you have since renamed, is not reported at all. [Migrating a mod that already ships settings](migration.md) says why that arm cannot be widened soundly.
+Two limits worth knowing. In `[string-mod-setting]` only keys under one of your own dropdown settings are considered, so another mod's string setting in the same file is left alone. In the name and description sections the orphan rule is the mod prefix, so an entry matching no setting you declared is reported only when it carries that prefix: one under a name of its own, such as a setting you wrote by hand or a legacy name you have since renamed, is not reported at all. That second limit is a guess the checker refuses to make rather than one it cannot make, and `CheckLocaleWith` removes the need for it.
+
+### Telling the checker what you declare elsewhere
+
+`CheckLocaleWith` (`check_locale_with`) takes a third argument: the complete set of settings your mod declares **outside** this library, under whatever names they carry.
+
+```go
+findings := plan().CheckLocaleWith("better-belt-balancer", cfg,
+	[]string{"bbb-multi-edge-parts"})
+```
+
+```rust
+let findings = plan().check_locale_with("better-belt-balancer", &cfg, &["bbb-multi-edge-parts"]);
+```
+
+With that list the checker knows every setting name the mod has, so the `[mod-setting-name]` and `[mod-setting-description]` orphan scan stops being prefix-shaped and becomes complete: an entry matching no declared, legacy or hand-rolled name is an orphan whatever it is called. That closes the gap in both directions. A leftover entry from a setting you renamed is now reported even though it carries no mod prefix, and a hand-rolled setting that happens to carry the mod prefix is no longer reported for existing.
+
+The list suppresses orphans; it does not create obligations. A name in it is never reported missing, because the library knows the name and nothing else: whether that setting is a dropdown needing per-value entries is your business, not something a name reveals. The value direction is unchanged for the same reason.
+
+A name in the list that this plan also declares is a contradiction rather than a fact about your file, and is reported first:
+
+```
+the hand-rolled name bbb-recipe-cost is also a setting this plan declares; the list names only settings declared outside this library
+```
+
+**An empty list is not the same as the plain call, and it is the mistake worth naming.** Passing `nil` (`&[]`) is not a way to opt out; it is the assertion that your mod declares nothing outside this library, so every `[mod-setting-name]` and `[mod-setting-description]` entry in the file must match a declared or legacy setting. Anything else is reported, including another mod's entry that happens to share the file. That is the strictest reading available and it is the right one if you really do declare everything here.
+
+Plain `CheckLocale` keeps the prefix rule, which is the right call when you have not enumerated the rest: it never invents an orphan, it just cannot see every one.
 
 ## Gates in this repository
 

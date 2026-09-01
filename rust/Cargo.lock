@@ -14,12 +14,12 @@ dependencies = [
 [[package]]
 name = "fk"
 version = "0.1.0"
-source = "git+https://github.com/Techrocket9/fklua#83c62cd4ba419ffe4f244410f88187cb69177f6d"
+source = "git+https://github.com/Techrocket9/fklua#ac0ebccaca4ff6ddef316a4b8e7b05023766b63b"
 
 [[package]]
 name = "fkdata"
 version = "0.1.0"
-source = "git+https://github.com/Techrocket9/fklua#83c62cd4ba419ffe4f244410f88187cb69177f6d"
+source = "git+https://github.com/Techrocket9/fklua#ac0ebccaca4ff6ddef316a4b8e7b05023766b63b"
 dependencies = [
  "fk",
 ]

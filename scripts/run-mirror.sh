@@ -185,6 +185,15 @@ grep -q '"hidden"=true' "$T" || fail "the switched-off technology is not hidden"
 grep -q '"energy_required"=7.5' "$T" || fail "the bound crafting time did not reach a recipe"
 grep -q '"minimum_value"=0.002' "$T" || fail "the generated craft-time minimum is missing"
 grep -q '"maximum_value"=120' "$T" || fail "the declared craft-time maximum is missing"
+# BOTH ONE-SIDED NumericSpec ARMS, which is what this pair is for: forging-time
+# declares a maximum and no minimum, tempering-hold a minimum and no maximum.
+# The second is also craft-time-bound, so its presence says the DECLARED
+# minimum stood rather than being replaced by the generated floor-safe one.
+min_only='{"default_value"=1.5,"minimum_value"=0.5,"name"="fkrecipes-example-tempering-hold","order"="ag","setting_type"="startup","type"="double-setting"}'
+grep -qF "$min_only" "$T" || fail "the min-only setting is not in the transcript in its declared shape"
+if grep -q '"maximum_value"[^,}]*,"name"="fkrecipes-example-tempering-hold"' "$T"; then
+  fail "the min-only setting emitted a maximum it never declared"
+fi
 # The other side of every branch the golden is here to hold: a recipe nothing
 # unlocks, a technology whose setting is ON, and a copied level cap.
 grep -q '"name"="fkrecipes-example-salvaged-steel-rivet"[^}]*' "$T" ||

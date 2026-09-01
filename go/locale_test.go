@@ -381,3 +381,123 @@ func TestCheckLocaleCapsItsFindings(t *testing.T) {
 		t.Errorf("an uncapped report gained a closing line: %q", got[len(got)-1])
 	}
 }
+
+// ---------------------------------------------------------------------------
+// CheckLocaleWith: the complete-list orphan rule.
+// ---------------------------------------------------------------------------
+
+// bbbPlan is the migration pilot's shape: two legacy dropdowns declared here,
+// and a third setting the mod declares itself.
+func bbbPlan() *Lib {
+	lib := New()
+	lib.LegacyDropdownSettingNeedingLocale("bbb-recipe-cost", "vanilla",
+		[]string{"vanilla", "cheap"}, "a")
+	lib.LegacyDropdownSettingNeedingLocale("bbb-tech-cost", "logistics",
+		[]string{"logistics", "logistics-2"}, "b")
+	return lib
+}
+
+const bbbCfg = `[mod-setting-name]
+bbb-recipe-cost=Recipe cost
+bbb-tech-cost=Research cost
+bbb-multi-edge-parts=Multi-edge parts
+bbb-renamed-away=Left over from a rename
+
+[string-mod-setting]
+bbb-recipe-cost-vanilla=Vanilla
+bbb-recipe-cost-cheap=Cheap
+bbb-tech-cost-logistics=Logistics
+bbb-tech-cost-logistics-2=Logistics 2
+`
+
+// The GAP THIS PARAMETER EXISTS FOR, stated as the difference between the two
+// calls over one file. Neither the hand-rolled name nor the leftover carries
+// the mod prefix, so the plain call cannot see either of them.
+func TestPlainCheckLocaleCannotSeeUnprefixedEntries(t *testing.T) {
+	assertLines(t, bbbPlan().CheckLocale("better-belt-balancer", bbbCfg), nil)
+}
+
+// Told what the mod declares elsewhere, the same file gives up the leftover
+// and stays quiet about the hand-rolled one.
+func TestCheckLocaleWithPolicesTheCompleteList(t *testing.T) {
+	assertLines(t, bbbPlan().CheckLocaleWith("better-belt-balancer", bbbCfg,
+		[]string{"bbb-multi-edge-parts"}), []string{
+		"the [mod-setting-name] entry bbb-renamed-away matches no setting this plan declares",
+	})
+}
+
+// The list is what suppresses the hand-rolled entry, so leaving it out reports
+// that entry too. This is the other side of the test above: without it the
+// pair could both pass on a checker that reported nothing at all.
+func TestCheckLocaleWithReportsAnUnlistedHandRolledEntry(t *testing.T) {
+	assertLines(t, bbbPlan().CheckLocaleWith("better-belt-balancer", bbbCfg, nil), []string{
+		"the [mod-setting-name] entry bbb-multi-edge-parts matches no setting this plan declares",
+		"the [mod-setting-name] entry bbb-renamed-away matches no setting this plan declares",
+	})
+}
+
+// The prefix-only FALSE POSITIVE, closed: a hand-rolled setting that happens
+// to carry the mod prefix is an orphan to the plain call and is not one here.
+func TestCheckLocaleWithClearsAPrefixedHandRolledName(t *testing.T) {
+	lib := New()
+	lib.BoolSetting("hardened-tools", true)
+	cfg := `[mod-setting-name]
+steelworks-hardened-tools=Hardened tools
+steelworks-written-by-hand=Written by hand
+`
+	assertLines(t, lib.CheckLocale("steelworks", cfg), []string{
+		"the [mod-setting-name] entry steelworks-written-by-hand matches no setting this plan declares",
+	})
+	assertLines(t, lib.CheckLocaleWith("steelworks", cfg,
+		[]string{"steelworks-written-by-hand"}), nil)
+}
+
+// The list names what this plan does NOT declare, so a name in both is a
+// contradiction and is said first, before any verdict that would rest on it.
+func TestCheckLocaleWithRefusesAContradictoryList(t *testing.T) {
+	assertLines(t, bbbPlan().CheckLocaleWith("better-belt-balancer", bbbCfg,
+		[]string{"bbb-recipe-cost", "bbb-multi-edge-parts"}), []string{
+		"the hand-rolled name bbb-recipe-cost is also a setting this plan declares; the list names only settings declared outside this library",
+		"the [mod-setting-name] entry bbb-renamed-away matches no setting this plan declares",
+	})
+}
+
+// THE MISSING DIRECTION IS UNCHANGED, and that is the point of the parameter
+// suppressing orphans without creating obligations: this library knows a
+// hand-rolled setting's NAME and nothing else, so it cannot say what entries
+// that setting needs. The declared settings are still held to theirs.
+func TestCheckLocaleWithLeavesTheMissingDirectionAlone(t *testing.T) {
+	cfg := `[mod-setting-name]
+bbb-recipe-cost=Recipe cost
+
+[string-mod-setting]
+bbb-recipe-cost-vanilla=Vanilla
+bbb-recipe-cost-cheap=Cheap
+`
+	assertLines(t, bbbPlan().CheckLocaleWith("better-belt-balancer", cfg,
+		[]string{"bbb-multi-edge-parts"}), []string{
+		"the setting bbb-tech-cost has no [mod-setting-name] entry",
+		"the dropdown setting bbb-tech-cost has no [string-mod-setting] entry for its value logistics",
+		"the dropdown setting bbb-tech-cost has no [string-mod-setting] entry for its value logistics-2",
+	})
+}
+
+// The VALUE direction is unchanged too: another mod's string setting in the
+// same file is not this checker's business whether or not a complete list was
+// given, because a name alone says nothing about what values a setting offers.
+func TestCheckLocaleWithLeavesForeignValueKeysAlone(t *testing.T) {
+	cfg := `[mod-setting-name]
+bbb-recipe-cost=Recipe cost
+bbb-tech-cost=Research cost
+bbb-multi-edge-parts=Multi-edge parts
+
+[string-mod-setting]
+bbb-recipe-cost-vanilla=Vanilla
+bbb-recipe-cost-cheap=Cheap
+bbb-tech-cost-logistics=Logistics
+bbb-tech-cost-logistics-2=Logistics 2
+bbb-multi-edge-parts-aggressive=Aggressive
+`
+	assertLines(t, bbbPlan().CheckLocaleWith("better-belt-balancer", cfg,
+		[]string{"bbb-multi-edge-parts"}), nil)
+}

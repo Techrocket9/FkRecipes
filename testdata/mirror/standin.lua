@@ -182,6 +182,9 @@ settings = { startup = {
   -- in-game gate runs on declared defaults and walks the projectile ladder
   -- instead, so the two gates cover one branch each.
   ["fkrecipes-example-tips-research-tier"] = { value = "military" },
+  -- Above the declared minimum of 0.5, so it is the value the player chose
+  -- that reaches the recipe rather than any bound.
+  ["fkrecipes-example-tempering-hold"] = { value = 4 },
 } }
 require("data")
 
