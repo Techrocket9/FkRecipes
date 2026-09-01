@@ -55,3 +55,51 @@ type World interface {
 	// keeps every planned name new for the cycle overlay.
 	RecipeExists(name string) bool
 }
+
+// StageKind is which of this library's two plans a stage calls for.
+//
+// The zero value is deliberately neither: a stage this library does not plan
+// for has to be distinguishable from one it does, and "not one of ours" is the
+// answer for a name that is new, misspelled, or simply unknown to the fkdata
+// build in the consumer's module.
+type StageKind int
+
+const (
+	// StageNone is a stage this library does not plan for.
+	StageNone StageKind = iota
+	// StageKindSettings is the settings stage, which plans setting prototypes.
+	StageKindSettings
+	// StageKindData is any data-family stage, which plans everything else.
+	StageKindData
+)
+
+// StageKindOf maps a stage NAME to the plan it calls for, reporting false for
+// a stage this library does not plan for.
+//
+// WHY THIS IS A PURE FUNCTION AND NOT AN if IN Emit. The emit layer sits
+// behind the wasm build gate, so a dispatch written there is a decision no
+// host test can reach; this one is testable with plain `go test`, and the
+// mapping is where the interesting judgement lives.
+//
+// THE DEFAULT IS REFUSAL, NOT "PLAN DATA". Emit's first shape read "settings
+// plans settings, EVERYTHING ELSE plans data", which is correct for the four
+// stages fkdata names today and quietly wrong for any fifth. FkLua leaves
+// settings-updates and settings-final-fixes unwired on purpose; if they are
+// ever wired, the old shape would run PlanData at a settings stage, where
+// data.raw does not exist, and the failure would be a confusing probe error
+// rather than a sentence naming the cause. Mapping by name with an explicit
+// none means that day is a one-line change here plus a decision about what
+// the settings family should do, rather than a silent misroute.
+//
+// "unknown" is fkdata's own name for a stage id it does not recognise, so it
+// is spelled out here alongside the two unwired ones: all three are the same
+// answer.
+func StageKindOf(name string) (StageKind, bool) {
+	switch name {
+	case "settings":
+		return StageKindSettings, true
+	case "data", "data-updates", "data-final-fixes":
+		return StageKindData, true
+	}
+	return StageNone, false
+}

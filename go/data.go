@@ -411,14 +411,30 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 			chosen := res.readDropdown(w, setting, prefix)
 			source := ""
 			for _, name := range sourcesFor(by.Choices, chosen) {
-				if !w.TechExists(name) || w.TechHasResearchTrigger(name) {
+				if w.TechHasResearchTrigger(name) {
 					continue
 				}
 				u, ok := w.TechUnit(name)
-				// A unit that is not a dictionary, or that lost a subtree on
-				// the way in, is not one this library can copy faithfully, so
-				// the ladder steps past it exactly as it steps past a
-				// technology that is not there.
+				// NO PRESENCE PROBE HERE, and that is deliberate rather than
+				// an omission: a technology the game does not have carries no
+				// unit either, so this arm steps past an absent rung and a
+				// unit-less one by the same test. A TechExists call in front
+				// of it would be a branch no test could make load-bearing,
+				// which is a liability wearing the costume of a defence.
+				//
+				// THE TWO TERMS BELOW ARE DISTINCT GUARDS, each with its own
+				// witness, and neither is redundant on the other:
+				//
+				//   !ok            honours the ABSENT FLAG over whatever value
+				//                  rides with it. Every World here returns Nil
+				//                  beside false, so the shape check would hide
+				//                  this term; a consumer's own World can hand
+				//                  back a map beside false, and the fixture
+				//                  does exactly that on purpose.
+				//   Kind/subtree   rejects a unit that is PRESENT but not one
+				//                  this library can copy faithfully: not a
+				//                  dictionary, or holding a subtree dropped on
+				//                  the way in.
 				if !ok || u.Kind != KindMap || holdsDroppedSubtree(u) {
 					continue
 				}

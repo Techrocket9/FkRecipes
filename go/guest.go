@@ -33,9 +33,19 @@ import "github.com/Techrocket9/fklua/guest/go/fkdata"
 func (l *Lib) Emit() {
 	w := newDataWorld()
 
+	// The dispatch is decided in the pure half, where a test can reach it.
+	// A stage this library does not plan for is REFUSED rather than treated
+	// as a data stage: see StageKindOf for why the old everything-else-is-data
+	// shape was a misroute waiting for a fifth stage.
+	stage := fkdata.Stage().Name()
+	kind, ok := StageKindOf(stage)
+	if !ok {
+		fkdata.Raise("fkrecipes: the stage " + stage + " is not one this library plans for; route fk_settings and one data-family hook into Emit")
+	}
+
 	var ops []Op
 	var err error
-	if fkdata.Stage() == fkdata.StageSettings {
+	if kind == StageKindSettings {
 		ops, err = l.PlanSettings(w)
 	} else {
 		ops, err = l.PlanData(w)

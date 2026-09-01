@@ -255,6 +255,85 @@ func TestCostByCopiesTheUnitAndTakesThePrerequisite(t *testing.T) {
 	})
 }
 
+// AN ABSENT SOURCE IS STEPPED PAST, which is the ladder's whole reason for
+// being a list: a mod prices its research from whichever of several
+// technologies the player's install actually has.
+//
+// There is no presence probe in the walk. A technology the game does not have
+// carries no unit either, so the "carries no usable unit" arm steps past an
+// absent rung by the same test it steps past a unit-less one, and this test is
+// what says that arm really does cover absence. It goes red if that arm is
+// broken, which is what makes the deleted TechExists check unnecessary rather
+// than merely redundant.
+func TestCostByStepsPastASourceThatIsNotThere(t *testing.T) {
+	choices := []CostChoice{
+		// Two rungs no vanilla install has, then one it does.
+		{Value: "logistics", Sources: []string{"quarry-drills", "logistics-4", "steel-processing"}},
+		{Value: "military", Sources: []string{"steel-processing"}},
+	}
+	ops, err := tierPlan(choices).PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies`,
+		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["steel-processing"], unit=` + steelProcessingUnit + `}`,
+	})
+}
+
+// A PRESENT-BUT-UNUSABLE UNIT IS STEPPED PAST, which witnesses the SHAPE half
+// of the unit arm independently of the flag: this rung answers ok=true, so
+// only the Kind check can reject it.
+//
+// A present nil is what fromV produces for a unit whose table carried a key
+// this library drops, so it is a real answer rather than an invented one.
+func TestCostByStepsPastAPresentButUnusableUnit(t *testing.T) {
+	choices := []CostChoice{
+		{Value: "logistics", Sources: []string{"steel-processing", "logistics-2"}},
+		{Value: "military", Sources: []string{"logistics-2"}},
+	}
+	w := baseWorld().withNilUnit("steel-processing")
+	ops, err := tierPlan(choices).PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies`,
+		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"], unit=` + logistics2Unit + `}`,
+	})
+}
+
+// THE ok FLAG IS HONOURED OVER THE VALUE THAT RIDES WITH IT, which is the
+// second of the unit arm's two guards and needs its own witness.
+//
+// GO ONLY, AND THAT IS THE TYPE'S DOING RATHER THAN AN OMISSION. Go's TechUnit
+// returns (Value, bool), a pair that can disagree with itself, so the flag and
+// the value are two guards. Rust's tech_unit returns Option<Value>, where a
+// value cannot ride along with absence at all: the case below is
+// unrepresentable there, and its single fall-through arm is the whole guard.
+//
+// The World contract makes the flag the answer to "is there a unit here", so a
+// World that hands back a real map beside ok=false is violating it. Every
+// World this repository ships returns Nil beside false, which is why the shape
+// check alone would look sufficient: only a fixture that breaks the contract
+// on purpose can tell the two terms apart. A consumer's own World can break it
+// by accident, and the cost of getting this wrong is a technology priced from
+// a unit the game does not have.
+func TestCostByHonoursTheAbsentFlagOverAMapValue(t *testing.T) {
+	choices := []CostChoice{
+		// steel-processing really is in this world and really does carry a
+		// map, so the shape check waves it through; only the flag rejects it.
+		{Value: "logistics", Sources: []string{"steel-processing", "logistics-2"}},
+		{Value: "military", Sources: []string{"logistics-2"}},
+	}
+	w := baseWorld().withMapUnitButAbsent("steel-processing")
+	ops, err := tierPlan(choices).PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies`,
+		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"], unit=` + logistics2Unit + `}`,
+	})
+}
+
 // A research_trigger technology is not a cost source, so the ladder steps past
 // it exactly as it steps past one that is not there.
 //

@@ -10,7 +10,7 @@ use crate::plan::{
     CostChoice, CostChoices, Ingredient, IngredientChoice, IngredientChoices, ItemRef, ItemSpec,
     Lib, NumericSpec, Pack, RecipeSpec, TechSpec, UnitSpec,
 };
-use crate::tests::data::STEEL_PROCESSING_UNIT;
+use crate::tests::data::{LOGISTICS_2_UNIT, STEEL_PROCESSING_UNIT};
 use crate::tests::{assert_lines, base_world, settings_world, transcript};
 use crate::value::Value;
 
@@ -359,6 +359,70 @@ fn cost_by_copies_the_unit_and_takes_the_prerequisite() {
     assert_lines(&transcript(&ops), &[
         "log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies",
         r#"extend {type="technology", name="steelworks-hardened-tips", prerequisites=["mining-productivity-4"], unit={count_formula="2^(L-4)*1000", ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1], ["chemical-science-pack", 1]], mod_cost_tier="mid-game", time=60}, max_level="infinite"}"#,
+    ]);
+}
+
+/// A PRESENT-BUT-UNUSABLE UNIT IS STEPPED PAST, which witnesses the
+/// `Some(non-map)` half of the ladder's fall-through arm independently of the
+/// `None` half that `cost_by_steps_past_a_source_that_is_not_there` covers.
+///
+/// A present nil is what `from_v` produces for a unit whose table carried a
+/// key this library drops, so it is a real answer rather than an invented one.
+///
+/// THE GO MIRROR CARRIES ONE TEST THIS FILE CANNOT, and the type is why. Go's
+/// `TechUnit` returns `(Value, bool)`, a pair that can disagree with itself, so
+/// a World there can hand back a real map beside ok=false and the flag is a
+/// separate guard needing its own witness. `tech_unit` returns
+/// `Option<Value>`: a value cannot ride along with absence, that case is
+/// unrepresentable, and the single fall-through arm below is the whole guard.
+#[test]
+fn cost_by_steps_past_a_present_but_unusable_unit() {
+    let choices = vec![
+        cost_choice("logistics", &["steel-processing", "logistics-2"]),
+        cost_choice("military", &["logistics-2"]),
+    ];
+    let w = base_world().with_nil_unit("steel-processing");
+    let ops = tier_plan(choices).plan_data(&w).expect("plan refused");
+
+    assert_lines(&transcript(&ops), &[
+        "log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies",
+        &alloc::format!(
+            r#"extend {{type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"], unit={}}}"#,
+            LOGISTICS_2_UNIT
+        ),
+    ]);
+}
+
+/// AN ABSENT SOURCE IS STEPPED PAST, which is the ladder's whole reason for
+/// being a list: a mod prices its research from whichever of several
+/// technologies the player's install actually has.
+///
+/// There is no presence probe in the walk. A technology the game does not have
+/// carries no unit either, so the "carries no usable unit" arm steps past an
+/// absent rung by the same test it steps past a unit-less one, and this test
+/// is what says that arm really does cover absence. It goes red if that arm is
+/// broken, which is what makes the deleted tech_exists check unnecessary
+/// rather than merely redundant.
+#[test]
+fn cost_by_steps_past_a_source_that_is_not_there() {
+    let choices = vec![
+        // Two rungs no vanilla install has, then one it does.
+        cost_choice(
+            "logistics",
+            &["quarry-drills", "logistics-4", "steel-processing"],
+        ),
+        cost_choice("military", &["steel-processing"]),
+    ];
+    let ops = tier_plan(choices)
+        .plan_data(&base_world())
+        .expect("plan refused");
+
+    assert_lines(&transcript(&ops), &[
+        "log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies",
+        &alloc::format!(
+            r#"extend {{type="technology", name="steelworks-hardened-tips", prerequisites=["steel-processing"], unit={}}}"#,
+            STEEL_PROCESSING_UNIT
+        ),
     ]);
 }
 

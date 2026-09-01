@@ -58,3 +58,45 @@ pub trait World {
     /// planned name new for the cycle overlay.
     fn recipe_exists(&self, name: &str) -> bool;
 }
+
+/// Which of this library's two plans a stage calls for.
+///
+/// There is no "neither" variant: `stage_kind` returns `None` for a stage this
+/// library does not plan for, which keeps "not one of ours" out of the type
+/// that names the two plans.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StageKind {
+    /// The settings stage, which plans setting prototypes.
+    Settings,
+    /// Any data-family stage, which plans everything else.
+    Data,
+}
+
+/// Maps a stage NAME to the plan it calls for, `None` for a stage this library
+/// does not plan for.
+///
+/// WHY THIS IS A PURE FUNCTION AND NOT AN `if` IN `emit`. The emit module sits
+/// behind `cfg(target_family = "wasm")`, so a dispatch written there is a
+/// decision no host test can reach; this one is testable with plain
+/// `cargo test`, and the mapping is where the interesting judgement lives.
+///
+/// THE DEFAULT IS REFUSAL, NOT "PLAN DATA". `emit`'s first shape read
+/// "settings plans settings, EVERYTHING ELSE plans data", which is correct for
+/// the four stages fkdata names today and quietly wrong for any fifth. FkLua
+/// leaves settings-updates and settings-final-fixes unwired on purpose; if
+/// they are ever wired, the old shape would run `plan_data` at a settings
+/// stage, where data.raw does not exist, and the failure would be a confusing
+/// probe error rather than a sentence naming the cause. Mapping by name with
+/// an explicit `None` means that day is a one-line change here plus a decision
+/// about what the settings family should do, rather than a silent misroute.
+///
+/// "unknown" is fkdata's own name for a stage id it does not recognise, so it
+/// is spelled out here alongside the two unwired ones: all three are the same
+/// answer.
+pub fn stage_kind(name: &str) -> Option<StageKind> {
+    match name {
+        "settings" => Some(StageKind::Settings),
+        "data" | "data-updates" | "data-final-fixes" => Some(StageKind::Data),
+        _ => None,
+    }
+}

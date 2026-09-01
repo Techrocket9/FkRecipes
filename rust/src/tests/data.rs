@@ -1771,7 +1771,7 @@ fn craft_time_binding_falls_back_to_its_default() {
 }
 
 /// The same, for the two technologies the split-emission test prices from.
-const LOGISTICS_2_UNIT: &str = r#"{count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}"#;
+pub(crate) const LOGISTICS_2_UNIT: &str = r#"{count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}"#;
 const LOGISTICS_3_UNIT: &str = r#"{count=400, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1], ["chemical-science-pack", 1]], time=60}"#;
 
 fn logistics_2_unit_value() -> Value {

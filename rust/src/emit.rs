@@ -41,10 +41,19 @@ impl Lib {
     pub fn emit(&self) {
         let w = DataWorld::new();
 
-        let planned = if fkdata::stage() == fkdata::StageId::Settings {
-            self.plan_settings(&w)
-        } else {
-            self.plan_data(&w)
+        // The dispatch is decided in the pure half, where a test can reach it.
+        // A stage this crate does not plan for is REFUSED rather than treated
+        // as a data stage: see `stage_kind` for why the old
+        // everything-else-is-data shape was a misroute waiting for a fifth
+        // stage.
+        let stage = fkdata::stage().name();
+        let planned = match crate::world::stage_kind(stage) {
+            Some(crate::world::StageKind::Settings) => self.plan_settings(&w),
+            Some(crate::world::StageKind::Data) => self.plan_data(&w),
+            None => fkdata::raise(&alloc::format!(
+                "fkrecipes: the stage {} is not one this library plans for; route fk_settings and one data-family hook into Emit",
+                stage
+            )),
         };
         let ops = match planned {
             Ok(ops) => ops,

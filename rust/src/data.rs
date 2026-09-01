@@ -530,13 +530,27 @@ impl Lib {
                 let chosen = res.read_dropdown(w, setting, prefix);
                 let mut source = String::new();
                 for name in sources_for(&by.choices, &chosen) {
-                    if !w.tech_exists(name) || w.tech_has_research_trigger(name) {
+                    if w.tech_has_research_trigger(name) {
                         continue;
                     }
-                    // A unit that is not a dictionary, or that lost a subtree
-                    // on the way in, is not one this library can copy
-                    // faithfully, so the ladder steps past it exactly as it
-                    // steps past a technology that is not there.
+                    // NO PRESENCE PROBE HERE, and that is deliberate rather
+                    // than an omission: a technology the game does not have
+                    // carries no unit either, so this arm steps past an absent
+                    // rung and a unit-less one by the same test. A tech_exists
+                    // call in front of it would be a branch no test could make
+                    // load-bearing, which is a liability wearing the costume
+                    // of a defence.
+                    //
+                    // ONE FALL-THROUGH ARM, TWO CASES, EACH WITH ITS OWN
+                    // WITNESS: `None` is an absent or unit-less technology,
+                    // `Some(non-map)` is one whose unit this library cannot
+                    // copy faithfully (not a dictionary, or holding a subtree
+                    // dropped on the way in). The Go mirror splits the same
+                    // job across two terms, because its TechUnit returns a
+                    // (Value, bool) pair that can disagree with itself and so
+                    // needs the flag honoured over the value; `Option<Value>`
+                    // makes that disagreement unrepresentable here, which is
+                    // why that half has a Go-only test.
                     let u = match w.tech_unit(name) {
                         Some(u) if matches!(u, Value::Map(_)) && !holds_dropped_subtree(&u) => u,
                         _ => continue,

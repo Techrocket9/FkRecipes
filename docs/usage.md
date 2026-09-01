@@ -260,7 +260,7 @@ fkrecipes: a prerequisite cycle: logistics-2 -> steel-processing -> steelworks-s
 
 ## Emit
 
-`Emit` (`emit`) is the only call that touches `fkdata`. It reads the stage it is running in, plans, and then writes: settings prototypes at the settings stage, everything else at a data stage.
+`Emit` (`emit`) is the only call that touches `fkdata`. It reads the stage it is running in, plans, and then writes: settings prototypes at the settings stage, everything else at a data stage. A stage it does not plan for is refused by name rather than guessed at, so routing `Emit` somewhere it does not belong stops the load with a sentence saying so instead of running the wrong plan against a `data.raw` that is not there.
 
 **Route each plan's `Emit` into `fk_settings` and exactly one data-family hook.** The three data stages (`fk_data`, `fk_data_updates`, `fk_data_final_fixes`) share one Lua state and one `data.raw`, so emitting **the same plan** twice would find the first pass's prototypes already there and refuse as an overwrite. Which stage you pick is yours: `fk_data` for content of your own, `fk_data_updates` to sit after other mods.
 

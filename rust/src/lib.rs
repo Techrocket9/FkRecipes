@@ -71,4 +71,4 @@ pub use plan::{
     RecipeRef, RecipeSpec, TechRef, TechSpec, UnitSpec,
 };
 pub use value::{kv, Value};
-pub use world::World;
+pub use world::{stage_kind, StageKind, World};

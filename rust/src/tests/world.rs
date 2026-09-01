@@ -2,7 +2,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::value::{kv, Value};
-use crate::world::World;
+use crate::world::{stage_kind, StageKind, World};
 
 /// The host stand-in for the game: a slice of base Factorio big enough to
 /// exercise every branch, and small enough to read. Vectors, not hash maps,
@@ -357,4 +357,73 @@ fn fixture_tech_names_are_sorted() {
 /// the light at the call site.
 pub(crate) fn settings_world() -> FixtureWorld {
     base_world()
+}
+
+/// THE STAGE DISPATCH, held in the pure half so a test can reach it.
+///
+/// The interesting half of this table is the bottom: the two stage names FkLua
+/// leaves unwired today. `emit`'s first shape was "settings plans settings,
+/// EVERYTHING ELSE plans data", which maps both of them to the data plan and
+/// would run `plan_data` at a settings stage where data.raw does not exist.
+/// This table is what makes the day they are wired a deliberate change rather
+/// than a silent misroute.
+#[test]
+fn stage_kind_maps_every_name() {
+    let cases: &[(&str, Option<StageKind>)] = &[
+        ("settings", Some(StageKind::Settings)),
+        ("data", Some(StageKind::Data)),
+        ("data-updates", Some(StageKind::Data)),
+        ("data-final-fixes", Some(StageKind::Data)),
+        // fkdata's own name for an id it does not recognise.
+        ("unknown", None),
+        // Deliberately unwired upstream. Neither is a data stage, and neither
+        // is one this crate plans for until somebody decides what it means.
+        ("settings-updates", None),
+        ("settings-final-fixes", None),
+        // Not a stage at all.
+        ("", None),
+        ("Data", None),
+        ("data ", None),
+    ];
+    for (name, want) in cases {
+        assert_eq!(stage_kind(name), *want, "stage_kind({:?})", name);
+    }
+}
+
+/// Every stage fkdata can name is either planned for or refused BY NAME, with
+/// nothing falling through a default. This is the anti-vacuity half: the table
+/// above could be trimmed to two rows and still pass, and this could not.
+#[test]
+fn every_fkdata_stage_name_is_decided() {
+    // The names fkdata's StageId::name returns, read from the guest crate this
+    // library depends on. A name added there and not here is the gap this test
+    // exists to find.
+    for name in [
+        "settings",
+        "data",
+        "data-updates",
+        "data-final-fixes",
+        "unknown",
+    ] {
+        let got = stage_kind(name);
+        if name == "unknown" {
+            assert!(
+                got.is_none(),
+                "stage_kind({:?}) plans for a stage fkdata could not identify",
+                name
+            );
+            continue;
+        }
+        let want = if name == "settings" {
+            StageKind::Settings
+        } else {
+            StageKind::Data
+        };
+        assert_eq!(
+            got,
+            Some(want),
+            "stage_kind({:?}) does not route to the plan that stage calls for",
+            name
+        );
+    }
 }

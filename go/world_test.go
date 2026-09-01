@@ -12,8 +12,9 @@ type fixtureWorld struct {
 	recipes  []string
 	techs    []fixtureTech
 
-	nilUnitFor     []string
-	nilMaxLevelFor []string
+	nilUnitFor       []string
+	nilMaxLevelFor   []string
+	mapUnitButAbsent []string
 
 	// A max_level answered for ANY name, even one no technology carries.
 	// Some Worlds are loose about lookups; the planner must not ask a
@@ -58,6 +59,22 @@ func (w *fixtureWorld) TechPrereqs(name string) []string {
 }
 
 func (w *fixtureWorld) TechUnit(name string) (Value, bool) {
+	// A MAP ALONGSIDE ok=false. The World contract says the flag is the
+	// answer to "is there a unit here", so a caller must honour it over
+	// whatever value rides along; a World that returns both is violating the
+	// contract, and this arm exists so the library's honouring of it has a
+	// witness instead of an argument. Checked FIRST so it wins over the
+	// technology's real unit: the point is a rung the ladder would otherwise
+	// take.
+	for _, n := range w.mapUnitButAbsent {
+		if n == name {
+			return Obj(
+				kv("count", Num(1)),
+				kv("time", Num(1)),
+				kv("ingredients", Arr(Arr(Str("automation-science-pack"), Num(1)))),
+			), false
+		}
+	}
 	// PRESENT and nil: the exact shape fromV produces for a unit whose table
 	// carried a numeric key, which is a different answer from "no unit".
 	for _, n := range w.nilUnitFor {
@@ -164,6 +181,13 @@ func (w *fixtureWorld) withPrereqs(name string, prereqs ...string) *fixtureWorld
 
 func (w *fixtureWorld) withSetting(name string, v Value) *fixtureWorld {
 	w.settings = append(w.settings, KV{Key: name, Val: v})
+	return w
+}
+
+// withMapUnitButAbsent makes one technology answer a real map beside ok=false,
+// which is the contract violation the ladder's !ok term is the guard against.
+func (w *fixtureWorld) withMapUnitButAbsent(name string) *fixtureWorld {
+	w.mapUnitButAbsent = append(w.mapUnitButAbsent, name)
 	return w
 }
 
@@ -303,4 +327,68 @@ func TestFixtureTechNamesAreSorted(t *testing.T) {
 // up to the light at the call site.
 func settingsWorld() *fixtureWorld {
 	return baseWorld()
+}
+
+// THE STAGE DISPATCH, held in the pure half so a test can reach it.
+//
+// The interesting half of this table is the bottom: the two stage names FkLua
+// leaves unwired today. Emit's first shape was "settings plans settings,
+// EVERYTHING ELSE plans data", which maps both of them to the data plan and
+// would run PlanData at a settings stage where data.raw does not exist. This
+// table is what makes the day they are wired a deliberate change rather than a
+// silent misroute.
+func TestStageKindOf(t *testing.T) {
+	cases := []struct {
+		name string
+		want StageKind
+		ok   bool
+	}{
+		{"settings", StageKindSettings, true},
+		{"data", StageKindData, true},
+		{"data-updates", StageKindData, true},
+		{"data-final-fixes", StageKindData, true},
+		// fkdata's own name for an id it does not recognise.
+		{"unknown", StageNone, false},
+		// Deliberately unwired upstream. Neither is a data stage, and neither
+		// is one this library plans for until somebody decides what it means.
+		{"settings-updates", StageNone, false},
+		{"settings-final-fixes", StageNone, false},
+		// Not a stage at all.
+		{"", StageNone, false},
+		{"Data", StageNone, false},
+		{"data ", StageNone, false},
+	}
+	for _, c := range cases {
+		got, ok := StageKindOf(c.name)
+		if got != c.want || ok != c.ok {
+			t.Errorf("StageKindOf(%q) = %v, %v; want %v, %v", c.name, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+// Every stage fkdata can name is either planned for or refused BY NAME, with
+// nothing falling through a default. This is the anti-vacuity half: the table
+// above could be trimmed to two rows and still pass, and this could not.
+func TestEveryFkdataStageNameIsDecided(t *testing.T) {
+	// The names fkdata's StageID.Name returns, read from the guest module this
+	// library requires. A name added there and not here is the gap this test
+	// exists to find.
+	for _, name := range []string{"settings", "data", "data-updates", "data-final-fixes", "unknown"} {
+		got, ok := StageKindOf(name)
+		if name == "unknown" {
+			if ok {
+				t.Errorf("StageKindOf(%q) plans for a stage fkdata could not identify", name)
+			}
+			continue
+		}
+		if !ok {
+			t.Errorf("StageKindOf(%q) refuses a stage fkdata names and this library hooks", name)
+		}
+		if name == "settings" && got != StageKindSettings {
+			t.Errorf("StageKindOf(%q) = %v, want the settings plan", name, got)
+		}
+		if name != "settings" && got != StageKindData {
+			t.Errorf("StageKindOf(%q) = %v, want the data plan", name, got)
+		}
+	}
 }
