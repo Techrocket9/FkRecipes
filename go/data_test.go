@@ -402,7 +402,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				l.Item("steel-axe", ItemSpec{})
 				l.Item("steel-axe", ItemSpec{})
 			},
-			want: "fkrecipes: at the data stage, two items share the name steel-axe; the second would overwrite the first",
+			want: "fkrecipes: two items share the name steel-axe; the second would overwrite the first",
 		},
 		{
 			name: "two recipes share a name",
@@ -412,7 +412,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				l.Recipe(axe, RecipeSpec{Name: "steel-axe-forging"})
 				l.Recipe(head, RecipeSpec{Name: "steel-axe-forging"})
 			},
-			want: "fkrecipes: at the data stage, two recipes share the name steel-axe-forging; the second would overwrite the first",
+			want: "fkrecipes: two recipes share the name steel-axe-forging; the second would overwrite the first",
 		},
 		{
 			name: "two technologies share a name",
@@ -420,14 +420,14 @@ func TestPlanDataRefusals(t *testing.T) {
 				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing"})
 				l.Technology("steel-axes", TechSpec{CostOf: "logistics-2"})
 			},
-			want: "fkrecipes: at the data stage, two technologies share the name steel-axes; the second would overwrite the first",
+			want: "fkrecipes: two technologies share the name steel-axes; the second would overwrite the first",
 		},
 		{
 			name: "a recipe with no result item",
 			build: func(l *Lib) {
 				l.Recipe(ItemRef{}, RecipeSpec{Name: "steel-axe-forging"})
 			},
-			want: "fkrecipes: at the data stage, a recipe was declared with no result item; Recipe needs an item this plan declared",
+			want: "fkrecipes: a recipe was declared with no result item; Recipe needs an item this plan declared",
 		},
 		{
 			name: "an ingredient item from no plan",
@@ -435,14 +435,14 @@ func TestPlanDataRefusals(t *testing.T) {
 				axe := l.Item("steel-axe", ItemSpec{})
 				l.Recipe(axe, RecipeSpec{Ingredients: []Ingredient{IngredientOf(ItemRef{}, 1)}})
 			},
-			want: "fkrecipes: at the data stage, the recipe steel-axe names an ingredient item that this plan never declared",
+			want: "fkrecipes: the recipe steel-axe names an ingredient item that this plan never declared",
 		},
 		{
 			name: "neither CostOf nor Unit",
 			build: func(l *Lib) {
 				l.Technology("steel-axes", TechSpec{After: "steel-processing"})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes must name exactly one of CostOf, Unit or CostBy",
+			want: "fkrecipes: the technology steel-axes must name exactly one of CostOf, Unit or CostBy",
 		},
 		{
 			name: "both CostOf and Unit",
@@ -452,49 +452,49 @@ func TestPlanDataRefusals(t *testing.T) {
 					Unit:   &UnitSpec{Count: 50, Seconds: 15, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
 				})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes must name exactly one of CostOf, Unit or CostBy",
+			want: "fkrecipes: the technology steel-axes must name exactly one of CostOf, Unit or CostBy",
 		},
 		{
 			name: "Before without After",
 			build: func(l *Lib) {
 				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing", Before: "logistics-3"})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes names Before without After; InsertBetween needs both ends",
+			want: "fkrecipes: the technology steel-axes names Before without After; InsertBetween needs both ends",
 		},
 		{
 			name: "a unit count below one",
 			build: func(l *Lib) {
 				l.Technology("steel-axes", TechSpec{Unit: &UnitSpec{Count: 0, Seconds: 15, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}}})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes has a unit count below 1, which the engine refuses",
+			want: "fkrecipes: the technology steel-axes has a unit count below 1, which the engine refuses",
 		},
 		{
 			name: "a science pack the game does not have",
 			build: func(l *Lib) {
 				l.Technology("steel-axes", TechSpec{Unit: &UnitSpec{Count: 50, Seconds: 15, Packs: []Pack{{Name: "military-science-pack", Amount: 1}}}})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes prices itself in military-science-pack, which does not exist",
+			want: "fkrecipes: the technology steel-axes prices itself in military-science-pack, which does not exist",
 		},
 		{
 			name: "CostOf names a technology that is not there",
 			build: func(l *Lib) {
 				l.Technology("steel-axes", TechSpec{CostOf: "logistics-4"})
 			},
-			want: "fkrecipes: at the data stage, CostOf(logistics-4): no technology of that name exists",
+			want: "fkrecipes: CostOf(logistics-4): no technology of that name exists",
 		},
 		{
 			name: "CostOf names a research_trigger technology",
 			build: func(l *Lib) {
 				l.Technology("steel-axes", TechSpec{CostOf: "steam-power"})
 			},
-			want: "fkrecipes: at the data stage, CostOf(steam-power): steam-power is a research_trigger technology with no unit to copy; name a unit-carrying technology instead",
+			want: "fkrecipes: CostOf(steam-power): steam-power is a research_trigger technology with no unit to copy; name a unit-carrying technology instead",
 		},
 		{
 			name: "unlocking a recipe from no plan",
 			build: func(l *Lib) {
 				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing", Unlocks: []RecipeRef{{}}})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes unlocks a recipe that this plan never declared",
+			want: "fkrecipes: the technology steel-axes unlocks a recipe that this plan never declared",
 		},
 		{
 			// Out of range for THIS plan, which is the shape that used to
@@ -507,7 +507,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				stray := other.BoolSetting("sharpened-edges", true)
 				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing", EnabledBy: stray})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes names an EnabledBy setting that this plan never declared",
+			want: "fkrecipes: the technology steel-axes names an EnabledBy setting that this plan never declared",
 		},
 		{
 			name: "an item this plan would overwrite",
@@ -515,7 +515,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				l.Item("steel-axe", ItemSpec{})
 			},
 			world: func(w *fixtureWorld) *fixtureWorld { return w.withItem("steelworks-steel-axe") },
-			want:  "fkrecipes: at the data stage, the item steelworks-steel-axe already exists in data.raw; this plan would overwrite it",
+			want:  "fkrecipes: the item steelworks-steel-axe already exists in data.raw; this plan would overwrite it",
 		},
 		{
 			name: "a recipe this plan would overwrite",
@@ -524,7 +524,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				l.Recipe(axe, RecipeSpec{Name: "steel-axe-forging"})
 			},
 			world: func(w *fixtureWorld) *fixtureWorld { return w.withRecipe("steelworks-steel-axe-forging") },
-			want:  "fkrecipes: at the data stage, the recipe steelworks-steel-axe-forging already exists in data.raw; this plan would overwrite it",
+			want:  "fkrecipes: the recipe steelworks-steel-axe-forging already exists in data.raw; this plan would overwrite it",
 		},
 		{
 			name: "a technology this plan would overwrite",
@@ -534,7 +534,7 @@ func TestPlanDataRefusals(t *testing.T) {
 			world: func(w *fixtureWorld) *fixtureWorld {
 				return w.withTech(fixtureTech{name: "steelworks-steel-axes", unit: unitOf(50, 15, "automation-science-pack")})
 			},
-			want: "fkrecipes: at the data stage, the technology steelworks-steel-axes already exists in data.raw; this plan would overwrite it",
+			want: "fkrecipes: the technology steelworks-steel-axes already exists in data.raw; this plan would overwrite it",
 		},
 		{
 			name: "both anchors at once",
@@ -542,7 +542,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				first := l.Technology("bronze-axes", TechSpec{CostOf: "steel-processing"})
 				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing", After: "logistics-2", AfterTech: first})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes names both After and AfterTech; pick one anchor",
+			want: "fkrecipes: the technology steel-axes names both After and AfterTech; pick one anchor",
 		},
 		{
 			name: "a splice around a technology this plan declares",
@@ -550,7 +550,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				first := l.Technology("bronze-axes", TechSpec{CostOf: "steel-processing"})
 				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing", AfterTech: first, Before: "logistics-3"})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes names Before with AfterTech; InsertBetween splices around a technology that already exists",
+			want: "fkrecipes: the technology steel-axes names Before with AfterTech; InsertBetween splices around a technology that already exists",
 		},
 		{
 			name: "a crafting time that is not a number",
@@ -558,7 +558,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				axe := l.Item("steel-axe", ItemSpec{})
 				l.Recipe(axe, RecipeSpec{CraftTime: math.Inf(1)})
 			},
-			want: "fkrecipes: at the data stage, the recipe steel-axe declares a crafting time that is not a finite number",
+			want: "fkrecipes: the recipe steel-axe declares a crafting time that is not a finite number",
 		},
 		{
 			name: "a research time that is not a number",
@@ -569,21 +569,21 @@ func TestPlanDataRefusals(t *testing.T) {
 					Packs:   []Pack{{Name: "automation-science-pack", Amount: 1}},
 				}})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes declares a research time that is not a finite number",
+			want: "fkrecipes: the technology steel-axes declares a research time that is not a finite number",
 		},
 		{
 			name: "an item with an empty name",
 			build: func(l *Lib) {
 				l.Item("", ItemSpec{})
 			},
-			want: "fkrecipes: at the data stage, an item was declared with an empty name",
+			want: "fkrecipes: an item was declared with an empty name",
 		},
 		{
 			name: "a technology with an empty name",
 			build: func(l *Lib) {
 				l.Technology("", TechSpec{CostOf: "steel-processing"})
 			},
-			want: "fkrecipes: at the data stage, a technology was declared with an empty name",
+			want: "fkrecipes: a technology was declared with an empty name",
 		},
 		{
 			// A holed or mixed Lua table crosses as a number-keyed map, which
@@ -601,7 +601,7 @@ func TestPlanDataRefusals(t *testing.T) {
 			build: func(l *Lib) {
 				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing"})
 			},
-			want: "fkrecipes: at the data stage, CostOf(steel-processing): the unit of steel-processing holds a table this library cannot copy faithfully",
+			want: "fkrecipes: CostOf(steel-processing): the unit of steel-processing holds a table this library cannot copy faithfully",
 		},
 		{
 			name: "a science pack with an empty name",
@@ -612,7 +612,7 @@ func TestPlanDataRefusals(t *testing.T) {
 					Packs:   []Pack{{Name: "", Amount: 1}},
 				}})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes prices itself in a pack with an empty name",
+			want: "fkrecipes: the technology steel-axes prices itself in a pack with an empty name",
 		},
 		{
 			name: "both a fixed and a bound crafting time",
@@ -621,7 +621,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				from := l.DoubleSetting("axe-craft-time", 2.5, NumericSpec{})
 				l.Recipe(axe, RecipeSpec{CraftTime: 2.5, CraftTimeFrom: from})
 			},
-			want: "fkrecipes: at the data stage, the recipe steel-axe names both CraftTime and CraftTimeFrom; pick one",
+			want: "fkrecipes: the recipe steel-axe names both CraftTime and CraftTimeFrom; pick one",
 		},
 		{
 			name: "a crafting-time setting from another plan",
@@ -631,7 +631,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				axe := l.Item("steel-axe", ItemSpec{})
 				l.Recipe(axe, RecipeSpec{CraftTimeFrom: stray})
 			},
-			want: "fkrecipes: at the data stage, the recipe steel-axe names a crafting-time setting that this plan never declared",
+			want: "fkrecipes: the recipe steel-axe names a crafting-time setting that this plan never declared",
 		},
 		{
 			// Measured: the engine refuses energy_required <= 0.001.
@@ -640,7 +640,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				axe := l.Item("steel-axe", ItemSpec{})
 				l.Recipe(axe, RecipeSpec{CraftTime: 0.001})
 			},
-			want: "fkrecipes: at the data stage, the recipe steel-axe declares a crafting time the engine refuses (energy_required can't be <= 0.001)",
+			want: "fkrecipes: the recipe steel-axe declares a crafting time the engine refuses (energy_required can't be <= 0.001)",
 		},
 		{
 			// The generated setting's own minimum clears the floor, so this
@@ -655,7 +655,7 @@ func TestPlanDataRefusals(t *testing.T) {
 			world: func(w *fixtureWorld) *fixtureWorld {
 				return w.withSetting("steelworks-axe-craft-time", Num(0.001))
 			},
-			want: "fkrecipes: at the data stage, the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers at or below the engine floor (energy_required can't be <= 0.001)",
+			want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers at or below the engine floor (energy_required can't be <= 0.001)",
 		},
 		{
 			// An infinity is ABOVE the floor, so the floor arm would wave it
@@ -669,7 +669,7 @@ func TestPlanDataRefusals(t *testing.T) {
 			world: func(w *fixtureWorld) *fixtureWorld {
 				return w.withSetting("steelworks-axe-craft-time", Num(math.Inf(1)))
 			},
-			want: "fkrecipes: at the data stage, the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers a value that is not a finite number",
+			want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers a value that is not a finite number",
 		},
 		{
 			// A NaN compares false against the floor, so it reached the floor
@@ -683,7 +683,7 @@ func TestPlanDataRefusals(t *testing.T) {
 			world: func(w *fixtureWorld) *fixtureWorld {
 				return w.withSetting("steelworks-axe-craft-time", Num(math.NaN()))
 			},
-			want: "fkrecipes: at the data stage, the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers a value that is not a finite number",
+			want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers a value that is not a finite number",
 		},
 		{
 			// PRESENT and nil, which is what a unit whose table carried a
@@ -693,7 +693,7 @@ func TestPlanDataRefusals(t *testing.T) {
 			build: func(l *Lib) {
 				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing"})
 			},
-			want: "fkrecipes: at the data stage, CostOf(steel-processing): steel-processing has a unit that is not a dictionary",
+			want: "fkrecipes: CostOf(steel-processing): steel-processing has a unit that is not a dictionary",
 		},
 		{
 			name: "a CostOf source whose max_level lost a subtree on the way in",
@@ -703,7 +703,7 @@ func TestPlanDataRefusals(t *testing.T) {
 			build: func(l *Lib) {
 				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing"})
 			},
-			want: "fkrecipes: at the data stage, CostOf(steel-processing): the max_level of steel-processing holds a table this library cannot copy faithfully",
+			want: "fkrecipes: CostOf(steel-processing): the max_level of steel-processing holds a table this library cannot copy faithfully",
 		},
 		{
 			// The World says the technology is there and is not a research
@@ -714,28 +714,28 @@ func TestPlanDataRefusals(t *testing.T) {
 			build: func(l *Lib) {
 				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing"})
 			},
-			want: "fkrecipes: at the data stage, CostOf(steel-processing): steel-processing carries no unit to copy",
+			want: "fkrecipes: CostOf(steel-processing): steel-processing carries no unit to copy",
 		},
 		{
 			name: "a negative stack size",
 			build: func(l *Lib) {
 				l.Item("steel-axe", ItemSpec{StackSize: -20})
 			},
-			want: "fkrecipes: at the data stage, the item steel-axe has a negative stack size, which the engine refuses",
+			want: "fkrecipes: the item steel-axe has a negative stack size, which the engine refuses",
 		},
 		{
 			name: "a negative icon size on an item",
 			build: func(l *Lib) {
 				l.Item("steel-axe", ItemSpec{IconSize: -64})
 			},
-			want: "fkrecipes: at the data stage, the item steel-axe has a negative icon size, which the engine refuses",
+			want: "fkrecipes: the item steel-axe has a negative icon size, which the engine refuses",
 		},
 		{
 			name: "a negative icon size on a technology",
 			build: func(l *Lib) {
 				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing", IconSize: -128})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes has a negative icon size, which the engine refuses",
+			want: "fkrecipes: the technology steel-axes has a negative icon size, which the engine refuses",
 		},
 		{
 			name: "an ingredient amount below one",
@@ -743,7 +743,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				axe := l.Item("steel-axe", ItemSpec{})
 				l.Recipe(axe, RecipeSpec{Ingredients: []Ingredient{IngredientNamed(0, "steel-plate")}})
 			},
-			want: "fkrecipes: at the data stage, the recipe steel-axe has an ingredient amount below 1, which the engine refuses",
+			want: "fkrecipes: the recipe steel-axe has an ingredient amount below 1, which the engine refuses",
 		},
 		{
 			name: "a negative result count",
@@ -751,7 +751,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				axe := l.Item("steel-axe", ItemSpec{})
 				l.Recipe(axe, RecipeSpec{ResultCount: -2})
 			},
-			want: "fkrecipes: at the data stage, the recipe steel-axe has a negative result count, which the engine refuses",
+			want: "fkrecipes: the recipe steel-axe has a negative result count, which the engine refuses",
 		},
 		{
 			name: "a negative crafting time",
@@ -759,7 +759,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				axe := l.Item("steel-axe", ItemSpec{})
 				l.Recipe(axe, RecipeSpec{CraftTime: -2.5})
 			},
-			want: "fkrecipes: at the data stage, the recipe steel-axe has a negative crafting time, which the engine refuses",
+			want: "fkrecipes: the recipe steel-axe has a negative crafting time, which the engine refuses",
 		},
 		{
 			name: "a science pack amount below one",
@@ -770,7 +770,7 @@ func TestPlanDataRefusals(t *testing.T) {
 					Packs:   []Pack{{Name: "automation-science-pack", Amount: 0}},
 				}})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes has a science pack amount below 1, which the engine refuses",
+			want: "fkrecipes: the technology steel-axes has a science pack amount below 1, which the engine refuses",
 		},
 		{
 			name: "a research time of zero",
@@ -781,14 +781,14 @@ func TestPlanDataRefusals(t *testing.T) {
 					Packs:   []Pack{{Name: "automation-science-pack", Amount: 1}},
 				}})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes has a research time at or below zero, which the engine refuses",
+			want: "fkrecipes: the technology steel-axes has a research time at or below zero, which the engine refuses",
 		},
 		{
 			name: "a stack size past what a double holds",
 			build: func(l *Lib) {
 				l.Item("steel-axe", ItemSpec{StackSize: 9007199254740993})
 			},
-			want: "fkrecipes: at the data stage, the item steel-axe declares a stack size a Lua double cannot hold exactly: 9007199254740993",
+			want: "fkrecipes: the item steel-axe declares a stack size a Lua double cannot hold exactly: 9007199254740993",
 		},
 		{
 			name: "an ingredient amount past what a double holds",
@@ -796,7 +796,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				axe := l.Item("steel-axe", ItemSpec{})
 				l.Recipe(axe, RecipeSpec{Ingredients: []Ingredient{IngredientNamed(9007199254740993, "steel-plate")}})
 			},
-			want: "fkrecipes: at the data stage, the recipe steel-axe declares an ingredient amount a Lua double cannot hold exactly: 9007199254740993",
+			want: "fkrecipes: the recipe steel-axe declares an ingredient amount a Lua double cannot hold exactly: 9007199254740993",
 		},
 		{
 			name: "a unit count past what a double holds",
@@ -807,7 +807,7 @@ func TestPlanDataRefusals(t *testing.T) {
 					Packs:   []Pack{{Name: "automation-science-pack", Amount: 1}},
 				}})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes declares a unit count a Lua double cannot hold exactly: 9007199254740993",
+			want: "fkrecipes: the technology steel-axes declares a unit count a Lua double cannot hold exactly: 9007199254740993",
 		},
 		{
 			name: "a CostOf source whose unit is not a dictionary",
@@ -819,7 +819,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				// dictionary: this shape has to be refused too.
 				return w.withUnit("steel-processing", Arr(Num(50), Num(15)))
 			},
-			want: "fkrecipes: at the data stage, CostOf(steel-processing): steel-processing has a unit that is not a dictionary",
+			want: "fkrecipes: CostOf(steel-processing): steel-processing has a unit that is not a dictionary",
 		},
 		{
 			// The result handle is checked before the duplicate-name scan, so
@@ -832,7 +832,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				l.Recipe(axe, RecipeSpec{Name: "steel-axe-forging"})
 				l.Recipe(ItemRef{}, RecipeSpec{Name: "steel-axe-forging"})
 			},
-			want: "fkrecipes: at the data stage, a recipe was declared with no result item; Recipe needs an item this plan declared",
+			want: "fkrecipes: a recipe was declared with no result item; Recipe needs an item this plan declared",
 		},
 	}
 	for _, c := range cases {
@@ -876,7 +876,7 @@ func TestHandlesFromAnotherPlanAreRefused(t *testing.T) {
 				l.Item("steel-axe", ItemSpec{})
 				l.Recipe(bronze, RecipeSpec{Name: "steel-axe-forging"})
 			},
-			want: "fkrecipes: at the data stage, a recipe was declared with no result item; Recipe needs an item this plan declared",
+			want: "fkrecipes: a recipe was declared with no result item; Recipe needs an item this plan declared",
 		},
 		{
 			name: "an ingredient handle from another plan",
@@ -886,7 +886,7 @@ func TestHandlesFromAnotherPlanAreRefused(t *testing.T) {
 				axe := l.Item("steel-axe", ItemSpec{})
 				l.Recipe(axe, RecipeSpec{Ingredients: []Ingredient{IngredientOf(bronze, 1)}})
 			},
-			want: "fkrecipes: at the data stage, the recipe steel-axe names an ingredient item that this plan never declared",
+			want: "fkrecipes: the recipe steel-axe names an ingredient item that this plan never declared",
 		},
 		{
 			// The review's second shape: a BoolSettingRef that lands on this
@@ -898,7 +898,7 @@ func TestHandlesFromAnotherPlanAreRefused(t *testing.T) {
 				l.IntSetting("axe-durability", 250, Between(50, 1000))
 				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing", EnabledBy: flag})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes names an EnabledBy setting that this plan never declared",
+			want: "fkrecipes: the technology steel-axes names an EnabledBy setting that this plan never declared",
 		},
 		{
 			name: "an unlock handle from another plan",
@@ -910,7 +910,7 @@ func TestHandlesFromAnotherPlanAreRefused(t *testing.T) {
 				l.Recipe(axe, RecipeSpec{})
 				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing", Unlocks: []RecipeRef{rec}})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes unlocks a recipe that this plan never declared",
+			want: "fkrecipes: the technology steel-axes unlocks a recipe that this plan never declared",
 		},
 		{
 			name: "an AfterTech handle from another plan",
@@ -919,7 +919,7 @@ func TestHandlesFromAnotherPlanAreRefused(t *testing.T) {
 				anchor := other.Technology("bronze-axes", TechSpec{CostOf: "steel-processing"})
 				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing", AfterTech: anchor})
 			},
-			want: "fkrecipes: at the data stage, the technology steel-axes names an AfterTech technology that this plan never declared",
+			want: "fkrecipes: the technology steel-axes names an AfterTech technology that this plan never declared",
 		},
 	}
 	for _, c := range cases {
@@ -964,7 +964,7 @@ func TestPlanDataRefusesAnEmptyModName(t *testing.T) {
 	if err == nil {
 		t.Fatal("plan was accepted with no mod name")
 	}
-	want := "fkrecipes: at the data stage, the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName"
+	want := "fkrecipes: the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName"
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}

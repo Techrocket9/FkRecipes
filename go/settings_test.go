@@ -4,6 +4,7 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -68,42 +69,42 @@ func TestPlanSettingsRefusals(t *testing.T) {
 				l.BoolSetting("hardened-tools", true)
 				l.IntSetting("hardened-tools", 3, NumericSpec{})
 			},
-			want: "fkrecipes: at the settings stage, two settings share the name steelworks-hardened-tools; the engine keeps the last one silently",
+			want: "fkrecipes: two settings share the name steelworks-hardened-tools; the engine keeps the last one silently",
 		},
 		{
 			name: "a setting with an empty name",
 			build: func(l *Lib) {
 				l.BoolSetting("", true)
 			},
-			want: "fkrecipes: at the settings stage, a setting was declared with an empty name",
+			want: "fkrecipes: a setting was declared with an empty name",
 		},
 		{
 			name: "dropdown default is not an allowed value",
 			build: func(l *Lib) {
 				l.DropdownSettingNeedingLocale("smelting-style", "electric-furnace", []string{"furnace", "foundry"})
 			},
-			want: "fkrecipes: at the settings stage, the dropdown setting smelting-style defaults to electric-furnace, which is not one of its allowed values",
+			want: "fkrecipes: the dropdown setting smelting-style defaults to electric-furnace, which is not one of its allowed values",
 		},
 		{
 			name: "minimum above maximum",
 			build: func(l *Lib) {
 				l.IntSetting("axe-durability", 250, Between(1000, 50))
 			},
-			want: "fkrecipes: at the settings stage, the numeric setting axe-durability declares a minimum above its maximum",
+			want: "fkrecipes: the numeric setting axe-durability declares a minimum above its maximum",
 		},
 		{
 			name: "default outside the bounds",
 			build: func(l *Lib) {
 				l.DoubleSetting("axe-craft-time", 12, Between(0.5, 8))
 			},
-			want: "fkrecipes: at the settings stage, the numeric setting axe-craft-time declares a default outside its own minimum and maximum",
+			want: "fkrecipes: the numeric setting axe-craft-time declares a default outside its own minimum and maximum",
 		},
 		{
 			name: "a default that is not a number",
 			build: func(l *Lib) {
 				l.DoubleSetting("axe-craft-time", math.NaN(), NumericSpec{})
 			},
-			want: "fkrecipes: at the settings stage, the numeric setting axe-craft-time declares a value that is not a finite number",
+			want: "fkrecipes: the numeric setting axe-craft-time declares a value that is not a finite number",
 		},
 		{
 			// The declared int64 is the one number the plan converts to a
@@ -113,14 +114,14 @@ func TestPlanSettingsRefusals(t *testing.T) {
 			build: func(l *Lib) {
 				l.IntSetting("axe-durability", 9007199254740993, NumericSpec{})
 			},
-			want: "fkrecipes: at the settings stage, the numeric setting axe-durability declares a default a Lua double cannot hold exactly: 9007199254740993",
+			want: "fkrecipes: the numeric setting axe-durability declares a default a Lua double cannot hold exactly: 9007199254740993",
 		},
 		{
 			name: "an int default past what a double holds, negative",
 			build: func(l *Lib) {
 				l.IntSetting("axe-durability", -9007199254740993, NumericSpec{})
 			},
-			want: "fkrecipes: at the settings stage, the numeric setting axe-durability declares a default a Lua double cannot hold exactly: -9007199254740993",
+			want: "fkrecipes: the numeric setting axe-durability declares a default a Lua double cannot hold exactly: -9007199254740993",
 		},
 		{
 			// The auto-minimum is a real bound: a default below it is refused
@@ -131,7 +132,7 @@ func TestPlanSettingsRefusals(t *testing.T) {
 				from := l.DoubleSetting("axe-craft-time", 0.0001, NumericSpec{})
 				l.Recipe(axe, RecipeSpec{CraftTimeFrom: from})
 			},
-			want: "fkrecipes: at the settings stage, the setting axe-craft-time backs a crafting time, so its minimum is 0.002, which is above the declared default",
+			want: "fkrecipes: the setting axe-craft-time backs a crafting time, so its minimum is 0.002, which is above the declared default",
 		},
 		{
 			// The consumer declared only a maximum, so a refusal blaming a
@@ -143,7 +144,7 @@ func TestPlanSettingsRefusals(t *testing.T) {
 				from := l.DoubleSetting("axe-craft-time", 0.0015, NumericSpec{HasMax: true, Max: 0.0015})
 				l.Recipe(axe, RecipeSpec{CraftTimeFrom: from})
 			},
-			want: "fkrecipes: at the settings stage, the setting axe-craft-time backs a crafting time, so its minimum is 0.002, which is above the declared maximum",
+			want: "fkrecipes: the setting axe-craft-time backs a crafting time, so its minimum is 0.002, which is above the declared maximum",
 		},
 		{
 			name: "an explicit minimum at the engine floor on a craft-time setting",
@@ -152,14 +153,14 @@ func TestPlanSettingsRefusals(t *testing.T) {
 				from := l.DoubleSetting("axe-craft-time", 2.5, Between(0.001, 60))
 				l.Recipe(axe, RecipeSpec{CraftTimeFrom: from})
 			},
-			want: "fkrecipes: at the settings stage, the setting axe-craft-time backs a crafting time but declares a minimum at or below the engine floor (energy_required can't be <= 0.001)",
+			want: "fkrecipes: the setting axe-craft-time backs a crafting time but declares a minimum at or below the engine floor (energy_required can't be <= 0.001)",
 		},
 		{
 			name: "a bound that is not a number",
 			build: func(l *Lib) {
 				l.DoubleSetting("axe-craft-time", 2.5, NumericSpec{HasMax: true, Max: math.Inf(1)})
 			},
-			want: "fkrecipes: at the settings stage, the numeric setting axe-craft-time declares a value that is not a finite number",
+			want: "fkrecipes: the numeric setting axe-craft-time declares a value that is not a finite number",
 		},
 	}
 	for _, c := range cases {
@@ -190,7 +191,7 @@ func TestPlanSettingsRefusesAnEmptyModName(t *testing.T) {
 	if err == nil {
 		t.Fatal("plan was accepted with no mod name")
 	}
-	want := "fkrecipes: at the settings stage, the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName"
+	want := "fkrecipes: the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName"
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}
@@ -211,7 +212,7 @@ func TestPlanningRefusesALibBuiltWithoutNew(t *testing.T) {
 	if err == nil {
 		t.Fatal("the settings plan was accepted from a Lib with no id")
 	}
-	want := "fkrecipes: at the settings stage, this Lib was built without New, so its handles cannot be validated"
+	want := "fkrecipes: this Lib was built without New, so its handles cannot be validated"
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}
@@ -226,7 +227,7 @@ func TestPlanningRefusesALibBuiltWithoutNew(t *testing.T) {
 	if err == nil {
 		t.Fatal("the data plan was accepted from a Lib with no id")
 	}
-	want = "fkrecipes: at the data stage, this Lib was built without New, so its handles cannot be validated"
+	want = "fkrecipes: this Lib was built without New, so its handles cannot be validated"
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}
@@ -275,21 +276,76 @@ func TestSettingsAndDataAgreeOnTheSettingName(t *testing.T) {
 	})
 }
 
-// The stage in a refusal comes from the World, not from a constant. Factorio
-// runs four stages and fkdata reports whichever is live, so a consumer
-// patching from data-updates is told which of their own calls raised.
-func TestRefusalsNameTheStageTheWorldReports(t *testing.T) {
-	lib := New()
-	lib.Item("steel-axe", ItemSpec{})
-	lib.Item("steel-axe", ItemSpec{})
-
-	_, err := lib.PlanData(baseWorld().withStage("data-updates"))
-	if err == nil {
-		t.Fatal("the plan was accepted, want a duplicate-name refusal")
+// The composition, one refusal per validator family: each case runs a real
+// plan and holds the SENTENCE THAT COMES OUT to the rule, so what is proven
+// here is that a refusal composes into something the host can prefix without
+// saying the stage twice. Emit hands that message to fkdata.Raise, whose host
+// side prefixes "fklua: at the <stage> stage, " before it.
+//
+// THESE SIX ARE A SAMPLE, NOT A SWEEP, and the difference matters: this
+// package builds some eighty message chunks and six plans cannot reach them
+// all. TestNoMessageCarriesItsOwnStage in source_test.go is the sweep, over
+// every string literal in the package; a stage put back into a template these
+// six never touch is caught there and nowhere else. Neither replaces the
+// other: the property cannot tell whether a message composes correctly, and
+// these cannot tell whether every template obeys.
+func TestRefusalsComposeWithoutTheirOwnStage(t *testing.T) {
+	cases := []struct {
+		name string
+		plan func() (*Lib, World)
+	}{
+		{"a settings-stage refusal", func() (*Lib, World) {
+			lib := New()
+			lib.BoolSetting("hardened-tools", true)
+			lib.BoolSetting("hardened-tools", false)
+			return lib, settingsWorld()
+		}},
+		{"a declaration refusal", func() (*Lib, World) {
+			lib := New()
+			lib.Item("steel-axe", ItemSpec{})
+			lib.Item("steel-axe", ItemSpec{})
+			return lib, baseWorld()
+		}},
+		{"a world-probe refusal", func() (*Lib, World) {
+			lib := New()
+			lib.Technology("steel-axes", TechSpec{CostOf: "quarry-drills"})
+			return lib, baseWorld()
+		}},
+		{"a resolved-value refusal", func() (*Lib, World) {
+			lib := New()
+			forging := lib.DoubleSetting("forging-time", 3, NumericSpec{})
+			axe := lib.Item("steel-axe", ItemSpec{})
+			lib.Recipe(axe, RecipeSpec{CraftTimeFrom: forging})
+			return lib, baseWorld().withSetting("steelworks-forging-time", Num(0.0005))
+		}},
+		{"a cycle refusal", func() (*Lib, World) {
+			lib := New()
+			lib.Technology("steel-axes", TechSpec{CostOf: "steel-processing", After: "steel-processing"})
+			return lib, baseWorld().withPrereqs("logistics-2", "logistics", "logistics-3")
+		}},
+		{"the empty mod name", func() (*Lib, World) {
+			lib := New()
+			return lib, baseWorld().withModName("")
+		}},
 	}
-	want := "fkrecipes: at the data-updates stage, two items share the name steel-axe; the second would overwrite the first"
-	if err.Error() != want {
-		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			lib, w := c.plan()
+			_, err := lib.PlanData(w)
+			if c.name == "a settings-stage refusal" {
+				_, err = lib.PlanSettings(w)
+			}
+			if err == nil {
+				t.Fatal("the plan was accepted, want a refusal")
+			}
+			got := err.Error()
+			if !strings.HasPrefix(got, "fkrecipes: ") {
+				t.Errorf("a refusal does not open with the library attribution: %s", got)
+			}
+			if strings.Contains(got, " stage,") {
+				t.Errorf("a refusal names a stage the host will name again: %s", got)
+			}
+		})
 	}
 }
 
@@ -400,7 +456,7 @@ func TestAForeignCraftTimeHandleMarksNothing(t *testing.T) {
 	if err == nil {
 		t.Fatal("the data plan was accepted with a handle from another plan")
 	}
-	want := "fkrecipes: at the data stage, the recipe steel-axe names a crafting-time setting that this plan never declared"
+	want := "fkrecipes: the recipe steel-axe names a crafting-time setting that this plan never declared"
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}

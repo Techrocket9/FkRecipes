@@ -25,26 +25,23 @@ impl Lib {
     /// This is the seam the emit layer stands on at the data stage; consumers
     /// call Emit and never this.
     pub fn plan_data(&self, w: &dyn World) -> Result<Vec<Op>, String> {
-        let stage = w.stage_name();
         if self.id == 0 {
-            return Err(format!(
-                "fkrecipes: at the {} stage, this Lib was built without New, so its handles cannot be validated",
-                stage
+            return Err(String::from(
+                "fkrecipes: this Lib was built without New, so its handles cannot be validated",
             ));
         }
         let mod_name = w.mod_name();
         if mod_name.is_empty() {
-            return Err(format!(
-                "fkrecipes: at the {} stage, the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName",
-                stage
+            return Err(String::from(
+                "fkrecipes: the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName",
             ));
         }
         let prefix = format!("{}-", mod_name);
 
-        self.validate(w, &stage, &prefix)?;
+        self.validate(w, &prefix)?;
         let res = self.resolve(w, &prefix);
-        self.check_resolved_craft_times(&res, &stage)?;
-        self.check_cycles(w, &res, &prefix, &stage)?;
+        self.check_resolved_craft_times(&res)?;
+        self.check_cycles(w, &res, &prefix)?;
 
         let mut ops = Vec::with_capacity(
             res.logs.len() + self.items.len() + self.recipes.len() + 2 * self.techs.len(),
@@ -99,8 +96,8 @@ impl Lib {
     /// Every handle is checked here, not where it is read: an index that
     /// reaches resolve unchecked is a panic in somebody's data stage, and a
     /// handle from another plan is in range for this one.
-    fn validate(&self, w: &dyn World, stage: &str, prefix: &str) -> Result<(), String> {
-        let at = format!("fkrecipes: at the {} stage, ", stage);
+    fn validate(&self, w: &dyn World, prefix: &str) -> Result<(), String> {
+        let at = "fkrecipes: ";
 
         for (i, it) in self.items.iter().enumerate() {
             if it.name.is_empty() {
@@ -204,7 +201,7 @@ impl Lib {
                 let setting = &self.settings[by.setting.index - 1];
                 let offered: Vec<String> = by.choices.iter().map(|c| c.value.clone()).collect();
                 matches_allowed_values(
-                    &at,
+                    at,
                     &format!("the recipe {}", r.name),
                     &setting.emitted_name(prefix),
                     &offered,
@@ -212,7 +209,7 @@ impl Lib {
                 )?;
                 for c in &by.choices {
                     self.validate_ingredients(
-                        &at,
+                        at,
                         &format!("the recipe {}", r.name),
                         &c.ingredients,
                     )?;
@@ -263,7 +260,7 @@ impl Lib {
                     at, prefix, r.name
                 ));
             }
-            self.validate_ingredients(&at, &format!("the recipe {}", r.name), &r.spec.ingredients)?;
+            self.validate_ingredients(at, &format!("the recipe {}", r.name), &r.spec.ingredients)?;
         }
 
         for (i, t) in self.techs.iter().enumerate() {
@@ -323,13 +320,13 @@ impl Lib {
                 let setting = &self.settings[by.setting.index - 1];
                 let offered: Vec<String> = by.choices.iter().map(|c| c.value.clone()).collect();
                 matches_allowed_values(
-                    &at,
+                    at,
                     &format!("the technology {}", t.name),
                     &setting.emitted_name(prefix),
                     &offered,
                     &setting.values,
                 )?;
-                self.validate_unit(&at, w, &t.name, &by.fallback)?;
+                self.validate_unit(at, w, &t.name, &by.fallback)?;
             }
             if !t.spec.after.is_empty() && t.spec.after_tech.index != 0 {
                 return Err(format!(
@@ -369,7 +366,7 @@ impl Lib {
             }
             match &t.spec.unit {
                 Some(unit) => {
-                    self.validate_unit(&at, w, &t.name, unit)?;
+                    self.validate_unit(at, w, &t.name, unit)?;
                 }
                 // A CostBy technology reaches here with neither field set,
                 // and has nothing named to check: its ladder is walked at
@@ -654,7 +651,7 @@ impl Lib {
     /// namespace and the engine keeps the last declaration of a same-type
     /// name, silently. A refusal naming the setting beats the engine's load
     /// failure blaming the consumer.
-    fn check_resolved_craft_times(&self, res: &Resolution, stage: &str) -> Result<(), String> {
+    fn check_resolved_craft_times(&self, res: &Resolution) -> Result<(), String> {
         for (i, ct) in res.craft_times.iter().enumerate() {
             if !ct.bound {
                 continue;
@@ -666,16 +663,16 @@ impl Lib {
             // declaration checks.
             if !finite(ct.value) {
                 return Err(format!(
-                    "fkrecipes: at the {} stage, the recipe {} reads its crafting time from {}, which answers a value that is not a finite number",
-                    stage, self.recipes[i].name, ct.setting
+                    "fkrecipes: the recipe {} reads its crafting time from {}, which answers a value that is not a finite number",
+                    self.recipes[i].name, ct.setting
                 ));
             }
             if ct.value > CRAFT_TIME_FLOOR {
                 continue;
             }
             return Err(format!(
-                "fkrecipes: at the {} stage, the recipe {} reads its crafting time from {}, which answers at or below the engine floor (energy_required can't be <= 0.001)",
-                stage, self.recipes[i].name, ct.setting
+                "fkrecipes: the recipe {} reads its crafting time from {}, which answers at or below the engine floor (energy_required can't be <= 0.001)",
+                self.recipes[i].name, ct.setting
             ));
         }
         Ok(())

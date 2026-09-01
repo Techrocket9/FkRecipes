@@ -194,7 +194,7 @@ lib.technology(
 Some base technologies are `research_trigger` technologies and carry no unit at all, so there is nothing to copy. Naming one is refused with the reason:
 
 ```
-fkrecipes: at the data stage, CostOf(steam-power): steam-power is a research_trigger technology with no unit to copy; name a unit-carrying technology instead
+fkrecipes: CostOf(steam-power): steam-power is a research_trigger technology with no unit to copy; name a unit-carrying technology instead
 ```
 
 `CostBy` is `CostOf` with a ladder per dropdown value: the player picks a tier, and the ladder is walked to the first technology that exists and carries a unit. That unit is copied verbatim with its `max_level`, and the source becomes the technology's sole prerequisite, so it does not combine with any of the placement fields. A `Fallback` unit applies when no rung works out. See [Migrating a mod that already ships settings](migration.md).
@@ -249,7 +249,7 @@ lib.technology("steel-riveting", TechSpec { cost_of: "logistics-2".into(), after
 Before anything is emitted, the library walks the tree your plan is about to produce: every existing technology's prerequisites, with your splices applied and your own technologies added. A cycle is refused with the whole ring named in order.
 
 ```
-fkrecipes: at the data stage, a prerequisite cycle: logistics-2 -> steel-processing -> steelworks-steel-axes -> logistics-3 -> logistics-2
+fkrecipes: a prerequisite cycle: logistics-2 -> steel-processing -> steelworks-steel-axes -> logistics-3 -> logistics-2
 ```
 
 ### Unlocks and enablement
@@ -264,7 +264,13 @@ fkrecipes: at the data stage, a prerequisite cycle: logistics-2 -> steel-process
 
 **Route `fk_settings` and exactly one data-family hook into it.** The three data stages (`fk_data`, `fk_data_updates`, `fk_data_final_fixes`) share one Lua state and one `data.raw`, so a second call would find the first pass's prototypes already there and refuse as an overwrite. Which one you pick is yours: `fk_data` for content of your own, `fk_data_updates` to sit after other mods.
 
-When the plan is refused, the whole sentence is written to `factorio-current.log` and the load then stops. The player sees a failed data stage naming your mod; the sentence saying which declaration to fix is one line above it in the log. This is why the message goes to the log rather than the error dialog: a guest trap carries a code and no text, so the dialog cannot show it.
+When the plan is refused, the load stops with the sentence itself. `Emit` hands the message to `fkdata.Raise`, which is the same exit FkLua's own data-stage failures take: the host prefixes the stage and reports it, so the player reads one line naming the stage, this library and the declaration to fix.
+
+```
+fklua: at the data stage, fkrecipes: two technologies share the name hardened-tips; the second would overwrite the first
+```
+
+Every refusal in this document is shown the way the library builds it, without that host prefix. The stage is the host's to add, so nothing built here carries one; a refusal you read from `PlanSettings` or `PlanData` in your own host test is the bare `fkrecipes: ...` sentence.
 
 `PlanSettings` and `PlanData` are the seams `Emit` stands on. They are public so your own host tests can inspect a plan without a wasm toolchain, and they take the same World the emit layer implements over `fkdata`. Consumers call `Emit`.
 

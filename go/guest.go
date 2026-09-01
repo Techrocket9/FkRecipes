@@ -41,7 +41,11 @@ func (l *Lib) Emit() {
 		ops, err = l.PlanData(w)
 	}
 	if err != nil {
-		refuse(err.Error())
+		// THE MESSAGE CARRIES NO STAGE OF ITS OWN. Raise is the host's own
+		// failure path, and fk_data.lua's fail() prefixes "fklua: at the
+		// <stage> stage, " before this text; a stage in the planner's string
+		// too would say it twice.
+		fkdata.Raise(err.Error())
 	}
 
 	for _, op := range ops {
@@ -60,23 +64,6 @@ func (l *Lib) Emit() {
 			fkdata.Log(op.Line)
 		}
 	}
-}
-
-// refuse stops the load with the planner's message.
-//
-// WHAT THE PLAYER SEES, from reading FkLua's runtime rather than from hope.
-// fk_data.lua's run() calls the guest's stage export with NO pcall, so a trap
-// propagates out as a Lua error and Factorio reports a failed data stage
-// naming the consumer's mod. But a trap carries only a code: fk_rt.lua builds
-// it as {fk_trap = "unreachable"} whose __tostring is "fklua trap:
-// unreachable", so the panic's own message reaches NOBODY. That is why the
-// message goes through Log FIRST: the refusal lands in factorio-current.log in
-// full, and the trap that follows is what actually stops the load. A player
-// gets a load failure naming the mod, and the mod author gets the sentence
-// that says which declaration to fix, one line above it in the log.
-func refuse(message string) {
-	fkdata.Log(message)
-	panic(message)
 }
 
 // dataWorld answers the planner's questions out of data.raw.
@@ -106,8 +93,6 @@ func newDataWorld() *dataWorld {
 }
 
 func (w *dataWorld) ModName() string { return fkdata.ModName() }
-
-func (w *dataWorld) StageName() string { return fkdata.Stage().Name() }
 
 func (w *dataWorld) StartupSetting(name string) (Value, bool) {
 	v, ok := fkdata.StartupSetting(name)

@@ -21,7 +21,7 @@ import (
 // prefixed technology name already exists in data.raw. Without that refusal
 // the overlay would carry two nodes with one name, the incoming edges would
 // bind to the stale one, and the walk would step straight past the ring.
-func (l *Lib) checkCycles(w World, res resolution, prefix, stage string) error {
+func (l *Lib) checkCycles(w World, res resolution, prefix string) error {
 	names := w.TechNames()
 	nodes := make([]string, 0, len(names)+len(l.techs))
 	lists := make([][]string, 0, len(names)+len(l.techs))
@@ -52,7 +52,7 @@ func (l *Lib) checkCycles(w World, res resolution, prefix, stage string) error {
 	}
 
 	if path, found := walkForCycle(nodes, edges); found {
-		return errors.New("fkrecipes: at the " + stage + " stage, a prerequisite cycle: " + renderCyclePath(path))
+		return errors.New("fkrecipes: a prerequisite cycle: " + renderCyclePath(path))
 	}
 	return nil
 }

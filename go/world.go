@@ -10,11 +10,6 @@ type World interface {
 	// ModName is the packaged mod's name, the sole source of the prefix.
 	ModName() string
 
-	// StageName names the stage the plan is running in ("data",
-	// "data-updates", ...). It appears in refusals so the reader knows which
-	// of their own calls raised.
-	StageName() string
-
 	// StartupSetting reads a startup setting by its FULL, prefixed name. The
 	// second result is false when no such setting is readable, which the
 	// planner degrades to the declared default plus a log line.

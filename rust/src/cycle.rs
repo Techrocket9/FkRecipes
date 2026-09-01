@@ -29,7 +29,6 @@ impl Lib {
         w: &dyn World,
         res: &Resolution,
         prefix: &str,
-        stage: &str,
     ) -> Result<(), String> {
         let names = w.tech_names();
         let mut nodes: Vec<String> = Vec::with_capacity(names.len() + self.techs.len());
@@ -61,8 +60,7 @@ impl Lib {
 
         match walk_for_cycle(&nodes, &edges) {
             Some(path) => Err(format!(
-                "fkrecipes: at the {} stage, a prerequisite cycle: {}",
-                stage,
+                "fkrecipes: a prerequisite cycle: {}",
                 render_cycle_path(&path)
             )),
             None => Ok(()),

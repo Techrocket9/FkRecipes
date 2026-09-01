@@ -24,24 +24,23 @@ func (l *Lib) PlanData(w World) ([]Op, error) {
 	if w == nil {
 		return nil, errors.New("fkrecipes: PlanData was given a nil World")
 	}
-	stage := w.StageName()
 	if l.id == 0 {
-		return nil, errors.New("fkrecipes: at the " + stage + " stage, this Lib was built without New, so its handles cannot be validated")
+		return nil, errors.New("fkrecipes: this Lib was built without New, so its handles cannot be validated")
 	}
 	modName := w.ModName()
 	if modName == "" {
-		return nil, errors.New("fkrecipes: at the " + stage + " stage, the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName")
+		return nil, errors.New("fkrecipes: the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName")
 	}
 	prefix := modName + "-"
 
-	if err := l.validate(w, stage, prefix); err != nil {
+	if err := l.validate(w, prefix); err != nil {
 		return nil, err
 	}
 	res := l.resolve(w, prefix)
-	if err := l.checkResolvedCraftTimes(res, stage); err != nil {
+	if err := l.checkResolvedCraftTimes(res); err != nil {
 		return nil, err
 	}
-	if err := l.checkCycles(w, res, prefix, stage); err != nil {
+	if err := l.checkCycles(w, res, prefix); err != nil {
 		return nil, err
 	}
 
@@ -82,8 +81,8 @@ func (l *Lib) PlanData(w World) ([]Op, error) {
 // Every handle is checked here, not where it is read: an index that reaches
 // resolve unchecked is a panic in somebody's data stage, and a handle from
 // another plan is in range for this one.
-func (l *Lib) validate(w World, stage, prefix string) error {
-	at := "fkrecipes: at the " + stage + " stage, "
+func (l *Lib) validate(w World, prefix string) error {
+	at := "fkrecipes: "
 
 	for i, it := range l.items {
 		if it.name == "" {
@@ -535,7 +534,7 @@ func dropLine(tech, after string) string {
 // to reach this is another mod: setting names are a global namespace and the
 // engine keeps the last declaration of a same-type name, silently. A refusal
 // naming the setting beats the engine's load failure blaming the consumer.
-func (l *Lib) checkResolvedCraftTimes(res resolution, stage string) error {
+func (l *Lib) checkResolvedCraftTimes(res resolution) error {
 	for i, ct := range res.craftTimes {
 		if !ct.bound {
 			continue
@@ -546,14 +545,14 @@ func (l *Lib) checkResolvedCraftTimes(res resolution, stage string) error {
 		// that arrives from outside and so never crossed the declaration
 		// checks.
 		if !finite(ct.value) {
-			return errors.New("fkrecipes: at the " + stage + " stage, the recipe " + l.recipes[i].name +
+			return errors.New("fkrecipes: the recipe " + l.recipes[i].name +
 				" reads its crafting time from " + ct.setting +
 				", which answers a value that is not a finite number")
 		}
 		if ct.value > craftTimeFloor {
 			continue
 		}
-		return errors.New("fkrecipes: at the " + stage + " stage, the recipe " + l.recipes[i].name +
+		return errors.New("fkrecipes: the recipe " + l.recipes[i].name +
 			" reads its crafting time from " + ct.setting +
 			", which answers at or below the engine floor (energy_required can't be <= 0.001)")
 	}

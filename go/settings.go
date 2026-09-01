@@ -11,8 +11,8 @@ import (
 // It takes the same World the data half takes, and the prefix comes from it,
 // NOT from a parameter: the two stages have to agree on a setting's name to
 // the byte, and a name passed in here can drift from the one PlanData reads
-// back. Of the World it asks only ModName and StageName, so the emit layer
-// may pass one that answers the data-stage questions emptily.
+// back. Of the World it asks only ModName, so the emit layer may pass one
+// that answers the data-stage questions emptily.
 //
 // This is the seam the emit layer stands on at the settings stage; consumers
 // call Emit and never this. It is exported so a consumer's own tests can hold
@@ -23,17 +23,16 @@ func (l *Lib) PlanSettings(w World) ([]Op, error) {
 	if w == nil {
 		return nil, errors.New("fkrecipes: PlanSettings was given a nil World")
 	}
-	stage := w.StageName()
 	if l.id == 0 {
-		return nil, errors.New("fkrecipes: at the " + stage + " stage, this Lib was built without New, so its handles cannot be validated")
+		return nil, errors.New("fkrecipes: this Lib was built without New, so its handles cannot be validated")
 	}
 	modName := w.ModName()
 	if modName == "" {
-		return nil, errors.New("fkrecipes: at the " + stage + " stage, the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName")
+		return nil, errors.New("fkrecipes: the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName")
 	}
 	prefix := modName + "-"
 	bound := l.craftTimeBoundSettings()
-	if err := l.validateSettings(stage, prefix, bound); err != nil {
+	if err := l.validateSettings(prefix, bound); err != nil {
 		return nil, err
 	}
 	ops := make([]Op, 0, len(l.settings))
@@ -76,8 +75,8 @@ func (l *Lib) PlanSettings(w World) ([]Op, error) {
 // No refusal here prints a number. A float rendered by two languages is two
 // different strings sooner or later, and these messages are compared byte for
 // byte, so each one names the setting and the relationship instead.
-func (l *Lib) validateSettings(stage, prefix string, bound []bool) error {
-	at := "fkrecipes: at the " + stage + " stage, "
+func (l *Lib) validateSettings(prefix string, bound []bool) error {
+	at := "fkrecipes: "
 	for i, s := range l.settings {
 		if s.name == "" {
 			return errors.New(at + "a setting was declared with an empty name")

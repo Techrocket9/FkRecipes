@@ -569,7 +569,7 @@ fn plan_data_refusals() {
                 l.item("steel-axe", ItemSpec::default());
                 l.item("steel-axe", ItemSpec::default());
             },
-            want: "fkrecipes: at the data stage, two items share the name steel-axe; the second would overwrite the first",
+            want: "fkrecipes: two items share the name steel-axe; the second would overwrite the first",
         },
         Case {
             name: "two recipes share a name",
@@ -592,7 +592,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, two recipes share the name steel-axe-forging; the second would overwrite the first",
+            want: "fkrecipes: two recipes share the name steel-axe-forging; the second would overwrite the first",
         },
         Case {
             name: "two technologies share a name",
@@ -613,7 +613,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, two technologies share the name steel-axes; the second would overwrite the first",
+            want: "fkrecipes: two technologies share the name steel-axes; the second would overwrite the first",
         },
         Case {
             name: "a recipe with no result item",
@@ -627,7 +627,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, a recipe was declared with no result item; Recipe needs an item this plan declared",
+            want: "fkrecipes: a recipe was declared with no result item; Recipe needs an item this plan declared",
         },
         Case {
             name: "an ingredient item from no plan",
@@ -642,7 +642,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe steel-axe names an ingredient item that this plan never declared",
+            want: "fkrecipes: the recipe steel-axe names an ingredient item that this plan never declared",
         },
         Case {
             name: "neither cost_of nor unit",
@@ -656,7 +656,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes must name exactly one of CostOf, Unit or CostBy",
+            want: "fkrecipes: the technology steel-axes must name exactly one of CostOf, Unit or CostBy",
         },
         Case {
             name: "both cost_of and unit",
@@ -678,7 +678,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes must name exactly one of CostOf, Unit or CostBy",
+            want: "fkrecipes: the technology steel-axes must name exactly one of CostOf, Unit or CostBy",
         },
         Case {
             name: "before without after",
@@ -693,7 +693,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes names Before without After; InsertBetween needs both ends",
+            want: "fkrecipes: the technology steel-axes names Before without After; InsertBetween needs both ends",
         },
         Case {
             name: "a unit count below one",
@@ -714,7 +714,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes has a unit count below 1, which the engine refuses",
+            want: "fkrecipes: the technology steel-axes has a unit count below 1, which the engine refuses",
         },
         Case {
             name: "a science pack the game does not have",
@@ -735,7 +735,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes prices itself in military-science-pack, which does not exist",
+            want: "fkrecipes: the technology steel-axes prices itself in military-science-pack, which does not exist",
         },
         Case {
             name: "cost_of names a technology that is not there",
@@ -749,7 +749,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, CostOf(logistics-4): no technology of that name exists",
+            want: "fkrecipes: CostOf(logistics-4): no technology of that name exists",
         },
         Case {
             name: "cost_of names a research_trigger technology",
@@ -763,7 +763,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, CostOf(steam-power): steam-power is a research_trigger technology with no unit to copy; name a unit-carrying technology instead",
+            want: "fkrecipes: CostOf(steam-power): steam-power is a research_trigger technology with no unit to copy; name a unit-carrying technology instead",
         },
         Case {
             name: "unlocking a recipe from no plan",
@@ -778,7 +778,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes unlocks a recipe that this plan never declared",
+            want: "fkrecipes: the technology steel-axes unlocks a recipe that this plan never declared",
         },
         Case {
             // Out of range for THIS plan, which is the shape that used to
@@ -799,7 +799,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes names an EnabledBy setting that this plan never declared",
+            want: "fkrecipes: the technology steel-axes names an EnabledBy setting that this plan never declared",
         },
         Case {
             name: "an item this plan would overwrite",
@@ -807,7 +807,7 @@ fn plan_data_refusals() {
             build: |l: &mut Lib| {
                 l.item("steel-axe", ItemSpec::default());
             },
-            want: "fkrecipes: at the data stage, the item steelworks-steel-axe already exists in data.raw; this plan would overwrite it",
+            want: "fkrecipes: the item steelworks-steel-axe already exists in data.raw; this plan would overwrite it",
         },
         Case {
             name: "a recipe this plan would overwrite",
@@ -822,7 +822,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe steelworks-steel-axe-forging already exists in data.raw; this plan would overwrite it",
+            want: "fkrecipes: the recipe steelworks-steel-axe-forging already exists in data.raw; this plan would overwrite it",
         },
         Case {
             name: "a technology this plan would overwrite",
@@ -844,7 +844,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steelworks-steel-axes already exists in data.raw; this plan would overwrite it",
+            want: "fkrecipes: the technology steelworks-steel-axes already exists in data.raw; this plan would overwrite it",
         },
         Case {
             name: "both anchors at once",
@@ -867,7 +867,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes names both After and AfterTech; pick one anchor",
+            want: "fkrecipes: the technology steel-axes names both After and AfterTech; pick one anchor",
         },
         Case {
             name: "a splice around a technology this plan declares",
@@ -890,7 +890,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes names Before with AfterTech; InsertBetween splices around a technology that already exists",
+            want: "fkrecipes: the technology steel-axes names Before with AfterTech; InsertBetween splices around a technology that already exists",
         },
         Case {
             name: "a crafting time that is not a number",
@@ -905,7 +905,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe steel-axe declares a crafting time that is not a finite number",
+            want: "fkrecipes: the recipe steel-axe declares a crafting time that is not a finite number",
         },
         Case {
             name: "a research time that is not a number",
@@ -926,7 +926,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes declares a research time that is not a finite number",
+            want: "fkrecipes: the technology steel-axes declares a research time that is not a finite number",
         },
         Case {
             name: "an item with an empty name",
@@ -934,7 +934,7 @@ fn plan_data_refusals() {
             build: |l: &mut Lib| {
                 l.item("", ItemSpec::default());
             },
-            want: "fkrecipes: at the data stage, an item was declared with an empty name",
+            want: "fkrecipes: an item was declared with an empty name",
         },
         Case {
             name: "a technology with an empty name",
@@ -948,7 +948,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, a technology was declared with an empty name",
+            want: "fkrecipes: a technology was declared with an empty name",
         },
         Case {
             // A holed or mixed Lua table crosses as a number-keyed map, which
@@ -975,7 +975,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, CostOf(steel-processing): the unit of steel-processing holds a table this library cannot copy faithfully",
+            want: "fkrecipes: CostOf(steel-processing): the unit of steel-processing holds a table this library cannot copy faithfully",
         },
         Case {
             name: "a science pack with an empty name",
@@ -996,7 +996,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes prices itself in a pack with an empty name",
+            want: "fkrecipes: the technology steel-axes prices itself in a pack with an empty name",
         },
         Case {
             name: "both a fixed and a bound crafting time",
@@ -1013,7 +1013,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe steel-axe names both CraftTime and CraftTimeFrom; pick one",
+            want: "fkrecipes: the recipe steel-axe names both CraftTime and CraftTimeFrom; pick one",
         },
         Case {
             name: "a crafting-time setting from another plan",
@@ -1030,7 +1030,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe steel-axe names a crafting-time setting that this plan never declared",
+            want: "fkrecipes: the recipe steel-axe names a crafting-time setting that this plan never declared",
         },
         Case {
             // Measured: the engine refuses energy_required <= 0.001.
@@ -1046,7 +1046,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe steel-axe declares a crafting time the engine refuses (energy_required can't be <= 0.001)",
+            want: "fkrecipes: the recipe steel-axe declares a crafting time the engine refuses (energy_required can't be <= 0.001)",
         },
         Case {
             // The generated setting's own minimum clears the floor, so this is
@@ -1067,7 +1067,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers at or below the engine floor (energy_required can't be <= 0.001)",
+            want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers at or below the engine floor (energy_required can't be <= 0.001)",
         },
         Case {
             // An infinity is ABOVE the floor, so the floor arm would wave it
@@ -1087,7 +1087,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers a value that is not a finite number",
+            want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers a value that is not a finite number",
         },
         Case {
             // A NaN compares false against the floor, so it reached the floor
@@ -1107,7 +1107,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers a value that is not a finite number",
+            want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers a value that is not a finite number",
         },
         Case {
             // PRESENT and nil, which is what a unit whose table carried a
@@ -1123,7 +1123,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, CostOf(steel-processing): steel-processing has a unit that is not a dictionary",
+            want: "fkrecipes: CostOf(steel-processing): steel-processing has a unit that is not a dictionary",
         },
         Case {
             name: "a CostOf source whose max_level lost a subtree on the way in",
@@ -1142,7 +1142,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, CostOf(steel-processing): the max_level of steel-processing holds a table this library cannot copy faithfully",
+            want: "fkrecipes: CostOf(steel-processing): the max_level of steel-processing holds a table this library cannot copy faithfully",
         },
         Case {
             // The World says the technology is there and is not a research
@@ -1159,7 +1159,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, CostOf(steel-processing): steel-processing carries no unit to copy",
+            want: "fkrecipes: CostOf(steel-processing): steel-processing carries no unit to copy",
         },
         Case {
             name: "a negative stack size",
@@ -1173,7 +1173,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the item steel-axe has a negative stack size, which the engine refuses",
+            want: "fkrecipes: the item steel-axe has a negative stack size, which the engine refuses",
         },
         Case {
             name: "a negative icon size on an item",
@@ -1187,7 +1187,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the item steel-axe has a negative icon size, which the engine refuses",
+            want: "fkrecipes: the item steel-axe has a negative icon size, which the engine refuses",
         },
         Case {
             name: "a negative icon size on a technology",
@@ -1202,7 +1202,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes has a negative icon size, which the engine refuses",
+            want: "fkrecipes: the technology steel-axes has a negative icon size, which the engine refuses",
         },
         Case {
             name: "an ingredient amount below one",
@@ -1217,7 +1217,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe steel-axe has an ingredient amount below 1, which the engine refuses",
+            want: "fkrecipes: the recipe steel-axe has an ingredient amount below 1, which the engine refuses",
         },
         Case {
             name: "a negative result count",
@@ -1232,7 +1232,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe steel-axe has a negative result count, which the engine refuses",
+            want: "fkrecipes: the recipe steel-axe has a negative result count, which the engine refuses",
         },
         Case {
             name: "a negative crafting time",
@@ -1247,7 +1247,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe steel-axe has a negative crafting time, which the engine refuses",
+            want: "fkrecipes: the recipe steel-axe has a negative crafting time, which the engine refuses",
         },
         Case {
             name: "a science pack amount below one",
@@ -1268,7 +1268,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes has a science pack amount below 1, which the engine refuses",
+            want: "fkrecipes: the technology steel-axes has a science pack amount below 1, which the engine refuses",
         },
         Case {
             name: "a research time of zero",
@@ -1289,7 +1289,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes has a research time at or below zero, which the engine refuses",
+            want: "fkrecipes: the technology steel-axes has a research time at or below zero, which the engine refuses",
         },
         Case {
             name: "a stack size past what a double holds",
@@ -1303,7 +1303,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the item steel-axe declares a stack size a Lua double cannot hold exactly: 9007199254740993",
+            want: "fkrecipes: the item steel-axe declares a stack size a Lua double cannot hold exactly: 9007199254740993",
         },
         Case {
             name: "an ingredient amount past what a double holds",
@@ -1318,7 +1318,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe steel-axe declares an ingredient amount a Lua double cannot hold exactly: 9007199254740993",
+            want: "fkrecipes: the recipe steel-axe declares an ingredient amount a Lua double cannot hold exactly: 9007199254740993",
         },
         Case {
             name: "a unit count past what a double holds",
@@ -1339,7 +1339,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes declares a unit count a Lua double cannot hold exactly: 9007199254740993",
+            want: "fkrecipes: the technology steel-axes declares a unit count a Lua double cannot hold exactly: 9007199254740993",
         },
         Case {
             name: "a CostOf source whose unit is not a dictionary",
@@ -1360,7 +1360,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, CostOf(steel-processing): steel-processing has a unit that is not a dictionary",
+            want: "fkrecipes: CostOf(steel-processing): steel-processing has a unit that is not a dictionary",
         },
         Case {
             // The result handle is checked before the duplicate-name scan, so
@@ -1386,7 +1386,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, a recipe was declared with no result item; Recipe needs an item this plan declared",
+            want: "fkrecipes: a recipe was declared with no result item; Recipe needs an item this plan declared",
         },
     ];
 
@@ -1433,7 +1433,7 @@ fn handles_from_another_plan_are_refused() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, a recipe was declared with no result item; Recipe needs an item this plan declared",
+            want: "fkrecipes: a recipe was declared with no result item; Recipe needs an item this plan declared",
         },
         Case {
             name: "an ingredient handle from another plan",
@@ -1449,7 +1449,7 @@ fn handles_from_another_plan_are_refused() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe steel-axe names an ingredient item that this plan never declared",
+            want: "fkrecipes: the recipe steel-axe names an ingredient item that this plan never declared",
         },
         Case {
             // The review's second shape: a BoolSettingRef that lands on this
@@ -1468,7 +1468,7 @@ fn handles_from_another_plan_are_refused() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes names an EnabledBy setting that this plan never declared",
+            want: "fkrecipes: the technology steel-axes names an EnabledBy setting that this plan never declared",
         },
         Case {
             name: "an unlock handle from another plan",
@@ -1487,7 +1487,7 @@ fn handles_from_another_plan_are_refused() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes unlocks a recipe that this plan never declared",
+            want: "fkrecipes: the technology steel-axes unlocks a recipe that this plan never declared",
         },
         Case {
             name: "an AfterTech handle from another plan",
@@ -1509,7 +1509,7 @@ fn handles_from_another_plan_are_refused() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology steel-axes names an AfterTech technology that this plan never declared",
+            want: "fkrecipes: the technology steel-axes names an AfterTech technology that this plan never declared",
         },
     ];
 
@@ -1574,7 +1574,7 @@ fn plan_data_refuses_an_empty_mod_name() {
         Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
         Err(got) => assert_eq!(
             got,
-            "fkrecipes: at the data stage, the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName"
+            "fkrecipes: the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName"
         ),
     }
 }

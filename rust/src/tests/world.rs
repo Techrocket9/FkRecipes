@@ -9,7 +9,6 @@ use crate::world::World;
 /// for the same reason the library uses vectors.
 pub(crate) struct FixtureWorld {
     pub(crate) mod_name: String,
-    pub(crate) stage: String,
     pub(crate) settings: Vec<(String, Value)>,
     pub(crate) items: Vec<String>,
     pub(crate) recipes: Vec<String>,
@@ -37,10 +36,6 @@ pub(crate) struct FixtureTech {
 impl World for FixtureWorld {
     fn mod_name(&self) -> String {
         self.mod_name.clone()
-    }
-
-    fn stage_name(&self) -> String {
-        self.stage.clone()
     }
 
     fn startup_setting(&self, name: &str) -> Option<Value> {
@@ -165,11 +160,6 @@ impl FixtureWorld {
         self
     }
 
-    pub(crate) fn with_stage(mut self, name: &str) -> FixtureWorld {
-        self.stage = String::from(name);
-        self
-    }
-
     pub(crate) fn with_mod_name(mut self, name: &str) -> FixtureWorld {
         self.mod_name = String::from(name);
         self
@@ -241,7 +231,6 @@ pub(crate) fn unit_of(count: i64, seconds: f64, packs: &[&str]) -> Value {
 pub(crate) fn base_world() -> FixtureWorld {
     FixtureWorld {
         mod_name: String::from("steelworks"),
-        stage: String::from("data"),
         settings: Vec::new(),
         loose_max_level: Value::Nil,
         nil_unit_for: Vec::new(),
@@ -362,9 +351,10 @@ fn fixture_tech_names_are_sorted() {
     }
 }
 
-/// base_world at the OTHER stage. The settings stage runs before data.raw
-/// exists, and the planner asks it for nothing but the mod name and the stage
-/// name.
+/// What a settings-stage plan is handed. The settings stage runs before
+/// data.raw exists and the planner asks it for nothing but the mod name, so
+/// this is base_world under a name that says which plan is being held up to
+/// the light at the call site.
 pub(crate) fn settings_world() -> FixtureWorld {
-    base_world().with_stage("settings")
+    base_world()
 }

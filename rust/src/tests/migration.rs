@@ -124,14 +124,14 @@ fn legacy_setting_refusals() {
             build: |l| {
                 l.legacy_bool_setting("", true, "a");
             },
-            want: "fkrecipes: at the settings stage, a setting was declared with an empty name",
+            want: "fkrecipes: a setting was declared with an empty name",
         },
         Case {
             name: "an empty order",
             build: |l| {
                 l.legacy_bool_setting("bbb-enabled", true, "");
             },
-            want: "fkrecipes: at the settings stage, the legacy setting bbb-enabled was declared with an empty order",
+            want: "fkrecipes: the legacy setting bbb-enabled was declared with an empty order",
         },
         Case {
             // The names differ as declared and collide as emitted, which is
@@ -141,7 +141,7 @@ fn legacy_setting_refusals() {
                 l.bool_setting("hardened-tools", true);
                 l.legacy_bool_setting("steelworks-hardened-tools", false, "a");
             },
-            want: "fkrecipes: at the settings stage, two settings share the name steelworks-hardened-tools; the engine keeps the last one silently",
+            want: "fkrecipes: two settings share the name steelworks-hardened-tools; the engine keeps the last one silently",
         },
     ];
 
@@ -438,7 +438,7 @@ fn cost_by_edge_reaches_the_cycle_walk() {
         ),
         Err(got) => assert_eq!(
             got,
-            "fkrecipes: at the data stage, a prerequisite cycle: logistics-2 -> steelworks-hardened-tips -> logistics-2"
+            "fkrecipes: a prerequisite cycle: logistics-2 -> steelworks-hardened-tips -> logistics-2"
         ),
     }
 }
@@ -473,7 +473,7 @@ fn choice_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe hardened-steel-plate names both Ingredients and IngredientsBy; pick one",
+            want: "fkrecipes: the recipe hardened-steel-plate names both Ingredients and IngredientsBy; pick one",
         },
         Case {
             // This plan declares a dropdown of its own, so the stray handle
@@ -499,7 +499,7 @@ fn choice_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe hardened-steel-plate names an ingredients setting that this plan never declared",
+            want: "fkrecipes: the recipe hardened-steel-plate names an ingredients setting that this plan never declared",
         },
         Case {
             name: "a choice for a value the setting does not allow",
@@ -527,7 +527,7 @@ fn choice_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe hardened-steel-plate offers something for brine where the setting steelworks-quench-medium allows oil",
+            want: "fkrecipes: the recipe hardened-steel-plate offers something for brine where the setting steelworks-quench-medium allows oil",
         },
         Case {
             name: "a value with no choice behind it",
@@ -549,7 +549,7 @@ fn choice_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe hardened-steel-plate offers nothing for the value oil that the setting steelworks-quench-medium allows",
+            want: "fkrecipes: the recipe hardened-steel-plate offers nothing for the value oil that the setting steelworks-quench-medium allows",
         },
         Case {
             name: "a choice beyond what the setting allows",
@@ -577,7 +577,7 @@ fn choice_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe hardened-steel-plate offers something for oil, which the setting steelworks-quench-medium does not allow",
+            want: "fkrecipes: the recipe hardened-steel-plate offers something for oil, which the setting steelworks-quench-medium does not allow",
         },
         Case {
             name: "an ingredient inside a choice that names nothing this plan declared",
@@ -599,7 +599,7 @@ fn choice_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the recipe hardened-steel-plate names an ingredient item that this plan never declared",
+            want: "fkrecipes: the recipe hardened-steel-plate names an ingredient item that this plan never declared",
         },
         Case {
             name: "a technology naming CostBy and a placement",
@@ -626,7 +626,7 @@ fn choice_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology hardened-tips names CostBy with a placement; the prerequisite moves with the unit, so CostBy places the technology itself",
+            want: "fkrecipes: the technology hardened-tips names CostBy with a placement; the prerequisite moves with the unit, so CostBy places the technology itself",
         },
         Case {
             // In range here too, for the same reason.
@@ -659,7 +659,7 @@ fn choice_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology hardened-tips names a cost setting that this plan never declared",
+            want: "fkrecipes: the technology hardened-tips names a cost setting that this plan never declared",
         },
         Case {
             name: "a cost choice for a value the setting does not allow",
@@ -685,7 +685,7 @@ fn choice_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology hardened-tips offers something for military where the setting steelworks-tips-research-tier allows logistics",
+            want: "fkrecipes: the technology hardened-tips offers something for military where the setting steelworks-tips-research-tier allows logistics",
         },
         Case {
             // The fallback is the cost that applies when nothing else does, so
@@ -713,7 +713,7 @@ fn choice_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology hardened-tips has a unit count below 1, which the engine refuses",
+            want: "fkrecipes: the technology hardened-tips has a unit count below 1, which the engine refuses",
         },
         Case {
             name: "a fallback priced in a pack that does not exist",
@@ -742,7 +742,7 @@ fn choice_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the data stage, the technology hardened-tips prices itself in military-science-pack, which does not exist",
+            want: "fkrecipes: the technology hardened-tips prices itself in military-science-pack, which does not exist",
         },
     ];
 

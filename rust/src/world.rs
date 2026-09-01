@@ -13,11 +13,6 @@ pub trait World {
     /// The packaged mod's name, the sole source of the prefix.
     fn mod_name(&self) -> String;
 
-    /// The stage the plan is running in ("data", "data-updates", ...). It
-    /// appears in refusals so the reader knows which of their own calls
-    /// raised.
-    fn stage_name(&self) -> String;
-
     /// Reads a startup setting by its FULL, prefixed name. `None` is a
     /// setting that is not readable, which the planner degrades to the
     /// declared default plus a log line.

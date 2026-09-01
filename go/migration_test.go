@@ -78,12 +78,12 @@ func TestLegacySettingRefusals(t *testing.T) {
 		{
 			name:  "an empty legacy name",
 			build: func(l *Lib) { l.LegacyBoolSetting("", true, "a") },
-			want:  "fkrecipes: at the settings stage, a setting was declared with an empty name",
+			want:  "fkrecipes: a setting was declared with an empty name",
 		},
 		{
 			name:  "an empty order",
 			build: func(l *Lib) { l.LegacyBoolSetting("bbb-enabled", true, "") },
-			want:  "fkrecipes: at the settings stage, the legacy setting bbb-enabled was declared with an empty order",
+			want:  "fkrecipes: the legacy setting bbb-enabled was declared with an empty order",
 		},
 		{
 			// The names differ as declared and collide as emitted, which is
@@ -93,7 +93,7 @@ func TestLegacySettingRefusals(t *testing.T) {
 				l.BoolSetting("hardened-tools", true)
 				l.LegacyBoolSetting("steelworks-hardened-tools", false, "a")
 			},
-			want: "fkrecipes: at the settings stage, two settings share the name steelworks-hardened-tools; the engine keeps the last one silently",
+			want: "fkrecipes: two settings share the name steelworks-hardened-tools; the engine keeps the last one silently",
 		},
 	}
 	for _, c := range cases {
@@ -313,7 +313,7 @@ func TestCostByEdgeReachesTheCycleWalk(t *testing.T) {
 	if err == nil {
 		t.Fatal("the plan was accepted, want a cycle refusal")
 	}
-	want := "fkrecipes: at the data stage, a prerequisite cycle: logistics-2 -> steelworks-hardened-tips -> logistics-2"
+	want := "fkrecipes: a prerequisite cycle: logistics-2 -> steelworks-hardened-tips -> logistics-2"
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}
@@ -335,7 +335,7 @@ func TestChoiceRefusals(t *testing.T) {
 					IngredientsBy: &IngredientChoices{Setting: medium, Choices: []IngredientChoice{{Value: "water"}}},
 				})
 			},
-			want: "fkrecipes: at the data stage, the recipe hardened-steel-plate names both Ingredients and IngredientsBy; pick one",
+			want: "fkrecipes: the recipe hardened-steel-plate names both Ingredients and IngredientsBy; pick one",
 		},
 		{
 			// This plan declares a dropdown of its own, so the stray handle
@@ -350,7 +350,7 @@ func TestChoiceRefusals(t *testing.T) {
 					IngredientsBy: &IngredientChoices{Setting: stray, Choices: []IngredientChoice{{Value: "water"}}},
 				})
 			},
-			want: "fkrecipes: at the data stage, the recipe hardened-steel-plate names an ingredients setting that this plan never declared",
+			want: "fkrecipes: the recipe hardened-steel-plate names an ingredients setting that this plan never declared",
 		},
 		{
 			name: "a choice for a value the setting does not allow",
@@ -363,7 +363,7 @@ func TestChoiceRefusals(t *testing.T) {
 					}},
 				})
 			},
-			want: "fkrecipes: at the data stage, the recipe hardened-steel-plate offers something for brine where the setting steelworks-quench-medium allows oil",
+			want: "fkrecipes: the recipe hardened-steel-plate offers something for brine where the setting steelworks-quench-medium allows oil",
 		},
 		{
 			name: "a value with no choice behind it",
@@ -374,7 +374,7 @@ func TestChoiceRefusals(t *testing.T) {
 					IngredientsBy: &IngredientChoices{Setting: medium, Choices: []IngredientChoice{{Value: "water"}}},
 				})
 			},
-			want: "fkrecipes: at the data stage, the recipe hardened-steel-plate offers nothing for the value oil that the setting steelworks-quench-medium allows",
+			want: "fkrecipes: the recipe hardened-steel-plate offers nothing for the value oil that the setting steelworks-quench-medium allows",
 		},
 		{
 			name: "a choice beyond what the setting allows",
@@ -387,7 +387,7 @@ func TestChoiceRefusals(t *testing.T) {
 					}},
 				})
 			},
-			want: "fkrecipes: at the data stage, the recipe hardened-steel-plate offers something for oil, which the setting steelworks-quench-medium does not allow",
+			want: "fkrecipes: the recipe hardened-steel-plate offers something for oil, which the setting steelworks-quench-medium does not allow",
 		},
 		{
 			name: "an ingredient inside a choice that names nothing this plan declared",
@@ -400,7 +400,7 @@ func TestChoiceRefusals(t *testing.T) {
 					}},
 				})
 			},
-			want: "fkrecipes: at the data stage, the recipe hardened-steel-plate names an ingredient item that this plan never declared",
+			want: "fkrecipes: the recipe hardened-steel-plate names an ingredient item that this plan never declared",
 		},
 		{
 			name: "a technology naming CostBy and a placement",
@@ -412,7 +412,7 @@ func TestChoiceRefusals(t *testing.T) {
 						Fallback: UnitSpec{Count: 1, Seconds: 1}},
 				})
 			},
-			want: "fkrecipes: at the data stage, the technology hardened-tips names CostBy with a placement; the prerequisite moves with the unit, so CostBy places the technology itself",
+			want: "fkrecipes: the technology hardened-tips names CostBy with a placement; the prerequisite moves with the unit, so CostBy places the technology itself",
 		},
 		{
 			// In range here too, for the same reason.
@@ -426,7 +426,7 @@ func TestChoiceRefusals(t *testing.T) {
 						Fallback: UnitSpec{Count: 1, Seconds: 1}},
 				})
 			},
-			want: "fkrecipes: at the data stage, the technology hardened-tips names a cost setting that this plan never declared",
+			want: "fkrecipes: the technology hardened-tips names a cost setting that this plan never declared",
 		},
 		{
 			name: "a cost choice for a value the setting does not allow",
@@ -437,7 +437,7 @@ func TestChoiceRefusals(t *testing.T) {
 						Fallback: UnitSpec{Count: 1, Seconds: 1}},
 				})
 			},
-			want: "fkrecipes: at the data stage, the technology hardened-tips offers something for military where the setting steelworks-tips-research-tier allows logistics",
+			want: "fkrecipes: the technology hardened-tips offers something for military where the setting steelworks-tips-research-tier allows logistics",
 		},
 		{
 			// The fallback is the cost that applies when nothing else does, so
@@ -450,7 +450,7 @@ func TestChoiceRefusals(t *testing.T) {
 						Fallback: UnitSpec{Count: 0, Seconds: 30}},
 				})
 			},
-			want: "fkrecipes: at the data stage, the technology hardened-tips has a unit count below 1, which the engine refuses",
+			want: "fkrecipes: the technology hardened-tips has a unit count below 1, which the engine refuses",
 		},
 		{
 			name: "a fallback priced in a pack that does not exist",
@@ -462,7 +462,7 @@ func TestChoiceRefusals(t *testing.T) {
 							Packs: []Pack{{Name: "military-science-pack", Amount: 1}}}},
 				})
 			},
-			want: "fkrecipes: at the data stage, the technology hardened-tips prices itself in military-science-pack, which does not exist",
+			want: "fkrecipes: the technology hardened-tips prices itself in military-science-pack, which does not exist",
 		},
 	}
 	for _, c := range cases {

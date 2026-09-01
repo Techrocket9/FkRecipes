@@ -43,7 +43,7 @@ The order is a parameter rather than derived because a mod that already shipped 
 Two more refusals are worth knowing. An empty name is refused as it is for a generated setting. Duplicates are checked on the **emitted** names, which is the namespace the engine actually keeps, so a legacy name and a generated one that arrive at the same string are caught even though the declarations differ:
 
 ```
-fkrecipes: at the settings stage, two settings share the name steelworks-hardened-tools; the engine keeps the last one silently
+fkrecipes: two settings share the name steelworks-hardened-tools; the engine keeps the last one silently
 ```
 
 `CheckLocale` reads legacy settings under the names they actually carry, and keys their dropdown values `<legacy-name>-<value>` rather than `<prefix><legacy-name>-<value>`, so the locale file you already ship keeps validating. There is one thing it still cannot see once names stop carrying the mod prefix, described under the worked example below.
@@ -103,7 +103,7 @@ Each choice is a whole ingredient plan, not one substituted line, and every plan
 The values must equal the setting's allowed values, in the same order. A missing value, an extra one, or one out of place is refused by name:
 
 ```
-fkrecipes: at the data stage, the recipe hardened-steel-plate offers nothing for the value oil that the setting steelworks-quench-medium allows
+fkrecipes: the recipe hardened-steel-plate offers nothing for the value oil that the setting steelworks-quench-medium allows
 ```
 
 That rule exists because the alternative is a recipe with no ingredients the first time somebody adds a dropdown value and forgets the recipe. `IngredientsBy` and `Ingredients` are mutually exclusive; naming both is refused.
@@ -164,7 +164,7 @@ lib.technology(
 Cost and tree position come from one named point, which is why `CostBy` does not combine with `After`, `Before` or `AfterTech`. Naming a placement beside it is refused:
 
 ```
-fkrecipes: at the data stage, the technology hardened-tips names CostBy with a placement; the prerequisite moves with the unit, so CostBy places the technology itself
+fkrecipes: the technology hardened-tips names CostBy with a placement; the prerequisite moves with the unit, so CostBy places the technology itself
 ```
 
 The ladder is how you write "price this like the tier the player asked for, whichever of those technologies this particular game happens to have". A rung that is absent, that is a `research_trigger` technology, or that carries a unit this library cannot copy faithfully is stepped past rather than refused: the player's install is not something your mod can validate at declaration time.

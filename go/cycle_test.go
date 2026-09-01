@@ -24,7 +24,7 @@ func TestCycleDirect(t *testing.T) {
 	if err == nil {
 		t.Fatal("the plan was accepted, want a cycle refusal")
 	}
-	want := "fkrecipes: at the data stage, a prerequisite cycle: logistics-2 -> logistics-3 -> logistics-2"
+	want := "fkrecipes: a prerequisite cycle: logistics-2 -> logistics-3 -> logistics-2"
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}
@@ -38,7 +38,7 @@ func TestCycleTransitiveThroughExistingEdges(t *testing.T) {
 	if err == nil {
 		t.Fatal("the plan was accepted, want a cycle refusal")
 	}
-	want := "fkrecipes: at the data stage, a prerequisite cycle: logistics -> logistics-3 -> logistics-2 -> logistics"
+	want := "fkrecipes: a prerequisite cycle: logistics -> logistics-3 -> logistics-2 -> logistics"
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}
@@ -61,7 +61,7 @@ func TestCycleCreatedByInsertBetween(t *testing.T) {
 	if err == nil {
 		t.Fatal("the plan was accepted, want a cycle refusal")
 	}
-	want := "fkrecipes: at the data stage, a prerequisite cycle: logistics-2 -> steel-processing -> steelworks-steel-axes -> logistics-3 -> logistics-2"
+	want := "fkrecipes: a prerequisite cycle: logistics-2 -> steel-processing -> steelworks-steel-axes -> logistics-3 -> logistics-2"
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}
@@ -100,7 +100,7 @@ func TestOverwriteRefusalClosesTheCycleBlindSpot(t *testing.T) {
 	if err == nil {
 		t.Fatal("the plan was accepted, want an overwrite refusal")
 	}
-	want := "fkrecipes: at the data stage, the technology steelworks-widgetry already exists in data.raw; this plan would overwrite it"
+	want := "fkrecipes: the technology steelworks-widgetry already exists in data.raw; this plan would overwrite it"
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}
@@ -115,7 +115,6 @@ func ringTechName(i int) string {
 func ringWorld(n int) *fixtureWorld {
 	w := &fixtureWorld{
 		modName: "steelworks",
-		stage:   "data",
 		items:   []string{"automation-science-pack"},
 	}
 	for i := 0; i < n; i++ {
@@ -146,7 +145,7 @@ func TestCyclePathIsCapped(t *testing.T) {
 	}
 	// 150 technologies on the stack plus the one that closes the ring, less
 	// the hundred the message names.
-	want := "fkrecipes: at the data stage, a prerequisite cycle: " + strings.Join(named, " -> ") + " -> (and 51 more before it closes)"
+	want := "fkrecipes: a prerequisite cycle: " + strings.Join(named, " -> ") + " -> (and 51 more before it closes)"
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}

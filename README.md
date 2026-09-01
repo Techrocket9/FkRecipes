@@ -28,7 +28,7 @@ The Go half is the module `github.com/Techrocket9/fkrecipes/go`, rooted in this 
 
 ```
 require (
-	github.com/Techrocket9/fklua/guest/go v0.1.0
+	github.com/Techrocket9/fklua/guest/go v0.2.0
 	github.com/Techrocket9/fkrecipes/go v0.1.0
 )
 
@@ -180,7 +180,13 @@ Numbers here carry the environment that produced them.
 
 **The crafting-time floor.** Factorio 2.0.77 (build 84539, mac-arm64, steam) refuses to load a recipe whose `energy_required` is at or below 0.001, with `energy_required can't be <= 0.001`. Values of 0.0011 and 0.002 load and survive to a data dump unchanged; an omitted `energy_required` stays absent and the engine applies its own default. The library refuses a declared crafting time at or below the floor, refuses a setting value that answers below it, and gives a generated craft-time setting a minimum of 0.002 so the settings screen cannot produce one.
 
-**What a refusal looks like in game.** The full sentence is written to `factorio-current.log` through `fkdata`, and the load then stops. FkLua's data-stage runtime calls the guest without a pcall and a wasm trap carries only a code, so the message reaches the log rather than the error dialog: the player sees a failed data stage naming your mod, and the line saying which declaration to fix sits one line above it in the log.
+**What a refusal looks like in game.** The load stops with the sentence itself, through `fkdata.Raise`. FkLua's data-stage runtime prefixes the stage and reports it the way it reports its own failures, so the player reads one line naming the stage, this library and the declaration to fix:
+
+```
+fklua: at the data stage, fkrecipes: two technologies share the name hardened-tips; the second would overwrite the first
+```
+
+The stage comes from the host, which is why nothing this library builds carries a stage of its own.
 
 **Flash cost.** A minimal guest that declares one item and one recipe through this library is 370,859 bytes of wasm; the same guest built against `fkdata` alone is 42,285 bytes. The library therefore adds about 320 KiB. Measured 2026-08-31 with TinyGo 0.41.1, target `wasm-unknown`, `-scheduler=none -gc=leaking -opt=2`.
 

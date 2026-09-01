@@ -7,7 +7,6 @@ import "testing"
 // maps, for the same reason the library uses slices.
 type fixtureWorld struct {
 	modName  string
-	stage    string
 	settings []KV
 	items    []string
 	recipes  []string
@@ -30,8 +29,7 @@ type fixtureTech struct {
 	trigger  bool
 }
 
-func (w *fixtureWorld) ModName() string   { return w.modName }
-func (w *fixtureWorld) StageName() string { return w.stage }
+func (w *fixtureWorld) ModName() string { return w.modName }
 
 func (w *fixtureWorld) StartupSetting(name string) (Value, bool) {
 	for _, s := range w.settings {
@@ -188,11 +186,6 @@ func (w *fixtureWorld) withUnit(name string, v Value) *fixtureWorld {
 	return w
 }
 
-func (w *fixtureWorld) withStage(name string) *fixtureWorld {
-	w.stage = name
-	return w
-}
-
 func (w *fixtureWorld) withModName(name string) *fixtureWorld {
 	w.modName = name
 	return w
@@ -249,7 +242,6 @@ func unitOf(count int, seconds float64, packs ...string) Value {
 func baseWorld() *fixtureWorld {
 	return &fixtureWorld{
 		modName: "steelworks",
-		stage:   "data",
 		recipes: []string{
 			"electronic-circuit",
 			"iron-gear-wheel",
@@ -305,9 +297,10 @@ func TestFixtureTechNamesAreSorted(t *testing.T) {
 	}
 }
 
-// settingsWorld is baseWorld at the OTHER stage. The settings stage runs
-// before data.raw exists, and the planner asks it for nothing but the mod
-// name and the stage name.
+// settingsWorld is what a settings-stage plan is handed. The settings stage
+// runs before data.raw exists and the planner asks it for nothing but the mod
+// name, so this is baseWorld under a name that says which plan is being held
+// up to the light at the call site.
 func settingsWorld() *fixtureWorld {
-	return baseWorld().withStage("settings")
+	return baseWorld()
 }

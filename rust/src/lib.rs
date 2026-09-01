@@ -20,14 +20,21 @@
 //!   parameter can drift from the packaged mod and the engine keeps the last
 //!   of two same-named settings SILENTLY.
 //! - DETERMINISM IS CORRECTNESS. Plans are `Vec`s in declaration order and
-//!   nothing here touches a `HashMap`. A hash iteration that decided what to
-//!   write would be a multiplayer desync with the CONSUMER's name on it.
+//!   nothing here touches a `HashMap`. Never iterate a hash map to decide
+//!   what to emit: the data stage crosses sorted, and a hash walk is a
+//!   per-client order. What comes out of one would be a multiplayer desync
+//!   with the CONSUMER's name on it.
+//! - DIAGNOSE WITH `raise`. A guest panic surfaces in the player's game as an
+//!   opaque trap with the message lost in the log; `fkdata::raise` stops the
+//!   load with THIS crate's diagnostic, stage-prefixed like every host
+//!   failure. Because the host adds the stage, a refusal built here carries
+//!   the crate's attribution and no stage of its own.
 //!
 //! PLAN, THEN EMIT. Everything in this crate is ordinary values: the plan is
 //! built by the declaration methods on [`Lib`], turned into an [`Op`] stream
 //! by [`Lib::plan_settings`] and [`Lib::plan_data`], and only the emit module
-//! (behind `cfg(target_family = "wasm")`, landing with a later phase)
-//! executes that stream against fkdata. That split is why the validators, the
+//! (behind `cfg(target_family = "wasm")`) executes that stream against
+//! fkdata. That split is why the validators, the
 //! ingredient ladders and the cycle walk run under plain `cargo test` with no
 //! wasm target installed.
 //!

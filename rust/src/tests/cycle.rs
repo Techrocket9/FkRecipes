@@ -45,7 +45,7 @@ fn cycle_direct() {
         Ok(_) => panic!("the plan was accepted, want a cycle refusal"),
         Err(got) => assert_eq!(
             got,
-            "fkrecipes: at the data stage, a prerequisite cycle: logistics-2 -> logistics-3 -> logistics-2"
+            "fkrecipes: a prerequisite cycle: logistics-2 -> logistics-3 -> logistics-2"
         ),
     }
 }
@@ -59,7 +59,7 @@ fn cycle_transitive_through_existing_edges() {
         Ok(_) => panic!("the plan was accepted, want a cycle refusal"),
         Err(got) => assert_eq!(
             got,
-            "fkrecipes: at the data stage, a prerequisite cycle: logistics -> logistics-3 -> logistics-2 -> logistics"
+            "fkrecipes: a prerequisite cycle: logistics -> logistics-3 -> logistics-2 -> logistics"
         ),
     }
 }
@@ -90,7 +90,7 @@ fn cycle_created_by_insert_between() {
         Ok(_) => panic!("the plan was accepted, want a cycle refusal"),
         Err(got) => assert_eq!(
             got,
-            "fkrecipes: at the data stage, a prerequisite cycle: logistics-2 -> steel-processing -> steelworks-steel-axes -> logistics-3 -> logistics-2"
+            "fkrecipes: a prerequisite cycle: logistics-2 -> steel-processing -> steelworks-steel-axes -> logistics-3 -> logistics-2"
         ),
     }
 }
@@ -154,7 +154,7 @@ fn overwrite_refusal_closes_the_cycle_blind_spot() {
         Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
         Err(got) => assert_eq!(
             got,
-            "fkrecipes: at the data stage, the technology steelworks-widgetry already exists in data.raw; this plan would overwrite it"
+            "fkrecipes: the technology steelworks-widgetry already exists in data.raw; this plan would overwrite it"
         ),
     }
 }
@@ -176,7 +176,6 @@ fn ring_tech_name(i: usize) -> String {
 fn ring_world(n: usize) -> FixtureWorld {
     let mut w = FixtureWorld {
         mod_name: String::from("steelworks"),
-        stage: String::from("data"),
         settings: Vec::new(),
         loose_max_level: Value::Nil,
         nil_unit_for: Vec::new(),
@@ -230,7 +229,7 @@ fn cycle_path_is_capped() {
     // 150 technologies on the stack plus the one that closes the ring, less
     // the hundred the message names.
     let want = alloc::format!(
-        "fkrecipes: at the data stage, a prerequisite cycle: {} -> (and 51 more before it closes)",
+        "fkrecipes: a prerequisite cycle: {} -> (and 51 more before it closes)",
         named.join(" -> ")
     );
     assert_eq!(err, want);

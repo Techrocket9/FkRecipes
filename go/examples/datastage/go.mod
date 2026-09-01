@@ -12,6 +12,6 @@ go 1.24
 
 require github.com/Techrocket9/fkrecipes/go v0.0.0
 
-require github.com/Techrocket9/fklua/guest/go v0.1.0 // indirect
+require github.com/Techrocket9/fklua/guest/go v0.2.0 // indirect
 
 replace github.com/Techrocket9/fkrecipes/go => ../..

@@ -74,14 +74,14 @@ fn plan_settings_refusals() {
                 l.bool_setting("hardened-tools", true);
                 l.int_setting("hardened-tools", 3, NumericSpec::default());
             },
-            want: "fkrecipes: at the settings stage, two settings share the name steelworks-hardened-tools; the engine keeps the last one silently",
+            want: "fkrecipes: two settings share the name steelworks-hardened-tools; the engine keeps the last one silently",
         },
         Case {
             name: "a setting with an empty name",
             build: |l: &mut Lib| {
                 l.bool_setting("", true);
             },
-            want: "fkrecipes: at the settings stage, a setting was declared with an empty name",
+            want: "fkrecipes: a setting was declared with an empty name",
         },
         Case {
             name: "dropdown default is not an allowed value",
@@ -92,28 +92,28 @@ fn plan_settings_refusals() {
                     &["furnace", "foundry"],
                 );
             },
-            want: "fkrecipes: at the settings stage, the dropdown setting smelting-style defaults to electric-furnace, which is not one of its allowed values",
+            want: "fkrecipes: the dropdown setting smelting-style defaults to electric-furnace, which is not one of its allowed values",
         },
         Case {
             name: "minimum above maximum",
             build: |l: &mut Lib| {
                 l.int_setting("axe-durability", 250, NumericSpec::between(1000.0, 50.0));
             },
-            want: "fkrecipes: at the settings stage, the numeric setting axe-durability declares a minimum above its maximum",
+            want: "fkrecipes: the numeric setting axe-durability declares a minimum above its maximum",
         },
         Case {
             name: "default outside the bounds",
             build: |l: &mut Lib| {
                 l.double_setting("axe-craft-time", 12.0, NumericSpec::between(0.5, 8.0));
             },
-            want: "fkrecipes: at the settings stage, the numeric setting axe-craft-time declares a default outside its own minimum and maximum",
+            want: "fkrecipes: the numeric setting axe-craft-time declares a default outside its own minimum and maximum",
         },
         Case {
             name: "a default that is not a number",
             build: |l: &mut Lib| {
                 l.double_setting("axe-craft-time", f64::NAN, NumericSpec::default());
             },
-            want: "fkrecipes: at the settings stage, the numeric setting axe-craft-time declares a value that is not a finite number",
+            want: "fkrecipes: the numeric setting axe-craft-time declares a value that is not a finite number",
         },
         Case {
             // The declared i64 is the one number the plan converts to a
@@ -123,14 +123,14 @@ fn plan_settings_refusals() {
             build: |l: &mut Lib| {
                 l.int_setting("axe-durability", 9007199254740993, NumericSpec::default());
             },
-            want: "fkrecipes: at the settings stage, the numeric setting axe-durability declares a default a Lua double cannot hold exactly: 9007199254740993",
+            want: "fkrecipes: the numeric setting axe-durability declares a default a Lua double cannot hold exactly: 9007199254740993",
         },
         Case {
             name: "an int default past what a double holds, negative",
             build: |l: &mut Lib| {
                 l.int_setting("axe-durability", -9007199254740993, NumericSpec::default());
             },
-            want: "fkrecipes: at the settings stage, the numeric setting axe-durability declares a default a Lua double cannot hold exactly: -9007199254740993",
+            want: "fkrecipes: the numeric setting axe-durability declares a default a Lua double cannot hold exactly: -9007199254740993",
         },
         Case {
             // The auto-minimum is a real bound: a default below it is refused
@@ -147,7 +147,7 @@ fn plan_settings_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the settings stage, the setting axe-craft-time backs a crafting time, so its minimum is 0.002, which is above the declared default",
+            want: "fkrecipes: the setting axe-craft-time backs a crafting time, so its minimum is 0.002, which is above the declared default",
         },
         Case {
             // The consumer declared only a maximum, so a refusal blaming a
@@ -172,7 +172,7 @@ fn plan_settings_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the settings stage, the setting axe-craft-time backs a crafting time, so its minimum is 0.002, which is above the declared maximum",
+            want: "fkrecipes: the setting axe-craft-time backs a crafting time, so its minimum is 0.002, which is above the declared maximum",
         },
         Case {
             name: "an explicit minimum at the engine floor on a craft-time setting",
@@ -187,7 +187,7 @@ fn plan_settings_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the settings stage, the setting axe-craft-time backs a crafting time but declares a minimum at or below the engine floor (energy_required can't be <= 0.001)",
+            want: "fkrecipes: the setting axe-craft-time backs a crafting time but declares a minimum at or below the engine floor (energy_required can't be <= 0.001)",
         },
         Case {
             name: "a bound that is not a number",
@@ -201,7 +201,7 @@ fn plan_settings_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: at the settings stage, the numeric setting axe-craft-time declares a value that is not a finite number",
+            want: "fkrecipes: the numeric setting axe-craft-time declares a value that is not a finite number",
         },
     ];
 
@@ -231,7 +231,7 @@ fn plan_settings_refuses_an_empty_mod_name() {
         Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
         Err(got) => assert_eq!(
             got,
-            "fkrecipes: at the settings stage, the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName"
+            "fkrecipes: the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName"
         ),
     }
 }
@@ -258,7 +258,7 @@ fn planning_refuses_a_lib_built_without_new() {
         Ok(ops) => panic!("the settings plan was accepted with {} ops", ops.len()),
         Err(got) => assert_eq!(
             got,
-            "fkrecipes: at the settings stage, this Lib was built without New, so its handles cannot be validated"
+            "fkrecipes: this Lib was built without New, so its handles cannot be validated"
         ),
     }
 
@@ -274,7 +274,7 @@ fn planning_refuses_a_lib_built_without_new() {
         Ok(ops) => panic!("the data plan was accepted with {} ops", ops.len()),
         Err(got) => assert_eq!(
             got,
-            "fkrecipes: at the data stage, this Lib was built without New, so its handles cannot be validated"
+            "fkrecipes: this Lib was built without New, so its handles cannot be validated"
         ),
     }
 }
@@ -341,21 +341,127 @@ fn settings_and_data_agree_on_the_setting_name() {
     );
 }
 
-/// The stage in a refusal comes from the World, not from a constant. Factorio
-/// runs four stages and fkdata reports whichever is live, so a consumer
-/// patching from data-updates is told which of their own calls raised.
+/// The composition, one refusal per validator family: each case runs a real
+/// plan and holds the SENTENCE THAT COMES OUT to the rule, so what is proven
+/// here is that a refusal composes into something the host can prefix without
+/// saying the stage twice. Emit hands that message to `fkdata::raise`, whose
+/// host side prefixes "fklua: at the <stage> stage, " before it.
+///
+/// THESE SIX ARE A SAMPLE, NOT A SWEEP, and the difference matters: this
+/// crate builds some eighty message chunks and six plans cannot reach them
+/// all. `tests::source::no_message_carries_its_own_stage` is the sweep, over
+/// every string literal in the crate; a stage put back into a template these
+/// six never touch is caught there and nowhere else. Neither replaces the
+/// other: the property cannot tell whether a message composes correctly, and
+/// these cannot tell whether every template obeys.
 #[test]
-fn refusals_name_the_stage_the_world_reports() {
-    let mut lib = Lib::new();
-    lib.item("steel-axe", ItemSpec::default());
-    lib.item("steel-axe", ItemSpec::default());
+fn refusals_compose_without_their_own_stage() {
+    struct Case {
+        name: &'static str,
+        settings_stage: bool,
+        plan: fn(&mut Lib) -> FixtureWorld,
+    }
 
-    match lib.plan_data(&base_world().with_stage("data-updates")) {
-        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
-        Err(got) => assert_eq!(
-            got,
-            "fkrecipes: at the data-updates stage, two items share the name steel-axe; the second would overwrite the first"
-        ),
+    let cases = [
+        Case {
+            name: "a settings-stage refusal",
+            settings_stage: true,
+            plan: |l| {
+                l.bool_setting("hardened-tools", true);
+                l.bool_setting("hardened-tools", false);
+                settings_world()
+            },
+        },
+        Case {
+            name: "a declaration refusal",
+            settings_stage: false,
+            plan: |l| {
+                l.item("steel-axe", ItemSpec::default());
+                l.item("steel-axe", ItemSpec::default());
+                base_world()
+            },
+        },
+        Case {
+            name: "a world-probe refusal",
+            settings_stage: false,
+            plan: |l| {
+                l.technology(
+                    "steel-axes",
+                    TechSpec {
+                        cost_of: "quarry-drills".into(),
+                        ..Default::default()
+                    },
+                );
+                base_world()
+            },
+        },
+        Case {
+            name: "a resolved-value refusal",
+            settings_stage: false,
+            plan: |l| {
+                let forging = l.double_setting("forging-time", 3.0, NumericSpec::default());
+                let axe = l.item("steel-axe", ItemSpec::default());
+                l.recipe(
+                    axe,
+                    RecipeSpec {
+                        craft_time_from: forging,
+                        ..Default::default()
+                    },
+                );
+                base_world().with_setting("steelworks-forging-time", Value::Num(0.0005))
+            },
+        },
+        Case {
+            name: "a cycle refusal",
+            settings_stage: false,
+            plan: |l| {
+                l.technology(
+                    "steel-axes",
+                    TechSpec {
+                        cost_of: "steel-processing".into(),
+                        after: "steel-processing".into(),
+                        ..Default::default()
+                    },
+                );
+                base_world().with_prereqs("logistics-2", &["logistics", "logistics-3"])
+            },
+        },
+        Case {
+            name: "the empty mod name",
+            settings_stage: false,
+            plan: |_l| base_world().with_mod_name(""),
+        },
+    ];
+
+    for c in cases {
+        let mut lib = Lib::new();
+        let w = (c.plan)(&mut lib);
+        let planned = if c.settings_stage {
+            lib.plan_settings(&w)
+        } else {
+            lib.plan_data(&w)
+        };
+        match planned {
+            Ok(ops) => panic!(
+                "{}: the plan was accepted with {} ops, want a refusal",
+                c.name,
+                ops.len()
+            ),
+            Err(got) => {
+                assert!(
+                    got.starts_with("fkrecipes: "),
+                    "{}: a refusal does not open with the library attribution: {}",
+                    c.name,
+                    got
+                );
+                assert!(
+                    !got.contains(" stage,"),
+                    "{}: a refusal names a stage the host will name again: {}",
+                    c.name,
+                    got
+                );
+            }
+        }
     }
 }
 
@@ -436,7 +542,7 @@ fn a_foreign_craft_time_handle_marks_nothing() {
         Ok(ops) => panic!("the data plan was accepted with {} ops", ops.len()),
         Err(got) => assert_eq!(
             got,
-            "fkrecipes: at the data stage, the recipe steel-axe names a crafting-time setting that this plan never declared"
+            "fkrecipes: the recipe steel-axe names a crafting-time setting that this plan never declared"
         ),
     }
 }

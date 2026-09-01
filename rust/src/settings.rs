@@ -14,31 +14,27 @@ impl Lib {
     /// It takes the same World the data half takes, and the prefix comes from
     /// it, NOT from a parameter: the two stages have to agree on a setting's
     /// name to the byte, and a name passed in here can drift from the one
-    /// `plan_data` reads back. Of the World it asks only `mod_name` and
-    /// `stage_name`, so the emit layer may pass one that answers the
-    /// data-stage questions emptily.
+    /// `plan_data` reads back. Of the World it asks only `mod_name`, so the
+    /// emit layer may pass one that answers the data-stage questions emptily.
     ///
     /// This is the seam the emit layer stands on at the settings stage;
     /// consumers call Emit and never this. It is public so a consumer's own
     /// tests can hold a plan up to the light without a wasm target.
     pub fn plan_settings(&self, w: &dyn World) -> Result<Vec<Op>, String> {
-        let stage = w.stage_name();
         if self.id == 0 {
-            return Err(format!(
-                "fkrecipes: at the {} stage, this Lib was built without New, so its handles cannot be validated",
-                stage
+            return Err(String::from(
+                "fkrecipes: this Lib was built without New, so its handles cannot be validated",
             ));
         }
         let mod_name = w.mod_name();
         if mod_name.is_empty() {
-            return Err(format!(
-                "fkrecipes: at the {} stage, the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName",
-                stage
+            return Err(String::from(
+                "fkrecipes: the mod name is empty, so nothing can be prefixed; package with an fklua that wires ModName",
             ));
         }
         let prefix = format!("{}-", mod_name);
         let bound = self.craft_time_bound_settings();
-        self.validate_settings(&stage, &prefix, &bound)?;
+        self.validate_settings(&prefix, &bound)?;
 
         let mut ops = Vec::with_capacity(self.settings.len());
         for (i, s) in self.settings.iter().enumerate() {
@@ -82,8 +78,8 @@ impl Lib {
     /// two different strings sooner or later, and these messages are compared
     /// byte for byte, so each one names the setting and the relationship
     /// instead.
-    fn validate_settings(&self, stage: &str, prefix: &str, bound: &[bool]) -> Result<(), String> {
-        let at = format!("fkrecipes: at the {} stage, ", stage);
+    fn validate_settings(&self, prefix: &str, bound: &[bool]) -> Result<(), String> {
+        let at = "fkrecipes: ";
         for (i, s) in self.settings.iter().enumerate() {
             if s.name.is_empty() {
                 return Err(format!("{}a setting was declared with an empty name", at));
