@@ -9,10 +9,20 @@ use crate::value::Value;
 ///
 /// Every method is a QUESTION, never a write: a planner that could mutate
 /// could not be replayed, and the plan is what the two languages compare.
-pub trait World {
+/// The one question a SETTINGS plan asks.
+///
+/// [`Lib::plan_settings`](crate::Lib::plan_settings) takes this rather than
+/// the whole `World`, because it needs the mod name and nothing else: a
+/// consumer holding their own settings plan up to the light in a host test
+/// implements ONE method instead of ten. `World` requires it, so anything that
+/// implements `World` implements this and the emit layer passes the same value
+/// to both planners.
+pub trait Named {
     /// The packaged mod's name, the sole source of the prefix.
     fn mod_name(&self) -> String;
+}
 
+pub trait World: Named {
     /// Reads a startup setting by its FULL, prefixed name. `None` is a
     /// setting that is not readable, which the planner degrades to the
     /// declared default plus a log line.
@@ -52,6 +62,12 @@ pub trait World {
 
     /// The same question for ingredients and science packs.
     fn item_exists(&self, name: &str) -> bool;
+
+    /// The same question for [`ItemSpec::place_result`](crate::ItemSpec). The
+    /// engine's failure for an item naming an entity that is not there is an
+    /// assignID abort naming the item, so this probe is what turns that into a
+    /// sentence naming the declaration instead.
+    fn entity_exists(&self, name: &str) -> bool;
 
     /// Asked about the plan's OWN recipe names: a plan that would overwrite
     /// an existing prototype is refused, which is also what keeps every

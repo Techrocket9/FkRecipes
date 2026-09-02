@@ -1,3 +1,4 @@
+mod consumer;
 mod cycle;
 pub(crate) mod data;
 mod migration;
@@ -8,3 +9,4 @@ mod world;
 
 pub(crate) use transcript::*;
 pub(crate) use world::*;
+mod emit_host;

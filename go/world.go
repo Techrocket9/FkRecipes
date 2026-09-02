@@ -7,8 +7,7 @@ package fkrecipes
 // Every method is a QUESTION, never a write: a planner that could mutate
 // could not be replayed, and the plan is what the two languages compare.
 type World interface {
-	// ModName is the packaged mod's name, the sole source of the prefix.
-	ModName() string
+	Named
 
 	// StartupSetting reads a startup setting by its FULL, prefixed name. The
 	// second result is false when no such setting is readable, which the
@@ -50,10 +49,28 @@ type World interface {
 	// ItemExists answers the same question for ingredients and science packs.
 	ItemExists(name string) bool
 
+	// EntityExists answers it for ItemSpec.PlaceResult. The engine's failure
+	// for an item naming an entity that is not there is an assignID abort
+	// naming the item, so this probe is what turns that into a sentence
+	// naming the declaration instead.
+	EntityExists(name string) bool
+
 	// RecipeExists is asked about the plan's OWN recipe names: a plan that
 	// would overwrite an existing prototype is refused, which is also what
 	// keeps every planned name new for the cycle overlay.
 	RecipeExists(name string) bool
+}
+
+// Named is the one question a SETTINGS plan asks.
+//
+// PlanSettings takes this rather than the whole World, because it needs the
+// mod name and nothing else: a consumer holding their own settings plan up to
+// the light in a host test implements ONE method instead of ten. World embeds
+// it, so anything that satisfies World still satisfies this and the emit
+// layer passes the same value to both planners.
+type Named interface {
+	// ModName is the packaged mod's name, the sole source of the prefix.
+	ModName() string
 }
 
 // StageKind is which of this library's two plans a stage calls for.

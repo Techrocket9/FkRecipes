@@ -88,16 +88,19 @@ func (l *Lib) validate(w World, prefix string) error {
 		if it.name == "" {
 			return errors.New(at + "an item was declared with an empty name")
 		}
+		// Compared on the EMITTED names, which is the namespace the engine
+		// keeps: a legacy name and a generated one can arrive at the same
+		// string from different declarations, and only one survives.
 		for j := 0; j < i; j++ {
-			if l.items[j].name == it.name {
-				return errors.New(at + "two items share the name " + it.name + "; the second would overwrite the first")
+			if l.items[j].emittedName(prefix) == it.emittedName(prefix) {
+				return errors.New(at + "two items share the name " + it.emittedName(prefix) + "; the second would overwrite the first")
 			}
 		}
 		// V1 never rewrites another mod's prototype except to splice a
 		// prerequisite, and the cycle overlay counts on every planned name
 		// being new: two nodes with one name is a walk that misses the ring.
-		if w.ItemExists(prefix + it.name) {
-			return errors.New(at + "the item " + prefix + it.name + " already exists in data.raw; this plan would overwrite it")
+		if w.ItemExists(it.emittedName(prefix)) {
+			return errors.New(at + "the item " + it.emittedName(prefix) + " already exists in data.raw; this plan would overwrite it")
 		}
 		if it.spec.StackSize < 0 {
 			return errors.New(at + "the item " + it.name + " has a negative stack size, which the engine refuses")
@@ -111,13 +114,50 @@ func (l *Lib) validate(w World, prefix string) error {
 		if it.spec.IconSize > maxExactInt {
 			return errors.New(at + "the item " + it.name + " declares an icon size a Lua double cannot hold exactly: " + strconv.FormatInt(it.spec.IconSize, 10))
 		}
+		if it.spec.PlaceResult != "" && !w.EntityExists(it.spec.PlaceResult) {
+			return errors.New(at + "the item " + it.name + " names a place_result " + it.spec.PlaceResult + " that does not exist")
+		}
+		if err := checkExtra(at, "the item "+it.name, it.spec.Extra, itemOwnFields); err != nil {
+			return err
+		}
 	}
 
 	for i, r := range l.recipes {
 		// The result handle first: a recipe with no result has no name to
 		// report either, and "two recipes share the name" with an empty name
 		// is a worse answer than the one that says what is actually wrong.
-		if !l.validItem(r.result) {
+		switch {
+		case r.result.index != 0:
+			// A handle was given: it has to be one of this plan's.
+			if !l.validItem(r.result) {
+				return errors.New(at + "a recipe was declared with no result item; Recipe needs an item this plan declared")
+			}
+			if r.spec.ResultNamed != "" {
+				return errors.New(at + "the recipe " + r.name + " names both a result item and ResultNamed; pick one")
+			}
+		case r.spec.ResultNamed != "":
+			// THIS PLAN'S OWN ITEM FIRST, and the order is the whole point.
+			// ResultNamed is probed against the World, and the World is
+			// data.raw as it stands BEFORE this plan runs, so an item this
+			// plan declares two lines up is not there yet and the probe would
+			// refuse it as absent. That refusal is correct and its sentence is
+			// not: the consumer can see the item. Compared on the EMITTED
+			// names, so it catches a legacy declaration and a generated one
+			// alike.
+			for _, it := range l.items {
+				if it.emittedName(prefix) == r.spec.ResultNamed {
+					return errors.New(at + "the recipe " + r.name + " produces " + r.spec.ResultNamed +
+						" through ResultNamed, which this plan declares; use the item's handle instead")
+				}
+			}
+			// An existing item, so it is probed exactly as an ingredient is.
+			if !w.ItemExists(r.spec.ResultNamed) {
+				return errors.New(at + "the recipe " + r.name + " produces " + r.spec.ResultNamed + ", which does not exist")
+			}
+			if r.name == "" {
+				return errors.New(at + "a recipe producing an existing item was declared with no name; there is no declared item to take one from")
+			}
+		default:
 			return errors.New(at + "a recipe was declared with no result item; Recipe needs an item this plan declared")
 		}
 		// A recipe with no name of its own inherits the item's, which is the
@@ -128,8 +168,8 @@ func (l *Lib) validate(w World, prefix string) error {
 			return errors.New(at + "a recipe was declared with an empty name")
 		}
 		for j := 0; j < i; j++ {
-			if l.recipes[j].name == r.name {
-				return errors.New(at + "two recipes share the name " + r.name + "; the second would overwrite the first")
+			if l.recipes[j].emittedName(prefix) == r.emittedName(prefix) {
+				return errors.New(at + "two recipes share the name " + r.emittedName(prefix) + "; the second would overwrite the first")
 			}
 		}
 		if !finite(r.spec.CraftTime) {
@@ -137,6 +177,9 @@ func (l *Lib) validate(w World, prefix string) error {
 		}
 		if r.spec.CraftTime != 0 && r.spec.CraftTimeFrom.index != 0 {
 			return errors.New(at + "the recipe " + r.name + " names both CraftTime and CraftTimeFrom; pick one")
+		}
+		if err := checkExtra(at, "the recipe "+r.name, r.spec.Extra, recipeOwnFields); err != nil {
+			return err
 		}
 		if len(r.spec.Ingredients) > 0 && r.spec.IngredientsBy != nil {
 			return errors.New(at + "the recipe " + r.name + " names both Ingredients and IngredientsBy; pick one")
@@ -181,8 +224,8 @@ func (l *Lib) validate(w World, prefix string) error {
 		if r.spec.ResultCount > maxExactInt {
 			return errors.New(at + "the recipe " + r.name + " declares a result count a Lua double cannot hold exactly: " + strconv.FormatInt(r.spec.ResultCount, 10))
 		}
-		if w.RecipeExists(prefix + r.name) {
-			return errors.New(at + "the recipe " + prefix + r.name + " already exists in data.raw; this plan would overwrite it")
+		if w.RecipeExists(r.emittedName(prefix)) {
+			return errors.New(at + "the recipe " + r.emittedName(prefix) + " already exists in data.raw; this plan would overwrite it")
 		}
 		if err := l.validateIngredients(at, "the recipe "+r.name, r.spec.Ingredients); err != nil {
 			return err
@@ -194,12 +237,15 @@ func (l *Lib) validate(w World, prefix string) error {
 			return errors.New(at + "a technology was declared with an empty name")
 		}
 		for j := 0; j < i; j++ {
-			if l.techs[j].name == t.name {
-				return errors.New(at + "two technologies share the name " + t.name + "; the second would overwrite the first")
+			if l.techs[j].emittedName(prefix) == t.emittedName(prefix) {
+				return errors.New(at + "two technologies share the name " + t.emittedName(prefix) + "; the second would overwrite the first")
 			}
 		}
-		if w.TechExists(prefix + t.name) {
-			return errors.New(at + "the technology " + prefix + t.name + " already exists in data.raw; this plan would overwrite it")
+		if w.TechExists(t.emittedName(prefix)) {
+			return errors.New(at + "the technology " + t.emittedName(prefix) + " already exists in data.raw; this plan would overwrite it")
+		}
+		if err := checkExtra(at, "the technology "+t.name, t.spec.Extra, techOwnFields); err != nil {
+			return err
 		}
 		hasCost := t.spec.CostOf != ""
 		hasUnit := t.spec.Unit != nil
@@ -459,7 +505,7 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 		}
 
 		after, before := t.spec.After, t.spec.Before
-		newName := prefix + t.name
+		newName := t.emittedName(prefix)
 		switch {
 		case t.spec.AfterTech.index != 0:
 			// An anchor this plan declares itself needs no presence probe and
@@ -475,7 +521,7 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 			// game's tree is rewritten to require it. A handle from anywhere
 			// else can point forwards or at itself, and the walk is what
 			// answers that.
-			rt.prereqs = []string{prefix + l.techs[t.spec.AfterTech.index-1].name}
+			rt.prereqs = []string{l.techs[t.spec.AfterTech.index-1].emittedName(prefix)}
 		case after == "":
 			// Before without After was refused in validate; nothing to place.
 		case before == "":
@@ -588,7 +634,7 @@ func (l *Lib) unlockedRecipes() []bool {
 func itemProto(prefix string, it itemDecl) Value {
 	pairs := []KV{
 		kv("type", Str("item")),
-		kv("name", Str(prefix+it.name)),
+		kv("name", Str(it.emittedName(prefix))),
 	}
 	pairs = appendLocalised(pairs, it.spec.DisplayName, it.spec.Description)
 	if it.spec.Icon != "" {
@@ -605,13 +651,19 @@ func itemProto(prefix string, it itemDecl) Value {
 	if it.spec.Subgroup != "" {
 		pairs = append(pairs, kv("subgroup", Str(it.spec.Subgroup)))
 	}
-	return Obj(pairs...)
+	if it.spec.Order != "" {
+		pairs = append(pairs, kv("order", Str(it.spec.Order)))
+	}
+	if it.spec.PlaceResult != "" {
+		pairs = append(pairs, kv("place_result", Str(it.spec.PlaceResult)))
+	}
+	return Obj(append(pairs, it.spec.Extra...)...)
 }
 
 func recipeProto(prefix string, l *Lib, r recipeDecl, ings []resolvedIngredient, ct craftTime, unlocked bool) Value {
 	pairs := []KV{
 		kv("type", Str("recipe")),
-		kv("name", Str(prefix+r.name)),
+		kv("name", Str(r.emittedName(prefix))),
 	}
 	pairs = appendLocalised(pairs, r.spec.DisplayName, r.spec.Description)
 	if r.spec.Category != "" {
@@ -645,18 +697,28 @@ func recipeProto(prefix string, l *Lib, r recipeDecl, ings []resolvedIngredient,
 	if count == 0 {
 		count = 1
 	}
+	// The result is either an item this plan declares (prefixed or legacy by
+	// its own declaration) or one that already exists, named verbatim because
+	// it is somebody else's and validation has probed it.
+	result := r.spec.ResultNamed
+	if r.result.index != 0 {
+		result = l.items[r.result.index-1].emittedName(prefix)
+	}
 	pairs = append(pairs, kv("results", Arr(Obj(
 		kv("type", Str("item")),
-		kv("name", Str(prefix+l.items[r.result.index-1].name)),
+		kv("name", Str(result)),
 		kv("amount", Num(float64(count))),
 	))))
-	return Obj(pairs...)
+	if r.spec.Order != "" {
+		pairs = append(pairs, kv("order", Str(r.spec.Order)))
+	}
+	return Obj(append(pairs, r.spec.Extra...)...)
 }
 
 func techProto(prefix string, l *Lib, w World, t techDecl, rt resolvedTech) Value {
 	pairs := []KV{
 		kv("type", Str("technology")),
-		kv("name", Str(prefix+t.name)),
+		kv("name", Str(t.emittedName(prefix))),
 	}
 	pairs = appendLocalised(pairs, t.spec.DisplayName, t.spec.Description)
 	if t.spec.Icon != "" {
@@ -682,7 +744,7 @@ func techProto(prefix string, l *Lib, w World, t techDecl, rt resolvedTech) Valu
 		for _, u := range t.spec.Unlocks {
 			effects = append(effects, Obj(
 				kv("type", Str("unlock-recipe")),
-				kv("recipe", Str(prefix+l.recipes[u.index-1].name)),
+				kv("recipe", Str(l.recipes[u.index-1].emittedName(prefix))),
 			))
 		}
 		pairs = append(pairs, kv("effects", Arr(effects...)))
@@ -698,7 +760,10 @@ func techProto(prefix string, l *Lib, w World, t techDecl, rt resolvedTech) Valu
 			pairs = append(pairs, kv("enabled", Bool(false)), kv("hidden", Bool(true)))
 		}
 	}
-	return Obj(pairs...)
+	if t.spec.Order != "" {
+		pairs = append(pairs, kv("order", Str(t.spec.Order)))
+	}
+	return Obj(append(pairs, t.spec.Extra...)...)
 }
 
 func techUnit(w World, t techDecl, rt resolvedTech) Value {
@@ -888,7 +953,7 @@ func (l *Lib) resolveIngredients(w World, res *resolution, prefix, recipe string
 	list := make([]resolvedIngredient, 0, len(ings))
 	for _, ing := range ings {
 		if len(ing.candidates) == 0 {
-			list = append(list, resolvedIngredient{name: prefix + l.items[ing.item.index-1].name, amount: ing.amount})
+			list = append(list, resolvedIngredient{name: l.items[ing.item.index-1].emittedName(prefix), amount: ing.amount})
 			continue
 		}
 		picked := ""
@@ -905,4 +970,48 @@ func (l *Lib) resolveIngredients(w World, res *resolution, prefix, recipe string
 		list = append(list, resolvedIngredient{name: picked, amount: ing.amount})
 	}
 	return list
+}
+
+// The field names each prototype builder writes itself. A key in Extra that
+// collides with one is REFUSED rather than merged: two writers of one field is
+// a silent last-writer, and the loser would be whichever order this library
+// happens to append in. Listed rather than derived, because a builder emits a
+// field CONDITIONALLY and the answer must not depend on which arms fired for
+// this particular declaration: an Extra key that collides only when a sibling
+// field happens to be set would be a refusal a consumer could not reproduce.
+var (
+	itemOwnFields = []string{
+		"type", "name", "localised_name", "localised_description",
+		"icon", "icon_size", "stack_size", "subgroup", "order", "place_result",
+	}
+	recipeOwnFields = []string{
+		"type", "name", "localised_name", "localised_description",
+		"category", "energy_required", "enabled", "ingredients", "results", "order",
+	}
+	techOwnFields = []string{
+		"type", "name", "localised_name", "localised_description",
+		"icon", "icon_size", "prerequisites", "unit", "max_level", "effects",
+		"enabled", "hidden", "order",
+	}
+)
+
+func checkExtra(at, who string, extra []KV, own []string) error {
+	for i, e := range extra {
+		if e.Key == "" {
+			return errors.New(at + who + " sets a field through Extra with an empty name")
+		}
+		for _, o := range own {
+			if o == e.Key {
+				return errors.New(at + who + " sets " + e.Key + " through Extra, which this library emits")
+			}
+		}
+		// Two Extra keys writing one field is the same silent last-writer,
+		// and this one is entirely the consumer's own doing.
+		for j := 0; j < i; j++ {
+			if extra[j].Key == e.Key {
+				return errors.New(at + who + " sets " + e.Key + " through Extra twice")
+			}
+		}
+	}
+	return nil
 }

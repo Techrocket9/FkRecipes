@@ -91,6 +91,10 @@ let plate = lib.item(
 );
 ```
 
+`Order` is the sort key inside the subgroup; empty omits it. `PlaceResult` names the entity the item builds and is presence probed like every other name this library emits, because the engine's answer to a dangling one is an `assignID` abort. `Extra` passes raw prototype fields through verbatim, after the ones this library writes.
+
+If your mod already ships this item, use `LegacyItem` (`legacy_item`) and the name is emitted verbatim. `LegacyRecipe` and `LegacyTechnology` do the same for the other two. See [Migrating a mod that already ships settings](migration.md).
+
 A zero `StackSize` means 50. A zero `IconSize` omits the field and lets the engine apply its own default. `DisplayName` and `Description` are emitted as inline localised strings, so an item with both needs no locale entries at all; leaving them empty omits the fields.
 
 ## Recipes
@@ -127,6 +131,24 @@ let quenching = lib.recipe(
         ..Default::default()
     },
 );
+```
+
+### A result this plan does not declare
+
+`ResultNamed` produces an item that already exists: give a zero `ItemRef` and the name. The item is presence probed and refused if absent, and the recipe then needs an explicit `Name`, because there is no declared item to take one from. It is how a recipe migrates onto the library before its item does, and how a recipe produces somebody else's item outright.
+
+It is not for an item **this plan** declares. The probe asks the game as it stands before your plan runs, so your own item is not there yet; naming it is refused with a sentence saying to use the handle instead. `Extra` has a similar edge worth knowing: the values you put in it are snapshotted when you declare, so a slice you build up and reuse across declarations will not rewrite one you already made.
+
+### Extra, and what it does not do
+
+`Extra` on `ItemSpec`, `RecipeSpec` and `TechSpec` is a list of raw fields, emitted verbatim after the ones this library writes, in the order you give them.
+
+**The values are yours and are not touched.** Nothing inside an `Extra` value is prefixed, and no name inside one is presence probed: this library cannot know which strings in an arbitrary field are prototype names, so guessing would be worse than the passthrough. If a field holds a name the game may not have, that check is yours.
+
+A key this library emits itself is refused rather than merged, because two writers of one field is a silent last-writer:
+
+```
+fkrecipes: the recipe balancer-part sets ingredients through Extra, which this library emits
 ```
 
 ### Ingredients, and the resolve-or-drop contract
@@ -264,6 +286,13 @@ fkrecipes: a prerequisite cycle: logistics-2 -> steel-processing -> steelworks-s
 
 **Route each plan's `Emit` into `fk_settings` and exactly one data-family hook.** The three data stages (`fk_data`, `fk_data_updates`, `fk_data_final_fixes`) share one Lua state and one `data.raw`, so emitting **the same plan** twice would find the first pass's prototypes already there and refuse as an overwrite. Which stage you pick is yours: `fk_data` for content of your own, `fk_data_updates` to sit after other mods.
 
+**A settings-only guest names `EmitSettings`.** `Emit` reaches both planners, so a guest that only generates settings still links the data planner: the pilot measured that as a 21,047-line Lua function that never runs, carried in every player's download. `EmitSettings` and `EmitData` plan one stage family each and let the linker drop the other. Each refuses if called at the wrong family, so a mis-routed hook is a sentence naming the hook rather than a confusing probe failure later.
+
+```go
+//go:wasmexport fk_settings
+func onSettings() { plan().EmitSettings() }
+```
+
 **The rule is one data hook per plan, not one per mod.** A mod that wants both can carry two plans: one creating its own content at `fk_data`, one patching another mod's tree at `fk_data_updates`, each routed into `fk_settings` as well. Nothing special is needed to make that work, because the two plans are independent and the later one sees the earlier one's prototypes exactly as it sees any other mod's.
 
 ```go
@@ -288,6 +317,14 @@ fklua: at the data stage, fkrecipes: two technologies share the name hardened-ti
 ```
 
 Every refusal in this document is shown the way the library builds it, without that host prefix. The stage is the host's to add, so nothing built here carries one; a refusal you read from `PlanSettings` or `PlanData` in your own host test is the bare `fkrecipes: ...` sentence.
+
+**The build tag, and why you do not need it.** The emit layer is behind `//go:build tinygo.wasm` in Go and `cfg(target_family = "wasm")` in Rust, because the fkdata imports it uses are rejected off-target. A host build gets stub methods with the same names that panic:
+
+```
+fkrecipes: Emit runs only inside a wasm guest; this build is for the host
+```
+
+That is what lets `go vet ./...`, `go build ./...` and `cargo check` pass on your guest with no tag and no target: the tag belongs on the build that produces the wasm, not on every check you run. Your own host tests do not go through the stubs; they call `PlanSettings` and `PlanData`, below.
 
 `PlanSettings` and `PlanData` are the seams `Emit` stands on. They are public so your own host tests can inspect a plan without a wasm toolchain, and they take the same World the emit layer implements over `fkdata`. Consumers call `Emit`.
 
@@ -320,7 +357,9 @@ the [mod-setting-name] entry steelworks-scrap-recovery matches no setting this p
 the [string-mod-setting] entry steelworks-quench-medium-brine matches no dropdown value this plan declares
 ```
 
-**Pass the name your mod is packaged under.** Every other prefix in this library is derived from the packaged mod at emit time, where it cannot disagree; a host test has no `fkdata` to ask, so this one is a parameter. A wrong name is a wrong prefix for every key at once, which shows up as every setting reported missing and every entry reported orphaned rather than as a subtle miss.
+**Pass the name your mod is packaged under.** Every other prefix in this library is derived from the packaged mod at emit time, where it cannot disagree; a host test has no `fkdata` to ask, so this one is a parameter.
+
+A wrong name is a wrong prefix for every key at once, which for a plan carrying generated names shows up loudly: every setting reported missing and every entry reported orphaned, rather than as a subtle miss. **That loudness depends on the plan having at least one prefixed name.** A fully legacy plan derives no key from the mod name, so a wrong one changes nothing and the checker reports exactly what it would have reported anyway. If every setting you declare is a `Legacy` one, the mod-name argument is not load-bearing and no findings will tell you it was wrong.
 
 Two limits worth knowing. In `[string-mod-setting]` only keys under one of your own dropdown settings are considered, so another mod's string setting in the same file is left alone. In the name and description sections the orphan rule is the mod prefix, so an entry matching no setting you declared is reported only when it carries that prefix: one under a name of its own, such as a setting you wrote by hand or a legacy name you have since renamed, is not reported at all. That second limit is a guess the checker refuses to make rather than one it cannot make, and `CheckLocaleWith` removes the need for it.
 
@@ -350,6 +389,14 @@ the hand-rolled name bbb-recipe-cost is also a setting this plan declares; the l
 **An empty list is not the same as the plain call, and it is the mistake worth naming.** Passing `nil` (`&[]`) is not a way to opt out; it is the assertion that your mod declares nothing outside this library, so every `[mod-setting-name]` and `[mod-setting-description]` entry in the file must match a declared or legacy setting. Anything else is reported, including another mod's entry that happens to share the file. That is the strictest reading available and it is the right one if you really do declare everything here.
 
 Plain `CheckLocale` keeps the prefix rule, which is the right call when you have not enumerated the rest: it never invents an orphan, it just cannot see every one.
+
+## Two things about `go mod tidy`
+
+Both surprised the pilot, and neither is a defect in anything.
+
+`go mod tidy` DELETES a require nothing imports. While your guest is a placeholder that does not yet import `fkdata`, tidy removes the require and both `go.sum` lines; the require comes back when the import does. Do not run tidy in that window and conclude the dependency was wrong.
+
+The `fklua` require moves by MVS under a `replace`. If you point `github.com/Techrocket9/fkrecipes/go` at a checkout, your module still resolves `github.com/Techrocket9/fklua/guest/go` through minimal version selection, and it will be raised to whatever that checkout requires. Seeing `v0.0.0` become `v0.2.0` in your own go.mod is that, working correctly.
 
 ## Gates in this repository
 

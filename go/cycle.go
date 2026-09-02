@@ -30,7 +30,7 @@ func (l *Lib) checkCycles(w World, res resolution, prefix string) error {
 		lists = append(lists, res.currentPrereqs(w, n))
 	}
 	for i, t := range l.techs {
-		nodes = append(nodes, prefix+t.name)
+		nodes = append(nodes, t.emittedName(prefix))
 		// Cloned because the Rust mirror clones: the overlay must not alias
 		// the resolution it was built from.
 		lists = append(lists, copyStrings(res.techs[i].prereqs))

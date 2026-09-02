@@ -2,7 +2,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::value::{kv, Value};
-use crate::world::{stage_kind, StageKind, World};
+use crate::world::{stage_kind, Named, StageKind, World};
 
 /// The host stand-in for the game: a slice of base Factorio big enough to
 /// exercise every branch, and small enough to read. Vectors, not hash maps,
@@ -14,6 +14,7 @@ pub(crate) struct FixtureWorld {
     pub(crate) recipes: Vec<String>,
     pub(crate) techs: Vec<FixtureTech>,
 
+    pub(crate) entities: Vec<String>,
     pub(crate) nil_unit_for: Vec<String>,
     pub(crate) nil_max_level_for: Vec<String>,
 
@@ -33,11 +34,13 @@ pub(crate) struct FixtureTech {
     pub(crate) trigger: bool,
 }
 
-impl World for FixtureWorld {
+impl Named for FixtureWorld {
     fn mod_name(&self) -> String {
         self.mod_name.clone()
     }
+}
 
+impl World for FixtureWorld {
     fn startup_setting(&self, name: &str) -> Option<Value> {
         for (key, val) in &self.settings {
             if key.as_str() == name {
@@ -105,6 +108,10 @@ impl World for FixtureWorld {
         self.techs.iter().any(|t| t.name.as_str() == name)
     }
 
+    fn entity_exists(&self, name: &str) -> bool {
+        self.entities.iter().any(|e| e.as_str() == name)
+    }
+
     fn item_exists(&self, name: &str) -> bool {
         self.items.iter().any(|it| it.as_str() == name)
     }
@@ -167,6 +174,11 @@ impl FixtureWorld {
 
     pub(crate) fn with_tech(mut self, t: FixtureTech) -> FixtureWorld {
         self.techs.push(t);
+        self
+    }
+
+    pub(crate) fn with_entity(mut self, name: &str) -> FixtureWorld {
+        self.entities.push(String::from(name));
         self
     }
 
@@ -233,6 +245,10 @@ pub(crate) fn base_world() -> FixtureWorld {
         mod_name: String::from("steelworks"),
         settings: Vec::new(),
         loose_max_level: Value::Nil,
+        // One entity, so a place_result can resolve as well as fail. It is a
+        // DERIVED type rather than a plain "entity": that is what the real
+        // probe has to walk, and it is the type BBB's own item names.
+        entities: strings(&["steel-chest"]),
         nil_unit_for: Vec::new(),
         nil_max_level_for: Vec::new(),
         recipes: strings(&["electronic-circuit", "iron-gear-wheel", "steel-plate"]),

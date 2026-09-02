@@ -21,6 +21,7 @@ fn plan_data_item_and_recipe_shapes() {
             subgroup: "tool".into(),
             display_name: "Steel axe".into(),
             description: "Chops trees at twice the speed.".into(),
+            ..Default::default()
         },
     );
     let head = lib.item(
@@ -569,7 +570,7 @@ fn plan_data_refusals() {
                 l.item("steel-axe", ItemSpec::default());
                 l.item("steel-axe", ItemSpec::default());
             },
-            want: "fkrecipes: two items share the name steel-axe; the second would overwrite the first",
+            want: "fkrecipes: two items share the name steelworks-steel-axe; the second would overwrite the first",
         },
         Case {
             name: "two recipes share a name",
@@ -592,7 +593,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: two recipes share the name steel-axe-forging; the second would overwrite the first",
+            want: "fkrecipes: two recipes share the name steelworks-steel-axe-forging; the second would overwrite the first",
         },
         Case {
             name: "two technologies share a name",
@@ -613,7 +614,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: two technologies share the name steel-axes; the second would overwrite the first",
+            want: "fkrecipes: two technologies share the name steelworks-steel-axes; the second would overwrite the first",
         },
         Case {
             name: "a recipe with no result item",
@@ -1772,7 +1773,7 @@ fn craft_time_binding_falls_back_to_its_default() {
 
 /// The same, for the two technologies the split-emission test prices from.
 pub(crate) const LOGISTICS_2_UNIT: &str = r#"{count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}"#;
-const LOGISTICS_3_UNIT: &str = r#"{count=400, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1], ["chemical-science-pack", 1]], time=60}"#;
+pub(crate) const LOGISTICS_3_UNIT: &str = r#"{count=400, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1], ["chemical-science-pack", 1]], time=60}"#;
 
 fn logistics_2_unit_value() -> Value {
     unit_of(

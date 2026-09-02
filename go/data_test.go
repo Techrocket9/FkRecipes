@@ -410,7 +410,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				l.Item("steel-axe", ItemSpec{})
 				l.Item("steel-axe", ItemSpec{})
 			},
-			want: "fkrecipes: two items share the name steel-axe; the second would overwrite the first",
+			want: "fkrecipes: two items share the name steelworks-steel-axe; the second would overwrite the first",
 		},
 		{
 			name: "two recipes share a name",
@@ -420,7 +420,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				l.Recipe(axe, RecipeSpec{Name: "steel-axe-forging"})
 				l.Recipe(head, RecipeSpec{Name: "steel-axe-forging"})
 			},
-			want: "fkrecipes: two recipes share the name steel-axe-forging; the second would overwrite the first",
+			want: "fkrecipes: two recipes share the name steelworks-steel-axe-forging; the second would overwrite the first",
 		},
 		{
 			name: "two technologies share a name",
@@ -428,7 +428,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				l.Technology("steel-axes", TechSpec{CostOf: "steel-processing"})
 				l.Technology("steel-axes", TechSpec{CostOf: "logistics-2"})
 			},
-			want: "fkrecipes: two technologies share the name steel-axes; the second would overwrite the first",
+			want: "fkrecipes: two technologies share the name steelworks-steel-axes; the second would overwrite the first",
 		},
 		{
 			name: "a recipe with no result item",

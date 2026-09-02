@@ -31,8 +31,6 @@ import "github.com/Techrocket9/fklua/guest/go/fkdata"
 // module is instantiated fresh per stage, so the consumer's declarations run
 // again and nothing carries across a stage boundary.
 func (l *Lib) Emit() {
-	w := newDataWorld()
-
 	// The dispatch is decided in the pure half, where a test can reach it.
 	// A stage this library does not plan for is REFUSED rather than treated
 	// as a data stage: see StageKindOf for why the old everything-else-is-data
@@ -42,14 +40,47 @@ func (l *Lib) Emit() {
 	if !ok {
 		fkdata.Raise("fkrecipes: the stage " + stage + " is not one this library plans for; route fk_settings and one data-family hook into Emit")
 	}
-
-	var ops []Op
-	var err error
 	if kind == StageKindSettings {
-		ops, err = l.PlanSettings(w)
-	} else {
-		ops, err = l.PlanData(w)
+		l.EmitSettings()
+		return
 	}
+	l.EmitData()
+}
+
+// EmitSettings plans and writes the SETTINGS stage only, and raises if it is
+// called anywhere else.
+//
+// WHY THE SPLIT EXISTS, measured by the pilot. Emit reaches both planners, so
+// a guest that only generates settings still links PlanData: BetterBeltBalancer
+// measured it as a 21047-line Lua function that never runs, carried in every
+// player's download. Naming the half you use lets the linker drop the other.
+//
+// The stage check is not a formality either. A settings plan run at a data
+// stage would ask for prototypes that do not exist yet, so the wrong routing
+// is caught with a sentence naming the hook rather than as a confusing probe
+// failure later.
+func (l *Lib) EmitSettings() {
+	stage := fkdata.Stage().Name()
+	if kind, ok := StageKindOf(stage); !ok || kind != StageKindSettings {
+		fkdata.Raise("fkrecipes: EmitSettings was called at the " + stage + " stage; route it from fk_settings")
+	}
+	ops, err := l.PlanSettings(newDataWorld())
+	l.run(ops, err)
+}
+
+// EmitData plans and writes a DATA-family stage only, and raises if it is
+// called anywhere else. See EmitSettings for why the split exists.
+func (l *Lib) EmitData() {
+	stage := fkdata.Stage().Name()
+	if kind, ok := StageKindOf(stage); !ok || kind != StageKindData {
+		fkdata.Raise("fkrecipes: EmitData was called at the " + stage + " stage; route it from one data-family hook")
+	}
+	ops, err := l.PlanData(newDataWorld())
+	l.run(ops, err)
+}
+
+// run is the shared tail: refuse, or execute the stream.
+func (l *Lib) run(ops []Op, err error) {
 	if err != nil {
 		// THE MESSAGE CARRIES NO STAGE OF ITS OWN. Raise is the host's own
 		// failure path, and fk_data.lua's fail() prefixes "fklua: at the
@@ -87,10 +118,21 @@ type dataWorld struct {
 	// stage, and fkdata rebuilds its answer per call.
 	itemTypes []string
 
+	// The engine's entity types, read the same way and for the same reason:
+	// PlaceResult names one, and "entity" is an abstract base with dozens of
+	// concrete children.
+	//
+	// READ LAZILY, unlike itemTypes. Every plan has ingredients, so the item
+	// list always pays for itself; PlaceResult is rare, and a plan with none
+	// should not pay a DerivedTypes call for a probe it never makes.
+	entityTypes []string
+	entityRead  bool
+
 	// Answers already given, as a slice of pairs scanned linearly. Not a map:
 	// this package does not iterate maps, and a plan's ingredient set is
 	// small enough that a scan is cheaper than the probe it saves.
-	itemAnswers []itemAnswer
+	itemAnswers   []itemAnswer
+	entityAnswers []itemAnswer
 }
 
 type itemAnswer struct {
@@ -194,12 +236,37 @@ func (w *dataWorld) ItemExists(name string) bool {
 	return present
 }
 
+// EntityExists is ItemExists over the entity family: the same memo, the same
+// named-type-first-then-derived walk, because "entity" is an abstract base and
+// a simple-entity-with-force is not in data.raw.entity.
+func (w *dataWorld) EntityExists(name string) bool {
+	for _, seen := range w.entityAnswers {
+		if seen.name == name {
+			return seen.present
+		}
+	}
+	if !w.entityRead {
+		w.entityTypes = fkdata.DerivedTypes("entity")
+		w.entityRead = true
+	}
+	present := probeIn("entity", w.entityTypes, name)
+	w.entityAnswers = append(w.entityAnswers, itemAnswer{name: name, present: present})
+	return present
+}
+
 func (w *dataWorld) probeItem(name string) bool {
-	if _, ok := fkdata.Get("item", name, "name"); ok {
+	return probeIn("item", w.itemTypes, name)
+}
+
+// probeIn asks the named type first and then every type derived from it. The
+// order matters for cost rather than correctness: the overwhelmingly common
+// answer is the base type, and asking it first skips the walk.
+func probeIn(base string, derived []string, name string) bool {
+	if _, ok := fkdata.Get(base, name, "name"); ok {
 		return true
 	}
-	for _, typ := range w.itemTypes {
-		if typ == "item" {
+	for _, typ := range derived {
+		if typ == base {
 			continue
 		}
 		if _, ok := fkdata.Get(typ, name, "name"); ok {

@@ -63,6 +63,15 @@ func Obj(pairs ...KV) Value { return Value{Kind: KindMap, Map: pairs} }
 // kv is internal sugar; the exported literal is KV{Key: ..., Val: ...}.
 func kv(key string, val Value) KV { return KV{Key: key, Val: val} }
 
+// Pair builds one Extra field. KV's fields are exported, so a struct literal
+// works too; this is the shorter form for a list of them.
+//
+// NAMED Pair RATHER THAN kv, and only because Go will not have both: this
+// package already has an unexported kv that every prototype builder uses, and
+// one package cannot carry two identifiers of one name. The Rust mirror
+// exports its kv directly.
+func Pair(key string, val Value) KV { return KV{Key: key, Val: val} }
+
 // strArr turns a name list into an array of strings, the shape every
 // prerequisite list and every localised-string parameter uses.
 func strArr(names []string) Value {

@@ -185,6 +185,12 @@ grep -q '"hidden"=true' "$T" || fail "the switched-off technology is not hidden"
 grep -q '"energy_required"=7.5' "$T" || fail "the bound crafting time did not reach a recipe"
 grep -q '"minimum_value"=0.002' "$T" || fail "the generated craft-time minimum is missing"
 grep -q '"maximum_value"=120' "$T" || fail "the declared craft-time maximum is missing"
+# The two prototype-field slots the consumer round added, on both the item and
+# the recipe: an order the library has a slot for, and a REAL 2.0 recipe field
+# it does not, passed through Extra verbatim.
+grep -q '"order"="b\[steelworks\]-a\[rivet\]"' "$T" || fail "the item order did not reach a prototype"
+grep -q '"order"="b\[steelworks\]-b\[quenching\]"' "$T" || fail "the recipe order did not reach a prototype"
+grep -q '"allow_productivity"=true' "$T" || fail "the Extra passthrough did not reach a prototype"
 # BOTH ONE-SIDED NumericSpec ARMS, which is what this pair is for: forging-time
 # declares a maximum and no minimum, tempering-hold a minimum and no maximum.
 # The second is also craft-time-bound, so its presence says the DECLARED

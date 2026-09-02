@@ -1008,3 +1008,39 @@ fkrecipes-example-quench-medium-oil=Oil
         assert_eq!(got, Vec::<String>::new());
     }
 }
+
+/// One key and value from a `.cfg`, with the section it sat under.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct CfgEntry {
+    pub section: String,
+    pub key: String,
+    pub value: String,
+}
+
+/// Parses a `.cfg` into its entries, in FILE ORDER, for a consumer's own
+/// assertions.
+///
+/// [`Lib::check_locale`] answers the questions this library can ask, which are
+/// the ones about the settings it generated. A consumer has questions of their
+/// own: that an entity name entry exists for their hand-rolled entity, that no
+/// key is blank, that a translation file carries the same keys as the English
+/// one. Writing a second `.cfg` parser to ask them is the kind of duplication
+/// that drifts, so this is the same parser's output, exported.
+///
+/// PARSE FINDINGS ARE NOT REPORTED HERE. A malformed line is skipped exactly
+/// as `check_locale` skips it; run `check_locale` for the diagnosis. This
+/// returns what the file says, not what is wrong with it.
+pub fn locale_entries(cfg: &str) -> Vec<CfgEntry> {
+    let (sections, _) = parse_locale(cfg);
+    let mut out = Vec::new();
+    for sec in &sections {
+        for e in &sec.entries {
+            out.push(CfgEntry {
+                section: sec.name.clone(),
+                key: e.key.clone(),
+                value: e.value.clone(),
+            });
+        }
+    }
+    out
+}

@@ -18,7 +18,7 @@ use core::cell::RefCell;
 use crate::op::{Op, PathEl};
 use crate::plan::Lib;
 use crate::value::{kv, Value};
-use crate::world::World;
+use crate::world::{Named, World};
 
 impl Lib {
     /// Plans and then writes. It is the one call a consumer makes:
@@ -39,22 +39,63 @@ impl Lib {
     /// the module is instantiated fresh per stage, so the consumer's
     /// declarations run again and nothing carries across a stage boundary.
     pub fn emit(&self) {
-        let w = DataWorld::new();
-
         // The dispatch is decided in the pure half, where a test can reach it.
         // A stage this crate does not plan for is REFUSED rather than treated
         // as a data stage: see `stage_kind` for why the old
         // everything-else-is-data shape was a misroute waiting for a fifth
         // stage.
         let stage = fkdata::stage().name();
-        let planned = match crate::world::stage_kind(stage) {
-            Some(crate::world::StageKind::Settings) => self.plan_settings(&w),
-            Some(crate::world::StageKind::Data) => self.plan_data(&w),
+        match crate::world::stage_kind(stage) {
+            Some(crate::world::StageKind::Settings) => self.emit_settings(),
+            Some(crate::world::StageKind::Data) => self.emit_data(),
             None => fkdata::raise(&alloc::format!(
                 "fkrecipes: the stage {} is not one this library plans for; route fk_settings and one data-family hook into Emit",
                 stage
             )),
-        };
+        }
+    }
+
+    /// Plans and writes the SETTINGS stage only, raising if it is called
+    /// anywhere else.
+    ///
+    /// WHY THE SPLIT EXISTS, measured by the pilot. `emit` reaches both
+    /// planners, so a guest that only generates settings still links
+    /// `plan_data`: BetterBeltBalancer measured it as a 21047-line Lua
+    /// function that never runs, carried in every player's download. Naming
+    /// the half you use lets the linker drop the other.
+    ///
+    /// The stage check is not a formality either. A settings plan run at a
+    /// data stage would ask for prototypes that do not exist yet, so the wrong
+    /// routing is caught with a sentence naming the hook rather than as a
+    /// confusing probe failure later.
+    pub fn emit_settings(&self) {
+        let stage = fkdata::stage().name();
+        if crate::world::stage_kind(stage) != Some(crate::world::StageKind::Settings) {
+            fkdata::raise(&alloc::format!(
+                "fkrecipes: EmitSettings was called at the {} stage; route it from fk_settings",
+                stage
+            ));
+        }
+        let w = DataWorld::new();
+        self.run(self.plan_settings(&w));
+    }
+
+    /// Plans and writes a DATA-family stage only, raising if it is called
+    /// anywhere else. See [`Lib::emit_settings`] for why the split exists.
+    pub fn emit_data(&self) {
+        let stage = fkdata::stage().name();
+        if crate::world::stage_kind(stage) != Some(crate::world::StageKind::Data) {
+            fkdata::raise(&alloc::format!(
+                "fkrecipes: EmitData was called at the {} stage; route it from one data-family hook",
+                stage
+            ));
+        }
+        let w = DataWorld::new();
+        self.run(self.plan_data(&w));
+    }
+
+    /// The shared tail: refuse, or execute the stream.
+    fn run(&self, planned: Result<Vec<Op>, String>) {
         let ops = match planned {
             Ok(ops) => ops,
             // THE MESSAGE CARRIES NO STAGE OF ITS OWN. `raise` is the
@@ -109,6 +150,17 @@ struct DataWorld {
     /// hash map: this crate does not iterate one, and a plan's ingredient set
     /// is small enough that a scan is cheaper than the probe it saves.
     item_answers: RefCell<Vec<(String, bool)>>,
+
+    /// The engine's entity types, read the same way and for the same reason:
+    /// `place_result` names one, and "entity" is an abstract base with dozens
+    /// of concrete children.
+    ///
+    /// READ LAZILY, unlike `item_types`. Every plan has ingredients, so the
+    /// item list always pays for itself; `place_result` is rare, and a plan
+    /// with none should not pay a `derived_types` call for a probe it never
+    /// makes.
+    entity_types: RefCell<Option<Vec<String>>>,
+    entity_answers: RefCell<Vec<(String, bool)>>,
 }
 
 impl DataWorld {
@@ -116,30 +168,47 @@ impl DataWorld {
         DataWorld {
             item_types: fkdata::derived_types("item"),
             item_answers: RefCell::new(Vec::new()),
+            entity_types: RefCell::new(None),
+            entity_answers: RefCell::new(Vec::new()),
         }
     }
 
     fn probe_item(&self, name: &str) -> bool {
-        if name_leaf_exists("item", name) {
+        probe_in("item", &self.item_types, name)
+    }
+
+    fn probe_entity(&self, name: &str) -> bool {
+        let mut cache = self.entity_types.borrow_mut();
+        let types = cache.get_or_insert_with(|| fkdata::derived_types("entity"));
+        probe_in("entity", types, name)
+    }
+}
+
+/// Asks the named type first and then every type derived from it. The order
+/// matters for cost rather than correctness: the overwhelmingly common answer
+/// is the base type, and asking it first skips the walk.
+fn probe_in(base: &str, derived: &[String], name: &str) -> bool {
+    if name_leaf_exists(base, name) {
+        return true;
+    }
+    for typ in derived {
+        if typ == base {
+            continue;
+        }
+        if name_leaf_exists(typ, name) {
             return true;
         }
-        for typ in &self.item_types {
-            if typ == "item" {
-                continue;
-            }
-            if name_leaf_exists(typ, name) {
-                return true;
-            }
-        }
-        false
+    }
+    false
+}
+
+impl Named for DataWorld {
+    fn mod_name(&self) -> String {
+        fkdata::mod_name()
     }
 }
 
 impl World for DataWorld {
-    fn mod_name(&self) -> String {
-        fkdata::mod_name()
-    }
-
     fn startup_setting(&self, name: &str) -> Option<Value> {
         fkdata::startup_setting(name).map(|v| from_v(&v))
     }
@@ -222,6 +291,23 @@ impl World for DataWorld {
     ///
     /// The answer is remembered for the rest of this `emit`: the planner asks
     /// about the same names once per recipe that mentions them.
+    /// `entity_exists` is `item_exists` over the entity family: the same memo,
+    /// the same named-type-first-then-derived walk, because "entity" is an
+    /// abstract base and a simple-entity-with-force is not in
+    /// `data.raw.entity`.
+    fn entity_exists(&self, name: &str) -> bool {
+        for (seen, present) in self.entity_answers.borrow().iter() {
+            if seen.as_str() == name {
+                return *present;
+            }
+        }
+        let present = self.probe_entity(name);
+        self.entity_answers
+            .borrow_mut()
+            .push((String::from(name), present));
+        present
+    }
+
     fn item_exists(&self, name: &str) -> bool {
         for (seen, present) in self.item_answers.borrow().iter() {
             if seen.as_str() == name {

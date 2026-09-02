@@ -2,6 +2,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 
+use crate::value::Value;
+
 /// Stamps each plan with an identity so a handle carries which plan it came
 /// from. An atomic because a `static mut` needs unsafe for the same job;
 /// nothing here reaches an op, so it cannot make a plan non-deterministic.
@@ -129,11 +131,46 @@ pub struct ItemSpec {
     pub subgroup: String,
     pub display_name: String,
     pub description: String,
+
+    /// The sort key inside the subgroup. Empty omits the field and lets the
+    /// engine order by name.
+    pub order: String,
+
+    /// The entity this item builds, by name. It is PRESENCE PROBED like every
+    /// other name this library emits: an item naming an entity the game does
+    /// not have aborts the load with the engine's own assignID error rather
+    /// than anything this library could soften, so a missing one is refused at
+    /// plan time with the name in the message.
+    ///
+    /// The entity is somebody's: your own mod's hand-rolled one, or another
+    /// mod's. This library does not emit entities, so there is nothing here to
+    /// prefix and nothing to derive.
+    pub place_result: String,
+
+    /// Raw prototype fields, passed through VERBATIM after the ones this
+    /// library emits, in declaration order. See [`RecipeSpec::extra`].
+    pub extra: Vec<(String, Value)>,
 }
 
 pub(crate) struct ItemDecl {
     pub(crate) name: String,
+    pub(crate) legacy: bool,
     pub(crate) spec: ItemSpec,
+}
+
+impl ItemDecl {
+    pub(crate) fn emitted_name(&self, prefix: &str) -> String {
+        proto_name(self.legacy, prefix, &self.name)
+    }
+}
+
+/// The one place a prototype name is decided. A legacy name is whatever the
+/// mod ships; everything else derives from the packaged mod.
+pub(crate) fn proto_name(legacy: bool, prefix: &str, name: &str) -> String {
+    if legacy {
+        return String::from(name);
+    }
+    alloc::format!("{}{}", prefix, name)
 }
 
 /// One line of a recipe. It is built by [`Ingredient::of`] or
@@ -251,12 +288,42 @@ pub struct RecipeSpec {
     pub category: String,
     pub display_name: String,
     pub description: String,
+
+    /// An EXISTING item this recipe produces, for a recipe whose result this
+    /// plan does not declare. Give a default `ItemRef` and this name; the item
+    /// is presence probed at emit and refused if absent, and `name` is then
+    /// required, because there is no declared item to inherit it from.
+    pub result_named: String,
+
+    /// The sort key inside the recipe group. Empty omits the field.
+    pub order: String,
+
+    /// Raw prototype fields, passed through VERBATIM after the ones this
+    /// library emits, in declaration order.
+    ///
+    /// THE VALUES ARE YOURS AND ARE NOT TOUCHED. Nothing inside an extra value
+    /// is prefixed, and no name inside one is presence probed: this library
+    /// cannot know which strings in an arbitrary field are prototype names, so
+    /// guessing would be worse than the passthrough. If a field holds a name
+    /// the game may not have, you own that check.
+    ///
+    /// A key this library emits itself is REFUSED rather than merged or
+    /// overridden, because two writers of one field is a silent last-writer
+    /// and the loser would be whichever order this library happens to use.
+    pub extra: Vec<(String, Value)>,
 }
 
 pub(crate) struct RecipeDecl {
     pub(crate) name: String,
+    pub(crate) legacy: bool,
     pub(crate) result: ItemRef,
     pub(crate) spec: RecipeSpec,
+}
+
+impl RecipeDecl {
+    pub(crate) fn emitted_name(&self, prefix: &str) -> String {
+        proto_name(self.legacy, prefix, &self.name)
+    }
 }
 
 /// One science pack of a hand-rolled research cost.
@@ -279,6 +346,13 @@ pub struct UnitSpec {
 /// A generated technology prototype.
 #[derive(Clone, Default)]
 pub struct TechSpec {
+    /// The sort key in the technology screen. Empty omits the field.
+    pub order: String,
+
+    /// Raw prototype fields, passed through VERBATIM after the ones this
+    /// library emits, in declaration order. See [`RecipeSpec::extra`].
+    pub extra: Vec<(String, Value)>,
+
     pub icon: String,
     pub icon_size: i64,
 
@@ -311,7 +385,14 @@ pub struct TechSpec {
 
 pub(crate) struct TechDecl {
     pub(crate) name: String,
+    pub(crate) legacy: bool,
     pub(crate) spec: TechSpec,
+}
+
+impl TechDecl {
+    pub(crate) fn emitted_name(&self, prefix: &str) -> String {
+        proto_name(self.legacy, prefix, &self.name)
+    }
 }
 
 impl SettingDecl {
@@ -441,8 +522,41 @@ impl Lib {
 
     /// Declares an item this mod introduces.
     pub fn item(&mut self, name: &str, spec: ItemSpec) -> ItemRef {
+        self.item_decl(name, false, spec)
+    }
+
+    /// Declares an item under a name this mod ALREADY SHIPS, emitted verbatim
+    /// with no prefix.
+    ///
+    /// THE SAME ARGUMENT AS THE LEGACY SETTINGS, AND STRONGER. A save
+    /// references prototype names directly: an item sits in inventories and on
+    /// belts by name, a technology is recorded as researched by name, a recipe
+    /// is remembered by name in every assembler. A mod's own hand-rolled
+    /// neighbours name them too, and the engine's failure for a dangling
+    /// reference is not a warning but an abort:
+    ///
+    /// ```text
+    /// Error in assignID: item with name 'bbb-balancer-part' does not exist.
+    /// ```
+    ///
+    /// So a migrating mod cannot rename its prototypes any more than its
+    /// settings, and this is the escape hatch. The legacy mark in the name is
+    /// the whole documentation of the deviation: a reader sees at the call
+    /// site that this name is not derived, and nothing else in the library can
+    /// produce one.
+    ///
+    /// The handle is an ORDINARY handle. `Ingredient::of`, `unlocks`,
+    /// `after_tech` and the splices take it exactly as they take a generated
+    /// one, so a plan may be part legacy and part generated without either
+    /// half knowing.
+    pub fn legacy_item(&mut self, full_name: &str, spec: ItemSpec) -> ItemRef {
+        self.item_decl(full_name, true, spec)
+    }
+
+    fn item_decl(&mut self, name: &str, legacy: bool, spec: ItemSpec) -> ItemRef {
         self.items.push(ItemDecl {
             name: String::from(name),
+            legacy,
             spec,
         });
         ItemRef {
@@ -455,9 +569,43 @@ impl Lib {
     pub fn recipe(&mut self, result: ItemRef, spec: RecipeSpec) -> RecipeRef {
         let mut name = spec.name.clone();
         if name.is_empty() && self.valid_item(result) {
+            // The RESULT's declared name, not its emitted one: this is the
+            // recipe's own unprefixed name, and the prefix is applied to it at
+            // emit like any other.
             name = self.items[result.index - 1].name.clone();
         }
-        self.recipes.push(RecipeDecl { name, result, spec });
+        self.recipe_decl(name, false, result, spec)
+    }
+
+    /// Declares a recipe under a name this mod ALREADY SHIPS, emitted verbatim
+    /// with no prefix. See [`Lib::legacy_item`] for why prototype names cannot
+    /// be regenerated for a mod that has players.
+    ///
+    /// The name is required rather than inherited from the result: a legacy
+    /// recipe and its result item are two independent names the mod already
+    /// chose, and deriving one from the other would be a guess.
+    pub fn legacy_recipe(
+        &mut self,
+        result: ItemRef,
+        full_name: &str,
+        spec: RecipeSpec,
+    ) -> RecipeRef {
+        self.recipe_decl(String::from(full_name), true, result, spec)
+    }
+
+    fn recipe_decl(
+        &mut self,
+        name: String,
+        legacy: bool,
+        result: ItemRef,
+        spec: RecipeSpec,
+    ) -> RecipeRef {
+        self.recipes.push(RecipeDecl {
+            name,
+            legacy,
+            result,
+            spec,
+        });
         RecipeRef {
             lib: self.id,
             index: self.recipes.len(),
@@ -466,8 +614,20 @@ impl Lib {
 
     /// Declares a technology this mod introduces.
     pub fn technology(&mut self, name: &str, spec: TechSpec) -> TechRef {
+        self.tech_decl(name, false, spec)
+    }
+
+    /// Declares a technology under a name this mod ALREADY SHIPS, emitted
+    /// verbatim with no prefix. See [`Lib::legacy_item`] for why prototype
+    /// names cannot be regenerated for a mod that has players.
+    pub fn legacy_technology(&mut self, full_name: &str, spec: TechSpec) -> TechRef {
+        self.tech_decl(full_name, true, spec)
+    }
+
+    fn tech_decl(&mut self, name: &str, legacy: bool, spec: TechSpec) -> TechRef {
         self.techs.push(TechDecl {
             name: String::from(name),
+            legacy,
             spec,
         });
         TechRef {

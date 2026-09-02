@@ -336,6 +336,16 @@ jqassert "all seven generated settings reached the settings dump" "$SDUMP" \
 # replaced the consumer's declaration rather than filling a gap.
 jqassert "the min-only setting kept its declared minimum and gained no maximum" "$SDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-tempering-hold")] | length > 0 and all(.minimum_value == 0.5 and (has("maximum_value") | not))'
+# The two prototype-field slots the consumer round added, checked in the ENGINE
+# dump rather than only in the stand-in: an order the library has a slot for,
+# and a real 2.0 recipe field it does not, passed through Extra verbatim. The
+# pilot measured all four of its fields DROPPED before these existed.
+jqassert "the item order reached the dump" "$DUMP" \
+  '.item["fkrecipes-example-steel-rivet"].order == "b[steelworks]-a[rivet]"'
+jqassert "the recipe order reached the dump" "$DUMP" \
+  '.recipe["fkrecipes-example-hardened-steel-plate-quenching"].order == "b[steelworks]-b[quenching]"'
+jqassert "the Extra passthrough reached the dump" "$DUMP" \
+  '.recipe["fkrecipes-example-steel-rivet"].allow_productivity == true'
 jqassert "the generated craft-time minimum reached the settings dump" "$SDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-forging-time") | .minimum_value] | any(. == 0.002)'
 

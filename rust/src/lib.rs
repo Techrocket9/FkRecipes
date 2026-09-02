@@ -55,6 +55,10 @@ mod locale;
 // gates compile the pure half with no wasm target and no fkdata at all.
 #[cfg(target_family = "wasm")]
 mod emit;
+// Its host counterpart: the same three methods, panicking, so a consumer's
+// `cargo check` sees a complete crate without naming the wasm target.
+#[cfg(not(target_family = "wasm"))]
+mod emit_host;
 mod op;
 mod plan;
 mod settings;
@@ -64,6 +68,7 @@ mod world;
 #[cfg(test)]
 mod tests;
 
+pub use locale::{locale_entries, CfgEntry};
 pub use op::{Op, PathEl};
 pub use plan::{
     BoolSettingRef, CostChoice, CostChoices, DoubleSettingRef, DropdownSettingRef, Ingredient,

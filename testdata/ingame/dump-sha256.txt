@@ -16,4 +16,4 @@
 # A mismatch here is ENVIRONMENTAL and reports SKIPPED, not FAILED.
 #
 # Capture a line with: scripts/run-ingame.sh --update
-2.0.77 8c58c8a86e42fd08cfa12e5248f9b90646e09cf5a1fac01550828c655ff2be00 b47fe1f0c4ceb5d0f84daee5b65c45c1e4a5a666360719a2647f3f6b0b498aba base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
+2.0.77 3c5ad6e464a93f870c1f903865a12af831e152f3afc4b785b1203e357c737e3c b47fe1f0c4ceb5d0f84daee5b65c45c1e4a5a666360719a2647f3f6b0b498aba base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77

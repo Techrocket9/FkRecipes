@@ -446,3 +446,38 @@ func parseLocale(cfg string) ([]localeSect, []string) {
 	}
 	return sections, findings
 }
+
+// LocaleEntry is one key and value from a .cfg, with the section it sat under.
+type LocaleEntry struct {
+	Section string
+	Key     string
+	Value   string
+}
+
+// LocaleEntries parses a .cfg into its entries, in FILE ORDER, for a
+// consumer's own assertions.
+//
+// CheckLocale answers the questions this library can ask, which are the ones
+// about the settings it generated. A consumer has questions of their own: that
+// an entity name entry exists for their hand-rolled entity, that no key is
+// blank, that a translation file carries the same keys as the English one.
+// Writing a second .cfg parser to ask them is the kind of duplication that
+// drifts, so this is the same parser's output, exported.
+//
+// PARSE FINDINGS ARE NOT REPORTED HERE. A malformed line is skipped exactly as
+// CheckLocale skips it; run CheckLocale for the diagnosis. This returns what
+// the file says, not what is wrong with it.
+func LocaleEntries(cfg string) []LocaleEntry {
+	sections, _ := parseLocale(cfg)
+	var out []LocaleEntry
+	for i := range sections {
+		for _, e := range sections[i].entries {
+			out = append(out, LocaleEntry{
+				Section: sections[i].name,
+				Key:     e.key,
+				Value:   e.value,
+			})
+		}
+	}
+	return out
+}

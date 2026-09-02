@@ -103,11 +103,16 @@ impl Lib {
             if it.name.is_empty() {
                 return Err(format!("{}an item was declared with an empty name", at));
             }
+            // Compared on the EMITTED names, which is the namespace the
+            // engine keeps: a legacy name and a generated one can arrive at
+            // the same string from different declarations, and only one
+            // survives.
             for other in self.items.iter().take(i) {
-                if other.name == it.name {
+                if other.emitted_name(prefix) == it.emitted_name(prefix) {
                     return Err(format!(
                         "{}two items share the name {}; the second would overwrite the first",
-                        at, it.name
+                        at,
+                        it.emitted_name(prefix)
                     ));
                 }
             }
@@ -115,10 +120,11 @@ impl Lib {
             // prerequisite, and the cycle overlay counts on every planned
             // name being new: two nodes with one name is a walk that misses
             // the ring.
-            if w.item_exists(&format!("{}{}", prefix, it.name)) {
+            if w.item_exists(&it.emitted_name(prefix)) {
                 return Err(format!(
-                    "{}the item {}{} already exists in data.raw; this plan would overwrite it",
-                    at, prefix, it.name
+                    "{}the item {} already exists in data.raw; this plan would overwrite it",
+                    at,
+                    it.emitted_name(prefix)
                 ));
             }
             if it.spec.stack_size < 0 {
@@ -145,6 +151,18 @@ impl Lib {
                     at, it.name, it.spec.icon_size
                 ));
             }
+            if !it.spec.place_result.is_empty() && !w.entity_exists(&it.spec.place_result) {
+                return Err(format!(
+                    "{}the item {} names a place_result {} that does not exist",
+                    at, it.name, it.spec.place_result
+                ));
+            }
+            check_extra(
+                at,
+                &format!("the item {}", it.name),
+                &it.spec.extra,
+                ITEM_OWN_FIELDS,
+            )?;
         }
 
         for (i, r) in self.recipes.iter().enumerate() {
@@ -152,7 +170,54 @@ impl Lib {
             // report either, and "two recipes share the name" with an empty
             // name is a worse answer than the one that says what is actually
             // wrong.
-            if !self.valid_item(r.result) {
+            if r.result.index != 0 {
+                // A handle was given: it has to be one of this plan's.
+                if !self.valid_item(r.result) {
+                    return Err(format!(
+                        "{}a recipe was declared with no result item; Recipe needs an item this plan declared",
+                        at
+                    ));
+                }
+                if !r.spec.result_named.is_empty() {
+                    return Err(format!(
+                        "{}the recipe {} names both a result item and ResultNamed; pick one",
+                        at, r.name
+                    ));
+                }
+            } else if !r.spec.result_named.is_empty() {
+                // THIS PLAN'S OWN ITEM FIRST, and the order is the whole
+                // point. `result_named` is probed against the World, and the
+                // World is data.raw as it stands BEFORE this plan runs, so an
+                // item this plan declares two lines up is not there yet and
+                // the probe would refuse it as absent. That refusal is correct
+                // and its sentence is not: the consumer can see the item.
+                // Compared on the EMITTED names, so it catches a legacy
+                // declaration and a generated one alike.
+                if self
+                    .items
+                    .iter()
+                    .any(|it| it.emitted_name(prefix) == r.spec.result_named)
+                {
+                    return Err(format!(
+                        "{}the recipe {} produces {} through ResultNamed, which this plan declares; use the item's handle instead",
+                        at, r.name, r.spec.result_named
+                    ));
+                }
+                // An existing item, so it is probed exactly as an ingredient
+                // is.
+                if !w.item_exists(&r.spec.result_named) {
+                    return Err(format!(
+                        "{}the recipe {} produces {}, which does not exist",
+                        at, r.name, r.spec.result_named
+                    ));
+                }
+                if r.name.is_empty() {
+                    return Err(format!(
+                        "{}a recipe producing an existing item was declared with no name; there is no declared item to take one from",
+                        at
+                    ));
+                }
+            } else {
                 return Err(format!(
                     "{}a recipe was declared with no result item; Recipe needs an item this plan declared",
                     at
@@ -165,11 +230,16 @@ impl Lib {
             if r.name.is_empty() {
                 return Err(format!("{}a recipe was declared with an empty name", at));
             }
+            // Compared on the EMITTED names, which is the namespace the
+            // engine keeps: a legacy name and a generated one can arrive at
+            // the same string from different declarations, and only one
+            // survives.
             for other in self.recipes.iter().take(i) {
-                if other.name == r.name {
+                if other.emitted_name(prefix) == r.emitted_name(prefix) {
                     return Err(format!(
                         "{}two recipes share the name {}; the second would overwrite the first",
-                        at, r.name
+                        at,
+                        r.emitted_name(prefix)
                     ));
                 }
             }
@@ -179,6 +249,12 @@ impl Lib {
                     at, r.name
                 ));
             }
+            check_extra(
+                at,
+                &format!("the recipe {}", r.name),
+                &r.spec.extra,
+                RECIPE_OWN_FIELDS,
+            )?;
             if r.spec.craft_time != 0.0 && r.spec.craft_time_from.index != 0 {
                 return Err(format!(
                     "{}the recipe {} names both CraftTime and CraftTimeFrom; pick one",
@@ -254,10 +330,11 @@ impl Lib {
                     at, r.name, r.spec.result_count
                 ));
             }
-            if w.recipe_exists(&format!("{}{}", prefix, r.name)) {
+            if w.recipe_exists(&r.emitted_name(prefix)) {
                 return Err(format!(
-                    "{}the recipe {}{} already exists in data.raw; this plan would overwrite it",
-                    at, prefix, r.name
+                    "{}the recipe {} already exists in data.raw; this plan would overwrite it",
+                    at,
+                    r.emitted_name(prefix)
                 ));
             }
             self.validate_ingredients(at, &format!("the recipe {}", r.name), &r.spec.ingredients)?;
@@ -270,18 +347,24 @@ impl Lib {
                     at
                 ));
             }
+            // Compared on the EMITTED names, which is the namespace the
+            // engine keeps: a legacy name and a generated one can arrive at
+            // the same string from different declarations, and only one
+            // survives.
             for other in self.techs.iter().take(i) {
-                if other.name == t.name {
+                if other.emitted_name(prefix) == t.emitted_name(prefix) {
                     return Err(format!(
                         "{}two technologies share the name {}; the second would overwrite the first",
-                        at, t.name
+                        at,
+                        t.emitted_name(prefix)
                     ));
                 }
             }
-            if w.tech_exists(&format!("{}{}", prefix, t.name)) {
+            if w.tech_exists(&t.emitted_name(prefix)) {
                 return Err(format!(
-                    "{}the technology {}{} already exists in data.raw; this plan would overwrite it",
-                    at, prefix, t.name
+                    "{}the technology {} already exists in data.raw; this plan would overwrite it",
+                    at,
+                    t.emitted_name(prefix)
                 ));
             }
             let has_cost = !t.spec.cost_of.is_empty();
@@ -364,6 +447,12 @@ impl Lib {
                     at, t.name, t.spec.icon_size
                 ));
             }
+            check_extra(
+                at,
+                &format!("the technology {}", t.name),
+                &t.spec.extra,
+                TECH_OWN_FIELDS,
+            )?;
             match &t.spec.unit {
                 Some(unit) => {
                     self.validate_unit(at, w, &t.name, unit)?;
@@ -580,7 +669,7 @@ impl Lib {
 
             let after = t.spec.after.as_str();
             let before = t.spec.before.as_str();
-            let new_name = format!("{}{}", prefix, t.name);
+            let new_name = t.emitted_name(prefix);
             if t.spec.after_tech.index != 0 {
                 // An anchor this plan declares itself needs no presence
                 // probe and cannot degrade: the prototype is emitted by the
@@ -596,11 +685,7 @@ impl Lib {
                 // no Before, so nothing in the game's tree is rewritten to
                 // require it. A handle from anywhere else can point forwards
                 // or at itself, and the walk is what answers that.
-                rt.prereqs = vec![format!(
-                    "{}{}",
-                    prefix,
-                    self.techs[t.spec.after_tech.index - 1].name
-                )];
+                rt.prereqs = vec![self.techs[t.spec.after_tech.index - 1].emitted_name(prefix)];
             } else if after.is_empty() {
                 // Before without After was refused in validate; nothing to place.
             } else if before.is_empty() {
@@ -783,7 +868,7 @@ fn join_names(names: &[String], sep: &str) -> String {
 fn item_proto(prefix: &str, it: &ItemDecl) -> Value {
     let mut pairs = vec![
         kv("type", Value::string("item")),
-        kv("name", Value::Str(format!("{}{}", prefix, it.name))),
+        kv("name", Value::Str(it.emitted_name(prefix))),
     ];
     append_localised(&mut pairs, &it.spec.display_name, &it.spec.description);
     if !it.spec.icon.is_empty() {
@@ -801,6 +886,13 @@ fn item_proto(prefix: &str, it: &ItemDecl) -> Value {
     if !it.spec.subgroup.is_empty() {
         pairs.push(kv("subgroup", Value::string(&it.spec.subgroup)));
     }
+    if !it.spec.order.is_empty() {
+        pairs.push(kv("order", Value::string(&it.spec.order)));
+    }
+    if !it.spec.place_result.is_empty() {
+        pairs.push(kv("place_result", Value::string(&it.spec.place_result)));
+    }
+    pairs.extend(it.spec.extra.iter().cloned());
     Value::Map(pairs)
 }
 
@@ -814,7 +906,7 @@ fn recipe_proto(
 ) -> Value {
     let mut pairs = vec![
         kv("type", Value::string("recipe")),
-        kv("name", Value::Str(format!("{}{}", prefix, r.name))),
+        kv("name", Value::Str(r.emitted_name(prefix))),
     ];
     append_localised(&mut pairs, &r.spec.display_name, &r.spec.description);
     if !r.spec.category.is_empty() {
@@ -849,24 +941,33 @@ fn recipe_proto(
     } else {
         r.spec.result_count
     };
+    // The result is either an item this plan declares (prefixed or legacy by
+    // its own declaration) or one that already exists, named verbatim because
+    // it is somebody else's and validation has probed it.
+    let result = if r.result.index != 0 {
+        l.items[r.result.index - 1].emitted_name(prefix)
+    } else {
+        r.spec.result_named.clone()
+    };
     pairs.push(kv(
         "results",
         Value::Arr(vec![Value::Map(vec![
             kv("type", Value::string("item")),
-            kv(
-                "name",
-                Value::Str(format!("{}{}", prefix, l.items[r.result.index - 1].name)),
-            ),
+            kv("name", Value::Str(result)),
             kv("amount", Value::Num(count as f64)),
         ])]),
     ));
+    if !r.spec.order.is_empty() {
+        pairs.push(kv("order", Value::string(&r.spec.order)));
+    }
+    pairs.extend(r.spec.extra.iter().cloned());
     Value::Map(pairs)
 }
 
 fn tech_proto(prefix: &str, l: &Lib, w: &dyn World, t: &TechDecl, rt: &ResolvedTech) -> Value {
     let mut pairs = vec![
         kv("type", Value::string("technology")),
-        kv("name", Value::Str(format!("{}{}", prefix, t.name))),
+        kv("name", Value::Str(t.emitted_name(prefix))),
     ];
     append_localised(&mut pairs, &t.spec.display_name, &t.spec.description);
     if !t.spec.icon.is_empty() {
@@ -906,7 +1007,7 @@ fn tech_proto(prefix: &str, l: &Lib, w: &dyn World, t: &TechDecl, rt: &ResolvedT
                 kv("type", Value::string("unlock-recipe")),
                 kv(
                     "recipe",
-                    Value::Str(format!("{}{}", prefix, l.recipes[u.index - 1].name)),
+                    Value::Str(l.recipes[u.index - 1].emitted_name(prefix)),
                 ),
             ]));
         }
@@ -924,6 +1025,10 @@ fn tech_proto(prefix: &str, l: &Lib, w: &dyn World, t: &TechDecl, rt: &ResolvedT
             pairs.push(kv("hidden", Value::Bool(true)));
         }
     }
+    if !t.spec.order.is_empty() {
+        pairs.push(kv("order", Value::string(&t.spec.order)));
+    }
+    pairs.extend(t.spec.extra.iter().cloned());
     Value::Map(pairs)
 }
 
@@ -1153,7 +1258,7 @@ impl Lib {
         for ing in ings {
             if ing.candidates.is_empty() {
                 list.push(ResolvedIngredient {
-                    name: format!("{}{}", prefix, self.items[ing.item.index - 1].name),
+                    name: self.items[ing.item.index - 1].emitted_name(prefix),
                     amount: ing.amount,
                 });
                 continue;
@@ -1198,4 +1303,74 @@ fn unit_value(u: &UnitSpec) -> Value {
         kv("time", Value::Num(u.seconds)),
         kv("ingredients", Value::Arr(packs)),
     ])
+}
+
+/// The field names each prototype builder writes itself. A key in `extra` that
+/// collides with one is REFUSED rather than merged: two writers of one field is
+/// a silent last-writer, and the loser would be whichever order this library
+/// happens to append in. Listed rather than derived, because a builder emits a
+/// field CONDITIONALLY and the answer must not depend on which arms fired for
+/// this particular declaration: an extra key that collides only when a sibling
+/// field happens to be set would be a refusal a consumer could not reproduce.
+const ITEM_OWN_FIELDS: &[&str] = &[
+    "type",
+    "name",
+    "localised_name",
+    "localised_description",
+    "icon",
+    "icon_size",
+    "stack_size",
+    "subgroup",
+    "order",
+    "place_result",
+];
+const RECIPE_OWN_FIELDS: &[&str] = &[
+    "type",
+    "name",
+    "localised_name",
+    "localised_description",
+    "category",
+    "energy_required",
+    "enabled",
+    "ingredients",
+    "results",
+    "order",
+];
+const TECH_OWN_FIELDS: &[&str] = &[
+    "type",
+    "name",
+    "localised_name",
+    "localised_description",
+    "icon",
+    "icon_size",
+    "prerequisites",
+    "unit",
+    "max_level",
+    "effects",
+    "enabled",
+    "hidden",
+    "order",
+];
+
+fn check_extra(at: &str, who: &str, extra: &[(String, Value)], own: &[&str]) -> Result<(), String> {
+    for (i, (key, _)) in extra.iter().enumerate() {
+        if key.is_empty() {
+            return Err(format!(
+                "{}{} sets a field through Extra with an empty name",
+                at, who
+            ));
+        }
+        if own.contains(&key.as_str()) {
+            return Err(format!(
+                "{}{} sets {} through Extra, which this library emits",
+                at, who, key
+            ));
+        }
+        // Two extra keys writing one field is the same silent last-writer, and
+        // this one is entirely the consumer's own doing.
+        if extra.iter().take(i).any(|(earlier, _)| earlier == key) {
+            return Err(format!("{}{} sets {} through Extra twice", at, who, key));
+        }
+    }
+    Ok(())
 }

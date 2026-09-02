@@ -12,6 +12,7 @@ type fixtureWorld struct {
 	recipes  []string
 	techs    []fixtureTech
 
+	entities         []string
 	nilUnitFor       []string
 	nilMaxLevelFor   []string
 	mapUnitButAbsent []string
@@ -136,6 +137,15 @@ func (w *fixtureWorld) ItemExists(name string) bool {
 	return false
 }
 
+func (w *fixtureWorld) EntityExists(name string) bool {
+	for _, e := range w.entities {
+		if e == name {
+			return true
+		}
+	}
+	return false
+}
+
 func (w *fixtureWorld) RecipeExists(name string) bool {
 	for _, r := range w.recipes {
 		if r == name {
@@ -220,6 +230,11 @@ func (w *fixtureWorld) withTech(t fixtureTech) *fixtureWorld {
 	return w
 }
 
+func (w *fixtureWorld) withEntity(name string) *fixtureWorld {
+	w.entities = append(w.entities, name)
+	return w
+}
+
 func (w *fixtureWorld) withItem(name string) *fixtureWorld {
 	w.items = append(w.items, name)
 	return w
@@ -266,6 +281,10 @@ func unitOf(count int, seconds float64, packs ...string) Value {
 func baseWorld() *fixtureWorld {
 	return &fixtureWorld{
 		modName: "steelworks",
+		// One entity, so a PlaceResult can resolve as well as fail. It is a
+		// DERIVED type rather than a plain "entity": that is what the real
+		// probe has to walk, and it is the type BBB's own item names.
+		entities: []string{"steel-chest"},
 		recipes: []string{
 			"electronic-circuit",
 			"iron-gear-wheel",

@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use crate::op::Op;
 use crate::plan::{Lib, SettingDecl, SettingKind};
 use crate::value::{finite, kv, str_arr, Value, CRAFT_TIME_FLOOR, MAX_EXACT_INT};
-use crate::world::World;
+use crate::world::Named;
 
 impl Lib {
     /// Turns the declared settings into one `Extend` op per setting
@@ -20,7 +20,7 @@ impl Lib {
     /// This is the seam the emit layer stands on at the settings stage;
     /// consumers call Emit and never this. It is public so a consumer's own
     /// tests can hold a plan up to the light without a wasm target.
-    pub fn plan_settings(&self, w: &dyn World) -> Result<Vec<Op>, String> {
+    pub fn plan_settings(&self, w: &dyn Named) -> Result<Vec<Op>, String> {
         if self.id == 0 {
             return Err(String::from(
                 "fkrecipes: this Lib was built without New, so its handles cannot be validated",

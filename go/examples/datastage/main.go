@@ -56,6 +56,9 @@ func plan() *fkrecipes.Lib {
 		StackSize:   200,
 		Subgroup:    "intermediate-product",
 		DisplayName: "Steel rivet",
+		// A sort key, so the rivets sit beside the plate they fasten rather
+		// than wherever the engine's name ordering puts them.
+		Order: "b[steelworks]-a[rivet]",
 	})
 
 	rivets := lib.Recipe(rivet, fkrecipes.RecipeSpec{
@@ -65,6 +68,11 @@ func plan() *fkrecipes.Lib {
 			fkrecipes.IngredientNamed(1, "iron-plate"),
 		},
 		DisplayName: "Steel rivets",
+		// A REAL 2.0 RECIPE FIELD this library has no slot for, passed
+		// through verbatim. That is what Extra is: the library emits what it
+		// knows and gets out of the way for the rest, rather than growing a
+		// field per prototype property the engine has.
+		Extra: []fkrecipes.KV{fkrecipes.Pair("allow_productivity", fkrecipes.Bool(true))},
 	})
 	plates := lib.Recipe(plate, fkrecipes.RecipeSpec{
 		CraftTimeFrom: forging,
@@ -98,6 +106,7 @@ func plan() *fkrecipes.Lib {
 		},
 		Name:        "hardened-steel-plate-quenching",
 		Category:    "smelting",
+		Order:       "b[steelworks]-b[quenching]",
 		DisplayName: "Hardened steel plate",
 		Description: "Quench the plate, then temper it back to workable.",
 	})

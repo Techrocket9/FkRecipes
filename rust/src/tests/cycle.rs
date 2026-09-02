@@ -178,6 +178,7 @@ fn ring_world(n: usize) -> FixtureWorld {
         mod_name: String::from("steelworks"),
         settings: Vec::new(),
         loose_max_level: Value::Nil,
+        entities: Vec::new(),
         nil_unit_for: Vec::new(),
         nil_max_level_for: Vec::new(),
         recipes: Vec::new(),

@@ -38,7 +38,7 @@ impl Lib {
             nodes.push(n.clone());
         }
         for (i, t) in self.techs.iter().enumerate() {
-            nodes.push(format!("{}{}", prefix, t.name));
+            nodes.push(t.emitted_name(prefix));
             lists.push(res.techs[i].prereqs.clone());
         }
 

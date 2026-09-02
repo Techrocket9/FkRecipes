@@ -200,16 +200,67 @@ type ItemSpec struct {
 	Subgroup    string
 	DisplayName string
 	Description string
+
+	// Order is the sort key inside the subgroup. Empty omits the field and
+	// lets the engine order by name.
+	Order string
+
+	// PlaceResult is the entity this item builds, by name. It is PRESENCE
+	// PROBED like every other name this library emits: an item naming an
+	// entity the game does not have aborts the load with the engine's own
+	// assignID error rather than anything this library could soften, so a
+	// missing one is refused at plan time with the name in the message.
+	//
+	// The entity is somebody's: your own mod's hand-rolled one, or another
+	// mod's. This library does not emit entities, so there is nothing here to
+	// prefix and nothing to derive.
+	PlaceResult string
+
+	// Extra is raw prototype fields, passed through VERBATIM after the ones
+	// this library emits, in declaration order. See RecipeSpec.Extra.
+	Extra []KV
 }
 
 type itemDecl struct {
-	name string
-	spec ItemSpec
+	name   string
+	legacy bool
+	spec   ItemSpec
 }
+
+func (d itemDecl) emittedName(prefix string) string { return protoName(d.legacy, prefix, d.name) }
 
 // Item declares an item this mod introduces.
 func (l *Lib) Item(name string, spec ItemSpec) ItemRef {
-	l.items = append(l.items, itemDecl{name: name, spec: spec})
+	return l.item(name, false, spec)
+}
+
+// LegacyItem declares an item under a name this mod ALREADY SHIPS, emitted
+// verbatim with no prefix.
+//
+// THE SAME ARGUMENT AS THE LEGACY SETTINGS, AND STRONGER. A save references
+// prototype names directly: an item sits in inventories and on belts by name,
+// a technology is recorded as researched by name, a recipe is remembered by
+// name in every assembler. A mod's own hand-rolled neighbours name them too,
+// and the engine's failure for a dangling reference is not a warning but an
+// abort:
+//
+//	Error in assignID: item with name 'bbb-balancer-part' does not exist.
+//
+// So a migrating mod cannot rename its prototypes any more than its settings,
+// and this is the escape hatch. The Legacy mark in the name is the whole
+// documentation of the deviation: a reader sees at the call site that this
+// name is not derived, and nothing else in the library can produce one.
+//
+// The handle is an ORDINARY handle. IngredientOf, Unlocks, AfterTech and the
+// splices take it exactly as they take a generated one, so a plan may be part
+// legacy and part generated without either half knowing.
+func (l *Lib) LegacyItem(fullName string, spec ItemSpec) ItemRef {
+	return l.item(fullName, true, spec)
+}
+
+func (l *Lib) item(name string, legacy bool, spec ItemSpec) ItemRef {
+	spec.Extra = copyKVs(spec.Extra)
+	l.items = append(l.items, itemDecl{name: name, legacy: legacy, spec: spec})
 	return ItemRef{lib: l.id, index: len(l.items)}
 }
 
@@ -305,23 +356,71 @@ type RecipeSpec struct {
 	Category      string
 	DisplayName   string
 	Description   string
+
+	// ResultNamed is an EXISTING item this recipe produces, for a recipe
+	// whose result this plan does not declare. Give a zero ItemRef and this
+	// name; the item is presence probed at emit and refused if absent, and
+	// Name is then required, because there is no declared item to inherit it
+	// from.
+	ResultNamed string
+
+	// Order is the sort key inside the recipe group. Empty omits the field.
+	Order string
+
+	// Extra is raw prototype fields, passed through VERBATIM after the ones
+	// this library emits, in declaration order.
+	//
+	// THE VALUES ARE YOURS AND ARE NOT TOUCHED. Nothing inside an Extra value
+	// is prefixed, and no name inside one is presence probed: this library
+	// cannot know which strings in an arbitrary field are prototype names, so
+	// guessing would be worse than the passthrough. If a field holds a name
+	// the game may not have, you own that check.
+	//
+	// A key this library emits itself is REFUSED rather than merged or
+	// overridden, because two writers of one field is a silent last-writer
+	// and the loser would be whichever order this library happens to use.
+	Extra []KV
 }
 
 type recipeDecl struct {
 	name   string
+	legacy bool
 	result ItemRef
 	spec   RecipeSpec
 }
+
+func (d recipeDecl) emittedName(prefix string) string { return protoName(d.legacy, prefix, d.name) }
 
 // Recipe declares a recipe producing an item this plan declares.
 func (l *Lib) Recipe(result ItemRef, spec RecipeSpec) RecipeRef {
 	name := spec.Name
 	if name == "" && l.validItem(result) {
+		// The RESULT's declared name, not its emitted one: this is the
+		// recipe's own unprefixed name, and the prefix is applied to it at
+		// emit like any other. A legacy result therefore hands a legacy-shaped
+		// name to a GENERATED recipe, which would be wrong; Recipe refuses a
+		// legacy result without an explicit name in validate for that reason.
 		name = l.items[result.index-1].name
 	}
+	return l.recipe(name, false, result, spec)
+}
+
+// LegacyRecipe declares a recipe under a name this mod ALREADY SHIPS, emitted
+// verbatim with no prefix. See LegacyItem for why prototype names cannot be
+// regenerated for a mod that has players.
+//
+// The name is required rather than inherited from the result: a legacy recipe
+// and its result item are two independent names the mod already chose, and
+// deriving one from the other would be a guess.
+func (l *Lib) LegacyRecipe(result ItemRef, fullName string, spec RecipeSpec) RecipeRef {
+	return l.recipe(fullName, true, result, spec)
+}
+
+func (l *Lib) recipe(name string, legacy bool, result ItemRef, spec RecipeSpec) RecipeRef {
 	spec.Ingredients = copyIngredients(spec.Ingredients)
 	spec.IngredientsBy = copyIngredientChoices(spec.IngredientsBy)
-	l.recipes = append(l.recipes, recipeDecl{name: name, result: result, spec: spec})
+	spec.Extra = copyKVs(spec.Extra)
+	l.recipes = append(l.recipes, recipeDecl{name: name, legacy: legacy, result: result, spec: spec})
 	return RecipeRef{lib: l.id, index: len(l.recipes)}
 }
 
@@ -342,6 +441,13 @@ type UnitSpec struct {
 
 // TechSpec describes a generated technology prototype.
 type TechSpec struct {
+	// Order is the sort key in the technology screen. Empty omits the field.
+	Order string
+
+	// Extra is raw prototype fields, passed through VERBATIM after the ones
+	// this library emits, in declaration order. See RecipeSpec.Extra.
+	Extra []KV
+
 	Icon     string
 	IconSize int64
 
@@ -370,16 +476,40 @@ type TechSpec struct {
 }
 
 type techDecl struct {
-	name string
-	spec TechSpec
+	name   string
+	legacy bool
+	spec   TechSpec
+}
+
+func (d techDecl) emittedName(prefix string) string { return protoName(d.legacy, prefix, d.name) }
+
+// protoName is the one place a prototype name is decided. A legacy name is
+// whatever the mod ships; everything else derives from the packaged mod.
+func protoName(legacy bool, prefix, name string) string {
+	if legacy {
+		return name
+	}
+	return prefix + name
 }
 
 // Technology declares a technology this mod introduces.
 func (l *Lib) Technology(name string, spec TechSpec) TechRef {
+	return l.technology(name, false, spec)
+}
+
+// LegacyTechnology declares a technology under a name this mod ALREADY SHIPS,
+// emitted verbatim with no prefix. See LegacyItem for why prototype names
+// cannot be regenerated for a mod that has players.
+func (l *Lib) LegacyTechnology(fullName string, spec TechSpec) TechRef {
+	return l.technology(fullName, true, spec)
+}
+
+func (l *Lib) technology(name string, legacy bool, spec TechSpec) TechRef {
 	spec.Unlocks = copyRecipeRefs(spec.Unlocks)
 	spec.Unit = copyUnit(spec.Unit)
 	spec.CostBy = copyCostChoices(spec.CostBy)
-	l.techs = append(l.techs, techDecl{name: name, spec: spec})
+	spec.Extra = copyKVs(spec.Extra)
+	l.techs = append(l.techs, techDecl{name: name, legacy: legacy, spec: spec})
 	return TechRef{lib: l.id, index: len(l.techs)}
 }
 
@@ -441,6 +571,54 @@ func (l *Lib) effectiveNumericSpec(i int, bound []bool) NumericSpec {
 // consumer reusing one ingredient buffer across several recipes is ordinary
 // Go, and without these copies their second recipe would rewrite their first.
 // The Rust mirror needs none of it: its specs are moved, Vec and all.
+
+// copyKVs snapshots an Extra list, VALUES AND ALL.
+//
+// A shallow copy is not enough here, and Extra is the one place in the library
+// where that matters. Every other spec slice holds flat structs, so copying
+// the backbone copies everything; a Value holds Arr and Map SLICE HEADERS, so
+// a Pair carrying a container would leave the plan pointing at the caller's
+// backing array. Building the value inline hides it, but the shape a consumer
+// actually writes is a slice built up first and passed second:
+//
+//	flags := []Value{Str("hidden")}
+//	lib.Item("part", ItemSpec{Extra: []KV{Pair("flags", Arr(flags...))}})
+//	flags[0] = Str("something-else")   // would rewrite the declared plan
+//
+// THE RUST MIRROR NEEDS NONE OF THIS, and that asymmetry is by construction
+// rather than by omission: its extra is a Vec<(String, Value)> that is MOVED
+// into the declaration, so the caller has nothing left to mutate and an
+// aliasing bug of this shape cannot be written.
+func copyKVs(in []KV) []KV {
+	if in == nil {
+		return nil
+	}
+	out := make([]KV, len(in))
+	for i, e := range in {
+		out[i] = KV{Key: e.Key, Val: copyValue(e.Val)}
+	}
+	return out
+}
+
+// copyValue deep-copies a value's containers. Kind, Bool, Num and Str are
+// copied by the assignment itself: a Go string is immutable, so it needs no
+// copy of its own.
+func copyValue(v Value) Value {
+	out := v
+	if v.Arr != nil {
+		out.Arr = make([]Value, len(v.Arr))
+		for i, item := range v.Arr {
+			out.Arr[i] = copyValue(item)
+		}
+	}
+	if v.Map != nil {
+		out.Map = make([]KV, len(v.Map))
+		for i, e := range v.Map {
+			out.Map[i] = KV{Key: e.Key, Val: copyValue(e.Val)}
+		}
+	}
+	return out
+}
 
 func copyStrings(in []string) []string {
 	if in == nil {

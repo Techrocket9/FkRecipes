@@ -24,8 +24,8 @@ mod guest {
     use alloc::string::String;
     use alloc::vec;
     use fkrecipes::{
-        CostChoice, CostChoices, Ingredient, IngredientChoice, IngredientChoices, ItemSpec, Lib,
-        NumericSpec, Pack, RecipeSpec, TechSpec, UnitSpec,
+        kv, CostChoice, CostChoices, Ingredient, IngredientChoice, IngredientChoices, ItemSpec,
+        Lib, NumericSpec, Pack, RecipeSpec, TechSpec, UnitSpec, Value,
     };
 
     /// Declares the whole mod. Both stages call it, because the module is
@@ -84,6 +84,7 @@ mod guest {
                 subgroup: String::new(),
                 display_name: String::from("Hardened steel plate"),
                 description: String::from("Quenched and tempered, for tools that keep an edge."),
+                ..Default::default()
             },
         );
         let rivet = lib.item(
@@ -95,6 +96,10 @@ mod guest {
                 subgroup: String::from("intermediate-product"),
                 display_name: String::from("Steel rivet"),
                 description: String::new(),
+                // A sort key, so the rivets sit beside the plate they fasten
+                // rather than wherever the engine's name ordering puts them.
+                order: String::from("b[steelworks]-a[rivet]"),
+                ..Default::default()
             },
         );
 
@@ -105,6 +110,11 @@ mod guest {
                 result_count: 4,
                 ingredients: vec![Ingredient::named(1, "iron-plate", &[])],
                 display_name: String::from("Steel rivets"),
+                // A REAL 2.0 RECIPE FIELD this library has no slot for, passed
+                // through verbatim. That is what extra is: the library emits
+                // what it knows and gets out of the way for the rest, rather
+                // than growing a field per prototype property the engine has.
+                extra: vec![kv("allow_productivity", Value::Bool(true))],
                 ..Default::default()
             },
         );
@@ -151,6 +161,7 @@ mod guest {
                 }),
                 name: String::from("hardened-steel-plate-quenching"),
                 category: String::from("smelting"),
+                order: String::from("b[steelworks]-b[quenching]"),
                 display_name: String::from("Hardened steel plate"),
                 description: String::from("Quench the plate, then temper it back to workable."),
                 ..Default::default()

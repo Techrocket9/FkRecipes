@@ -11,13 +11,15 @@ import (
 // It takes the same World the data half takes, and the prefix comes from it,
 // NOT from a parameter: the two stages have to agree on a setting's name to
 // the byte, and a name passed in here can drift from the one PlanData reads
-// back. Of the World it asks only ModName, so the emit layer may pass one
-// that answers the data-stage questions emptily.
+// back. It asks only for the MOD NAME, which is why its parameter is Named
+// rather than World: a consumer's host test of their settings implements one
+// method, and World embeds Named so the emit layer hands the same value to
+// both planners.
 //
 // This is the seam the emit layer stands on at the settings stage; consumers
 // call Emit and never this. It is exported so a consumer's own tests can hold
 // a plan up to the light without a wasm toolchain.
-func (l *Lib) PlanSettings(w World) ([]Op, error) {
+func (l *Lib) PlanSettings(w Named) ([]Op, error) {
 	// A nil World is a Go-only hazard: the Rust mirror takes &dyn World,
 	// which cannot be null, so it needs no guard.
 	if w == nil {

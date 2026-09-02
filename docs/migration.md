@@ -2,7 +2,13 @@
 
 FkRecipes generates setting names from the mod it is packaged as, and it generates `order` strings from declaration order. That is right for a new mod and wrong for one that already has players: Factorio persists startup values in `mod-settings.dat` keyed by name, with no rename mechanism, so a setting that changes name is a setting that silently reverts to its default in every existing save and server config.
 
-This document is about the surfaces that let an existing mod adopt the library without changing anything a player can observe: setting names it keeps verbatim, ingredients a dropdown chooses, and a research cost a dropdown chooses. It assumes you have read [Using FkRecipes](usage.md).
+The same is true of prototype names. A save references an item by name in every inventory and on every belt, a technology by name in its researched list, a recipe by name in every assembler, and your own hand-rolled entity names its item through `place_result`. The engine's answer to a name that moved is not a warning:
+
+```
+Error in assignID: item with name 'bbb-balancer-part' does not exist.
+```
+
+This document is about the surfaces that let an existing mod adopt the library while keeping every name a player or a save can observe: settings and prototypes it keeps verbatim, ingredients a dropdown chooses, and a research cost a dropdown chooses. Names are what is preserved. Adoption is not free in other respects, and the [README](../README.md) carries the measured download and parse cost. It assumes you have read [Using FkRecipes](usage.md).
 
 ## Keeping the names you already ship
 
@@ -47,6 +53,56 @@ fkrecipes: two settings share the name steelworks-hardened-tools; the engine kee
 ```
 
 `CheckLocale` reads legacy settings under the names they actually carry, and keys their dropdown values `<legacy-name>-<value>` rather than `<prefix><legacy-name>-<value>`, so the locale file you already ship keeps validating. Once your names stop carrying the mod prefix, though, its orphan scan has nothing to work with: use `CheckLocaleWith` instead, as the worked example below does.
+
+## Keeping the prototype names you already ship
+
+The same three constructors exist for prototypes, and the argument is stronger: a setting reverts to its default when renamed, but a prototype reference DANGLES.
+
+```go
+part := lib.LegacyItem("bbb-balancer-part", fkrecipes.ItemSpec{
+	Icon:        "__better-belt-balancer__/graphics/icons/balancer-part.png",
+	IconSize:    64,
+	StackSize:   50,
+	Order:       "z[balancer]-a[part]",
+	PlaceResult: "bbb-balancer-1-to-2",
+})
+lib.LegacyRecipe(part, "bbb-balancer-part", fkrecipes.RecipeSpec{
+	Ingredients: []fkrecipes.Ingredient{
+		fkrecipes.IngredientNamed(2, "transport-belt"),
+		fkrecipes.IngredientNamed(1, "splitter"),
+	},
+})
+lib.LegacyTechnology("bbb-balancer", fkrecipes.TechSpec{
+	CostOf:  "logistics-2",
+	After:   "logistics-2",
+	Unlocks: []fkrecipes.RecipeRef{recipe},
+	Order:   "z-b-a",
+})
+```
+
+```rust
+let part = lib.legacy_item(
+    "bbb-balancer-part",
+    ItemSpec {
+        icon: "__better-belt-balancer__/graphics/icons/balancer-part.png".into(),
+        icon_size: 64,
+        stack_size: 50,
+        order: "z[balancer]-a[part]".into(),
+        place_result: "bbb-balancer-1-to-2".into(),
+        ..Default::default()
+    },
+);
+```
+
+The names are emitted verbatim, with no prefix. The handles are ORDINARY handles: `IngredientOf`, `Unlocks`, `AfterTech` and the splices take them exactly as they take a generated declaration's, so a plan can be part legacy and part generated and neither half needs to know.
+
+`PlaceResult` is the field that makes this concrete for BetterBeltBalancer. Its item is built by a hand-rolled `simple-entity-with-force` that names the item back, so a renamed item is the `assignID` abort quoted at the top of this page. The entity stays hand-rolled beside the `Emit` call, and the item names it through `PlaceResult`, which is presence probed: an entity that is not there is refused at plan time with the name in the message rather than aborting the load.
+
+Duplicate scans and the overwrite refusals run on the EMITTED names, which is the namespace the engine keeps. A legacy name that collides with a generated one is caught even though the declarations differ:
+
+```
+fkrecipes: two items share the name better-belt-balancer-balancer-part; the second would overwrite the first
+```
 
 ## Ingredients a dropdown chooses
 
@@ -216,7 +272,10 @@ The two startup dropdowns are what `IngredientsBy` and `CostBy` are for. `bbb-re
 
 Nothing forces an all-at-once move. A plan may mix legacy and generated settings, and a mod may keep declaring some settings by hand. The order that has caused the least churn is:
 
-1. Declare the existing settings with the legacy constructors, keeping every name, default, allowed-value list and order exactly as shipped. Check the settings prototypes hash the way they did before.
-2. Move the recipes and technologies across, using `IngredientsBy` and `CostBy` where a setting was driving a hand-rolled branch.
-3. Run `CheckLocaleWith` from your own test suite against the `.cfg` you already ship, passing the settings you still declare by hand. It should be clean, because the names have not moved, and anything it does report is a leftover the migration created.
-4. Add new settings with the generated constructors. Those get the prefix and a derived order, and they cost nothing to rename later because no save has ever seen them.
+1. Declare the existing settings with the `Legacy` setting constructors, keeping every name, default, allowed-value list and order exactly as shipped. Check the settings prototypes hash the way they did before.
+2. Move the prototypes across with `LegacyItem`, `LegacyRecipe` and `LegacyTechnology`, keeping every name and every field. `Order`, `PlaceResult` and `Extra` are how the fields this library has no slot of its own for still reach the prototype. Check the data dump hash the way you checked the settings one: for a faithful migration it should not move either.
+3. Use `IngredientsBy` and `CostBy` where a setting was driving a hand-rolled branch. This is the step that changes something, so it is the step whose hash is expected to move.
+4. Run `CheckLocaleWith` from your own test suite against the `.cfg` you already ship, passing the settings you still declare by hand. It should be clean, because the names have not moved, and anything it does report is a leftover the migration created. `LocaleEntries` reads the same file for assertions of your own, such as the entity name entry this library knows nothing about.
+5. Add new settings and prototypes with the generated constructors. Those get the prefix and a derived order, and they cost nothing to rename later because no save has ever seen them.
+
+Steps 1 and 2 are meant to be hash-neutral, which is what makes them safe to ship on their own. Step 3 is where behaviour changes, and separating them is what lets a bisect say which one did it.
