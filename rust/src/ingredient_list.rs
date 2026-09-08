@@ -631,8 +631,9 @@ fn one_entry(
                 name
             ));
         }
-        // THE CEILING IS MEASURED, not a type's limit: above about 1.07e301
-        // the engine does not refuse the load, it aborts inside
+        // THE CEILING IS MEASURED, not a type's limit: above 1.0715e301 (the
+        // wall is DBL_MAX / 2^24, see MAX_FLUID_AMOUNT for the bracket) the
+        // engine does not refuse the load, it aborts inside
         // FixedPointNumber with "double value not in range for fixed point
         // number: inf" and takes the crash handler with it. A number too big
         // for a double lands here as an infinity and gets the same sentence,

@@ -833,9 +833,11 @@ fn cost_preset_text(c: &CostChoice) -> String {
 /// The engine's ceiling on one localised string's parameters.
 ///
 /// MEASURED (Factorio 2.0.77, build 84539): a localised string with 21
-/// parameters refuses the load, and so does one nested 21 levels deep; 20 of
-/// each load, and two nested groups of 20 load. A dropdown with more presets
-/// than fit therefore NESTS rather than overflowing.
+/// parameters refuses the load, and so does one nested 20 tables deep; 20
+/// parameters and 19 nested tables load, and two nested groups of 20 load.
+/// (The engine's refusal counts one higher than the tables, "21 > 20 (limit)"
+/// for 20 of them; FkLua's data-stage probe pinned both limits.) A dropdown
+/// with more presets than fit therefore NESTS rather than overflowing.
 const MAX_LOCALISED_PARAMS: usize = 20;
 
 /// Wraps parameters in a concatenating localised string, nesting when there are

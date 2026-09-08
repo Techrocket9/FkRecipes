@@ -83,7 +83,7 @@ A refusal stops the game from loading and shows a message. Every message starts 
 | `... the amount must be more than 0` | An amount of 0. |
 | `... <name> is an item, and items take whole amounts` | A fraction on an item. |
 | `... <name> takes at most 65535` | An item amount above the game's limit. |
-| `... the amount is too large; fluid amounts go up to 1e301` | A fluid amount above what the game can hold (measured on Factorio 2.0.77: above about 1e301 the game does not refuse, it crashes). |
+| `... the amount is too large; fluid amounts go up to 1e301` | A fluid amount above what the game can hold. The game's own ceiling is 1.0715e301 (measured on Factorio 2.0.77: 1.0715e301 loads and 1.0716e301 aborts the game rather than refusing), and the round bound below it is the one enforced here. |
 | `... no item or fluid is named <name>` | An untagged name the game does not have. When lowercasing the name and replacing `_` with `-` produces a name the game has, the message ends `; did you mean <name>`. |
 | `... no item is named <name>` or `... no fluid is named <name>` | A tagged name the game does not have, with the same suggestion where one exists in the same kind. |
 | `... <name> is a fluid, and a recipe in the crafting category takes items only` | A fluid in a recipe whose category does not allow fluids. |

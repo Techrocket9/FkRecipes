@@ -104,8 +104,11 @@ const maxItemAmount int64 = 65535
 //
 // MEASURED: 1e301 loads and dumps; 1e302 ABORTS the engine with
 // "FixedPointNumber.hpp:31: double value not in range for fixed point number:
-// inf" and the crash handler. A crash is not a refusal a player can read, so
-// this half refuses first and names the ceiling.
+// inf" and the crash handler. The engine's own wall is DBL_MAX / 2^24 =
+// 1.0715086071862672e301 (the fixed-point conversion scales by 2^24; FkLua's
+// data-stage probe bracketed it at 1.0715e301 loads, 1.0716e301 aborts), and
+// the round number below it is the one this half enforces. A crash is not a
+// refusal a player can read, so this half refuses first and names the ceiling.
 const maxFluidAmount = 1e301
 
 // categoryTakesItemsOnly is the engine's fluid rule, written ONCE for the two
@@ -704,7 +707,8 @@ func parseEntry(entry, next string, kind listKind, category string, w World) (li
 		if kind == listRecipe && categoryTakesItemsOnly(category) {
 			return listEntry{}, nameTok.name + " is a fluid, and a recipe in the crafting category takes items only"
 		}
-		// MEASURED: above about 1e301 the engine does not refuse, it aborts.
+		// MEASURED: above 1.0715e301 the engine does not refuse, it aborts;
+		// the round bound below it is the one enforced. See maxFluidAmount.
 		if !finite(amount) || amount > maxFluidAmount {
 			return listEntry{}, "the amount is too large; fluid amounts go up to 1e301"
 		}

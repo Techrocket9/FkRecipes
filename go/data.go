@@ -1177,7 +1177,8 @@ func (l *Lib) validateIngredients(at, who, category string, ings []Ingredient) e
 			}
 			// THE CEILING IS THE ENGINE'S, and above it the engine does not
 			// refuse, it ABORTS (measured: 1e301 loads and dumps, 1e302 dies in
-			// FixedPointNumber.hpp with the crash handler). A crash is not
+			// FixedPointNumber.hpp with the crash handler; the wall itself is
+			// 1.0715086071862672e301, see maxFluidAmount). A crash is not
 			// something a player can read, so the declared path refuses here
 			// exactly as the typed path does, and AFTER the category rule,
 			// because a fluid in a crafting recipe is wrong at any amount.

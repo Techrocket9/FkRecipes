@@ -104,8 +104,10 @@ pub(crate) const MAX_ITEM_AMOUNT: i64 = 65535;
 /// ingredient of 1e301 loads and dumps as written; 1e302 does not refuse the
 /// load, it aborts inside the engine with "FixedPointNumber.hpp:31: double
 /// value not in range for fixed point number: inf" and hands the player the
-/// crash handler. A ceiling one order below the first abort is the round
-/// number on the safe side of a measurement, and the refusal quotes it.
+/// crash handler. The wall itself is DBL_MAX / 2^24 = 1.0715086071862672e301,
+/// the fixed-point conversion's scale; FkLua's data-stage probe bracketed it at
+/// 1.0715e301 loads and 1.0716e301 aborts. The round number below it is the
+/// ceiling on the safe side of the measurement, and the refusal quotes it.
 pub(crate) const MAX_FLUID_AMOUNT: f64 = 1e301;
 
 /// The engine's exclusive floor for a recipe's `energy_required`. A value must
