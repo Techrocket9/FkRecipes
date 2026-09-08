@@ -468,3 +468,35 @@ fn every_fkdata_stage_name_is_decided() {
         );
     }
 }
+
+/// THE SENTENCE THE EMIT LAYER RAISES FOR A NAME IT CANNOT READ AS TEXT.
+///
+/// It lives in the pure half for the reason `stage_kind` does: the only caller
+/// is wasm-gated, and a message written there is one no test can reach. This
+/// is the whole line a player would see under the host's stage prefix.
+///
+/// THE HEX IS THE POINT of the rendering. The bytes are what a reader has to
+/// go and look for in another mod's source, a terminal makes what it likes of
+/// them, and a lossy rewrite would print a length that is not the value's.
+/// fkdata's own `text` helper refuses the same way at the surfaces the ENGINE
+/// constrains, which is where the shape comes from.
+#[test]
+fn the_not_text_refusal_names_the_surface_and_prints_the_bytes() {
+    assert_eq!(
+        crate::value::not_text("a technology name in data.raw", &[0x6b, 0x2d, 0x80]),
+        "fkrecipes: a technology name in data.raw is not valid UTF-8, and this library reads it as text rather than rewriting it: the bytes are 6b2d80"
+    );
+    // Every nibble, so a table indexed the wrong way round cannot pass, and
+    // the empty case, which is what an empty prototype name would print.
+    assert_eq!(
+        crate::value::not_text(
+            "a prerequisite of the technology steel-processing",
+            &[0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef]
+        ),
+        "fkrecipes: a prerequisite of the technology steel-processing is not valid UTF-8, and this library reads it as text rather than rewriting it: the bytes are 0123456789abcdef"
+    );
+    assert_eq!(
+        crate::value::not_text("a technology name in data.raw", &[]),
+        "fkrecipes: a technology name in data.raw is not valid UTF-8, and this library reads it as text rather than rewriting it: the bytes are "
+    );
+}

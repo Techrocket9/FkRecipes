@@ -408,9 +408,9 @@ func unescapeCase(t *testing.T, line int, s string) string {
 			// A SURROGATE OR A POINT ABOVE U+10FFFF IS A READER ERROR, which
 			// the corpus header states, and it is a failure here rather than a
 			// substitution because utf8.AppendRune would quietly write U+FFFD
-			// for one: the case would then test the not-text rule instead of
-			// whatever it was written for, and it would pass. A case that
-			// needs those bytes writes them with \x.
+			// for one: the case would then be about a character nobody wrote,
+			// and the bytes it was written for would never reach the parser. A
+			// case that needs those bytes writes them with \x.
 			if !ok {
 				t.Fatalf("%s:%d: \\%c%s names a surrogate or a point above U+10FFFF, which is not a scalar value; write the bytes with \\x",
 					corpusPath, line, s[i+1], s[i+2:i+2+width])
@@ -476,11 +476,11 @@ func TestCorpusEscapesAreRead(t *testing.T) {
 		}
 	}
 	// THE ESCAPE THE READER REFUSES. utf8.AppendRune writes U+FFFD for a
-	// surrogate and for a point above U+10FFFF, and U+FFFD is the one
-	// character the parser refuses a whole text for: a corpus case written
-	// with \ud800 would silently become a test of the not-text rule and would
-	// pass. The reader fails the test instead, and this is the discrimination
-	// it fails on.
+	// surrogate and for a point above U+10FFFF: a corpus case written with
+	// \ud800 would silently become a case about a replacement character, and
+	// the unpaired-surrogate bytes it was written for would never be tested at
+	// all. The reader fails the test instead, and this is the discrimination it
+	// fails on.
 	for _, c := range []struct {
 		v    int64
 		want bool
@@ -651,17 +651,16 @@ func TestWholeTextRules(t *testing.T) {
 		tools:  []string{"automation-science-pack"},
 	}
 
-	// A TEXT THAT IS NOT TEXT. fkdata's Rust side decodes a stored value
-	// lossily and its Go side does not, so the two halves would quote different
-	// entries out of the same bytes. Both refuse the whole text instead, and
-	// both refuse U+FFFD itself, which is what the lossy decode leaves behind.
+	// A TEXT THAT IS NOT TEXT. fkdata hands both halves the stored bytes
+	// unchanged, and bytes that are not valid UTF-8 are refused whole rather
+	// than quoted at the player, so neither half has to be right about what
+	// they meant. U+FFFD is not in this list: it is an ordinary character the
+	// names rule refuses by quoting it, and the corpus pins that.
 	t.Run("not text", func(t *testing.T) {
 		want := "fkrecipes: mymod-parts contains characters that are not text; retype the list"
 		for _, in := range []string{
 			"2 iron-\xff\xfeplate",
 			"\xff",
-			"2 iron-\uFFFDplate",
-			"\uFFFD",
 			// The bytes of a lone surrogate, which no encoder should produce
 			// and a hand-edited file can still hold.
 			"2 \xed\xa0\x80 iron-plate",

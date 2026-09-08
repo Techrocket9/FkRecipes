@@ -216,12 +216,56 @@ impl World for DataWorld {
     /// `keys` is returned SORTED at every path. That is what the World
     /// contract asks of this method, so the guarantee is the host shim's
     /// rather than something this layer has to arrange.
+    ///
+    /// A NAME THAT IS NOT TEXT IS REFUSED. `World::tech_names` promises
+    /// `Vec<String>`, a Rust `String` cannot hold the bytes, and a Go `string`
+    /// can, so this is one of the THREE places this half parts company with the
+    /// Go half over bytes that are not UTF-8. The other two are
+    /// [`World::tech_prereqs`], which refuses the same way for the same reason,
+    /// and `from_v`, where a map KEY that is not text sinks the whole map to
+    /// Nil while the Go half carries that key in an ordinary string.
+    ///
+    /// THE ENGINE DOES NOT DELIVER ONE. A prototype name is constrained to
+    /// A-Z, a-z, 0-9, _ and - (measured, `agents/customizer-design.md`), so no
+    /// name that survives to the end of a stage can be anything else; what
+    /// reaches here is a mod that wrote into `data.raw` directly, mid-stage,
+    /// with a key the engine has not validated yet.
+    ///
+    /// AND REFUSING BEATS BOTH ALTERNATIVES. Rewriting the bytes lossily is
+    /// what fkdata's whole byte-exact contract exists to forbid; dropping the
+    /// name would hand the cycle walk a technology set the Go half does not
+    /// see, which is a divergence between the halves that says nothing out
+    /// loud. This says it out loud, through the sentence
+    /// [`crate::value::not_text`] builds, which lives in the pure half so that
+    /// a host test can pin it.
     fn tech_names(&self) -> Vec<String> {
-        fkdata::keys(&[fkdata::P::S("technology")])
+        let keys = fkdata::keys(&[fkdata::P::S("technology")]);
+        let mut out = Vec::with_capacity(keys.len());
+        for k in &keys {
+            match k.as_str() {
+                Some(t) => out.push(String::from(t)),
+                None => fkdata::raise(&crate::value::not_text(
+                    "a technology name in data.raw",
+                    k.as_bytes(),
+                )),
+            }
+        }
+        out
     }
 
+    /// A PREREQUISITE THAT IS NOT TEXT IS REFUSED, for the reason
+    /// [`World::tech_names`] gives: this list is spliced back into a
+    /// technology by name, so a name that cannot be spelled cannot be carried
+    /// through. The message names the technology, because that is the
+    /// prototype a reader has to go and look at.
     fn tech_prereqs(&self, name: &str) -> Vec<String> {
         let mut out = Vec::new();
+        // P::S, NOT P::B: `name` reached this method through
+        // `World::tech_names`, which already refused anything that was not
+        // text, or out of the plan's own declarations, which are text by
+        // construction. So no byte-only name can arrive here and there is
+        // nothing for fkdata's byte path element to spell. The same holds for
+        // every other path built in this module.
         if let Some(fkdata::V::Arr(items)) = fkdata::get(&[
             fkdata::P::S("technology"),
             fkdata::P::S(name),
@@ -229,7 +273,19 @@ impl World for DataWorld {
         ]) {
             for p in &items {
                 if let fkdata::V::Str(s) = p {
-                    out.push(s.clone());
+                    match s.as_str() {
+                        Some(t) => out.push(String::from(t)),
+                        // THE SURFACE IS COMPOSED ON THE REFUSAL PATH ONLY, so
+                        // the common case allocates nothing for a sentence
+                        // nobody reads. The two arms are spelled out here
+                        // rather than shared with `tech_names` through a
+                        // helper: what must not drift between them is the
+                        // SENTENCE, and that is `not_text`, in one place.
+                        None => fkdata::raise(&crate::value::not_text(
+                            &alloc::format!("a prerequisite of the technology {}", name),
+                            s.as_bytes(),
+                        )),
+                    }
                 }
             }
         }
@@ -347,17 +403,26 @@ fn name_leaf_exists(typ: &str, name: &str) -> bool {
 /// the order the planner built them in (fkdata sorts on the way out), an array
 /// stays an array, and a number is an f64 on both sides because Factorio has
 /// one number type.
+///
+/// A STRING IS BYTES ON fkdata's SIDE and one of two arms on this one. Writing
+/// is the easy direction: `str_` takes a `&str`'s bytes verbatim and `bytes_`
+/// takes the rest, so a value that came IN as bytes goes back OUT byte-exact
+/// and a plan that copied it never touched it.
 fn to_v(v: &Value) -> fkdata::V {
     match v {
         Value::Nil => fkdata::V::Nil,
         Value::Bool(b) => fkdata::V::Bool(*b),
         Value::Num(n) => fkdata::V::Num(*n),
-        Value::Str(s) => fkdata::V::Str(s.clone()),
+        Value::Str(s) => fkdata::str_(s),
+        Value::Bytes(b) => fkdata::bytes_(b),
         Value::Arr(items) => fkdata::V::Arr(items.iter().map(to_v).collect()),
+        // A KEY IS ALWAYS TEXT on this side: `Value::Map` is keyed by `String`
+        // and `from_v` refuses a map whose key is not, so there is no byte-only
+        // key to write back.
         Value::Map(pairs) => fkdata::V::Map(
             pairs
                 .iter()
-                .map(|(k, val)| (fkdata::V::Str(k.clone()), to_v(val)))
+                .map(|(k, val)| (fkdata::str_(k), to_v(val)))
                 .collect(),
         ),
     }
@@ -376,6 +441,24 @@ fn to_v(v: &Value) -> fkdata::V {
 /// unambiguous marker: the pure half refuses any copied unit that contains one,
 /// by name.
 ///
+/// A MAP KEY THAT IS NOT TEXT IS THE ONE SHAPE GO CARRIES AND THIS HALF DOES
+/// NOT. `Value::Map` is keyed by `String`, so a key whose bytes are not UTF-8
+/// has nowhere to go, and it takes the same answer a numeric key takes: the
+/// whole map becomes Nil, through the marker above.
+///
+/// WHICH REFUSAL A COPIED UNIT THEN TAKES DEPENDS ON WHERE THE KEY SAT, and the
+/// two positions are two sentences. NESTED inside the unit, the unit itself is
+/// still a map with a Nil somewhere in it, so `data.rs` reaches the pure half's
+/// dropped-subtree check and refuses by name with "the unit of X holds a table
+/// this library cannot copy faithfully". At the unit's OWN TOP LEVEL there is
+/// no map left to check: `World::tech_unit` hands back `Some(Value::Nil)`,
+/// which takes the `Some(_)` arm in `data.rs` and refuses with "X has a unit
+/// that is not a dictionary". Both stop the load and both name the source
+/// technology; neither is silent.
+///
+/// A VALUE that is not UTF-8 is carried, as `Value::Bytes`, and only a key is
+/// refused: the key is what this model cannot represent.
+///
 /// Every arm is spelled out and there is no catch-all: a variant added to
 /// fkdata's V should break this build rather than arrive as a silent nil.
 fn from_v(v: &fkdata::V) -> Value {
@@ -383,7 +466,14 @@ fn from_v(v: &fkdata::V) -> Value {
         fkdata::V::Nil => Value::Nil,
         fkdata::V::Bool(b) => Value::Bool(*b),
         fkdata::V::Num(n) => Value::Num(*n),
-        fkdata::V::Str(s) => Value::Str(s.clone()),
+        // THE CHECKED CONVERSION, and the decision is made here rather than
+        // deferred: text becomes `Str` and everything else becomes `Bytes`,
+        // byte for byte, because fkdata hands over what the engine holds and
+        // rewriting it is what this contract forbids.
+        fkdata::V::Str(s) => match s.as_str() {
+            Some(t) => Value::Str(String::from(t)),
+            None => Value::Bytes(Vec::from(s.as_bytes())),
+        },
         // A LuaObject: the handle table is the control stage's and
         // `fk_data.lua` does not bind it, so one is not expected here. It
         // lands on nil rather than being called impossible.
@@ -393,7 +483,10 @@ fn from_v(v: &fkdata::V) -> Value {
             let mut out = Vec::with_capacity(pairs.len());
             for (k, val) in pairs {
                 match k {
-                    fkdata::V::Str(key) => out.push(kv(key.as_str(), from_v(val))),
+                    fkdata::V::Str(key) => match key.as_str() {
+                        Some(text) => out.push(kv(text, from_v(val))),
+                        None => return Value::Nil,
+                    },
                     _ => return Value::Nil,
                 }
             }

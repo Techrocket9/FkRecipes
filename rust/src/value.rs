@@ -10,12 +10,48 @@ use alloc::vec::Vec;
 /// plan is compared byte for byte against the Go mirror, and hash iteration
 /// order is not a promise anyone made. fkdata sorts on the way out, so the
 /// order here is for the mirror and the transcripts, not for the engine.
+///
+/// IT GROWS ADDITIVELY, the way [`World`](crate::World) does and for the reason
+/// that trait's own note gives: `Bytes` was added to this enum once already,
+/// and a consumer matching exhaustively on it would have had their host tests
+/// stop compiling over a variant no plan of theirs ever constructs. So the
+/// enum is `#[non_exhaustive]` from 0.1.0, which costs a consumer a wildcard
+/// arm and is what Go's `Kind` switch already implies, since a Go switch on an
+/// int-like kind needs a default anyway. It binds only OTHER crates: this
+/// crate's own matches stay exhaustive, which is what `from_v`'s "no catch-all"
+/// note asks for, so a variant added later still breaks the emit layer's build
+/// rather than arriving there as a silent nil.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Value {
     Nil,
     Bool(bool),
     Num(f64),
     Str(String),
+    /// A STRING WHOSE BYTES ARE NOT TEXT. The host delivers such a value
+    /// byte-exact and never rewrites it: a stored setting somebody edited by
+    /// hand, a prototype field another mod wrote.
+    ///
+    /// THE ASYMMETRY WITH GO IS BY CONSTRUCTION, and it is recorded here
+    /// rather than smoothed over. A Go `string` IS a byte string, so the Go
+    /// mirror carries these bytes in an ordinary `Str` and its model has no
+    /// arm for them; a Rust `String` cannot hold them, so this model has one.
+    /// The two halves agree about the VALUE and differ only in how the type
+    /// system says it, EXCEPT A MAP KEY, which this model cannot represent at
+    /// all: `Map` is keyed by `String`, so `from_v` sinks a whole map whose key
+    /// is not text to Nil where the Go mirror carries the key.
+    ///
+    /// IT IS BUILT AT THE HOST BOUNDARY AND NOWHERE ELSE: `from_v` makes one
+    /// out of a fkdata string whose bytes are not UTF-8, and a test fixture
+    /// makes one to stand in for that. No planner constructs one, and no
+    /// planner takes a decision on the strength of one being here rather than
+    /// a `Str`, other than the two refusals that exist to say a text setting
+    /// or a dropdown cannot hold it.
+    ///
+    /// IT IS WRITTEN BACK OUT BYTE-EXACT by `to_v`, so a value the plan copies
+    /// and never inspects crosses unchanged, which is the contract fkdata
+    /// itself keeps.
+    Bytes(Vec<u8>),
     Arr(Vec<Value>),
     Map(Vec<(String, Value)>),
 }
@@ -40,6 +76,12 @@ impl Value {
     /// A string value.
     pub fn string(s: &str) -> Value {
         Value::Str(String::from(s))
+    }
+
+    /// A string value whose bytes are not text. See [`Value::Bytes`]: the host
+    /// boundary and the fixtures that stand in for it are the only callers.
+    pub fn bytes(b: &[u8]) -> Value {
+        Value::Bytes(Vec::from(b))
     }
 
     /// An array value, which the emit layer writes as a Lua sequence.
@@ -74,6 +116,53 @@ pub(crate) fn str_arr(names: &[String]) -> Value {
 /// stringifies before it gets here.
 pub(crate) fn localised(text: &str) -> Value {
     Value::Arr(alloc::vec![Value::string(""), Value::string(text)])
+}
+
+/// The refusal a byte string takes at the one surface of this library that
+/// cannot carry one: a name it has to read as text.
+///
+/// IT LIVES IN THE PURE HALF SO IT HAS A WITNESS. The only caller is the emit
+/// layer, which is wasm-gated and where no host test can reach a branch; the
+/// sentence a player would read is pinned by a host test here instead. The
+/// shape follows fkdata's own `text` helper, which refuses the same way for
+/// the same reason at the handful of surfaces the ENGINE constrains: the
+/// surface is named and the bytes are printed in hex, because a terminal makes
+/// what it likes of the bytes themselves and a lossy rewrite would change the
+/// value's length silently.
+///
+/// COMPILED WHERE IT IS READ AND NOWHERE ELSE, which is a stronger statement
+/// than silence. The only caller is behind `cfg(target_family = "wasm")` and
+/// the only witness is behind `cfg(test)`, so the plain host build a consumer's
+/// `cargo check` makes wants neither and the gate is exactly those two
+/// configurations. Written as `allow(dead_code)` instead, the item would be
+/// compiled into that build with its warning turned off, and the same
+/// attribute would go on turning the warning off under `cargo test`: deleting
+/// the witness would then cost nothing and this message would lose the only
+/// test that reads it. Under this shape each configuration that compiles the
+/// item has a reader, so deleting either one is a dead_code warning, which
+/// `RUSTFLAGS=-Dwarnings` makes a build failure. Making it `pub` would quiet
+/// the warning too, at the price of a message helper in this crate's public
+/// surface, which is the worse trade.
+#[cfg(any(target_family = "wasm", test))]
+pub(crate) fn not_text(surface: &str, bytes: &[u8]) -> String {
+    alloc::format!(
+        "fkrecipes: {} is not valid UTF-8, and this library reads it as text rather than rewriting it: the bytes are {}",
+        surface,
+        hex(bytes)
+    )
+}
+
+/// Lowercase hex, for the refusal above, and gated with it for the reason it
+/// gives.
+#[cfg(any(target_family = "wasm", test))]
+fn hex(b: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::new();
+    for x in b {
+        out.push(DIGITS[(x >> 4) as usize] as char);
+        out.push(DIGITS[(x & 0x0f) as usize] as char);
+    }
+    out
 }
 
 /// The guard every float crosses before it can reach an op. An infinity or a

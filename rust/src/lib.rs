@@ -78,4 +78,12 @@ pub use plan::{
     UnitSpec,
 };
 pub use value::{kv, Value};
-pub use world::{stage_kind, StageKind, World};
+// `Named` IS PART OF THE SURFACE, not an implementation detail of `World`.
+// `mod world` is private, so a supertrait left unexported would make `World`
+// a SEALED trait by accident: a consumer's host fixture could name the trait
+// and could not implement it, because the bound `W: fkrecipes::world::Named`
+// names a path outside their reach. docs/usage.md promises a fixture World of
+// your own works in Rust; this export is what makes that true, and
+// rust/tests/fixture_world.rs is the witness, written outside this crate so it
+// sees only what a consumer sees.
+pub use world::{stage_kind, Named, StageKind, World};

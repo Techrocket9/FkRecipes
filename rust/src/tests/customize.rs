@@ -3009,3 +3009,128 @@ fn a_custom_arms_declared_fluid_is_legal_where_the_recipe_takes_one() {
     lib.plan_data(&base_world())
         .expect("the data plan refused a fluid the recipe takes");
 }
+
+// ---------------------------------------------------------------------------
+// A STORED VALUE WHOSE BYTES ARE NOT TEXT.
+//
+// fkdata hands both halves the engine's own bytes and rewrites nothing, so a
+// stored value can be a sequence a Rust `String` cannot hold; `Value::Bytes`
+// is what one arrives as, and these are the surfaces that meet it. The Go
+// mirror has no such arm, because a Go `string` IS a byte string, so what is
+// pinned here is that both halves take the same DECISION over the same bytes,
+// not that the two models look alike.
+//
+// EVERY ONE OF THEM IS UNREACHABLE THROUGH THE SETTINGS SCREEN (measured: the
+// engine resets a stored value that is not one of a dropdown's values, and the
+// text field cannot produce invalid bytes), which is exactly why they are
+// tested: they exist for a mod-settings.dat somebody edited by hand, and
+// nobody will find them by playing.
+// ---------------------------------------------------------------------------
+
+/// A TEXT SETTING TAKES THE LANGUAGE'S OWN REFUSAL, not a shape refusal of the
+/// planner's. The bytes go to the parser unread, the way a text setting's
+/// bytes always do, and the parser's not-text guard answers: this half asks
+/// `core::str::from_utf8` where the Go half asks `utf8.ValidString`, and the
+/// corpus holds the two to that one sentence. Deciding it here instead would
+/// be a second answer to one question, in one half only.
+#[test]
+fn a_text_setting_holding_bytes_that_are_not_text_is_refused_by_the_language() {
+    let w = base_world().with_setting(
+        "steelworks-rivet-ingredients",
+        Value::bytes(b"2 iron-\xffplate"),
+    );
+    assert_eq!(
+        rivet_plan().plan_data(&w).err().as_deref(),
+        Some("fkrecipes: steelworks-rivet-ingredients contains characters that are not text; retype the list")
+    );
+}
+
+/// A DROPDOWN TAKES THE SAME REFUSAL AN UNLISTED VALUE TAKES, because that is
+/// what it is: an offered value comes from the author's own source and is
+/// text, so no offered value can be these bytes.
+///
+/// THE QUOTED VALUE IS THE ONE PLACE THE TWO HALVES' SENTENCES DIFFER, and it
+/// is a property of the refusal channel rather than of the decision: this
+/// half's messages are `String`s bound for `fkdata::raise`, which takes a
+/// `&str`, so the bytes are rendered lossily to be quoted; the Go half quotes
+/// them raw. The DECISION is identical, and it is the decision a player's load
+/// stands on.
+#[test]
+fn a_dropdown_holding_bytes_that_are_not_text_is_refused() {
+    let w = base_world().with_setting("steelworks-quench-medium", Value::bytes(b"br\xffine"));
+    assert_eq!(
+        quench_plan().plan_data(&w).err().as_deref(),
+        Some("fkrecipes: steelworks-quench-medium holds \"br\u{fffd}ine\", which is not one of its values")
+    );
+}
+
+/// A NUMBER SETTING CANNOT READ ONE, and does not try: bytes are not a number,
+/// so the read degrades exactly as an absent setting does, with the one line
+/// every unreadable setting writes. It is the same answer the Go half gives
+/// for the same reason, where the value's kind is not a number either.
+///
+/// BOTH NUMERIC READS ARE HERE because they are two pieces of code: a research
+/// cost's count and time come through `read_num_setting`, and a recipe's
+/// crafting time is read where the recipe is planned.
+#[test]
+fn a_number_setting_holding_bytes_is_unreadable_and_takes_its_default() {
+    let w = base_world()
+        .with_setting("steelworks-tips-research-tier", Value::string("custom"))
+        .with_setting("steelworks-tips-count", Value::bytes(b"45\xff"))
+        .with_setting("steelworks-tips-seconds", Value::bytes(b"12.5\xff"))
+        .with_setting("steelworks-tips-packs", Value::string("default"));
+    let ops = tips_plan(&["logistics"])
+        .plan_data(&w)
+        .expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: the setting steelworks-tips-count was not readable, so its default applies",
+            "log fkrecipes: the setting steelworks-tips-seconds was not readable, so its default applies",
+            "log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs: count 30, time 15, packs 1 automation-science-pack, 1 logistic-science-pack",
+            r#"extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics"], unit={count=30, time=15, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]]}}"#,
+        ],
+    );
+
+    let mut lib = Lib::new();
+    let axe = lib.item("steel-axe", ItemSpec::default());
+    let from = lib.double_setting("axe-craft-time", 2.5, NumericSpec::default());
+    lib.recipe(
+        axe,
+        RecipeSpec {
+            craft_time_from: from,
+            ..Default::default()
+        },
+    );
+    let w = base_world().with_setting("steelworks-axe-craft-time", Value::bytes(b"4\xff"));
+    let ops = lib.plan_data(&w).expect("plan refused");
+    assert_eq!(
+        transcript(&ops)[0],
+        "log fkrecipes: the setting steelworks-axe-craft-time was not readable, so its default applies"
+    );
+}
+
+/// A TEXT NOBODY IS READING STILL SAYS SO WHEN ITS BYTES ARE NOT TEXT. The
+/// parser's answer is what "edited" means here, and a value that does not
+/// parse is not the word `default`, so it is an edit; the refusal is
+/// discarded, exactly as it is for a list naming things the game does not
+/// have, and the player gets one line rather than a load failure over a text
+/// nothing was going to read.
+#[test]
+fn an_edited_text_that_is_not_text_is_ignored_out_loud() {
+    let w = base_world()
+        .with_setting("steelworks-quench-medium", Value::string("oil"))
+        .with_setting(
+            "steelworks-quench-ingredients",
+            Value::bytes(b"2 iron-\xffplate"),
+        );
+    let ops = quench_plan().plan_data(&w).expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: steelworks-quench-ingredients is edited, but steelworks-quench-medium is not on custom, so the text is ignored",
+            r#"extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-hardened-steel-plate", category="crafting-with-fluid", enabled=true, ingredients=[{type="item", name="steel-plate", amount=3}], results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}"#,
+        ],
+    );
+}

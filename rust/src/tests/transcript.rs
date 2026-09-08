@@ -44,12 +44,39 @@ pub(crate) fn render_path(path: &[PathEl]) -> String {
     out
 }
 
+/// A byte string's bytes, made readable WITHOUT being made lossy: printable
+/// ASCII stays itself, and `"`, `\` and everything outside that range become
+/// `\xNN`. Every reader of bytes in this suite shares it, which is what keeps a
+/// value holding the raw byte 0xff and a value holding a real U+FFFD from
+/// printing the same way in a failure report.
+pub(crate) fn escape_bytes(b: &[u8]) -> String {
+    let mut out = String::new();
+    for x in b {
+        match x {
+            0x20..=0x7e if *x != b'"' && *x != b'\\' => out.push(*x as char),
+            _ => out.push_str(&format!("\\x{:02x}", x)),
+        }
+    }
+    out
+}
+
 pub(crate) fn render_value(v: &Value) -> String {
     match v {
         Value::Nil => String::from("nil"),
         Value::Bool(b) => String::from(if *b { "true" } else { "false" }),
         Value::Num(n) => format_num(*n),
         Value::Str(s) => format!("\"{}\"", s),
+        // A BYTE STRING IS MARKED, so no expectation can read it as text: the
+        // `b` prefix and the `\xNN` escapes say which arm the value is on, and
+        // a rendering that quietly printed the bytes would let a `Str` and a
+        // `Bytes` holding the same ASCII produce the same line.
+        //
+        // THIS ONE RENDERING IS NOT MIRRORED, and it cannot be: the Go model
+        // has no Bytes arm at all, so its renderer prints the bytes raw inside
+        // the quotes a `Str` gets. No cross-language expectation may carry one,
+        // which costs nothing, because the two example guests emit no such
+        // value and the mirror harness never sees this function.
+        Value::Bytes(b) => format!("b\"{}\"", escape_bytes(b)),
         Value::Arr(items) => {
             let parts: Vec<String> = items.iter().map(render_value).collect();
             format!("[{}]", parts.join(", "))

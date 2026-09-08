@@ -25,7 +25,13 @@ cd go && go vet ./...
 cd go && go test ./...        # pure half on the host: planner, validators. No wasm toolchain needed
 cd go && go test -race ./...  # the id counter is atomic for consumers' parallel tests; -race is what proves it stays so
 cd go/examples/notext && go vet .   # the size fixture compiles on the host; nothing in scripts/ builds it
-cd rust && cargo test         # the Rust mirror of the same pure half. No wasm target needed
+cd rust && cargo fmt --check  # formatting, the Rust twin of the gofmt row
+cd rust && cargo test         # the Rust mirror of the same pure half. No wasm target needed; runs the
+                              # public-surface witness in rust/tests/ as well as the crate's own suite
+cd rust && RUSTFLAGS=-Dwarnings cargo clippy --workspace --all-targets
+                              # lints AND warnings as errors, every target: a helper that only a wasm
+                              # caller and a host test reach is cfg-gated to exactly those two, so a
+                              # deleted caller is a build error here rather than a silenced warning
 cd rust && cargo build --target wasm32-unknown-unknown --workspace
                               # every member compiles for the target it ships on; cargo test alone
                               # builds the std host shape and would read as green over a wasm break
@@ -70,7 +76,11 @@ go/                     the Go half: module github.com/Techrocket9/fkrecipes/go,
 rust/                   the Rust half: crate fkrecipes, workspace root. fkdata arrives as a git
                         dependency on https://github.com/Techrocket9/fklua, wasm-gated so the host
                         cargo test needs no wasm target; the [patch] one-source note is in Cargo.toml.
-                        src/ingredient_list.rs is the language's mirror
+                        Cargo.lock pins that repository at b88965d (moved only by
+                        `cargo update -p fkdata -p fk`, never by a replace or a patch), the same head
+                        the harness builds fklua from. src/ingredient_list.rs is the language's
+                        mirror; tests/ is the public-surface witness, a separate crate that sees only
+                        what a consumer sees (it is what proved World was sealed by accident)
 go/examples/datastage   the Go example guest, its own module (a consumer-shaped project; fkrecipes by
                         replace, the FkLua substrate by the real v0.2.0 require)
 rust/examples/datastage the Rust example guest (workspace member), the mirror harness's Rust arm

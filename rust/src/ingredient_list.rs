@@ -151,7 +151,7 @@ pub(crate) struct ListEntry {
 /// again with every other test still green.
 pub(crate) struct Language {
     pub(crate) parse: ParseFn,
-    pub(crate) is_edited: fn(&str, ListKind, &str, &str, &dyn World) -> bool,
+    pub(crate) is_edited: fn(&[u8], ListKind, &str, &str, &dyn World) -> bool,
     pub(crate) render: fn(&ListText) -> String,
     pub(crate) render_list: fn(&IngredientList) -> String,
     pub(crate) format_amount: fn(f64) -> String,
@@ -160,7 +160,7 @@ pub(crate) struct Language {
 /// The parser's own signature, named rather than spelled in the field above
 /// because it is the one signature here long enough that clippy calls it
 /// complex.
-pub(crate) type ParseFn = fn(&str, ListKind, &str, &str, &dyn World) -> Result<ListText, String>;
+pub(crate) type ParseFn = fn(&[u8], ListKind, &str, &str, &dyn World) -> Result<ListText, String>;
 
 /// The one table there is. See [`Language`] for why it is reached by pointer.
 pub(crate) static LANGUAGE: Language = Language {
@@ -194,6 +194,10 @@ enum Tok {
 /// Reads a player's text into a resolved list or the default marker, or
 /// refuses with the whole message.
 ///
+/// IT TAKES BYTES, because that is what a stored setting IS: fkdata hands both
+/// halves the engine's own bytes and rewrites nothing, so the decision about
+/// whether they are text belongs to the reader, and this is the reader.
+///
 /// `setting` is the setting's FULL name, which every message carries;
 /// `category` is the recipe's declared category, which decides whether a
 /// fluid may appear at all and is ignored for [`ListKind::Packs`].
@@ -201,24 +205,39 @@ enum Tok {
 /// The Err is the complete sentence, ready for `fkdata::raise`, and carries
 /// NO stage of its own: the host prefixes the stage.
 pub(crate) fn parse(
-    text: &str,
+    text: &[u8],
     kind: ListKind,
     category: &str,
     setting: &str,
     w: &dyn World,
 ) -> Result<ListText, String> {
-    // NOT TEXT, FIRST AND WHOLE. fkdata's Rust side decodes a stored value
-    // lossily, so bytes that are not UTF-8 arrive here as U+FFFD rather than
-    // as an error; the Go side would keep them. Refusing on the replacement
-    // character is what makes the two halves say the same thing about a
-    // mod-settings.dat somebody edited by hand, and it costs a player nothing
-    // because the settings screen cannot produce one.
-    if text.contains('\u{fffd}') {
-        return Err(format!(
-            "fkrecipes: {} contains characters that are not text; retype the list",
-            setting
-        ));
-    }
+    // NOT TEXT, FIRST AND WHOLE, AND THE BYTES ARE WHAT SAY SO. This is the
+    // exact mirror of the Go half's utf8.ValidString: fkdata delivers what the
+    // engine holds, so a mod-settings.dat somebody edited by hand arrives here
+    // as the invalid sequence itself and the two halves answer one question
+    // rather than two. It costs a player nothing, because the settings screen
+    // cannot produce such a value.
+    //
+    // U+FFFD IS AN ORDINARY CHARACTER HERE and no longer a proxy for one. The
+    // old check refused any text containing the replacement character, because
+    // the lossy decode this half used to sit behind was the only shape invalid
+    // bytes could take; now that nothing rewrites them, a player who pasted a
+    // real U+FFFD is answered by the ordinary character rules, which quote it.
+    // WHICH of those rules answers depends on where it sits, exactly as it does
+    // for any other character: bare in an entry it is the names rule (measured:
+    // `"\u{fffd}" has no place here; names use the letters a to z, ...`), inside
+    // a tag it is the tag rule (`a tag is [item=name] or [fluid=name]`), and a
+    // text whose first problem is elsewhere takes that problem instead. This is
+    // the answer the Go half always gave and which the corpus pins.
+    let text = match core::str::from_utf8(text) {
+        Ok(t) => t,
+        Err(_) => {
+            return Err(format!(
+                "fkrecipes: {} contains characters that are not text; retype the list",
+                setting
+            ))
+        }
+    };
     if text.chars().count() > MAX_TEXT {
         return Err(format!(
             "fkrecipes: {} is longer than {} characters; that is not an ingredient list",
@@ -373,7 +392,7 @@ pub(crate) fn parse(
 /// the word, so it is an edit, and it stays one log line rather than a load
 /// failure over a list nothing was going to read.
 pub(crate) fn is_edited(
-    text: &str,
+    text: &[u8],
     kind: ListKind,
     category: &str,
     setting: &str,

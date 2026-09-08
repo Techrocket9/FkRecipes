@@ -1156,13 +1156,21 @@ fn note_ignored_text(
     dropdown: &str,
     cv: &str,
 ) {
-    if let Some(Value::Str(text)) = own.startup_setting(full) {
-        if (lang.is_edited)(&text, kind, category, full, own) {
-            res.logs.push(format!(
-                "fkrecipes: {} is edited, but {} is not on {}, so the text is ignored",
-                full, dropdown, cv
-            ));
-        }
+    // Both string shapes are looked at, for the reason `read_text_setting`
+    // gives: what counts as an edit is the parser's answer over the same bytes
+    // the data path would have read, and a stored value whose bytes are not
+    // text is an edit like any other rather than something to pass over in
+    // silence.
+    let stored = match own.startup_setting(full) {
+        Some(Value::Str(text)) => text.into_bytes(),
+        Some(Value::Bytes(b)) => b,
+        _ => return,
+    };
+    if (lang.is_edited)(&stored, kind, category, full, own) {
+        res.logs.push(format!(
+            "fkrecipes: {} is edited, but {} is not on {}, so the text is ignored",
+            full, dropdown, cv
+        ));
     }
 }
 
@@ -1758,19 +1766,36 @@ impl Resolution {
     /// choice and the recipe came out made of nothing with no line in the log.
     fn read_dropdown(&mut self, w: &dyn World, s: &SettingDecl, prefix: &str) -> String {
         let full = s.emitted_name(prefix);
-        if let Some(Value::Str(v)) = w.startup_setting(&full) {
-            if s.values.contains(&v) {
-                return v;
+        // What the refusal below quotes, for the two shapes a stored string
+        // arrives in. A value whose bytes are not text takes the SAME refusal
+        // as any other unlisted value, because that is what it is: an offered
+        // value comes from the author's own source and is text, so no offered
+        // value can be these bytes.
+        //
+        // IT IS NOT COMPARED, only quoted. Rendering it for the sentence is
+        // lossy (`fkdata::raise` takes a `&str`, so a refusal is text on this
+        // side; the Go half quotes the raw bytes, which is the one place the
+        // two sentences can differ), and a lossy rewrite fed into the
+        // comparison could match an offered value the engine never stored.
+        let quoted = match w.startup_setting(&full) {
+            Some(Value::Str(v)) => {
+                if s.values.contains(&v) {
+                    return v;
+                }
+                v
             }
-            self.refuse(format!(
-                "fkrecipes: {} holds \"{}\", which is not one of its values",
-                full, v
-            ));
-            return s.def_str.clone();
-        }
-        self.logs.push(format!(
-            "fkrecipes: the setting {} was not readable, so its default applies",
-            full
+            Some(Value::Bytes(b)) => String::from_utf8_lossy(&b).into_owned(),
+            _ => {
+                self.logs.push(format!(
+                    "fkrecipes: the setting {} was not readable, so its default applies",
+                    full
+                ));
+                return s.def_str.clone();
+            }
+        };
+        self.refuse(format!(
+            "fkrecipes: {} holds \"{}\", which is not one of its values",
+            full, quoted
         ));
         s.def_str.clone()
     }
@@ -1887,9 +1912,21 @@ impl Lib {
     /// stage runs (measured), so this is a hand-edited file, and guessing what
     /// a number meant as an ingredient list is not something to do on a
     /// player's behalf.
-    fn read_text_setting(&self, w: &dyn World, res: &mut Resolution, full: &str) -> Option<String> {
+    ///
+    /// IT YIELDS BYTES, and both string arms are one answer here. Whether a
+    /// stored value is text is the LANGUAGE's question, asked once at the top
+    /// of its parse and answered the same way in both halves; a second answer
+    /// taken here, by treating `Value::Bytes` as "not a string", would refuse
+    /// with the wrong sentence and would be a rule only this half has.
+    fn read_text_setting(
+        &self,
+        w: &dyn World,
+        res: &mut Resolution,
+        full: &str,
+    ) -> Option<Vec<u8>> {
         match w.startup_setting(full) {
-            Some(Value::Str(text)) => Some(text),
+            Some(Value::Str(text)) => Some(text.into_bytes()),
+            Some(Value::Bytes(b)) => Some(b),
             Some(_) => {
                 res.refuse(format!("fkrecipes: {} is not text", full));
                 None
@@ -1899,7 +1936,7 @@ impl Lib {
                     "fkrecipes: the setting {} was not readable, so its default applies",
                     full
                 ));
-                Some(String::from(DEFAULT))
+                Some(Vec::from(DEFAULT.as_bytes()))
             }
         }
     }

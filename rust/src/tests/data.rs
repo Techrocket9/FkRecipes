@@ -2459,3 +2459,76 @@ fn a_second_lib_sharing_a_name_is_still_refused() {
         ),
     }
 }
+
+/// A COPIED UNIT CROSSES BYTE-EXACT, INCLUDING A NAME THIS HALF CANNOT SPELL.
+///
+/// `cost_of` copies another technology's whole unit verbatim, and another
+/// mod's science pack can be named with bytes that are not UTF-8: fkdata hands
+/// them over unchanged, so they arrive as `Value::Bytes` and go back out
+/// through `bytes_` as the same bytes. Nothing in the pure half reads them,
+/// which is the point. The dropped-subtree check does not fire either, because
+/// a byte string is a VALUE that arrived whole and not the Nil marker a table
+/// dropped on the way in leaves behind.
+///
+/// The Go mirror carries the same bytes in an ordinary string and emits the
+/// same unit; only the transcript's rendering differs, because the Go model
+/// has no arm to mark.
+#[test]
+fn a_copied_unit_carries_a_pack_name_that_is_not_text() {
+    const PACK: &[u8] = b"othermod-p\xffck";
+    let unit = Value::Map(alloc::vec![
+        kv("count", Value::Num(200.0)),
+        kv(
+            "ingredients",
+            Value::Arr(alloc::vec![Value::Arr(alloc::vec![
+                Value::bytes(PACK),
+                Value::Num(1.0)
+            ])])
+        ),
+        kv("time", Value::Num(30.0)),
+    ]);
+
+    let mut lib = Lib::new();
+    lib.technology(
+        "hardened-tips",
+        TechSpec {
+            cost_of: "steel-processing".into(),
+            ..Default::default()
+        },
+    );
+    let w = base_world().with_unit("steel-processing", unit);
+    let ops = lib.plan_data(&w).expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            r#"extend {type="technology", name="steelworks-hardened-tips", unit={count=200, ingredients=[[b"othermod-p\xffck", 1]], time=30}}"#,
+        ],
+    );
+
+    // THE RENDERING IS NOT THE PROPERTY, the bytes are: the transcript above
+    // could agree with itself while the value carried something else, so the
+    // op stream is walked and the name is compared byte for byte.
+    let mut found = 0usize;
+    for op in &ops {
+        if let Op::Extend(proto) = op {
+            let unit = field(proto, "unit").expect("the technology carries no unit");
+            let ings = field(&unit, "ingredients").expect("the unit carries no ingredients");
+            let Value::Arr(entries) = ings else {
+                panic!("the ingredients are not an array")
+            };
+            for e in &entries {
+                let Value::Arr(pair) = e else {
+                    panic!("an ingredient is not the short tuple form")
+                };
+                assert_eq!(
+                    pair[0],
+                    Value::Bytes(alloc::vec::Vec::from(PACK)),
+                    "the pack name did not cross unchanged"
+                );
+                found += 1;
+            }
+        }
+    }
+    assert_eq!(found, 1, "the walk did not reach the copied pack name");
+}

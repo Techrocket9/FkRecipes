@@ -21,6 +21,7 @@ use std::path::PathBuf;
 
 use crate::ingredient_list::{format_amount, parse, render, IngredientList, ListKind, ListText};
 use crate::plan::Amount;
+use crate::tests::escape_bytes;
 use crate::value::Value;
 use crate::world::{Named, World};
 
@@ -88,7 +89,9 @@ struct Case {
     kind: ListKind,
     category: String,
     setting: String,
-    input: String,
+    /// The stored value's BYTES, which is what a setting holds and what the
+    /// language is handed.
+    input: Vec<u8>,
     /// The expected canonical rendering, or `None` for a refusal.
     ok: Option<String>,
     refusal: Option<String>,
@@ -98,10 +101,10 @@ fn corpus_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../testdata/ingredient-list/cases.txt")
 }
 
-/// The text between the FIRST and the LAST bar, verbatim: the corpus says so,
+/// The BYTES between the FIRST and the LAST bar, verbatim: the corpus says so,
 /// which is how a case can carry leading and trailing spaces and how an empty
 /// input is written.
-fn between_bars(line: &str, no: usize) -> String {
+fn between_bars(line: &str, no: usize) -> Vec<u8> {
     let first = line
         .find('|')
         .unwrap_or_else(|| panic!("line {} has no opening bar: {}", no, line));
@@ -112,14 +115,32 @@ fn between_bars(line: &str, no: usize) -> String {
     unescape(&line[first + 1..last], no)
 }
 
+/// An EXPECTATION is text, and an `in:` line is not. A case's input is a
+/// stored setting's bytes, which is exactly what may not be text; what comes
+/// back out is a canonical rendering or a refusal, both of which this half
+/// builds as a `String`. So a corpus line that expects something no half could
+/// produce is a mistake in the FILE, and it is caught here rather than being
+/// compared lossily against a message and passing for the wrong reason.
+fn expectation(line: &str, no: usize) -> String {
+    let bytes = between_bars(line, no);
+    String::from_utf8(bytes).unwrap_or_else(|_| {
+        panic!(
+            "line {}: an ok or refuse line whose bytes are not UTF-8; every message a half can produce is text",
+            no
+        )
+    })
+}
+
 /// The corpus's escapes, applied to `in:`, `ok:` and `refuse:` alike.
 ///
-/// IT BUILDS BYTES AND CONVERTS THE WAY fkdata DOES ON THE WIRE. `\xNN` is one
-/// RAW BYTE, so a case can hold a stored value that is not valid UTF-8 at all,
-/// and the lossy conversion turns it into U+FFFD exactly as the guest sees it
-/// coming out of a hand-edited mod-settings.dat. Doing this any other way
-/// would make the not-text rule untestable from the file both halves share.
-fn unescape(text: &str, no: usize) -> String {
+/// IT BUILDS RAW BYTES AND CONVERTS NOTHING. `\xNN` is one raw byte, so a case
+/// can hold a stored value that is not valid UTF-8 at all, and what the library
+/// gets is that value: fkdata hands a guest the engine's own bytes, so a
+/// reader that decoded them first would be answering the not-text question on
+/// the library's behalf and every such case would pass for the wrong reason.
+/// The `\xff\xfe` case is the whole point of that: it now reaches the parser's
+/// own `from_utf8` rather than this reader's conversion.
+fn unescape(text: &str, no: usize) -> Vec<u8> {
     let mut bytes: Vec<u8> = Vec::with_capacity(text.len());
     let mut cs = text.chars();
     while let Some(c) = cs.next() {
@@ -148,7 +169,7 @@ fn unescape(text: &str, no: usize) -> String {
             other => panic!("line {}: \\{} is not one of the corpus escapes", no, other),
         }
     }
-    String::from_utf8_lossy(&bytes).into_owned()
+    bytes
 }
 
 fn hex(cs: &mut std::str::Chars, digits: usize, no: usize) -> u32 {
@@ -192,7 +213,7 @@ fn read_corpus() -> (CorpusWorld, Vec<Case>) {
     let mut kind = ListKind::Recipe;
     let mut category = String::new();
     let mut setting = String::new();
-    let mut pending: Option<(usize, String)> = None;
+    let mut pending: Option<(usize, Vec<u8>)> = None;
 
     for (i, raw) in text.lines().enumerate() {
         let no = i + 1;
@@ -257,9 +278,9 @@ fn read_corpus() -> (CorpusWorld, Vec<Case>) {
             continue;
         }
         let (want_ok, body) = if line.starts_with("ok:") {
-            (true, between_bars(line, no))
+            (true, expectation(line, no))
         } else if line.starts_with("refuse:") {
-            (false, between_bars(line, no))
+            (false, expectation(line, no))
         } else {
             panic!(
                 "line {}: not a section, an input or an expectation: {}",
@@ -368,34 +389,37 @@ fn push_names(
 }
 
 /// THE ESCAPES THEMSELVES, before any case rests on them. A reader that
-/// dropped `\xff` on the floor would turn the not-text cases into ordinary
-/// text and they would pass for the wrong reason.
+/// dropped `\xff` on the floor, or decoded it before the library saw it, would
+/// turn the not-text cases into ordinary text and they would pass for the
+/// wrong reason.
 #[test]
-fn the_corpus_escapes_build_bytes_and_decode_lossily() {
+fn the_corpus_escapes_build_raw_bytes() {
     for (written, want) in [
-        ("plain", String::from("plain")),
-        ("a\\tb", String::from("a\tb")),
-        ("a\\r\\nb", String::from("a\r\nb")),
-        ("a\\\\b", String::from("a\\b")),
-        ("\\x41", String::from("A")),
-        ("\\u00D7", String::from("\u{00d7}")),
-        ("\\U0001F642", String::from("\u{1f642}")),
-        // One raw byte that is not UTF-8 becomes exactly one U+FFFD, which is
-        // what fkdata's lossy decode hands the guest.
-        ("a\\xffb", String::from("a\u{fffd}b")),
+        ("plain", b"plain".to_vec()),
+        ("a\\tb", b"a\tb".to_vec()),
+        ("a\\r\\nb", b"a\r\nb".to_vec()),
+        ("a\\\\b", b"a\\b".to_vec()),
+        ("\\x41", b"A".to_vec()),
+        // A code point escape is its UTF-8 encoding, one byte per byte.
+        ("\\u00D7", vec![0xc3, 0x97]),
+        ("\\U0001F642", vec![0xf0, 0x9f, 0x99, 0x82]),
+        // One raw byte that is not UTF-8 stays that one byte: nothing between
+        // the file and the library rewrites it, which is what fkdata promises
+        // between the engine and the library.
+        ("a\\xffb", vec![b'a', 0xff, b'b']),
         // Two bytes of a truncated sequence, which is the shape a corpus case
-        // uses, and the parser must refuse whatever number of replacement
-        // characters it lands on.
-        ("\\xff\\xfe", String::from("\u{fffd}\u{fffd}")),
+        // uses.
+        ("\\xff\\xfe", vec![0xff, 0xfe]),
     ] {
         assert_eq!(unescape(written, 0), want, "escaping {:?}", written);
     }
 
     // A CODE POINT ESCAPE NAMES A SCALAR VALUE, and the corpus header says so:
-    // a surrogate or a point above U+10FFFF is a mistake in the FILE, and a
-    // reader that quietly substituted U+FFFD would turn such a case into a
-    // not-text case that passes for the wrong reason. A case needing those
-    // bytes writes them with \x.
+    // a surrogate or a point above U+10FFFF is a mistake in the FILE, and it is
+    // a failure here rather than a substitution because a reader that quietly
+    // wrote U+FFFD for one would make the case about a character nobody wrote,
+    // and the bytes it was written for would never reach the parser at all. A
+    // case that needs those bytes writes them with \x.
     for written in ["\\uD800", "\\U00110000"] {
         let got = panic::catch_unwind(|| unescape(written, 0));
         assert!(
@@ -404,6 +428,19 @@ fn the_corpus_escapes_build_bytes_and_decode_lossily() {
             written
         );
     }
+
+    // AND AN EXPECTATION IS TEXT, which is a separate rule about a separate
+    // kind of line. An `in:` line carries a stored setting's bytes and need not
+    // be text; an `ok:` or a `refuse:` line names something a half must
+    // PRODUCE, and every message either half can produce is built as a String.
+    // So an expectation whose bytes are not UTF-8 is a mistake in the FILE too,
+    // and `expectation` fails on it rather than folding it to U+FFFD and
+    // comparing that against a message.
+    let got = panic::catch_unwind(|| expectation("refuse:|\\xff|", 0));
+    assert!(
+        got.is_err(),
+        "the reader accepted an expectation whose bytes are not text"
+    );
 }
 
 /// EVERY CASE, byte for byte. A mismatch prints the section, the input, what
@@ -452,7 +489,22 @@ fn the_corpus_is_the_contract() {
 fn report(c: &Case, want: &str, got: &str) -> String {
     format!(
         "{} case at line {}\n  in:   |{}|\n  want: |{}|\n  got:  |{}|",
-        c.section, c.line, c.input, want, got
+        c.section,
+        c.line,
+        // FOR THE REPORT ONLY, AND NOT LOSSILY. An input's bytes need not be
+        // text, and this is the one place they are rendered rather than
+        // compared. A lossy reading prints a raw-byte case and a case that
+        // really holds U+FFFD as replacement characters either way, with
+        // nothing in the line saying which of the two the FILE wrote:
+        // measured, the corpus case `2 iron-\xff\xfeplate` and the case
+        // `2 iron-\uFFFDplate` came out as the same glyph repeated a
+        // different number of times, which nobody reads as a difference in
+        // kind. Escaped they are `2 iron-\xff\xfeplate` and
+        // `2 iron-\xef\xbf\xbdplate`. The escaping is the transcript's, so a
+        // byte string reads the same way everywhere in this suite.
+        escape_bytes(&c.input),
+        want,
+        got
     )
 }
 
@@ -471,7 +523,7 @@ fn every_canonical_rendering_parses_to_itself() {
             None => continue,
         };
         checked += 1;
-        let list = match parse(want, c.kind, &c.category, &c.setting, &world) {
+        let list = match parse(want.as_bytes(), c.kind, &c.category, &c.setting, &world) {
             Ok(list) => list,
             Err(got) => panic!(
                 "{} line {}: the canonical rendering |{}| is refused: {}",
@@ -572,13 +624,13 @@ fn rendering_then_parsing_is_an_identity() {
     });
     assert_eq!(render(&empty), "none");
     assert_eq!(
-        parse("none", ListKind::Recipe, "crafting", "mymod-parts", &world),
+        parse(b"none", ListKind::Recipe, "crafting", "mymod-parts", &world),
         Ok(empty)
     );
     assert_eq!(render(&ListText::Default), "default");
     assert_eq!(
         parse(
-            "default",
+            b"default",
             ListKind::Recipe,
             "crafting",
             "mymod-parts",
@@ -620,7 +672,7 @@ fn rendering_then_parsing_is_an_identity() {
         let list = ListText::List(IngredientList { entries });
         let text = render(&list);
         let back = parse(
-            &text,
+            text.as_bytes(),
             ListKind::Recipe,
             "crafting-with-fluid",
             "mymod-parts",
@@ -750,11 +802,16 @@ fn a_crafting_recipe_hears_about_the_category_before_the_ceiling() {
     // 1e302, written the way this language spells a number: the exponent form
     // is refused as a shape before anything looks at how large it is.
     let entry = format!("{} water", digits_then_zeros("1", 302));
-    let refused =
-        |category: &str| match parse(&entry, ListKind::Recipe, category, "mymod-parts", &world) {
-            Ok(list) => panic!("the entry was accepted as {}", render(&list)),
-            Err(got) => got,
-        };
+    let refused = |category: &str| match parse(
+        entry.as_bytes(),
+        ListKind::Recipe,
+        category,
+        "mymod-parts",
+        &world,
+    ) {
+        Ok(list) => panic!("the entry was accepted as {}", render(&list)),
+        Err(got) => got,
+    };
     assert_eq!(
         refused("crafting"),
         format!(
@@ -864,7 +921,7 @@ fn the_whole_text_guards_hold_at_their_boundaries() {
         fluids: names(&["water"]),
         tools: names(&["automation-science-pack"]),
     };
-    let read = |text: &str| parse(text, ListKind::Recipe, "crafting", "mymod-parts", &world);
+    let read = |text: &[u8]| parse(text, ListKind::Recipe, "crafting", "mymod-parts", &world);
 
     // THE LENGTH IS COUNTED IN SCALARS, not in bytes: a list of 1000 two-byte
     // names is 2000 characters and is read, and one character more is not.
@@ -877,7 +934,8 @@ fn the_whole_text_guards_hold_at_their_boundaries() {
     }
     long.push_str("1 iron-plate");
     assert_eq!(long.chars().count(), 2000);
-    let at_the_limit = read(&long).expect_err("2000 characters of duplicates are read and refused");
+    let at_the_limit =
+        read(long.as_bytes()).expect_err("2000 characters of duplicates are read and refused");
     assert_eq!(
         at_the_limit, "fkrecipes: mymod-parts: entries 1 and 2 both name iron-plate",
         "a 2000-character text is READ; the length guard must not fire on it"
@@ -888,30 +946,35 @@ fn the_whole_text_guards_hold_at_their_boundaries() {
         ("far over", "x".repeat(98_000)),
     ] {
         assert_eq!(
-            read(&text).expect_err("the length guard did not fire"),
+            read(text.as_bytes()).expect_err("the length guard did not fire"),
             "fkrecipes: mymod-parts is longer than 2000 characters; that is not an ingredient list",
             "{}",
             what
         );
     }
 
-    // NOT TEXT, AND THE REPLACEMENT CHARACTER IS THE ONLY FORM IT CAN TAKE
-    // HERE: a Rust &str is valid UTF-8 by construction, so what a hand-edited
-    // file's invalid bytes become on the way in through fkdata's lossy decode
-    // is what this half has to recognise. The Go half asks utf8.ValidString
-    // as well; the corpus is where the two are held to the same answer.
+    // NOT TEXT, AND IT IS THE BYTES THAT SAY SO. fkdata hands both halves the
+    // stored value unchanged, so what a hand-edited file's invalid sequence
+    // reaches here as is the sequence itself: this half asks
+    // core::str::from_utf8 where the Go half asks utf8.ValidString, and the
+    // corpus is where the two are held to the same answer. The corpus pins a
+    // bad sequence inside a name; these are the other positions it can sit in,
+    // and the one a corpus case cannot spell at all, which is a value long
+    // enough to reach the length guard.
+    let mut before_the_length_guard = alloc::vec![b'x'; 98_001];
+    before_the_length_guard[0] = 0xff;
     for (what, text) in [
-        ("alone", String::from("\u{fffd}")),
-        ("inside a name", String::from("2 iron-\u{fffd}plate")),
-        ("after a valid list", String::from("2 iron-plate\u{fffd}")),
+        ("alone", alloc::vec![0xffu8]),
+        ("inside a name", b"2 iron-\xffplate".to_vec()),
+        ("after a valid list", b"2 iron-plate\xff".to_vec()),
+        // A byte that is not a leading byte at all, rather than a truncated
+        // sequence: from_utf8 refuses both and the message is one message.
+        ("a continuation byte alone", alloc::vec![0x80u8]),
         // The length guard must not get there first: the not-text rule is
-        // asked of the whole text before anything else, so a 98,000-character
-        // value that also holds a replacement character is refused as text
-        // rather than as length.
-        (
-            "before the length guard",
-            format!("\u{fffd}{}", "x".repeat(98_000)),
-        ),
+        // asked of the whole value before anything else, so a 98,000-byte
+        // value that is also not text is refused as text rather than as
+        // length.
+        ("before the length guard", before_the_length_guard),
     ] {
         assert_eq!(
             read(&text).expect_err("the not-text guard did not fire"),
@@ -920,6 +983,20 @@ fn the_whole_text_guards_hold_at_their_boundaries() {
             what
         );
     }
+
+    // AND A REPLACEMENT CHARACTER IS NOT THAT RULE. U+FFFD is three ordinary
+    // UTF-8 bytes, so it is answered by the ordinary character rules, which
+    // quote it: which rule answers depends on where it sits, and it is the
+    // names rule only where the case below puts it. Measured, in the same
+    // fixture: `[item=iron-\u{fffd}plate]` takes the TAG rule instead ("a tag
+    // is [item=name] or [fluid=name]"), and `, \u{fffd}` takes the empty-entry
+    // rule, because a text whose first problem is elsewhere takes that problem.
+    // The corpus pins the names-rule position; this is here beside the not-text
+    // cases, because the two used to be one rule and are not.
+    assert_eq!(
+        read("\u{fffd}".as_bytes()).expect_err("a replacement character was accepted"),
+        "fkrecipes: mymod-parts, entry 1 (\"\u{fffd}\"): \"\u{fffd}\" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in \"2 iron-plate\""
+    );
 }
 
 /// THE ANSWERS THE CORPUS DOES NOT PIN, and both halves have to give the same
@@ -997,7 +1074,7 @@ fn the_rules_the_corpus_leaves_to_the_implementation() {
         ),
     ];
     for (input, kind, setting, want) in cases {
-        match parse(input, *kind, "crafting", setting, &world) {
+        match parse(input.as_bytes(), *kind, "crafting", setting, &world) {
             Ok(list) => panic!("input {:?} was accepted as {}", input, render(&list)),
             Err(got) => assert_eq!(&got, want, "input {:?}", input),
         }
@@ -1036,7 +1113,7 @@ fn a_recipe_name_is_looked_up_in_both_families_and_a_pack_name_in_neither() {
         } else {
             "mymod-packs"
         };
-        let got = parse(input, *kind, category, setting, &world);
+        let got = parse(input.as_bytes(), *kind, category, setting, &world);
         match (want, got) {
             (Ok(want), Ok(list)) => assert_eq!(&render(&list), want, "input {:?}", input),
             (Err(want), Err(got)) => assert_eq!(&got, want, "input {:?}", input),

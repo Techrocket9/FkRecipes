@@ -496,7 +496,7 @@ That is what lets `go vet ./...`, `go build ./...` and `cargo check` pass on you
 
 `PlanSettings` and `PlanData` are the seams `Emit` stands on. They are public so your own host tests can inspect a plan without a wasm toolchain, and they take the same World the emit layer implements over `fkdata`. Consumers call `Emit`.
 
-A fixture World of your own should embed `fkrecipes.UnimplementedWorld` in Go; in Rust the trait's newer questions are default methods. Either way a question this library adds in a later version panics with its own name when your plan first asks it, instead of breaking your build the day you update:
+A fixture World of your own should embed `fkrecipes.UnimplementedWorld` in Go. In Rust, `World` requires `Named`, so a fixture implements both (an `impl Named` supplying `mod_name` beside the `impl World`; `use fkrecipes::{Named, World};` is what it needs), and the trait's newer questions are default methods. Either way a question this library adds in a later version panics with its own name when your plan first asks it, instead of breaking your build the day you update:
 
 ```
 fkrecipes: World.FluidExists is not implemented by this fixture

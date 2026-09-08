@@ -186,14 +186,13 @@ func (p parsedList) render() string {
 // failure has to be told which of the mod's settings it is about before
 // anything else in the sentence helps them.
 func parseIngredientList(text string, kind listKind, category string, setting string, w World) (parsedList, string) {
-	// NOT TEXT AT ALL, FIRST. fkdata's two halves disagree about a byte string
-	// that is not valid UTF-8: the Rust side decodes lossily and hands the
-	// guest U+FFFD, the Go side hands the bytes through. Either half would then
-	// quote a different entry back at the player, so both refuse the whole text
-	// and neither has to be right about what the bytes meant. U+FFFD itself is
-	// refused for the same reason: it is what the other half's lossy decode
-	// produces, and a text that legitimately contains one is not a list.
-	if !utf8.ValidString(text) || strings.Contains(text, string(utf8.RuneError)) {
+	// NOT TEXT AT ALL, FIRST. fkdata hands both halves the stored bytes
+	// unchanged, so a text that is not valid UTF-8 is refused whole here,
+	// before anything quotes an entry back at the player, and neither half has
+	// to be right about what the bytes meant. The Rust half runs the same check
+	// with core::str::from_utf8. U+FFFD is an ORDINARY CHARACTER: a player who
+	// pasted one is answered by the ordinary character rules, which quote it.
+	if !utf8.ValidString(text) {
 		return parsedList{}, "fkrecipes: " + setting + " contains characters that are not text; retype the list"
 	}
 	// Counted in scalars on the RAW text, before anything is stripped: the

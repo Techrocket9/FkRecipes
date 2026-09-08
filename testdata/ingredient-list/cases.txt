@@ -183,8 +183,14 @@ refuse:|fkrecipes: mymod-parts is empty; write the ingredients as "2 iron-plate,
 in:|2 iron-\xff\xfeplate|
 refuse:|fkrecipes: mymod-parts contains characters that are not text; retype the list|
 
+# U+FFFD is an ordinary character here: a text that is not valid UTF-8 is refused whole as
+# not text, and the replacement character a player pasted is one more character the names
+# rule refuses by quoting it.
 in:|2 iron-\uFFFDplate|
-refuse:|fkrecipes: mymod-parts contains characters that are not text; retype the list|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-\uFFFDplate"): "\uFFFD" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
+
+in:|\uFFFD|
+refuse:|fkrecipes: mymod-parts, entry 1 ("\uFFFD"): "\uFFFD" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
 
 in:|2|
 refuse:|fkrecipes: mymod-parts, entry 1 ("2"): has no name; write the amount before the name, as in "2 iron-plate"|

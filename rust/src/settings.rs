@@ -787,7 +787,12 @@ impl Lib {
             // author's to fix and not the player's: they read "the ingredients
             // setting rivet-ingredients, entry 2 (...)" rather than a bare
             // prefixed name.
-            (lang.parse)(&rendered, kind, category, &who, &AllPresent)?;
+            //
+            // THE RENDERING GOES IN AS BYTES: the parser reads a stored
+            // setting's bytes, and this check has to be the same call the data
+            // path makes. A `&str`'s bytes are UTF-8 by construction, so the
+            // language's not-text guard cannot fire on this side.
+            (lang.parse)(rendered.as_bytes(), kind, category, &who, &AllPresent)?;
         }
         Ok(())
     }
