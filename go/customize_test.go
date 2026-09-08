@@ -142,6 +142,13 @@ func TestPlanSettingsComposesADropdownDescription(t *testing.T) {
 
 // A research dropdown's preset is a technology whose cost is copied, so the
 // line names it rather than pretending to render a unit the game owns.
+//
+// AND IT NAMES IT THE WAY THE PLAYER SEES IT. The line ends in the source's
+// LOCALISED name, five parameters rather than four, because the internal name
+// beside a tech tree showing "Military 4" names nothing the player can find.
+// technology-name is the game's own section, so this adds no locale entry for
+// the mod to write; a choice with no source at all still ends in a plain
+// string, because there is no technology to name.
 func TestPlanSettingsComposesACostDropdownDescription(t *testing.T) {
 	lib := New()
 	tier := lib.DropdownSettingNeedingLocale("tips-tier", "projectile", []string{"projectile", "none", "custom"})
@@ -170,10 +177,89 @@ func TestPlanSettingsComposesACostDropdownDescription(t *testing.T) {
 		t.Fatalf("the dropdown carries no composed description")
 	}
 	want := `["", ["mod-setting-description.steelworks-tips-tier"],` +
-		` ["", "` + "\n" + `", ["string-mod-setting.steelworks-tips-tier-projectile"], ": cost of mining-productivity-4"],` +
+		` ["", "` + "\n" + `", ["string-mod-setting.steelworks-tips-tier-projectile"], ": cost of ", ["technology-name.mining-productivity-4"]],` +
 		` ["", "` + "\n" + `", ["string-mod-setting.steelworks-tips-tier-none"], ": the fallback cost"]]`
 	if renderValue(got) != want {
 		t.Errorf("\n got: %s\nwant: %s", renderValue(got), want)
+	}
+}
+
+// PAST NINETEEN PRESETS THE COMPOSITION STILL NESTS, AND THE NEW LINE IS WHAT
+// IT NESTS. A preset line is ONE parameter of the group above it however many
+// tables sit inside it, so the five-parameter cost line does not eat into the
+// ceiling and the flat-then-nested shape is exactly the one a four-parameter
+// line produced. The technology-name table rides BESIDE the label, at the same
+// level, and a one-preset description is three table levels deep either way,
+// nowhere near the twenty levels the engine takes.
+func TestCostDropdownDescriptionNestsPastNineteenPresets(t *testing.T) {
+	const presets = 21
+	values := make([]string, 0, presets+1)
+	choices := make([]CostChoice, 0, presets)
+	for i := 0; i < presets; i++ {
+		v := "tier" + strconv.Itoa(i)
+		values = append(values, v)
+		choices = append(choices, CostChoice{Value: v, Sources: []string{"source" + strconv.Itoa(i)}})
+	}
+	values = append(values, "custom")
+
+	lib := New()
+	tier := lib.DropdownSettingNeedingLocale("tips-tier", values[0], values)
+	packs := lib.PacksSetting("tips-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+	count := lib.IntSetting("tips-count", 30, Between(1, 100000))
+	seconds := lib.DoubleSetting("tips-seconds", 15, Between(0.5, 600))
+	lib.Technology("hardened-tips", TechSpec{
+		CostBy: &CostChoices{
+			Setting:  tier,
+			Choices:  choices,
+			Fallback: UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+			Custom: &CustomCost{
+				Packs: packs, Count: count, Seconds: seconds, Position: []string{"logistics-2"},
+			},
+		},
+	})
+
+	ops, err := lib.PlanSettings(settingsWorld())
+	assertNoError(t, err)
+
+	got, ok := field(ops[0].Proto, "localised_description")
+	if !ok {
+		t.Fatalf("the dropdown carries no composed description")
+	}
+	// Twenty-two parameters, so nineteen stay and the twentieth slot nests.
+	if got.Kind != KindArr || len(got.Arr) != maxLocalisedParams+1 {
+		t.Fatalf("the top level is %s", renderValue(got))
+	}
+	if tail := got.Arr[maxLocalisedParams]; tail.Kind != KindArr || len(tail.Arr) != 4 {
+		t.Errorf("the last slot is %s, want a nested group of three lines", renderValue(tail))
+	}
+	lines := 0
+	var walk func(Value, int)
+	walk = func(v Value, depth int) {
+		if v.Kind != KindArr {
+			return
+		}
+		if len(v.Arr) > maxLocalisedParams+1 {
+			t.Errorf("a level holds %d elements, want at most %d", len(v.Arr), maxLocalisedParams+1)
+		}
+		if depth > 20 {
+			t.Fatalf("the nesting is deeper than the engine takes")
+		}
+		// A preset line rather than a group: the newline in the second slot is
+		// what tells them apart, and a line is counted and not descended into.
+		if len(v.Arr) > 1 && v.Arr[1].Kind == KindStr && v.Arr[1].Str == "\n" {
+			lines++
+			if len(v.Arr) != 5 {
+				t.Errorf("a cost preset line holds %d parameters, want 5: %s", len(v.Arr), renderValue(v))
+			}
+			return
+		}
+		for _, item := range v.Arr {
+			walk(item, depth+1)
+		}
+	}
+	walk(got, 1)
+	if lines != presets {
+		t.Errorf("the description holds %d preset lines, want %d", lines, presets)
 	}
 }
 
@@ -541,6 +627,128 @@ func TestCustomizerPlanRefusals(t *testing.T) {
 			want: "fkrecipes: the setting axe-ingredients is read by more than one recipe or technology; a text setting serves exactly one",
 		},
 		{
+			// THE SAME RULE FOR A COST ARM'S NUMBERS, and it is the ignored
+			// line that needs it: the arm on a preset says the count is
+			// ignored, and here the other technology is spending it. A player
+			// reads "the number is ignored" about a field that priced the
+			// research two declarations down.
+			name: "a count setting two technologies read",
+			build: func(l *Lib) {
+				tier := l.DropdownSettingNeedingLocale("tier", "cheap", []string{"cheap", "custom"})
+				fromPacks := l.PacksSetting("from-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				armPacks := l.PacksSetting("arm-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				count := l.IntSetting("shared-count", 20, Between(1, 100000))
+				fromSeconds := l.DoubleSetting("from-seconds", 10, Between(0.5, 600))
+				armSeconds := l.DoubleSetting("arm-seconds", 10, Between(0.5, 600))
+				l.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{
+					Packs: fromPacks, Count: count, Seconds: fromSeconds,
+				}})
+				l.Technology("steel-saws", TechSpec{CostBy: &CostChoices{
+					Setting:  tier,
+					Choices:  []CostChoice{{Value: "cheap", Sources: []string{"logistics-2"}}},
+					Fallback: UnitSpec{Count: 1, Seconds: 1, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+					Custom: &CustomCost{
+						Packs: armPacks, Count: count, Seconds: armSeconds,
+						Position: []string{"logistics-2"},
+					},
+				}})
+			},
+			want: "fkrecipes: the setting shared-count is read as a research count or time by more than one declaration; a custom cost's number serves exactly one",
+		},
+		{
+			// THE MIXED PAIR IS THE ONE THE PILOT COULD HAVE WRITTEN: one
+			// double backing a recipe's crafting time and a research time at
+			// once. The recipe reads it whatever the dropdown says, so the
+			// ignored line would be false the moment the dropdown left custom.
+			name: "a seconds setting a recipe and a cost read",
+			build: func(l *Lib) {
+				axe := l.Item("steel-axe", ItemSpec{})
+				packs := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				count := l.IntSetting("axe-count", 20, Between(1, 100000))
+				seconds := l.DoubleSetting("shared-seconds", 10, Between(0.5, 600))
+				l.Recipe(axe, RecipeSpec{
+					CraftTimeFrom: seconds,
+					Ingredients:   []Ingredient{IngredientNamed(1, "steel-plate")},
+				})
+				l.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{
+					Packs: packs, Count: count, Seconds: seconds,
+				}})
+			},
+			want: "fkrecipes: the setting shared-seconds is read as a research count or time by more than one declaration; a custom cost's number serves exactly one",
+		},
+		{
+			// BOTH EXACTLY-ONCE RULES BROKEN AT ONCE, and the text one
+			// answers, because it is the pass in front. The order is the file
+			// order and nothing else: a plan with two problems gets one
+			// sentence, and this pins which.
+			name: "a shared packs setting beside a shared count",
+			build: func(l *Lib) {
+				packs := l.PacksSetting("shared-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				count := l.IntSetting("shared-count", 20, Between(1, 100000))
+				axeSeconds := l.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
+				sawSeconds := l.DoubleSetting("saw-seconds", 10, Between(0.5, 600))
+				l.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{
+					Packs: packs, Count: count, Seconds: axeSeconds,
+				}})
+				l.Technology("steel-saws", TechSpec{CostFrom: &CustomCost{
+					Packs: packs, Count: count, Seconds: sawSeconds,
+				}})
+			},
+			want: "fkrecipes: the setting shared-packs is read by more than one recipe or technology; a text setting serves exactly one",
+		},
+		{
+			// THE NUMBER RULE STEPS PAST WHAT THE OTHER SENTENCES OWN, and
+			// this technology is the one that made it necessary: it names two
+			// cost sources, so it has not said what its research costs, and
+			// both of the arms it names read the same count. Counting them
+			// would answer an undeclared cost with a sentence about sharing.
+			name: "two cost sources over one count",
+			build: func(l *Lib) {
+				tier := l.DropdownSettingNeedingLocale("tier", "cheap", []string{"cheap", "custom"})
+				fromPacks := l.PacksSetting("from-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				armPacks := l.PacksSetting("arm-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				count := l.IntSetting("shared-count", 20, Between(1, 100000))
+				fromSeconds := l.DoubleSetting("from-seconds", 10, Between(0.5, 600))
+				armSeconds := l.DoubleSetting("arm-seconds", 10, Between(0.5, 600))
+				l.Technology("steel-axes", TechSpec{
+					CostFrom: &CustomCost{Packs: fromPacks, Count: count, Seconds: fromSeconds},
+					CostBy: &CostChoices{
+						Setting:  tier,
+						Choices:  []CostChoice{{Value: "cheap", Sources: []string{"logistics-2"}}},
+						Fallback: UnitSpec{Count: 1, Seconds: 1, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+						Custom: &CustomCost{
+							Packs: armPacks, Count: count, Seconds: armSeconds,
+							Position: []string{"logistics-2"},
+						},
+					},
+				})
+			},
+			want:     "fkrecipes: the technology steel-axes must name exactly one of CostOf, Unit, CostBy or CostFrom",
+			dataOnly: true,
+		},
+		{
+			// The recipe twin: a crafting time named twice, once by hand and
+			// once by a handle a research cost also reads. "Pick one" is what
+			// the author has to fix first, and it is the data planner's line.
+			name: "CraftTime beside CraftTimeFrom over a shared seconds",
+			build: func(l *Lib) {
+				axe := l.Item("steel-axe", ItemSpec{})
+				packs := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				count := l.IntSetting("axe-count", 20, Between(1, 100000))
+				seconds := l.DoubleSetting("shared-seconds", 10, Between(0.5, 600))
+				l.Recipe(axe, RecipeSpec{
+					CraftTime:     2,
+					CraftTimeFrom: seconds,
+					Ingredients:   []Ingredient{IngredientNamed(1, "steel-plate")},
+				})
+				l.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{
+					Packs: packs, Count: count, Seconds: seconds,
+				}})
+			},
+			want:     "fkrecipes: the recipe steel-axe names both CraftTime and CraftTimeFrom; pick one",
+			dataOnly: true,
+		},
+		{
 			name: "a packs setting declaring no pack",
 			build: func(l *Lib) {
 				packs := l.PacksSetting("axe-packs", nil)
@@ -721,6 +929,43 @@ func rivetPlan() (*Lib, IngredientsSettingRef) {
 
 // THE WORD IS THE AUTHOR'S LIST, ladders and all, and it says nothing in the
 // log: the player did not choose anything, so there is nothing to report.
+// TWO RECIPES MAY STILL SHARE ONE CRAFTING TIME, and this is the witness that
+// the rule above did not quietly take that away. Nothing ever tells a player a
+// crafting time was ignored, so no line about one can lie, and a plan that
+// prices two recipes off one slider is a plan somebody meant to write. The
+// refusal is about a number a cost arm reads, and neither of these is one.
+func TestTwoRecipesMayShareOneCraftingTime(t *testing.T) {
+	lib := New()
+	axe := lib.Item("steel-axe", ItemSpec{})
+	head := lib.Item("axe-head", ItemSpec{})
+	forging := lib.DoubleSetting("forging-time", 3, NumericSpec{HasMax: true, Max: 120})
+	lib.Recipe(axe, RecipeSpec{
+		CraftTimeFrom: forging,
+		Ingredients:   []Ingredient{IngredientNamed(1, "steel-plate")},
+	})
+	lib.Recipe(head, RecipeSpec{
+		CraftTimeFrom: forging,
+		Ingredients:   []Ingredient{IngredientNamed(1, "steel-plate")},
+	})
+
+	if _, err := lib.PlanSettings(settingsWorld()); err != nil {
+		t.Fatalf("the settings plan was refused: %s", err)
+	}
+	ops, err := lib.PlanData(customWorld().withSetting("steelworks-forging-time", Num(4)))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
+		`extend {type="item", name="steelworks-axe-head", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-steel-axe", energy_required=4, enabled=true,` +
+			` ingredients=[{type="item", name="steel-plate", amount=1}],` +
+			` results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
+		`extend {type="recipe", name="steelworks-axe-head", energy_required=4, enabled=true,` +
+			` ingredients=[{type="item", name="steel-plate", amount=1}],` +
+			` results=[{type="item", name="steelworks-axe-head", amount=1}]}`,
+	})
+}
+
 func TestTextSettingOnTheDefaultWord(t *testing.T) {
 	lib, _ := rivetPlan()
 	w := customWorld().withSetting("steelworks-rivet-ingredients", Str("  default  "))
@@ -1351,6 +1596,10 @@ func tipsPlan() *Lib {
 	return lib
 }
 
+// ON THE CUSTOM VALUE NOTHING IS IGNORED AND NOTHING SAYS SO. All three fields
+// are moved here and all three are live, so the whole transcript is the one
+// research line and the technology; this is the witness that the ignored lines
+// belong to the preset side only.
 func TestCustomCostArmWalksItsPositionLadder(t *testing.T) {
 	lib := tipsPlan()
 	w := customWorld().
@@ -1391,7 +1640,8 @@ func TestCustomCostArmWithNoPositionRungPresent(t *testing.T) {
 }
 
 // On a preset the arm is not live, and an edited pack text says so rather than
-// disappearing.
+// disappearing. The count and the seconds are unread here, so they say nothing:
+// an unreadable value is not an edit.
 func TestCustomCostArmOnAPresetIgnoresTheText(t *testing.T) {
 	lib := tipsPlan()
 	w := customWorld().
@@ -1406,6 +1656,215 @@ func TestCustomCostArmOnAPresetIgnoresTheText(t *testing.T) {
 		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
 			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
 	})
+}
+
+// AND THE TWO NUMBERS BESIDE IT SAY THE SAME THING. The pilot moved a count
+// under a tier, watched the technology keep the preset's price, and read
+// nothing about it: the pack text drew a line and the count drew none, which
+// is the field-edited-nothing-happens shape the text line exists to close,
+// left open on two thirds of the arm.
+func TestCustomCostArmOnAPresetIgnoresAnEditedCount(t *testing.T) {
+	lib := tipsPlan()
+	w := customWorld().
+		withSetting("steelworks-tips-tier", Str("cheap")).
+		withSetting("steelworks-tips-count", Num(45))
+
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: steelworks-tips-count is edited, but steelworks-tips-tier is not on custom, so the number is ignored`,
+		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
+			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
+	})
+}
+
+// The seconds are the count's twin and get the twin sentence, under its own
+// setting's name, because that is the field somebody would go and put back.
+func TestCustomCostArmOnAPresetIgnoresEditedSeconds(t *testing.T) {
+	lib := tipsPlan()
+	w := customWorld().
+		withSetting("steelworks-tips-tier", Str("cheap")).
+		withSetting("steelworks-tips-seconds", Num(22))
+
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: steelworks-tips-seconds is edited, but steelworks-tips-tier is not on custom, so the number is ignored`,
+		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
+			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
+	})
+}
+
+// ONE LINE PER EDITED FIELD, IN THE ORDER THE UNIT READS THEM: count, seconds,
+// packs. A player who priced the whole thing and left the dropdown alone reads
+// all three fields back, in the order the log line on the custom side prints
+// them, and reads them before the preset's own lines.
+func TestCustomCostArmOnAPresetIgnoresAllThreeInOrder(t *testing.T) {
+	lib := tipsPlan()
+	w := customWorld().
+		withSetting("steelworks-tips-tier", Str("cheap")).
+		withSetting("steelworks-tips-count", Num(45)).
+		withSetting("steelworks-tips-seconds", Num(22)).
+		withSetting("steelworks-tips-packs", Str("2 logistic-science-pack"))
+
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: steelworks-tips-count is edited, but steelworks-tips-tier is not on custom, so the number is ignored`,
+		`log fkrecipes: steelworks-tips-seconds is edited, but steelworks-tips-tier is not on custom, so the number is ignored`,
+		`log fkrecipes: steelworks-tips-packs is edited, but steelworks-tips-tier is not on custom, so the text is ignored`,
+		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
+			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
+	})
+}
+
+// A NUMBER STANDING ON ITS DECLARED DEFAULT IS NOT AN EDIT, and this is the
+// case that makes the comparison load-bearing rather than the readability
+// check: the engine stores every setting's value including the ones nobody
+// touched, so a silent player answers both of these and must read nothing.
+func TestCustomCostArmIsQuietWhenTheNumbersAreOnTheirDefaults(t *testing.T) {
+	lib := tipsPlan()
+	w := customWorld().
+		withSetting("steelworks-tips-tier", Str("cheap")).
+		withSetting("steelworks-tips-count", Num(30)).
+		withSetting("steelworks-tips-seconds", Num(15))
+
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
+			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
+	})
+}
+
+// AND THE IGNORED LINES COME BEFORE THE PRESET'S OWN, so they read as the
+// reason the lines under them are the preset's and not the player's. The chosen
+// ladder finds nothing here, so the preset has a line of its own to sit under.
+func TestCustomCostArmIgnoredLinesComeBeforeThePresetsOwn(t *testing.T) {
+	lib := tipsPlan()
+	w := customWorld().withoutTech("logistics-2").
+		withSetting("steelworks-tips-tier", Str("cheap")).
+		withSetting("steelworks-tips-count", Num(45))
+
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: steelworks-tips-count is edited, but steelworks-tips-tier is not on custom, so the number is ignored`,
+		`log fkrecipes: hardened-tips: no source for the cheap cost carries a unit, so the fallback cost applies and the technology has no prerequisite`,
+		`extend {type="technology", name="steelworks-hardened-tips", unit={count=200, time=30, ingredients=[["automation-science-pack", 1]]}}`,
+	})
+}
+
+// A value that is not a number is not an edit either, and neither is one that
+// is not there: the same tolerance the text line has, for the same reason. The
+// count here is answered as a string and the seconds are not answered at all,
+// and the transcript says nothing about either.
+func TestCustomCostArmIsQuietWhenANumberIsNotOne(t *testing.T) {
+	lib := tipsPlan()
+	w := customWorld().
+		withSetting("steelworks-tips-tier", Str("cheap")).
+		withSetting("steelworks-tips-count", Str("45"))
+
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
+			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
+	})
+}
+
+// A VALUE THE WORLD ANSWERS BESIDE ok=false IS NOT AN EDIT EITHER, for all
+// three fields at once. Each of these would be an edit if the flag said the
+// setting was there: 45 is not the declared 30, 22 is not the declared 15, and
+// the pack text is not the word. The World says none of them is there, and the
+// contract is that the flag wins over whatever value rides along, so the
+// transcript is the preset's line and nothing else. This is the witness for
+// the !ok term of noteIgnoredNumber and of noteIgnoredText.
+func TestCustomCostArmOnAPresetIsQuietWhenTheWorldAnswersBesideAbsent(t *testing.T) {
+	lib := tipsPlan()
+	w := customWorld().
+		withSetting("steelworks-tips-tier", Str("cheap")).
+		withSettingButAbsent("steelworks-tips-count", Num(45)).
+		withSettingButAbsent("steelworks-tips-seconds", Num(22)).
+		withSettingButAbsent("steelworks-tips-packs", Str("2 logistic-science-pack"))
+
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
+			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
+	})
+}
+
+// A STORED NaN IS AN EDIT UNDER A PRESET AND A REFUSAL ON CUSTOM, and the two
+// halves are deliberate rather than an accident of NaN comparing false against
+// everything. A stored value that is not the default is something the player
+// did, so under a preset it draws the line naming the field they can go and
+// put back; on the custom value the same number is read for real, and it is
+// refused by the name of the setting holding it.
+func TestCustomCostArmNaNIsAnEditUnderAPresetAndARefusalOnCustom(t *testing.T) {
+	preset := customWorld().
+		withSetting("steelworks-tips-tier", Str("cheap")).
+		withSetting("steelworks-tips-count", Num(math.NaN()))
+
+	ops, err := tipsPlan().PlanData(preset)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: steelworks-tips-count is edited, but steelworks-tips-tier is not on custom, so the number is ignored`,
+		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
+			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
+	})
+
+	custom := customWorld().
+		withSetting("steelworks-tips-tier", Str("custom")).
+		withSetting("steelworks-tips-count", Num(math.NaN())).
+		withSetting("steelworks-tips-seconds", Num(20)).
+		withSetting("steelworks-tips-packs", Str("1 automation-science-pack"))
+
+	_, err = tipsPlan().PlanData(custom)
+	assertRefusal(t, err, "fkrecipes: steelworks-tips-count holds a value that is not a finite number")
+}
+
+// ON THE CUSTOM ARM THE PACK TEXT ANSWERS BEFORE THE TWO NUMBERS. The count
+// and the seconds here are both below what the engine takes and the text names
+// a pack no game has, and the text's refusal is the one raised: the numbers are
+// checked after the pack text resolves, so the player is answered about the
+// field they typed into rather than about two sliders they may never have
+// moved.
+//
+// AND BEHIND THE TEXT, FINITENESS ANSWERS BEFORE EITHER FLOOR, both numbers
+// before both floors. A count of 0 is merely too small and a seconds of NaN is
+// a value no arithmetic can use, so the seconds are what the player is told
+// about; the floors are the questions a finite number can be asked, and asking
+// one of them first would answer a world that holds a NaN by the field beside
+// it. The Rust half pins the same world in its own pack text test; this is that
+// world written here, so the sub ordering cannot drift between the halves.
+func TestCustomCostArmRefusesTheTextBeforeTheNumbers(t *testing.T) {
+	w := customWorld().
+		withSetting("steelworks-tips-tier", Str("custom")).
+		withSetting("steelworks-tips-count", Num(0)).
+		withSetting("steelworks-tips-seconds", Num(0)).
+		withSetting("steelworks-tips-packs", Str("2 unobtainium"))
+
+	_, err := tipsPlan().PlanData(w)
+	assertRefusal(t, err, `fkrecipes: steelworks-tips-packs, entry 1 ("2 unobtainium"): no science pack is named unobtainium`)
+
+	readable := customWorld().
+		withSetting("steelworks-tips-tier", Str("custom")).
+		withSetting("steelworks-tips-count", Num(0)).
+		withSetting("steelworks-tips-seconds", Num(math.NaN())).
+		withSetting("steelworks-tips-packs", Str("1 automation-science-pack"))
+
+	_, err = tipsPlan().PlanData(readable)
+	assertRefusal(t, err, "fkrecipes: steelworks-tips-seconds holds a value that is not a finite number")
 }
 
 // A custom research cost is a price this plan wrote, so it carries no level cap

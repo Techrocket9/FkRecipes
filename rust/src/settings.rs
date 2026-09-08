@@ -6,7 +6,7 @@ use crate::ingredient_list::{IngredientList, ListEntry, ListKind, ListText, DEFA
 use crate::op::Op;
 use crate::plan::{
     custom_value, Amount, CostChoice, CostChoices, Ingredient, IngredientChoice, IngredientChoices,
-    Lib, Pack, RecipeDecl, SettingDecl, SettingKind, TechDecl,
+    Lib, Pack, RecipeDecl, SettingDecl, SettingKind, TechDecl, TechSpec,
 };
 use crate::value::{finite, kv, str_arr, Value, CRAFT_TIME_FLOOR, MAX_EXACT_INT};
 use crate::world::{Named, World};
@@ -534,19 +534,10 @@ impl Lib {
 
         for t in &self.techs {
             let who = format!("the technology {}", t.name);
-            let named = [
-                !t.spec.cost_of.is_empty(),
-                t.spec.unit.is_some(),
-                t.spec.cost_by.is_some(),
-                t.spec.cost_from.is_some(),
-            ]
-            .iter()
-            .filter(|x| **x)
-            .count();
             // Exactly one cost source is the data planner's sentence, and it
             // is the one an author reads best; everything below assumes it
             // held.
-            if named != 1 {
+            if named_cost_sources(&t.spec) != 1 {
                 continue;
             }
             if let Some(cc) = &t.spec.cost_from {
@@ -639,6 +630,77 @@ impl Lib {
             if bindings[i].count > 1 {
                 return Err(format!(
                     "{}the setting {} is read by more than one recipe or technology; a text setting serves exactly one",
+                    at, s.name
+                ));
+            }
+        }
+
+        // A RESEARCH NUMBER IS BOUND ONCE TOO, and the line that says so out
+        // loud is why. A dropdown sitting on a preset logs that the count and
+        // the seconds beside it are ignored, and that sentence is a lie the
+        // moment a second declaration reads the same setting: the player is
+        // told the number changed nothing and the recipe two lines down takes
+        // its crafting time from it, or the other technology prices its
+        // research with it. So a setting some custom cost reads is a setting
+        // nothing else reads.
+        //
+        // A NUMBER NOTHING PRICES RESEARCH WITH IS STILL SHARED FREELY: one
+        // double behind two recipes' crafting time is a mod-wide speed dial
+        // and nothing ever says it is ignored, so `research` is what turns a
+        // second reader into a refusal, and only a setting some CustomCost
+        // names as its count or its seconds carries it.
+        //
+        // A HANDLE FROM ANOTHER PLAN IS SKIPPED rather than followed, exactly
+        // as `craft_time_bound_settings` skips one: a bad reference cannot
+        // mark the wrong setting here, and the walks above are what refuse it
+        // by name.
+        //
+        // AND SO IS A DECLARATION THAT HAS NOT SAID WHAT IT COSTS, which is
+        // the step past the walks above make, carried into this one: a recipe
+        // naming CraftTime beside CraftTimeFrom, and a technology whose cost
+        // sources are not exactly one, are answered by "pick one" and "exactly
+        // one", and a reader counted out of such a declaration would put this
+        // rule's sentence in front of the one its author reads best.
+        //
+        // IT RUNS AFTER THE TEXT RULE, so a plan carrying both problems is
+        // answered by the text's sentence: that rule is the older one and the
+        // one an author reads faster.
+        let mut readers = alloc::vec![0usize; self.settings.len()];
+        let mut research = alloc::vec![false; self.settings.len()];
+        for r in &self.recipes {
+            // A recipe holding a crafting time AND a handle to one is stepped
+            // past whole: it has not said what it costs to make, the data
+            // planner says so, and this walk has nothing to add in front of
+            // that.
+            if r.spec.craft_time != 0.0 && r.spec.craft_time_from.index != 0 {
+                continue;
+            }
+            if self.valid_double_setting(r.spec.craft_time_from) {
+                readers[r.spec.craft_time_from.index - 1] += 1;
+            }
+        }
+        for t in &self.techs {
+            // The same step past against the same predicate the validator's
+            // own technology walk uses, so the two agree by construction.
+            if named_cost_sources(&t.spec) != 1 {
+                continue;
+            }
+            let arm = t.spec.cost_by.as_ref().and_then(|by| by.custom.as_ref());
+            for cc in t.spec.cost_from.iter().chain(arm) {
+                if self.valid_int_setting(cc.count) {
+                    readers[cc.count.index - 1] += 1;
+                    research[cc.count.index - 1] = true;
+                }
+                if self.valid_double_setting(cc.seconds) {
+                    readers[cc.seconds.index - 1] += 1;
+                    research[cc.seconds.index - 1] = true;
+                }
+            }
+        }
+        for (i, s) in self.settings.iter().enumerate() {
+            if research[i] && readers[i] > 1 {
+                return Err(format!(
+                    "{}the setting {} is read as a research count or time by more than one declaration; a custom cost's number serves exactly one",
                     at, s.name
                 ));
             }
@@ -812,16 +874,17 @@ impl Lib {
             Presets::Ingredients(choices) => {
                 for c in choices {
                     let list = self.declared_list(prefix, &c.ingredients);
+                    let rendered = (self.installed_language().render)(&ListText::List(list));
                     params.push(preset_element(
                         full,
                         &c.value,
-                        &(self.installed_language().render)(&ListText::List(list)),
+                        alloc::vec![Value::Str(format!(": {}", rendered))],
                     ));
                 }
             }
             Presets::Cost(choices) => {
                 for c in choices {
-                    params.push(preset_element(full, &c.value, &cost_preset_text(c)));
+                    params.push(preset_element(full, &c.value, cost_preset_tail(c)));
                 }
             }
         }
@@ -843,6 +906,21 @@ pub(crate) enum Presets<'a> {
 /// How many of a dropdown's values are this one.
 fn count_value(values: &[String], value: &str) -> usize {
     values.iter().filter(|v| v.as_str() == value).count()
+}
+
+/// How many cost sources a technology declares. Exactly one is the rule and
+/// the data planner is where it is refused, so every walk that steps past a
+/// technology naming some other number asks this one question.
+fn named_cost_sources(spec: &TechSpec) -> usize {
+    [
+        !spec.cost_of.is_empty(),
+        spec.unit.is_some(),
+        spec.cost_by.is_some(),
+        spec.cost_from.is_some(),
+    ]
+    .iter()
+    .filter(|x| **x)
+    .count()
 }
 
 /// The shape rule a Custom arm's dropdown has to satisfy, written once because
@@ -932,27 +1010,54 @@ fn text_description(full: &str, rendered: &str) -> Value {
 /// means. The LABEL IS THE LOCALISED ONE, because that is what the settings
 /// screen shows in the dropdown itself; naming the raw key here would tell the
 /// player about a value they never see.
-fn preset_element(full: &str, value: &str, meaning: &str) -> Value {
-    Value::Arr(alloc::vec![
+///
+/// THE TAIL IS VALUES, NOT A STRING, because what a preset means is not always
+/// text this library can spell: a research preset ends in the source
+/// technology's own name key, which only the engine can render. An ingredient
+/// preset hands over the one string it always was.
+fn preset_element(full: &str, value: &str, tail: Vec<Value>) -> Value {
+    let mut items = alloc::vec![
         Value::string(""),
         Value::string("\n"),
         Value::Arr(alloc::vec![Value::Str(format!(
             "string-mod-setting.{}-{}",
             full, value
         ))]),
-        Value::Str(format!(": {}", meaning)),
-    ])
+    ];
+    items.extend(tail);
+    Value::Arr(items)
 }
 
-/// What a research preset means: the technology whose cost it copies.
+/// What a research preset means: the technology whose cost it copies, named
+/// the way the player sees it named everywhere else in the game.
 ///
 /// The FIRST rung of the ladder, which is the source the author means; the
 /// rest are what a modpack missing it falls back to, and a description that
 /// listed them would be about this library rather than about the choice.
-fn cost_preset_text(c: &CostChoice) -> String {
+///
+/// THE NAME KEY IS THE GAME'S, NOT THIS MOD'S, so the locale checker gains no
+/// obligation from this composition: `technology-name.<source>` belongs to
+/// whoever ships that technology, and a key this library never prefixed is
+/// not a key it can report on. The internal name appears in the key and
+/// nowhere else, which is the point: the line used to read the raw name
+/// straight out at the player.
+///
+/// THE TRADE IS NAMED RATHER THAN WISHED AWAY. Where the technology and its
+/// locale entry are there, the player reads the name they read everywhere
+/// else in the game. Where they are not, the engine renders the key as the
+/// MARKER `Unknown key: "technology-name.<source>"`, which is the shape a
+/// live session produced for `entity-name.bbb-linked-belt`; see the note on
+/// [`Lib::check_locale`]. So a preset naming a technology the modpack does
+/// not ship reads worse than the bare internal name did, and that is the
+/// consumer's to decide: they order the ladder, and their modpack supplies
+/// the locale.
+fn cost_preset_tail(c: &CostChoice) -> Vec<Value> {
     match c.sources.first() {
-        Some(name) => format!("cost of {}", name),
-        None => String::from("the fallback cost"),
+        Some(name) => alloc::vec![
+            Value::string(": cost of "),
+            Value::Arr(alloc::vec![Value::Str(format!("technology-name.{}", name))]),
+        ],
+        None => alloc::vec![Value::string(": the fallback cost")],
     }
 }
 

@@ -14,10 +14,11 @@ type fixtureWorld struct {
 	recipes  []string
 	techs    []fixtureTech
 
-	entities         []string
-	nilUnitFor       []string
-	nilMaxLevelFor   []string
-	mapUnitButAbsent []string
+	entities          []string
+	nilUnitFor        []string
+	nilMaxLevelFor    []string
+	mapUnitButAbsent  []string
+	settingsButAbsent []KV
 
 	// A max_level answered for ANY name, even one no technology carries.
 	// Some Worlds are loose about lookups; the planner must not ask a
@@ -36,6 +37,15 @@ type fixtureTech struct {
 func (w *fixtureWorld) ModName() string { return w.modName }
 
 func (w *fixtureWorld) StartupSetting(name string) (Value, bool) {
+	// A VALUE ALONGSIDE ok=false, the settings twin of the arm TechUnit has:
+	// the flag is the answer to "is this setting there", so a caller must
+	// honour it over whatever value rides along. Checked FIRST so it wins over
+	// a value the same fixture also answers properly.
+	for _, s := range w.settingsButAbsent {
+		if s.Key == name {
+			return s.Val, false
+		}
+	}
 	for _, s := range w.settings {
 		if s.Key == name {
 			return s.Val, true
@@ -215,6 +225,15 @@ func (w *fixtureWorld) withPrereqs(name string, prereqs ...string) *fixtureWorld
 
 func (w *fixtureWorld) withSetting(name string, v Value) *fixtureWorld {
 	w.settings = append(w.settings, KV{Key: name, Val: v})
+	return w
+}
+
+// withSettingButAbsent makes one setting answer a real value beside ok=false,
+// which is the contract violation the !ok term of noteIgnoredNumber and
+// noteIgnoredText is the guard against: an edit-shaped value that the World
+// says is not there.
+func (w *fixtureWorld) withSettingButAbsent(name string, v Value) *fixtureWorld {
+	w.settingsButAbsent = append(w.settingsButAbsent, KV{Key: name, Val: v})
 	return w
 }
 

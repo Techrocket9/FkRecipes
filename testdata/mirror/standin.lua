@@ -374,6 +374,11 @@ settings = { startup = {
   -- in-game gate runs on declared defaults and walks the projectile ladder
   -- instead, so the two gates cover one branch each.
   ["fkrecipes-example-tips-research-tier"] = { value = "military" },
+  -- A NUMBER MOVED UNDER A TIER. tips-research-tier stays on military, so
+  -- the custom cost is not live; the count is edited (its declared default is
+  -- 30) and the seconds and the pack text are left alone, so the transcript
+  -- carries exactly one ignored-number line and nothing for the other two.
+  ["fkrecipes-example-tips-count"] = { value = 45 },
   -- Above the declared minimum of 0.5, so it is the value the player chose
   -- that reaches the recipe rather than any bound.
   ["fkrecipes-example-tempering-hold"] = { value = 4 },

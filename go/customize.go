@@ -100,7 +100,7 @@ func declaredPackEntries(packs []Pack) ingredientList {
 }
 
 // ---------------------------------------------------------------------------
-// Which recipe or technology reads which text setting.
+// Which recipe or technology reads which setting.
 // ---------------------------------------------------------------------------
 
 // textBinding is what a text setting is bound to: how many declarations read
@@ -143,6 +143,86 @@ func (l *Lib) textSettingBindings() []textBinding {
 		}
 	}
 	return out
+}
+
+// numberBinding is what a NUMERIC setting is bound to: how many declarations
+// read it at all, and whether any of those reads is a custom cost's count or
+// seconds.
+//
+// THE TWO HALVES ARE SEPARATE BECAUSE THE TWO READS ARE. A crafting time two
+// recipes share is ordinary and always was; a cost arm's number is the one
+// this library says out loud is ignored, and that sentence is only true of a
+// setting nothing else reads.
+type numberBinding struct {
+	count  int
+	asCost bool
+}
+
+// numberSettingBindings walks the plan once and records who reads each numeric
+// setting: a recipe's crafting time, and a custom cost's count and seconds
+// under CostFrom and under a Custom arm alike.
+//
+// A handle this plan never issued is SKIPPED rather than followed, exactly as
+// textSettingBindings and craftTimeBoundSettings skip one: the validators and
+// the data planner are what refuse it by name, and following it here would
+// mark the wrong setting.
+//
+// AND SO IS A DECLARATION THAT HAS NOT SAID WHAT IT COSTS, which is the
+// validator's own step past carried into this walk: a recipe naming CraftTime
+// beside CraftTimeFrom, and a technology whose cost sources are not exactly
+// one, are answered by "pick one" and "exactly one", and a reader counted out
+// of such a declaration would put this rule's sentence in front of the one its
+// author reads best.
+func (l *Lib) numberSettingBindings() []numberBinding {
+	out := make([]numberBinding, len(l.settings))
+	markCost := func(c *CustomCost) {
+		if l.validIntSetting(c.Count) {
+			out[c.Count.index-1].count++
+			out[c.Count.index-1].asCost = true
+		}
+		if l.validDoubleSetting(c.Seconds) {
+			out[c.Seconds.index-1].count++
+			out[c.Seconds.index-1].asCost = true
+		}
+	}
+	for _, r := range l.recipes {
+		// A recipe holding a crafting time AND a handle to one is stepped past
+		// whole: it has not said what it costs to make, the data planner says
+		// so, and this walk has nothing to add in front of that.
+		if r.spec.CraftTime != 0 && r.spec.CraftTimeFrom.index != 0 {
+			continue
+		}
+		if l.validDoubleSetting(r.spec.CraftTimeFrom) {
+			out[r.spec.CraftTimeFrom.index-1].count++
+		}
+	}
+	for _, t := range l.techs {
+		// The same step past against the same predicate the validator's own
+		// technology walk uses, so the two agree by construction.
+		if namedCostSources(&t.spec) != 1 {
+			continue
+		}
+		if c := t.spec.CostFrom; c != nil {
+			markCost(c)
+		}
+		if by := t.spec.CostBy; by != nil && by.Custom != nil {
+			markCost(by.Custom)
+		}
+	}
+	return out
+}
+
+// namedCostSources counts the cost sources a technology declares. Exactly one
+// is the rule and the data planner is where it is refused, so every walk that
+// steps past a technology naming some other number asks this one question.
+func namedCostSources(spec *TechSpec) int {
+	named := 0
+	for _, set := range []bool{spec.CostOf != "", spec.Unit != nil, spec.CostBy != nil, spec.CostFrom != nil} {
+		if set {
+			named++
+		}
+	}
+	return named
 }
 
 // ---------------------------------------------------------------------------
@@ -231,15 +311,9 @@ func (l *Lib) validateBindings(prefix string) error {
 
 	for _, t := range l.techs {
 		who := "the technology " + t.name
-		named := 0
-		for _, set := range []bool{t.spec.CostOf != "", t.spec.Unit != nil, t.spec.CostBy != nil, t.spec.CostFrom != nil} {
-			if set {
-				named++
-			}
-		}
 		// Exactly one cost source is the data planner's sentence, and it is the
 		// one an author reads best; everything below assumes it held.
-		if named != 1 {
+		if namedCostSources(&t.spec) != 1 {
 			continue
 		}
 		if c := t.spec.CostFrom; c != nil {
@@ -317,6 +391,30 @@ func (l *Lib) validateBindings(prefix string) error {
 			return errors.New(at + "the setting " + s.name + " is declared and nothing reads it; a text setting must be bound to one recipe or technology")
 		case bindings[i].count > 1:
 			return errors.New(at + "the setting " + s.name + " is read by more than one recipe or technology; a text setting serves exactly one")
+		}
+	}
+
+	// THE SAME RULE FOR A COST ARM'S TWO NUMBERS, and it exists because the
+	// line beside them would otherwise lie. A dropdown on a preset logs that
+	// the count or the seconds is ignored, and that is only true if nothing
+	// else in the plan reads that setting: one double can back a recipe's
+	// CraftTimeFrom and a technology's Seconds at once, and the player reads
+	// "so the number is ignored" two lines above a recipe using the very
+	// number they moved.
+	//
+	// A CRAFTING TIME TWO RECIPES SHARE IS NOT THIS DEFECT and is not refused
+	// here: nothing ignores a crafting time, so no line about one can lie, and
+	// the sharing predates this rule.
+	//
+	// NO KIND CHECK STANDS IN FRONT OF IT: only a Count or a Seconds handle
+	// sets asCost, every issuer of those two handle types declares an int or a
+	// double setting beside it, and a handle from another plan is refused by
+	// lib id, so a setting this refusal can reach is numeric by construction.
+	numbers := l.numberSettingBindings()
+	for i, s := range l.settings {
+		if numbers[i].asCost && numbers[i].count > 1 {
+			return errors.New(at + "the setting " + s.name +
+				" is read as a research count or time by more than one declaration; a custom cost's number serves exactly one")
 		}
 	}
 	return nil
@@ -555,7 +653,7 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		// stepped past above and renders nothing.
 		for _, c := range by.Choices {
 			params = append(params, presetLine(full, c.Value,
-				l.lang.render(l.declaredIngredientEntries(prefix, c.Ingredients))))
+				Str(": "+l.lang.render(l.declaredIngredientEntries(prefix, c.Ingredients)))))
 		}
 		out[i] = localisedGroup(params)
 	}
@@ -569,7 +667,7 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		params := make([]Value, 0, len(by.Choices)+1)
 		params = append(params, localeRef("mod-setting-description", full))
 		for _, c := range by.Choices {
-			params = append(params, presetLine(full, c.Value, costPresetText(c)))
+			params = append(params, presetLine(full, c.Value, costPresetTail(c)...))
 		}
 		out[i] = localisedGroup(params)
 	}
@@ -586,23 +684,49 @@ func localeRef(section, key string) Value { return Arr(Str(section + "." + key))
 // naming the key would not match anything they can see. That entry is the one
 // the dropdown already needs for the value to be readable at all, so the
 // composition adds no locale obligation of its own.
-func presetLine(setting, value, rendering string) Value {
-	return Arr(
-		Str(""),
-		Str("\n"),
-		localeRef("string-mod-setting", setting+"-"+value),
-		Str(": "+rendering),
-	)
+//
+// THE TAIL IS VALUES RATHER THAN A STRING because a cost line ends in a
+// localised name and an ingredient line ends in a rendering this library wrote.
+// Whatever the tail holds, the whole line is ONE parameter of the group above
+// it, so localisedGroup's nesting rule counts it as one; and the tables the
+// tail brings are the line's own elements, so they sit BESIDE the label, at
+// the same level, not below it. A one-preset cost description is three table
+// levels deep whichever tail it carries (measured on both shapes), which is
+// what TestPlanSettingsComposesACostDropdownDescription's golden shows.
+func presetLine(setting, value string, tail ...Value) Value {
+	items := make([]Value, 0, 3+len(tail))
+	items = append(items, Str(""), Str("\n"), localeRef("string-mod-setting", setting+"-"+value))
+	return Arr(append(items, tail...)...)
 }
 
-// costPresetText is what a research preset says it costs: the ladder's FIRST
+// costPresetTail is what a research preset says it costs: the ladder's FIRST
 // source, which is the technology whose unit would be copied. A ladder with no
 // rungs at all falls back, and says so.
-func costPresetText(c CostChoice) string {
+//
+// THE TECHNOLOGY IS NAMED BY ITS LOCALISED NAME, not by its internal one. The
+// line the player reads sits beside a tech tree that shows them "Military 4",
+// and a description saying military-4 names something they cannot see, exactly
+// as the raw value key would.
+//
+// AND IT ADDS NO LOCALE OBLIGATION OF THIS MOD'S: technology-name.<name> is the
+// GAME's entry, for a technology some other mod or the base game declared, so
+// the locale checker has nothing new to require and requires nothing new.
+//
+// WHERE THE TECHNOLOGY OR ITS ENTRY IS MISSING, THIS LINE READS WORSE THAN THE
+// ONE IT REPLACED, and this file is not the place to pretend otherwise. An
+// absent key is not rendered as nothing: locale.go's note records
+// `Unknown key: "entity-name.bbb-linked-belt"` out of a live 2026 session, so
+// a source no installed mod declares puts `Unknown key:
+// "technology-name.<source>"` in the tooltip where the bare internal name used
+// to stand. That is the trade, and both halves of it are the consumer's: the
+// localised name wherever the technology exists, the Unknown key marker where
+// it does not, which is their ladder to order (a first rung the game may lack
+// is what shows the marker) and their locale to supply.
+func costPresetTail(c CostChoice) []Value {
 	if len(c.Sources) == 0 {
-		return "the fallback cost"
+		return []Value{Str(": the fallback cost")}
 	}
-	return "cost of " + c.Sources[0]
+	return []Value{Str(": cost of "), localeRef("technology-name", c.Sources[0])}
 }
 
 // localisedGroup wraps parameters in a concatenating localised string, nesting
@@ -770,6 +894,32 @@ func (l *Lib) noteIgnoredText(text World, res *resolution, s settingDecl, prefix
 		" is not on "+customValue+", so the text is ignored")
 }
 
+// noteIgnoredNumber is the same sentence for the two NUMBERS a cost arm holds,
+// the count and the seconds, and it exists because the pilot moved one under a
+// tier and the log said nothing at all. A player who drags a slider and reads
+// no line has been told their edit landed when it did not.
+//
+// EDITED IS A COMPARISON HERE, not a question for the language. A numeric
+// setting has no reserved word standing for the author's answer: the DECLARED
+// DEFAULT is the untouched value, and the engine stores it for a silent player
+// exactly as it stores a moved one, so the comparison is the only thing that
+// separates them.
+//
+// AN UNREADABLE OR WRONG-TYPED VALUE IS NOT AN EDIT, the same tolerance
+// noteIgnoredText has and for the same reason: the field is not being read for
+// real here, and refusing a load over a value nothing uses would be worse than
+// saying nothing. It reads through the World readNumber reads through, which is
+// the real one: a number is never resolved against the plan's own item overlay.
+func noteIgnoredNumber(w World, res *resolution, s settingDecl, prefix, dropdown, customValue string) {
+	full := s.emittedName(prefix)
+	v, ok := w.StartupSetting(full)
+	if !ok || v.Kind != KindNum || v.Num == s.defNum {
+		return
+	}
+	res.logs = append(res.logs, "fkrecipes: "+full+" is edited, but "+dropdown+
+		" is not on "+customValue+", so the number is ignored")
+}
+
 // resolveCustomCost is a research cost the player writes: the count and the
 // seconds from their own settings, the packs from the text.
 //
@@ -863,9 +1013,11 @@ func (r *resolution) readNumber(w World, s settingDecl, prefix string) float64 {
 // refuseCostNumbers holds a research count and a research time a World answered
 // to what the engine takes, and answers whether the cost may be built.
 //
-// THE ORDER IS FINITENESS FIRST, both numbers, and only then the two floors:
-// a NaN is neither below 1 nor at or below zero, so a floor arm reached first
-// would wave it through, and an infinity is above every floor there is.
+// THE ORDER IS FINITENESS FIRST, both numbers, and only then the two floors: a
+// floor is a question only a finite number can be asked. A NaN is neither below
+// 1 nor at or below zero, so a floor arm reached first would wave it through,
+// and an infinity would be sorted by whichever side of the floor it fell on
+// rather than told the one thing that is actually wrong with it.
 //
 // The sentences are the declared path's, with the SETTING in the place of the
 // technology: the number came out of a field, and the technology did not

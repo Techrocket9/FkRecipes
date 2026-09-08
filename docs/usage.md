@@ -266,7 +266,7 @@ ingredients_by: Some(IngredientChoices {
 }),
 ```
 
-The text applies only while the dropdown says `custom`; on any preset the preset applies and the text is ignored. The dropdown's description is composed for you: your own `[mod-setting-description]` entry, then one line per preset, its localised label followed by its ingredients written out in the language, so the player switching to `custom` can start from the preset they were on. A dropdown that lists `custom` with no preset behind it and no `Custom` arm is refused, as is a `Custom` arm on a dropdown that does not list it, and so is a dropdown that takes a `Custom` arm from two recipes, because its composed description can only describe one. A dropdown whose presets already include one named `custom` is an ordinary dropdown until you give it an arm. If your dropdown already uses the value `custom` for a preset of its own, name the arm's value with `CustomValue` (`custom_value`) instead of renaming the preset, which would reset every player who had chosen it. A text edited while the dropdown still says a preset does nothing, and the log says so once:
+The text applies only while the dropdown says `custom`; on any preset the preset applies and the text is ignored. The dropdown's description is composed for you: your own `[mod-setting-description]` entry, then one line per preset, its localised label followed by its ingredients written out in the language, so the player switching to `custom` can start from the preset they were on (a cost dropdown's line names the technology its preset copies, through the technology's own localised name; see below). A dropdown that lists `custom` with no preset behind it and no `Custom` arm is refused, as is a `Custom` arm on a dropdown that does not list it, and so is a dropdown that takes a `Custom` arm from two recipes, because its composed description can only describe one. A dropdown whose presets already include one named `custom` is an ordinary dropdown until you give it an arm. If your dropdown already uses the value `custom` for a preset of its own, name the arm's value with `CustomValue` (`custom_value`) instead of renaming the preset, which would reset every player who had chosen it. A text edited while the dropdown still says a preset does nothing, and the log says so once:
 
 ```
 fkrecipes: steelworks-quench-ingredients is edited, but steelworks-quench-medium is not on custom, so the text is ignored
@@ -411,6 +411,17 @@ fkrecipes: steelworks-chain-forging takes its research cost from steelworks-chai
 ```
 
 A `CostBy` dropdown takes the same thing as its `Custom` arm, with one addition: a `Position` ladder, walked to the first technology the game has, which becomes the sole prerequisite exactly as a chosen tier's source would, or no prerequisite with a log line when no rung exists. `Position` is required in a `Custom` arm and refused under `CostFrom`, where the placement fields already say where the technology goes.
+
+While the dropdown is on a tier, the three settings do nothing, and each one that differs from what you declared says so, one line per setting in the order count, seconds, packs, before the tier's own lines:
+
+```
+fkrecipes: steelworks-tips-count is edited, but steelworks-tips-tier is not on custom, so the number is ignored
+fkrecipes: steelworks-tips-packs is edited, but steelworks-tips-tier is not on custom, so the text is ignored
+```
+
+A number that equals its declared default, or that cannot be read, draws nothing. For that line to be true, a count or seconds setting serves exactly one technology: one read as a research count or time by two technologies, or by a technology and a recipe's `CraftTimeFrom`, is refused at plan time (`fkrecipes: the setting tips-count is read as a research count or time by more than one declaration; a custom cost's number serves exactly one`). Two recipes may still share one crafting-time setting.
+
+The composed description of a cost dropdown names, after each tier's localised label, the technology whose cost that tier copies, through the technology's own localised name (`{"technology-name.<first source>"}` after `: cost of`), or `: the fallback cost` for a tier with no source. Where the game has no such technology or no entry for it, the tooltip shows the game's `Unknown key:` marker for that key, so order the ladder with the technology a stock install has first, or ship the entry.
 
 ```go
 CostBy: &fkrecipes.CostChoices{

@@ -163,7 +163,8 @@ fn plan_settings_composes_a_dropdown_with_a_custom_arm() {
 }
 
 /// A RESEARCH preset is a technology whose cost is copied, so what the line
-/// says is which one.
+/// says is which one, in the technology's own localised name: the internal
+/// name rides inside the name key and is not shown to the player.
 #[test]
 fn plan_settings_composes_a_cost_dropdown_with_a_custom_arm() {
     let mut lib = Lib::new();
@@ -211,7 +212,7 @@ fn plan_settings_composes_a_cost_dropdown_with_a_custom_arm() {
     assert_composed(
         &transcript(&ops)[..1],
         &[
-            r#"extend {type="string-setting", name="steelworks-tips-research-tier", setting_type="startup", default_value="projectile", order="aa", allowed_values=["projectile", "military", "custom"], localised_description=["", ["mod-setting-description.steelworks-tips-research-tier"], ["", "\n", ["string-mod-setting.steelworks-tips-research-tier-projectile"], ": cost of tungsten-hardening"], ["", "\n", ["string-mod-setting.steelworks-tips-research-tier-military"], ": cost of logistics-3"]]}"#,
+            r#"extend {type="string-setting", name="steelworks-tips-research-tier", setting_type="startup", default_value="projectile", order="aa", allowed_values=["projectile", "military", "custom"], localised_description=["", ["mod-setting-description.steelworks-tips-research-tier"], ["", "\n", ["string-mod-setting.steelworks-tips-research-tier-projectile"], ": cost of ", ["technology-name.tungsten-hardening"]], ["", "\n", ["string-mod-setting.steelworks-tips-research-tier-military"], ": cost of ", ["technology-name.logistics-3"]]]}"#,
         ],
     );
 }
@@ -259,6 +260,116 @@ fn a_cost_preset_with_no_source_reads_as_the_fallback() {
         &[
             r#"extend {type="string-setting", name="steelworks-tier", setting_type="startup", default_value="cheap", order="aa", allowed_values=["cheap", "custom"], localised_description=["", ["mod-setting-description.steelworks-tier"], ["", "\n", ["string-mod-setting.steelworks-tier-cheap"], ": the fallback cost"]]}"#,
         ],
+    );
+}
+
+/// THE SOURCE TECHNOLOGY IS NAMED THE WAY THE PLAYER KNOWS IT. The line used
+/// to read `cost of tungsten-hardening`, which is an internal name and a
+/// string nobody sees anywhere else in the game; it hands the engine the
+/// technology's own name key now and lets the engine render it. The internal
+/// name survives inside that key and nowhere else.
+///
+/// The KEY IS THE GAME'S, so the locale checker gains no obligation. What a
+/// modpack without that technology shows is the engine's missing-key MARKER,
+/// `Unknown key: "technology-name.tungsten-hardening"`, not the bare name; the
+/// measured shape is the note on `Lib::check_locale`, and the trade is stated
+/// on `cost_preset_tail`.
+///
+/// The whole nested value is asserted, because the two shapes differ by a
+/// parameter: a choice with a source ends in the words and the name table,
+/// and one with an empty ladder has no technology to name and keeps the four
+/// parameters it always had.
+#[test]
+fn a_cost_preset_names_its_source_by_its_localised_name() {
+    let mut lib = Lib::new();
+    let tier = lib.dropdown_setting_needing_locale(
+        "tips-research-tier",
+        "projectile",
+        &["projectile", "military", "cheap", "custom"],
+    );
+    let packs = lib.packs_setting("tips-packs", vec![Pack::new("automation-science-pack", 1)]);
+    let count = lib.int_setting("tips-count", 30, NumericSpec::between(1.0, 100000.0));
+    let seconds = lib.double_setting("tips-seconds", 15.0, NumericSpec::between(0.5, 600.0));
+    lib.technology(
+        "hardened-tips",
+        TechSpec {
+            cost_by: Some(crate::plan::CostChoices {
+                setting: tier,
+                choices: vec![
+                    crate::plan::CostChoice {
+                        value: "projectile".into(),
+                        sources: strings(&["tungsten-hardening", "logistics-2"]),
+                    },
+                    crate::plan::CostChoice {
+                        value: "military".into(),
+                        sources: strings(&["logistics-3"]),
+                    },
+                    crate::plan::CostChoice {
+                        value: "cheap".into(),
+                        sources: Vec::new(),
+                    },
+                ],
+                fallback: UnitSpec {
+                    count: 200,
+                    seconds: 30.0,
+                    packs: vec![Pack::new("automation-science-pack", 1)],
+                },
+                custom: Some(CustomCost {
+                    packs,
+                    count,
+                    seconds,
+                    position: strings(&["military-2"]),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    );
+
+    let ops = lib.plan_settings(&settings_world()).expect("plan refused");
+    let crate::op::Op::Extend(proto) = &ops[0] else {
+        panic!("the first op is not the dropdown")
+    };
+    assert_eq!(
+        field(proto, "localised_description").expect("no description"),
+        Value::Arr(vec![
+            Value::string(""),
+            Value::Arr(vec![Value::string(
+                "mod-setting-description.steelworks-tips-research-tier"
+            )]),
+            // FIVE PARAMETERS: the concatenating key, the newline, the
+            // dropdown's own label, the words, and the technology's name key.
+            Value::Arr(vec![
+                Value::string(""),
+                Value::string("\n"),
+                Value::Arr(vec![Value::string(
+                    "string-mod-setting.steelworks-tips-research-tier-projectile"
+                )]),
+                Value::string(": cost of "),
+                Value::Arr(vec![Value::string("technology-name.tungsten-hardening")]),
+            ]),
+            // The FIRST rung is the one named; the rest are what a modpack
+            // missing it falls back to.
+            Value::Arr(vec![
+                Value::string(""),
+                Value::string("\n"),
+                Value::Arr(vec![Value::string(
+                    "string-mod-setting.steelworks-tips-research-tier-military"
+                )]),
+                Value::string(": cost of "),
+                Value::Arr(vec![Value::string("technology-name.logistics-3")]),
+            ]),
+            // FOUR: nothing to name, so nothing is nested.
+            Value::Arr(vec![
+                Value::string(""),
+                Value::string("\n"),
+                Value::Arr(vec![Value::string(
+                    "string-mod-setting.steelworks-tips-research-tier-cheap"
+                )]),
+                Value::string(": the fallback cost"),
+            ]),
+        ]),
+        "the composed description is not the shape the engine renders"
     );
 }
 
@@ -336,6 +447,130 @@ fn a_composed_description_nests_past_nineteen_presets() {
         matches!(group[1], Value::Arr(_)),
         "the nested group's member is not a preset line"
     );
+}
+
+/// THE COST DROPDOWN NESTS THE SAME WAY, and this is the pin that says the
+/// five-parameter preset line did not change that. A line is ONE parameter of
+/// the group above it however many tables sit inside it, so the technology's
+/// name table costs the ceiling nothing.
+///
+/// THE NAME TABLE IS A SIBLING OF THE LABEL, not a level under it: both are
+/// direct children of the preset line, so the deepest table in a flat
+/// description is three levels down and was three levels down before this
+/// composition existed, nowhere near the twenty the engine takes.
+#[test]
+fn a_cost_dropdown_description_nests_past_nineteen_presets() {
+    let composed = |presets: usize| -> Value {
+        let mut lib = Lib::new();
+        let mut values: Vec<String> = (0..presets).map(|i| alloc::format!("t{}", i)).collect();
+        values.push(String::from("custom"));
+        let refs: Vec<&str> = values.iter().map(|v| v.as_str()).collect();
+        let setting = lib.dropdown_setting_needing_locale("tier", "t0", &refs);
+        let packs = lib.packs_setting("tips-packs", vec![Pack::new("automation-science-pack", 1)]);
+        let count = lib.int_setting("tips-count", 30, NumericSpec::between(1.0, 100000.0));
+        let seconds = lib.double_setting("tips-seconds", 15.0, NumericSpec::between(0.5, 600.0));
+        lib.technology(
+            "hardened-tips",
+            TechSpec {
+                cost_by: Some(crate::plan::CostChoices {
+                    setting,
+                    choices: (0..presets)
+                        .map(|i| crate::plan::CostChoice {
+                            value: alloc::format!("t{}", i),
+                            sources: vec![alloc::format!("source-{}", i)],
+                        })
+                        .collect(),
+                    fallback: UnitSpec {
+                        count: 200,
+                        seconds: 30.0,
+                        packs: vec![Pack::new("automation-science-pack", 1)],
+                    },
+                    custom: Some(CustomCost {
+                        packs,
+                        count,
+                        seconds,
+                        position: strings(&["military-2"]),
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+        let ops = lib.plan_settings(&settings_world()).expect("plan refused");
+        match &ops[0] {
+            crate::op::Op::Extend(proto) => {
+                field(proto, "localised_description").expect("no description")
+            }
+            _ => panic!("the first op is not the dropdown"),
+        }
+    };
+
+    // How far down the deepest TABLE sits, counting the description itself as
+    // level one. Tables are what the engine counts; a string is not a level.
+    fn deepest_table(v: &Value, depth: usize) -> usize {
+        match v {
+            Value::Arr(items) => items
+                .iter()
+                .map(|item| deepest_table(item, depth + 1))
+                .max()
+                .unwrap_or(0)
+                .max(depth),
+            _ => 0,
+        }
+    }
+    // Two presets, so nothing nests: description, preset line, name table.
+    assert_eq!(
+        deepest_table(&composed(2), 1),
+        3,
+        "a flat cost description is not three tables deep"
+    );
+
+    // MEASURED (2.0.77): twenty parameters load and twenty-one refuse. The
+    // consumer's own description key is the first, so a level holds at most
+    // twenty-one slots counting the empty key that concatenates them.
+    let description = composed(21);
+    let Value::Arr(top) = &description else {
+        panic!("the description is not a localised string")
+    };
+    assert_eq!(top.len(), 21, "the top level is not one level wide");
+    let Value::Arr(tail) = top.last().expect("no last parameter") else {
+        panic!("the last slot is not a localised string")
+    };
+    // The empty key that concatenates, then the three lines that did not fit.
+    assert_eq!(
+        tail.len(),
+        4,
+        "the nested group does not hold what the level could not"
+    );
+
+    fn walk(v: &Value, depth: usize, lines: &mut usize) {
+        let Value::Arr(items) = v else { return };
+        assert!(
+            items.len() <= 21,
+            "a level holds {} parameters, want at most 21",
+            items.len()
+        );
+        assert!(depth <= 20, "the nesting is deeper than the engine takes");
+        // A preset line rather than a group: the newline in the second slot is
+        // what tells them apart, and a line is counted rather than descended
+        // into.
+        if items.len() > 1 && items[1] == Value::string("\n") {
+            *lines += 1;
+            assert_eq!(
+                items.len(),
+                5,
+                "a cost preset line holds {} parameters, want 5",
+                items.len()
+            );
+            return;
+        }
+        for item in items {
+            walk(item, depth + 1, lines);
+        }
+    }
+    let mut lines = 0usize;
+    walk(&description, 1, &mut lines);
+    assert_eq!(lines, 21, "the description holds {} preset lines", lines);
 }
 
 // ---------------------------------------------------------------------------
@@ -577,6 +812,96 @@ fn customizer_refusals() {
                 );
             },
             want: "fkrecipes: the technology hardened-tips must name exactly one of CostOf, Unit, CostBy or CostFrom",
+        },
+        Case {
+            // THE NUMBER RULE STEPS PAST WHAT THE OTHER SENTENCES OWN, and
+            // this technology is the one that made it necessary: it names two
+            // cost sources, so it has not said what its research costs, and
+            // both of the arms it names read the same count. Counting them
+            // would answer an undeclared cost with a sentence about sharing.
+            name: "two cost sources over one count",
+            data: true,
+            build: |l: &mut Lib| {
+                let tier = l.dropdown_setting_needing_locale("tier", "a", &["a", "custom"]);
+                let from_packs =
+                    l.packs_setting("from-packs", vec![Pack::new("automation-science-pack", 1)]);
+                let arm_packs =
+                    l.packs_setting("arm-packs", vec![Pack::new("automation-science-pack", 1)]);
+                let count = l.int_setting("shared-count", 30, NumericSpec::between(1.0, 100.0));
+                let from_seconds =
+                    l.double_setting("from-seconds", 15.0, NumericSpec::between(0.5, 60.0));
+                let arm_seconds =
+                    l.double_setting("arm-seconds", 15.0, NumericSpec::between(0.5, 60.0));
+                l.technology(
+                    "hardened-tips",
+                    TechSpec {
+                        cost_from: Some(CustomCost {
+                            packs: from_packs,
+                            count,
+                            seconds: from_seconds,
+                            position: Vec::new(),
+                        }),
+                        cost_by: Some(crate::plan::CostChoices {
+                            setting: tier,
+                            choices: vec![crate::plan::CostChoice {
+                                value: "a".into(),
+                                sources: strings(&["logistics-2"]),
+                            }],
+                            fallback: UnitSpec {
+                                count: 200,
+                                seconds: 30.0,
+                                packs: vec![Pack::new("automation-science-pack", 1)],
+                            },
+                            custom: Some(CustomCost {
+                                packs: arm_packs,
+                                count,
+                                seconds: arm_seconds,
+                                position: strings(&["military-2"]),
+                            }),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: the technology hardened-tips must name exactly one of CostOf, Unit, CostBy or CostFrom",
+        },
+        Case {
+            // The recipe twin: a crafting time named twice, once by hand and
+            // once by a handle a research cost also reads. "Pick one" is what
+            // the author has to fix first, and it is the data planner's line.
+            name: "CraftTime beside CraftTimeFrom over a shared seconds",
+            data: true,
+            build: |l: &mut Lib| {
+                let axe = l.item("steel-axe", ItemSpec::default());
+                let packs = l.packs_setting("packs", vec![Pack::new("automation-science-pack", 1)]);
+                let count = l.int_setting("count", 30, NumericSpec::between(1.0, 100.0));
+                let seconds =
+                    l.double_setting("shared-seconds", 15.0, NumericSpec::between(0.5, 60.0));
+                l.recipe(
+                    axe,
+                    RecipeSpec {
+                        craft_time: 2.0,
+                        craft_time_from: seconds,
+                        ingredients: vec![Ingredient::named(1, "iron-plate", &[])],
+                        ..Default::default()
+                    },
+                );
+                l.technology(
+                    "chain-forging",
+                    TechSpec {
+                        cost_from: Some(CustomCost {
+                            packs,
+                            count,
+                            seconds,
+                            position: Vec::new(),
+                        }),
+                        after: "steel-processing".into(),
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: the recipe steel-axe names both CraftTime and CraftTimeFrom; pick one",
         },
         Case {
             name: "CostFrom with a Position",
@@ -1194,6 +1519,185 @@ fn customizer_refusals() {
         };
         assert_eq!(got.as_deref(), Some(c.want), "{}", c.name);
     }
+}
+
+/// A RESEARCH COUNT OR TIME SERVES EXACTLY ONE DECLARATION, and the line the
+/// data stage writes is why. A dropdown on a preset says the count and the
+/// seconds beside it are ignored; that sentence is false the moment a second
+/// declaration reads the same setting, and the player is told a field changed
+/// nothing while the recipe two lines down takes its crafting time from it.
+///
+/// A NUMBER NO RESEARCH COST READS IS STILL SHARED FREELY. One double behind
+/// two recipes' crafting time is a mod-wide speed dial and nothing ever calls
+/// it ignored, so the last case here is ACCEPTED and the rule stays about the
+/// numbers a custom cost claims.
+///
+/// BOTH PLANNERS, because both run the binding rules: the settings stage
+/// composes the very dropdown whose ignored-line the rule protects.
+#[test]
+fn a_research_number_serves_exactly_one_declaration() {
+    // A count read by a CostFrom technology and by a Custom arm's technology.
+    let shared_count = || {
+        let mut lib = Lib::new();
+        let tier = lib.dropdown_setting_needing_locale("tier", "a", &["a", "custom"]);
+        let count = lib.int_setting("research-count", 30, NumericSpec::between(1.0, 100000.0));
+        let chain_seconds =
+            lib.double_setting("chain-seconds", 10.0, NumericSpec::between(0.5, 600.0));
+        let tips_seconds =
+            lib.double_setting("tips-seconds", 15.0, NumericSpec::between(0.5, 600.0));
+        let chain_packs =
+            lib.packs_setting("chain-packs", vec![Pack::new("automation-science-pack", 1)]);
+        let tips_packs =
+            lib.packs_setting("tips-packs", vec![Pack::new("automation-science-pack", 1)]);
+        lib.technology(
+            "chain-forging",
+            TechSpec {
+                cost_from: Some(CustomCost {
+                    packs: chain_packs,
+                    count,
+                    seconds: chain_seconds,
+                    position: Vec::new(),
+                }),
+                after: "steel-processing".into(),
+                ..Default::default()
+            },
+        );
+        lib.technology(
+            "hardened-tips",
+            TechSpec {
+                cost_by: Some(crate::plan::CostChoices {
+                    setting: tier,
+                    choices: vec![crate::plan::CostChoice {
+                        value: "a".into(),
+                        sources: strings(&["logistics-2"]),
+                    }],
+                    fallback: UnitSpec {
+                        count: 200,
+                        seconds: 30.0,
+                        packs: vec![Pack::new("automation-science-pack", 1)],
+                    },
+                    custom: Some(CustomCost {
+                        packs: tips_packs,
+                        count,
+                        seconds: tips_seconds,
+                        position: strings(&["military-2"]),
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+        lib
+    };
+    let both_planners = |lib: Lib, want: &str, case: &str| {
+        assert_eq!(
+            lib.plan_data(&base_world()).err().as_deref(),
+            Some(want),
+            "{}, at the data stage",
+            case
+        );
+        assert_eq!(
+            lib.plan_settings(&settings_world()).err().as_deref(),
+            Some(want),
+            "{}, at the settings stage",
+            case
+        );
+    };
+    both_planners(
+        shared_count(),
+        "fkrecipes: the setting research-count is read as a research count or time by more than one declaration; a custom cost's number serves exactly one",
+        "a count two technologies price themselves with",
+    );
+
+    // A double a recipe's crafting time reads AND a research cost prices
+    // itself in: the two readers are of different kinds, and the ignored-line
+    // is just as false.
+    let mut crossed = Lib::new();
+    let axe = crossed.item("steel-axe", ItemSpec::default());
+    let seconds = crossed.double_setting("shared-seconds", 15.0, NumericSpec::between(0.5, 600.0));
+    let count = crossed.int_setting("chain-count", 20, NumericSpec::between(1.0, 100000.0));
+    let packs = crossed.packs_setting("chain-packs", vec![Pack::new("automation-science-pack", 1)]);
+    crossed.recipe(
+        axe,
+        RecipeSpec {
+            craft_time_from: seconds,
+            ..Default::default()
+        },
+    );
+    crossed.technology(
+        "chain-forging",
+        TechSpec {
+            cost_from: Some(CustomCost {
+                packs,
+                count,
+                seconds,
+                position: Vec::new(),
+            }),
+            after: "steel-processing".into(),
+            ..Default::default()
+        },
+    );
+    both_planners(
+        crossed,
+        "fkrecipes: the setting shared-seconds is read as a research count or time by more than one declaration; a custom cost's number serves exactly one",
+        "a crafting time and a research time out of one setting",
+    );
+
+    // TWO RECIPES, ONE CRAFTING TIME, AND NOTHING IS REFUSED: no research cost
+    // claims this double, so no line ever says it was ignored.
+    let mut speed_dial = Lib::new();
+    let axe = speed_dial.item("steel-axe", ItemSpec::default());
+    let rivet = speed_dial.item("steel-rivet", ItemSpec::default());
+    let forging = speed_dial.double_setting("forging-time", 2.5, NumericSpec::default());
+    for item in [axe, rivet] {
+        speed_dial.recipe(
+            item,
+            RecipeSpec {
+                craft_time_from: forging,
+                ..Default::default()
+            },
+        );
+    }
+    speed_dial
+        .plan_data(&base_world())
+        .expect("two recipes sharing one crafting time were refused");
+    speed_dial
+        .plan_settings(&settings_world())
+        .expect("two recipes sharing one crafting time were refused");
+}
+
+/// THE TEXT RULE ANSWERS FIRST when a plan breaks both bound-exactly-once
+/// rules. It is the older sentence and the one an author reads faster, and the
+/// order is a parity pin: the two halves walk one plan and must name the same
+/// setting.
+#[test]
+fn an_unbound_text_setting_is_named_before_a_shared_research_number() {
+    let mut lib = Lib::new();
+    lib.ingredients_setting("parts", vec![Ingredient::named(1, "iron-plate", &[])]);
+    let count = lib.int_setting("research-count", 30, NumericSpec::between(1.0, 100000.0));
+    let seconds = lib.double_setting("chain-seconds", 10.0, NumericSpec::between(0.5, 600.0));
+    let packs = lib.packs_setting("chain-packs", vec![Pack::new("automation-science-pack", 1)]);
+    let more = lib.packs_setting("tips-packs", vec![Pack::new("automation-science-pack", 1)]);
+    for (name, p) in [("chain-forging", packs), ("hardened-tips", more)] {
+        lib.technology(
+            name,
+            TechSpec {
+                cost_from: Some(CustomCost {
+                    packs: p,
+                    count,
+                    seconds,
+                    position: Vec::new(),
+                }),
+                after: "steel-processing".into(),
+                ..Default::default()
+            },
+        );
+    }
+
+    assert_eq!(
+        lib.plan_data(&base_world()).err().as_deref(),
+        Some("fkrecipes: the setting parts is declared and nothing reads it; a text setting must be bound to one recipe or technology")
+    );
 }
 
 /// A PRESET THAT HAPPENS TO BE SPELLED `custom` STAYS A PRESET. The refusal
@@ -1910,6 +2414,196 @@ fn a_cost_text_under_a_preset_is_ignored_out_loud() {
     );
 }
 
+/// The unit the preset copies, which is the same under every case the two
+/// tests below vary: what the player edited changes the LINES, never the
+/// technology.
+const TIPS_ON_A_PRESET: &str = r#"extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"], unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}"#;
+
+/// The plan under a preset, with the dropdown answered so no unreadable line
+/// stands between the edits and what they draw.
+fn under_a_preset(edits: &[(&str, Value)]) -> Vec<String> {
+    let mut w =
+        base_world().with_setting("steelworks-tips-research-tier", Value::string("projectile"));
+    for (name, v) in edits {
+        w = w.with_setting(name, v.clone());
+    }
+    transcript(
+        &tips_plan(&["logistics"])
+            .plan_data(&w)
+            .expect("plan refused"),
+    )
+}
+
+/// A NUMBER NOBODY IS READING SAYS SO, exactly as an edited text does. The
+/// packs text spoke and the count and the seconds beside it went quiet, which
+/// is the same silence the text line exists to answer: the player moved a
+/// field and the load did what it would have done anyway.
+///
+/// ONE LINE PER EDITED SETTING, in the order the unit carries them, and all of
+/// them before the preset's own lines.
+#[test]
+fn an_edited_number_under_a_preset_is_ignored_out_loud() {
+    assert_lines(
+        &under_a_preset(&[("steelworks-tips-count", Value::Num(45.0))]),
+        &[
+            "log fkrecipes: steelworks-tips-count is edited, but steelworks-tips-research-tier is not on custom, so the number is ignored",
+            TIPS_ON_A_PRESET,
+        ],
+    );
+
+    assert_lines(
+        &under_a_preset(&[("steelworks-tips-seconds", Value::Num(12.5))]),
+        &[
+            "log fkrecipes: steelworks-tips-seconds is edited, but steelworks-tips-research-tier is not on custom, so the number is ignored",
+            TIPS_ON_A_PRESET,
+        ],
+    );
+
+    // The text alone still draws the sentence it always drew.
+    assert_lines(
+        &under_a_preset(&[(
+            "steelworks-tips-packs",
+            Value::string("1 automation-science-pack"),
+        )]),
+        &[
+            "log fkrecipes: steelworks-tips-packs is edited, but steelworks-tips-research-tier is not on custom, so the text is ignored",
+            TIPS_ON_A_PRESET,
+        ],
+    );
+
+    // All three: three lines, count then seconds then packs.
+    assert_lines(
+        &under_a_preset(&[
+            ("steelworks-tips-count", Value::Num(45.0)),
+            ("steelworks-tips-seconds", Value::Num(12.5)),
+            (
+                "steelworks-tips-packs",
+                Value::string("1 automation-science-pack"),
+            ),
+        ]),
+        &[
+            "log fkrecipes: steelworks-tips-count is edited, but steelworks-tips-research-tier is not on custom, so the number is ignored",
+            "log fkrecipes: steelworks-tips-seconds is edited, but steelworks-tips-research-tier is not on custom, so the number is ignored",
+            "log fkrecipes: steelworks-tips-packs is edited, but steelworks-tips-research-tier is not on custom, so the text is ignored",
+            TIPS_ON_A_PRESET,
+        ],
+    );
+}
+
+/// WHAT IS NOT AN EDIT DRAWS NOTHING. A number has no word standing in for the
+/// mod's own answer the way a list has `default`, so the declared default IS
+/// the untouched value; and a setting this planner cannot read as a number is
+/// not one the player set, which is the tolerance the text line already has.
+///
+/// On the custom value nothing is ignored at all, because everything is read.
+#[test]
+fn a_number_that_is_not_an_edit_draws_no_line() {
+    // The declared default, which is what an untouched field answers with.
+    assert_lines(
+        &under_a_preset(&[("steelworks-tips-count", Value::Num(30.0))]),
+        &[TIPS_ON_A_PRESET],
+    );
+
+    // THE DOUBLE ANSWERS THE SAME QUESTION UNDER ITS OWN DECLARED DEFAULT, and
+    // it is asked here rather than left to the int's case: the two are
+    // separate fields read through separate handles, and a comparison against
+    // the wrong default would be silent on exactly one of them. Moved off it,
+    // the same field draws the line, which is what makes the silence above a
+    // comparison and not a setting nothing looks at.
+    assert_lines(
+        &under_a_preset(&[("steelworks-tips-seconds", Value::Num(15.0))]),
+        &[TIPS_ON_A_PRESET],
+    );
+    assert_lines(
+        &under_a_preset(&[("steelworks-tips-seconds", Value::Num(22.0))]),
+        &[
+            "log fkrecipes: steelworks-tips-seconds is edited, but steelworks-tips-research-tier is not on custom, so the number is ignored",
+            TIPS_ON_A_PRESET,
+        ],
+    );
+
+    // A hand-edited file holding text under a numeric setting. Nothing reads
+    // it here, so nothing refuses it either.
+    assert_lines(
+        &under_a_preset(&[("steelworks-tips-count", Value::string("45"))]),
+        &[TIPS_ON_A_PRESET],
+    );
+
+    // Nothing stored at all: unreadable is not edited.
+    assert_lines(&under_a_preset(&[]), &[TIPS_ON_A_PRESET]);
+
+    // On the custom value every one of the three is read, so no line says
+    // otherwise.
+    let w = base_world()
+        .with_setting("steelworks-tips-research-tier", Value::string("custom"))
+        .with_setting("steelworks-tips-count", Value::Num(45.0))
+        .with_setting("steelworks-tips-seconds", Value::Num(12.5))
+        .with_setting(
+            "steelworks-tips-packs",
+            Value::string("1 automation-science-pack"),
+        );
+    assert_lines(
+        &transcript(&tips_plan(&["logistics"]).plan_data(&w).expect("plan refused")),
+        &[
+            "log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs: count 45, time 12.5, packs 1 automation-science-pack",
+            r#"extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics"], unit={count=45, time=1.2500000000000000e1, ingredients=[["automation-science-pack", 1]]}}"#,
+        ],
+    );
+}
+
+/// THE IGNORED LINES COME BEFORE THE PRESET'S OWN, so they read as the reason
+/// the lines under them are the preset's and not the player's. The chosen
+/// ladder finds nothing here, so the preset has a line of its own to sit
+/// under and the order is visible rather than asserted about a single line.
+#[test]
+fn an_ignored_number_line_comes_before_the_presets_own() {
+    let w = base_world()
+        .without_tech("logistics-2")
+        .with_setting("steelworks-tips-research-tier", Value::string("projectile"))
+        .with_setting("steelworks-tips-count", Value::Num(45.0));
+    let ops = tips_plan(&["logistics"])
+        .plan_data(&w)
+        .expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: steelworks-tips-count is edited, but steelworks-tips-research-tier is not on custom, so the number is ignored",
+            "log fkrecipes: hardened-tips: no source for the projectile cost carries a unit, so the fallback cost applies and the technology has no prerequisite",
+            r#"extend {type="technology", name="steelworks-hardened-tips", unit={count=200, time=30, ingredients=[["automation-science-pack", 1]]}}"#,
+        ],
+    );
+}
+
+/// A STORED NaN IS AN EDIT UNDER A PRESET AND A REFUSAL ON CUSTOM, and the two
+/// answers are DELIBERATE rather than an oversight in one of them.
+///
+/// Under a preset the question is only "did the player move this field", and a
+/// value that is not the declared default is a field that was moved: nothing
+/// does arithmetic with it, so nothing can object to it, and the line says the
+/// number is ignored because it is. On custom the same value is READ, and a
+/// research unit built out of it is a load failure naming nothing of this
+/// library's, so it is refused by the setting that holds it.
+#[test]
+fn a_stored_nan_is_an_edit_under_a_preset_and_a_refusal_on_custom() {
+    assert_lines(
+        &under_a_preset(&[("steelworks-tips-count", Value::Num(f64::NAN))]),
+        &[
+            "log fkrecipes: steelworks-tips-count is edited, but steelworks-tips-research-tier is not on custom, so the number is ignored",
+            TIPS_ON_A_PRESET,
+        ],
+    );
+
+    let w = base_world()
+        .with_setting("steelworks-tips-research-tier", Value::string("custom"))
+        .with_setting("steelworks-tips-packs", Value::string("default"))
+        .with_setting("steelworks-tips-count", Value::Num(f64::NAN));
+    assert_eq!(
+        tips_plan(&["logistics"]).plan_data(&w).err().as_deref(),
+        Some("fkrecipes: steelworks-tips-count holds a value that is not a finite number")
+    );
+}
+
 /// CostFrom is Unit with its numbers in the player's hands, so the ORDINARY
 /// placement fields place it: the splice and the drop behave as they do
 /// anywhere else.
@@ -2029,6 +2723,51 @@ fn a_research_number_the_world_cannot_answer_is_refused() {
             c.name
         );
     }
+}
+
+/// THE ORDER THE FOUR FIELDS ANSWER IN, which is a PARITY pin before it is
+/// anything else: a custom cost reads three fields the player owns, a
+/// hand-edited file can leave two of them wrong at once, and the two halves
+/// used to pick different sentences out of such a world. The Go half reads
+/// the pack text first and checks the numbers behind it, and that order is
+/// the agreed one (agents/customizer-design.md); this half checked the
+/// numbers where it read them.
+///
+/// FINITENESS FIRST, BOTH NUMBERS, then the two floors, because a NaN is
+/// neither below 1 nor at or below zero and a floor arm reached first would
+/// wave it through.
+#[test]
+fn a_bad_pack_text_answers_before_a_bad_number() {
+    let world = |packs: &str, count: f64, seconds: f64| {
+        base_world()
+            .with_setting("steelworks-tips-research-tier", Value::string("custom"))
+            .with_setting("steelworks-tips-packs", Value::string(packs))
+            .with_setting("steelworks-tips-count", Value::Num(count))
+            .with_setting("steelworks-tips-seconds", Value::Num(seconds))
+    };
+
+    // An empty pack list and a research time that is not a number: the text
+    // is what the player is likeliest to have typed, so the text answers.
+    assert_eq!(
+        tips_plan(&["logistics"])
+            .plan_data(&world("", 45.0, f64::NAN))
+            .err()
+            .as_deref(),
+        Some(
+            "fkrecipes: steelworks-tips-packs is empty; write the science packs as \"1 automation-science-pack, 1 logistic-science-pack\", or the word default for the mod's own list"
+        )
+    );
+
+    // A readable text, and both numbers wrong: the finiteness question is
+    // asked of both before either floor is, so the NaN answers ahead of the
+    // count that is merely too small.
+    assert_eq!(
+        tips_plan(&["logistics"])
+            .plan_data(&world("1 automation-science-pack", 0.0, f64::NAN))
+            .err()
+            .as_deref(),
+        Some("fkrecipes: steelworks-tips-seconds holds a value that is not a finite number")
+    );
 }
 
 /// THE REFUSAL CHANNELS IN THEIR FIXED ORDER. Resolution is where the PLAYER'S

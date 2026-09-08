@@ -440,6 +440,11 @@ jqassert "the Extra passthrough reached the dump" "$DDUMP" \
   '.recipe["fkrecipes-example-steel-rivet"].allow_productivity == true'
 jqassert "the generated craft-time minimum reached the settings dump" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-forging-time") | .minimum_value] | any(. == 0.002)'
+# A COST PRESET NAMES ITS TECHNOLOGY THROUGH ITS LOCALE KEY, in the engine's
+# own settings dump: the composed description of the tier dropdown carries a
+# nested {"technology-name.<source>"} where the internal name used to sit.
+jqassert "the cost dropdown's composed description names its technology through its locale key" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-tips-research-tier") | .localised_description | .. | arrays | select(.[0]? == "technology-name.military-4")] | length > 0'
 
 # ---------------------------------------------------------------------------
 # THE FLIPPED ROW. Everything above reads the default dump, where no player has

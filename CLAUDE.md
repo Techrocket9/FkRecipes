@@ -24,6 +24,7 @@ cd go && gofmt -l . | tee /dev/stderr | (! read)   # formatting; any filename is
 cd go && go vet ./...
 cd go && go test ./...        # pure half on the host: planner, validators. No wasm toolchain needed
 cd go && go test -race ./...  # the id counter is atomic for consumers' parallel tests; -race is what proves it stays so
+cd go/examples/notext && go vet .   # the size fixture compiles on the host; nothing in scripts/ builds it
 cd rust && cargo test         # the Rust mirror of the same pure half. No wasm target needed
 cd rust && cargo build --target wasm32-unknown-unknown --workspace
                               # every member compiles for the target it ships on; cargo test alone

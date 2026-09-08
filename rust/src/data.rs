@@ -779,6 +779,30 @@ impl Lib {
                         res.techs.push(rt);
                         continue;
                     }
+                    // ONE LINE PER EDITED SETTING, and the numbers are as
+                    // invisible as the text: a count or a seconds moved while
+                    // the dropdown sits on a preset is a preference nothing
+                    // reads either, and silence there is the same field report
+                    // the text line exists to answer. They come in the order
+                    // the unit carries them and the order the custom-cost log
+                    // line names them: count, seconds, packs.
+                    let dropdown = setting.emitted_name(prefix);
+                    note_ignored_number(
+                        w,
+                        &mut res,
+                        &self.settings[cc.count.index - 1],
+                        prefix,
+                        &dropdown,
+                        cv,
+                    );
+                    note_ignored_number(
+                        w,
+                        &mut res,
+                        &self.settings[cc.seconds.index - 1],
+                        prefix,
+                        &dropdown,
+                        cv,
+                    );
                     note_ignored_text(
                         self.installed_language(),
                         &own,
@@ -786,7 +810,7 @@ impl Lib {
                         &self.settings[cc.packs.index - 1].emitted_name(prefix),
                         ListKind::Packs,
                         "",
-                        &setting.emitted_name(prefix),
+                        &dropdown,
                         cv,
                     );
                 }
@@ -1136,6 +1160,39 @@ fn note_ignored_text(
         if (lang.is_edited)(&text, kind, category, full, own) {
             res.logs.push(format!(
                 "fkrecipes: {} is edited, but {} is not on {}, so the text is ignored",
+                full, dropdown, cv
+            ));
+        }
+    }
+}
+
+/// Says out loud that a NUMBER nothing is reading was moved.
+///
+/// EDITED MEANS "NOT THE NUMBER THE MOD DECLARED", which is the whole question
+/// a number can be asked: nothing stands in for the mod's own answer here the
+/// way the word `default` stands for a list, so the declared default IS the
+/// untouched value and a player who never moved the field hears nothing.
+///
+/// A setting that is not readable, or that answers with something other than a
+/// number, draws nothing either, the same tolerance the text line has: the
+/// dropdown sits on a preset, so nothing was going to read this number, and a
+/// value this planner cannot read is not a value the player set.
+///
+/// THE GAME'S OWN WORLD ANSWERS HERE, not the own-items overlay the texts are
+/// read under: no list is parsed, so there is nothing for the overlay to add.
+fn note_ignored_number(
+    w: &dyn World,
+    res: &mut Resolution,
+    s: &SettingDecl,
+    prefix: &str,
+    dropdown: &str,
+    cv: &str,
+) {
+    let full = s.emitted_name(prefix);
+    if let Some(Value::Num(v)) = w.startup_setting(&full) {
+        if v != s.def_num {
+            res.logs.push(format!(
+                "fkrecipes: {} is edited, but {} is not on {}, so the number is ignored",
                 full, dropdown, cv
             ));
         }
@@ -1929,22 +1986,6 @@ impl Lib {
         let lang = self.installed_language();
         let (count, count_setting) = self.read_num_setting(w, res, prefix, cc.count.index);
         let (seconds, seconds_setting) = self.read_num_setting(w, res, prefix, cc.seconds.index);
-        if !finite(count) {
-            res.refuse(not_finite(&count_setting));
-        } else if count < 1.0 {
-            res.refuse(format!(
-                "fkrecipes: {} holds a research count below 1",
-                count_setting
-            ));
-        }
-        if !finite(seconds) {
-            res.refuse(not_finite(&seconds_setting));
-        } else if seconds <= 0.0 {
-            res.refuse(format!(
-                "fkrecipes: {} holds a research time at or below zero",
-                seconds_setting
-            ));
-        }
         let s = &self.settings[cc.packs.index - 1];
         let full = s.emitted_name(prefix);
         let packs = match self.read_text_setting(w, res, &full) {
@@ -1981,6 +2022,35 @@ impl Lib {
                     .collect(),
             },
         };
+        // THE NUMBERS ARE ASKED AFTER THE TEXT, and a bad text answers first.
+        // All three fields are the player's and a world where two of them are
+        // wrong is a world the two halves would otherwise report differently;
+        // the pack text is the field a player is likeliest to have typed by
+        // hand, so it is the one whose sentence comes back. See
+        // agents/customizer-design.md.
+        //
+        // THE ORDER IS FINITENESS FIRST, both numbers, and only then the two
+        // floors: a floor is a question only a finite number can be asked. A
+        // NaN is neither below 1 nor at or below zero, so a floor arm reached
+        // first would wave it through, and an infinity would be sorted by
+        // whichever side of the floor it fell on rather than told the one
+        // thing that is actually wrong with it. One arm answers, because the
+        // first refusal is the one a Resolution keeps.
+        if !finite(count) {
+            res.refuse(not_finite(&count_setting));
+        } else if !finite(seconds) {
+            res.refuse(not_finite(&seconds_setting));
+        } else if count < 1.0 {
+            res.refuse(format!(
+                "fkrecipes: {} holds a research count below 1",
+                count_setting
+            ));
+        } else if seconds <= 0.0 {
+            res.refuse(format!(
+                "fkrecipes: {} holds a research time at or below zero",
+                seconds_setting
+            ));
+        }
         // ONE LINE WHATEVER THE TEXT SAID, unlike the ingredients path: the
         // count and the seconds come from their settings on every load, so
         // there is always something the player set that this records.

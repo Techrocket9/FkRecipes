@@ -560,7 +560,19 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 					res.techs = append(res.techs, rt)
 					continue
 				}
-				l.noteIgnoredText(text, &res, custom, prefix, "", setting.emittedName(prefix), by.customValue())
+				// ONE LINE PER EDITED FIELD, in the order the arm reads them
+				// and the order resolveCustomCost logs them: the count, then
+				// the seconds, then the packs. A player who moved all three
+				// reads all three, and reads them before the preset's own
+				// lines, so they stand as the reason those are the preset's.
+				//
+				// The two handles are dereferenced here as freely as
+				// resolveCustomCost dereferences them on the custom side:
+				// validateCustomCost proved all three before either loop ran.
+				dropdown := setting.emittedName(prefix)
+				noteIgnoredNumber(w, &res, l.settings[by.Custom.Count.index-1], prefix, dropdown, by.customValue())
+				noteIgnoredNumber(w, &res, l.settings[by.Custom.Seconds.index-1], prefix, dropdown, by.customValue())
+				l.noteIgnoredText(text, &res, custom, prefix, "", dropdown, by.customValue())
 			}
 			source := ""
 			for _, name := range sourcesFor(by.Choices, chosen) {

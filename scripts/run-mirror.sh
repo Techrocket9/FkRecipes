@@ -250,6 +250,22 @@ grep -qF '"ingredients"={1={"amount"=3,"name"="steel-plate","type"="item"},2={"a
 # on a preset. Without the line the player edits a field and nothing happens.
 grep -q "^LOG fkrecipes: fkrecipes-example-quench-ingredients is edited, but fkrecipes-example-quench-medium is not on custom, so the text is ignored$" "$T" ||
   fail "the ignored text said nothing in the log"
+# A NUMBER THE PLAYER EDITED THAT IS NOT LIVE EITHER: the research count moved
+# while the tier dropdown sits on a preset. One line per edited setting, and
+# ONLY per edited setting: the seconds and the pack text are untouched in the
+# stand-in, so a line for either would mean an untouched value read as an edit.
+grep -q "^LOG fkrecipes: fkrecipes-example-tips-count is edited, but fkrecipes-example-tips-research-tier is not on custom, so the number is ignored$" "$T" ||
+  fail "the edited research count under a preset said nothing in the log"
+if grep -q "fkrecipes-example-tips-seconds is edited\|fkrecipes-example-tips-packs is edited" "$T"; then
+  fail "an untouched research setting was logged as an edit"
+fi
+# A COST PRESET NAMES ITS TECHNOLOGY THROUGH ITS LOCALE KEY, not by its
+# internal name: the tooltip shows the player the technology's own name.
+grep -qF '4=": cost of ",5={1="technology-name.military-4"}' "$T" ||
+  fail "the cost dropdown's composed preset line does not name the technology through its locale key"
+if grep -qF '": cost of military-4"' "$T"; then
+  fail "a cost preset line still carries the internal technology name"
+fi
 # THE CUSTOM ARM OF A DROPDOWN, with a typed FLUID and a fractional amount: the
 # one ingredient shape whose amount is a double rather than an item count.
 grep -q "^LOG fkrecipes: fkrecipes-example-steel-chain takes its ingredients from fkrecipes-example-chain-ingredients: 2 steel-plate, 0.5 \[fluid=water\]$" "$T" ||
