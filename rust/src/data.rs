@@ -277,17 +277,39 @@ impl Lib {
                     at, r.name
                 ));
             }
+            // THE TWO CRAFTING-TIME FIELDS BEFORE THE EXTRA SWEEP, which is
+            // the order the Go half scans in and so the order a plan with both
+            // problems is answered in: a recipe that names CraftTime and
+            // CraftTimeFrom together has not said what it costs to make, and
+            // that is a larger mistake than a key the library would have
+            // written itself. One order, one sentence, both languages.
+            if r.spec.craft_time != 0.0 && r.spec.craft_time_from.index != 0 {
+                return Err(format!(
+                    "{}the recipe {} names both CraftTime and CraftTimeFrom; pick one",
+                    at, r.name
+                ));
+            }
             check_extra(
                 at,
                 &format!("the recipe {}", r.name),
                 &r.spec.extra,
                 RECIPE_OWN_FIELDS,
             )?;
-            if r.spec.craft_time != 0.0 && r.spec.craft_time_from.index != 0 {
-                return Err(format!(
-                    "{}the recipe {} names both CraftTime and CraftTimeFrom; pick one",
-                    at, r.name
-                ));
+            // `enabled` is the ONE field of a recipe a consumer may write, and
+            // only while nothing in this plan unlocks the recipe. A recipe
+            // some technology unlocks is emitted disabled because the research
+            // is what turns it on, and a second writer of that field would be
+            // exactly the silent last-writer every other collision is refused
+            // for. With no unlock in the plan the library has no opinion to
+            // lose, and a mod migrating its recipe a commit before its
+            // technology needs to say enabled = false by hand in the meantime.
+            if r.spec.extra.iter().any(|(k, _)| k == "enabled") {
+                if let Some(tech) = self.unlocker(i) {
+                    return Err(format!(
+                        "{}the recipe {} puts enabled in Extra, but the technology {} unlocks it, so the library owns that field",
+                        at, r.name, tech
+                    ));
+                }
             }
             if !r.spec.ingredients.is_empty() && r.spec.ingredients_by.is_some() {
                 return Err(format!(
@@ -937,6 +959,25 @@ impl Lib {
         Ok(())
     }
 
+    /// The first technology in declaration order that unlocks this recipe, by
+    /// its declared name, or `None` when nothing in the plan does.
+    ///
+    /// An out-of-range unlock handle is STEPPED PAST rather than followed:
+    /// this runs during the recipe loop, which is before the technology loop
+    /// that refuses such a handle by name, and answering it here would replace
+    /// that sentence with one about a field the consumer did not get wrong.
+    fn unlocker(&self, recipe: usize) -> Option<&str> {
+        self.techs
+            .iter()
+            .find(|t| {
+                t.spec
+                    .unlocks
+                    .iter()
+                    .any(|u| self.valid_recipe(*u) && u.index - 1 == recipe)
+            })
+            .map(|t| t.name.as_str())
+    }
+
     /// Marks the recipes some technology unlocks. Those are emitted disabled,
     /// because the research is what turns them on.
     fn unlocked_recipes(&self) -> Vec<bool> {
@@ -1160,7 +1201,15 @@ fn recipe_proto(
     } else if r.spec.craft_time > 0.0 {
         pairs.push(kv("energy_required", Value::Num(r.spec.craft_time)));
     }
-    pairs.push(kv("enabled", Value::Bool(!unlocked)));
+    // `enabled` MAY BE THE CONSUMER'S. Validation accepts the key in Extra
+    // only when no technology in this plan unlocks the recipe, and the value
+    // then takes the slot the library's own field would have had rather than
+    // riding at the end with the rest of Extra: the field order a migrating
+    // mod's golden saw does not move when the hand-written value arrives.
+    match r.spec.extra.iter().find(|(k, _)| k == "enabled") {
+        Some((_, v)) => pairs.push(kv("enabled", v.clone())),
+        None => pairs.push(kv("enabled", Value::Bool(!unlocked))),
+    }
 
     // Recipe ingredients are the LONG DICT form. The technology unit's short
     // tuple form is REFUSED here and the other way round; measured, not
@@ -1204,7 +1253,9 @@ fn recipe_proto(
     if !r.spec.order.is_empty() {
         pairs.push(kv("order", Value::string(&r.spec.order)));
     }
-    pairs.extend(r.spec.extra.iter().cloned());
+    // `enabled` is skipped here because it was already written above, in the
+    // library's own slot.
+    pairs.extend(r.spec.extra.iter().filter(|(k, _)| k != "enabled").cloned());
     Value::Map(pairs)
 }
 
@@ -2143,6 +2194,10 @@ const ITEM_OWN_FIELDS: &[&str] = &[
     "order",
     "place_result",
 ];
+// `enabled` is NOT in the recipe list, and is the single exception in this
+// file: `validate` takes it on its own, because whether the library owns it
+// depends on the PLAN rather than on which arms the builder fired, and the
+// sentence it is refused with names the technology that decided.
 const RECIPE_OWN_FIELDS: &[&str] = &[
     "type",
     "name",
@@ -2150,7 +2205,6 @@ const RECIPE_OWN_FIELDS: &[&str] = &[
     "localised_description",
     "category",
     "energy_required",
-    "enabled",
     "ingredients",
     "results",
     "order",

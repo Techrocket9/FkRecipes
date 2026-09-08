@@ -111,7 +111,7 @@ let plate = lib.item(
 );
 ```
 
-`Order` is the sort key inside the subgroup; empty omits it. `PlaceResult` names the entity the item builds and is presence probed like every other name this library emits, because the engine's answer to a dangling one is an `assignID` abort. `Extra` passes raw prototype fields through verbatim, after the ones this library writes.
+`Order` is the sort key inside the subgroup; empty omits it. `PlaceResult` names the entity the item builds and is presence probed like every other name this library emits, because the engine's answer to a dangling one is an `assignID` abort. The probe runs inside `Emit`, so a hand-rolled entity is extended before that call, not after it. `Extra` passes raw prototype fields through verbatim, after the ones this library writes.
 
 If your mod already ships this item, use `LegacyItem` (`legacy_item`) and the name is emitted verbatim. `LegacyRecipe` and `LegacyTechnology` do the same for the other two. See [Migrating a mod that already ships settings](migration.md).
 
@@ -170,6 +170,8 @@ A key this library emits itself is refused rather than merged, because two write
 ```
 fkrecipes: the recipe balancer-part sets ingredients through Extra, which this library emits
 ```
+
+One key is shared on purpose. A recipe some technology of this plan unlocks is emitted `enabled = false` by the library, and `enabled` in `Extra` is refused for it with a sentence naming the technology. A recipe nothing in this plan unlocks may carry `enabled` in `Extra`, and the library then writes nothing for that field itself: the value lands where the library's own `enabled` would have gone, so a mod migrating its recipe before its technology can keep the recipe locked by hand until the technology follows.
 
 ### Ingredients, and the resolve-or-drop contract
 

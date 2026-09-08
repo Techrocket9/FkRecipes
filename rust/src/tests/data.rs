@@ -1417,6 +1417,31 @@ fn plan_data_refusals() {
             want: "fkrecipes: the recipe steel-axe names both CraftTime and CraftTimeFrom; pick one",
         },
         Case {
+            // TWO PROBLEMS, ONE SENTENCE, AND THE SCAN ORDER IS WHICH ONE. The
+            // Go half runs its Extra sweep AFTER the crafting-time pair, so a
+            // recipe that does both gets told what it costs to make before it
+            // is told about a field the library writes itself. This case is the
+            // pin on that order: with the two checks the other way round the
+            // halves would answer one plan with two different sentences, and
+            // the mirror compares them.
+            name: "both crafting-time fields and an Extra key the library emits",
+            world: |w: FixtureWorld| w,
+            build: |l: &mut Lib| {
+                let axe = l.item("steel-axe", ItemSpec::default());
+                let from = l.double_setting("axe-craft-time", 2.5, NumericSpec::default());
+                l.recipe(
+                    axe,
+                    RecipeSpec {
+                        craft_time: 2.5,
+                        craft_time_from: from,
+                        extra: vec![kv("ingredients", Value::Arr(Vec::new()))],
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: the recipe steel-axe names both CraftTime and CraftTimeFrom; pick one",
+        },
+        Case {
             name: "a crafting-time setting from another plan",
             world: |w: FixtureWorld| w,
             build: |l: &mut Lib| {

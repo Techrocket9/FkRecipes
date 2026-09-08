@@ -586,3 +586,126 @@ func TestChoicesDoNotAliasTheCallerSlices(t *testing.T) {
 		t.Errorf("the plan followed the caller's edits:\n%s", joined)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// A recipe that migrates before the technology that unlocks it.
+// ---------------------------------------------------------------------------
+
+// The pilot's shape: the recipe moves onto the library while the technology
+// stays hand-rolled, so the recipe has to say enabled = false itself and
+// nothing in the plan can say it for them. The field lands where the library's
+// own enabled would have, not at the tail with the rest of Extra, so the
+// golden captured before the migration does not move.
+func TestExtraCarriesEnabledWhenNothingInThePlanUnlocksTheRecipe(t *testing.T) {
+	lib := New()
+	part := lib.LegacyItem("bbb-balancer-part", ItemSpec{})
+	lib.LegacyRecipe(part, "bbb-balancer-part", RecipeSpec{
+		Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")},
+		// allow_productivity IS DECLARED FIRST, so a pass through that let
+		// enabled ride the tail would emit it after results and after this
+		// key rather than in front of ingredients.
+		Extra: []KV{kv("allow_productivity", Bool(true)), kv("enabled", Bool(false))},
+	})
+
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="item", name="bbb-balancer-part", stack_size=50}`,
+		`extend {type="recipe", name="bbb-balancer-part", enabled=false, ingredients=[{type="item", name="steel-plate", amount=1}], results=[{type="item", name="bbb-balancer-part", amount=1}], allow_productivity=true}`,
+	})
+}
+
+// The consumer's value is EMITTED, not merely tolerated: enabled = true on a
+// recipe nothing unlocks is what the library would have written anyway, and
+// false is the migration case, so the true arm alone could not tell a
+// passthrough from a library default. This one gives the value the library
+// would not have chosen if any technology had been there.
+func TestExtraEnabledIsTheValueThatReachesThePrototype(t *testing.T) {
+	lib := New()
+	axe := lib.Item("steel-axe", ItemSpec{})
+	lib.Recipe(axe, RecipeSpec{
+		Ingredients: []Ingredient{IngredientNamed(4, "steel-plate")},
+		Extra:       []KV{kv("enabled", Bool(false))},
+	})
+
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-steel-axe", enabled=false, ingredients=[{type="item", name="steel-plate", amount=4}], results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
+	})
+}
+
+// The other direction. A technology in this plan unlocks the recipe, so the
+// library owns enabled again and the refusal names the technology that
+// decided it, which is the line the consumer has to delete.
+func TestExtraCannotCarryEnabledWhenAPlanTechnologyUnlocksTheRecipe(t *testing.T) {
+	lib := New()
+	part := lib.LegacyItem("bbb-balancer-part", ItemSpec{})
+	rec := lib.LegacyRecipe(part, "bbb-balancer-part", RecipeSpec{
+		Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")},
+		Extra:       []KV{kv("enabled", Bool(false))},
+	})
+	// The technology is declared AFTER the recipe, and the refusal comes from
+	// the recipe loop, which runs first: the check reads the whole plan rather
+	// than what has been declared by the time the recipe was.
+	lib.Technology("balancer", TechSpec{CostOf: "logistics-2", Unlocks: []RecipeRef{rec}})
+
+	_, err := lib.PlanData(baseWorld())
+	assertRefusal(t, err, "fkrecipes: the recipe bbb-balancer-part puts enabled in Extra, "+
+		"but the technology balancer unlocks it, so the library owns that field")
+}
+
+// A handle from ANOTHER plan is not an unlock in this one. The technology loop
+// is what refuses it, by name; the enabled check must not follow it and read
+// past this plan's recipes on the way.
+func TestExtraEnabledIsNotDecidedByAForeignUnlockHandle(t *testing.T) {
+	other := New()
+	otherPart := other.Item("other-part", ItemSpec{})
+	otherRec := other.Recipe(otherPart, RecipeSpec{})
+
+	lib := New()
+	part := lib.LegacyItem("bbb-balancer-part", ItemSpec{})
+	lib.LegacyRecipe(part, "bbb-balancer-part", RecipeSpec{
+		Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")},
+		Extra:       []KV{kv("enabled", Bool(false))},
+	})
+	lib.Technology("balancer", TechSpec{CostOf: "logistics-2", Unlocks: []RecipeRef{otherRec}})
+
+	_, err := lib.PlanData(baseWorld())
+	assertRefusal(t, err, "fkrecipes: the technology balancer unlocks a recipe that this plan never declared")
+}
+
+// Everything else about Extra is unchanged on a recipe: another field the
+// library emits is still refused, and enabled twice is still the consumer's
+// own last-writer.
+func TestExtraEnabledDoesNotLoosenTheOtherRecipeChecks(t *testing.T) {
+	cases := []struct {
+		name  string
+		extra []KV
+		want  string
+	}{
+		{
+			name:  "a field the library emits, beside an accepted enabled",
+			extra: []KV{kv("enabled", Bool(false)), kv("results", Arr())},
+			want:  "fkrecipes: the recipe steel-axe sets results through Extra, which this library emits",
+		},
+		{
+			name:  "enabled twice",
+			extra: []KV{kv("enabled", Bool(false)), kv("enabled", Bool(true))},
+			want:  "fkrecipes: the recipe steel-axe sets enabled through Extra twice",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			lib := New()
+			axe := lib.Item("steel-axe", ItemSpec{})
+			lib.Recipe(axe, RecipeSpec{Extra: c.extra})
+
+			_, err := lib.PlanData(baseWorld())
+			assertRefusal(t, err, c.want)
+		})
+	}
+}

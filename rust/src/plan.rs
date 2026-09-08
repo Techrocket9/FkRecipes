@@ -474,6 +474,14 @@ pub struct RecipeSpec {
     /// A key this library emits itself is REFUSED rather than merged or
     /// overridden, because two writers of one field is a silent last-writer
     /// and the loser would be whichever order this library happens to use.
+    ///
+    /// `enabled` IS THE ONE EXCEPTION, for a mod migrating a recipe before its
+    /// technology: it is accepted while no technology in this plan names the
+    /// recipe in `unlocks`, and the value is emitted in the slot the library's
+    /// own `enabled` would have taken, so the prototype's field order is the
+    /// same either way. The moment a plan technology unlocks the recipe the
+    /// key is refused again, because the research is then what turns the
+    /// recipe on.
     pub extra: Vec<(String, Value)>,
 }
 

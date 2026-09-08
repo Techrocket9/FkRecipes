@@ -589,6 +589,13 @@ type RecipeSpec struct {
 	// A key this library emits itself is REFUSED rather than merged or
 	// overridden, because two writers of one field is a silent last-writer
 	// and the loser would be whichever order this library happens to use.
+	//
+	// enabled IS THE ONE EXCEPTION, for a mod migrating one prototype at a
+	// time: it is accepted while no technology in this plan unlocks this
+	// recipe, and the value you give is emitted where the library's own
+	// enabled would have gone rather than at the end. Declare a technology
+	// that unlocks the recipe and the field goes back to the library, with a
+	// refusal naming that technology.
 	Extra []KV
 }
 

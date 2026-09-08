@@ -96,7 +96,7 @@ let part = lib.legacy_item(
 
 The names are emitted verbatim, with no prefix. The handles are ORDINARY handles: `IngredientOf`, `Unlocks`, `AfterTech` and the splices take them exactly as they take a generated declaration's, so a plan can be part legacy and part generated and neither half needs to know.
 
-`PlaceResult` is the field that makes this concrete for BetterBeltBalancer. Its item is built by a hand-rolled `simple-entity-with-force` that names the item back, so a renamed item is the `assignID` abort quoted at the top of this page. The entity stays hand-rolled beside the `Emit` call, and the item names it through `PlaceResult`, which is presence probed: an entity that is not there is refused at plan time with the name in the message rather than aborting the load.
+`PlaceResult` is the field that makes this concrete for BetterBeltBalancer. Its item is built by a hand-rolled `simple-entity-with-force` that names the item back, so a renamed item is the `assignID` abort quoted at the top of this page. The entity stays hand-rolled and is extended before the `Emit` call runs, because the probe runs inside that call; the item names it through `PlaceResult`, which is presence probed: an entity that is not there is refused at plan time with the item and the entity in the message rather than aborting the load.
 
 Duplicate scans and the overwrite refusals run on the EMITTED names, which is the namespace the engine keeps. A legacy name that collides with a generated one is caught even though the declarations differ:
 
@@ -234,6 +234,8 @@ fkrecipes: hardened-tips: no source for the projectile cost carries a unit, so t
 The fallback is held to exactly the same rules as a hand-rolled `Unit`, because it is the cost that applies when nothing else does: a count below 1, a research time at or below zero, or a science pack that does not exist is refused before anything is emitted.
 
 The values must equal the setting's allowed values in order, the same as `IngredientsBy`, and `CostBy` is mutually exclusive with both `CostOf` and `Unit`.
+
+One behaviour to expect when a hand-rolled cost copied three fields by hand: `CostOf` and `CostBy` copy the source's whole `unit`, and a source that carries `max_level` brings it across, so the migrated technology becomes multi-level exactly as its source is. That is the charter's rule (cost and tree position from one named point, the level cap included), and a mod that wants a single-level technology priced like a multi-level one names a single-level source or writes a `Unit`.
 
 ## Adding a customizer to a dropdown you already ship
 

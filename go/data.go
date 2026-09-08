@@ -205,6 +205,20 @@ func (l *Lib) validate(w World, prefix string) error {
 		if err := checkExtra(at, "the recipe "+r.name, r.spec.Extra, recipeOwnFields); err != nil {
 			return err
 		}
+		// enabled is the ONE field of a recipe a consumer may write, and only
+		// while nothing in this plan unlocks the recipe. A recipe some
+		// technology unlocks is emitted disabled because the research is what
+		// turns it on, and a second writer of that field would be exactly the
+		// silent last-writer every other collision is refused for. With no
+		// unlock in the plan the library has no opinion to lose, and a mod
+		// migrating its recipe a commit before its technology needs to say
+		// enabled = false by hand in the meantime.
+		if _, ok := extraField(r.spec.Extra, "enabled"); ok {
+			if tech := l.unlockingTech(i); tech != "" {
+				return errors.New(at + "the recipe " + r.name + " puts enabled in Extra, but the technology " +
+					tech + " unlocks it, so the library owns that field")
+			}
+		}
 		if len(r.spec.Ingredients) > 0 && r.spec.IngredientsBy != nil {
 			return errors.New(at + "the recipe " + r.name + " names both Ingredients and IngredientsBy; pick one")
 		}
@@ -764,6 +778,22 @@ func (l *Lib) unlockedRecipes() []bool {
 	return marks
 }
 
+// unlockingTech names the first technology in declaration order that unlocks
+// the recipe at index i, or the empty string when none does. It runs DURING
+// validation, before the technology loop has proved the handles, so a handle
+// from another plan is skipped rather than followed: reading past this plan's
+// recipes here would panic in front of the sentence that names it.
+func (l *Lib) unlockingTech(i int) string {
+	for _, t := range l.techs {
+		for _, u := range t.spec.Unlocks {
+			if l.validRecipe(u) && u.index-1 == i {
+				return t.name
+			}
+		}
+	}
+	return ""
+}
+
 func itemProto(prefix string, it itemDecl) Value {
 	pairs := []KV{
 		kv("type", Str("item")),
@@ -811,7 +841,17 @@ func recipeProto(prefix string, l *Lib, r recipeDecl, ings []resolvedIngredient,
 	} else if r.spec.CraftTime > 0 {
 		pairs = append(pairs, kv("energy_required", Num(r.spec.CraftTime)))
 	}
-	pairs = append(pairs, kv("enabled", Bool(!unlocked)))
+	// enabled sits HERE whoever wrote it. A consumer migrating a recipe onto
+	// the library while its technology stays hand-rolled writes the field
+	// through Extra, and it keeps the position the library's own would have
+	// taken, so a golden captured before that migration does not move.
+	// Validation has already proved nothing in this plan unlocks the recipe,
+	// so the two writers can never disagree about it.
+	if e, ok := extraField(r.spec.Extra, "enabled"); ok {
+		pairs = append(pairs, kv("enabled", e))
+	} else {
+		pairs = append(pairs, kv("enabled", Bool(!unlocked)))
+	}
 
 	// Recipe ingredients are the LONG DICT form. The technology unit's short
 	// tuple form is REFUSED here and the other way round; measured, not
@@ -858,7 +898,35 @@ func recipeProto(prefix string, l *Lib, r recipeDecl, ings []resolvedIngredient,
 	if r.spec.Order != "" {
 		pairs = append(pairs, kv("order", Str(r.spec.Order)))
 	}
-	return Obj(append(pairs, r.spec.Extra...)...)
+	return Obj(append(pairs, extraWithout(r.spec.Extra, "enabled")...)...)
+}
+
+// extraField reads one key out of an Extra list. Extra is a slice in
+// declaration order and never a map, so this is a walk; the lists are the
+// handful of fields one prototype carries.
+func extraField(extra []KV, key string) (Value, bool) {
+	for _, e := range extra {
+		if e.Key == key {
+			return e.Val, true
+		}
+	}
+	return Nil(), false
+}
+
+// extraWithout is the same list minus one key, which is how a field the
+// consumer wrote reaches its position among the library's own instead of the
+// tail. The list itself is returned when the key is absent, so the ordinary
+// declaration allocates nothing and keeps its order exactly.
+func extraWithout(extra []KV, key string) []KV {
+	for i, e := range extra {
+		if e.Key != key {
+			continue
+		}
+		out := make([]KV, 0, len(extra)-1)
+		out = append(out, extra[:i]...)
+		return append(out, extra[i+1:]...)
+	}
+	return extra
 }
 
 func techProto(prefix string, l *Lib, w World, t techDecl, rt resolvedTech) Value {
@@ -1317,9 +1385,13 @@ var (
 		"type", "name", "localised_name", "localised_description",
 		"icon", "icon_size", "stack_size", "subgroup", "order", "place_result",
 	}
+	// enabled is NOT in the recipe list, and is the single exception in this
+	// file: validate takes it on its own, because whether the library owns it
+	// depends on the plan rather than on the builder's arms, and the sentence
+	// it is refused with names the technology that decided.
 	recipeOwnFields = []string{
 		"type", "name", "localised_name", "localised_description",
-		"category", "energy_required", "enabled", "ingredients", "results", "order",
+		"category", "energy_required", "ingredients", "results", "order",
 	}
 	techOwnFields = []string{
 		"type", "name", "localised_name", "localised_description",

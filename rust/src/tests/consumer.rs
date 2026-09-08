@@ -293,6 +293,68 @@ fn recipe_producing_an_existing_item() {
     );
 }
 
+/// `ENABLED` IN EXTRA IS THE MIGRATING MOD'S OWN while its technology is still
+/// hand-rolled. Nothing in the plan unlocks the recipe, so the library has no
+/// claim on the field, and the consumer's value rides in THE SLOT THE
+/// LIBRARY'S OWN WOULD HAVE TAKEN: between `energy_required` and
+/// `ingredients`, not at the end with the rest of Extra, so the field order a
+/// migrating mod's golden already saw does not move.
+///
+/// The technology beside it unlocks a DIFFERENT recipe, which is what makes
+/// this a fact about the recipe rather than about the plan.
+#[test]
+fn extra_carries_enabled_when_nothing_unlocks_the_recipe() {
+    let mut lib = Lib::new();
+    let part = lib.item("balancer-part", ItemSpec::default());
+    lib.recipe(
+        part,
+        RecipeSpec {
+            craft_time: 2.0,
+            ingredients: vec![Ingredient::named(1, "steel-plate", &[])],
+            order: String::from("z"),
+            // A second Extra key AFTER enabled: the passthrough takes the
+            // library's slot and this one still rides at the end, so the test
+            // reads the position and not just the value.
+            extra: vec![
+                kv("enabled", Value::Bool(false)),
+                kv("hidden", Value::Bool(true)),
+            ],
+            ..Default::default()
+        },
+    );
+    let frame = lib.item("balancer-frame", ItemSpec::default());
+    let framing = lib.recipe(
+        frame,
+        RecipeSpec {
+            ingredients: vec![Ingredient::named(1, "iron-plate", &[])],
+            ..Default::default()
+        },
+    );
+    lib.technology(
+        "balancer",
+        TechSpec {
+            cost_of: String::from("logistics-2"),
+            unlocks: vec![framing],
+            ..Default::default()
+        },
+    );
+
+    let ops = lib.plan_data(&base_world()).expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            r#"extend {type="item", name="steelworks-balancer-part", stack_size=50}"#,
+            r#"extend {type="item", name="steelworks-balancer-frame", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-balancer-part", energy_required=2, enabled=false, ingredients=[{type="item", name="steel-plate", amount=1}], results=[{type="item", name="steelworks-balancer-part", amount=1}], order="z", hidden=true}"#,
+            r#"extend {type="recipe", name="steelworks-balancer-frame", enabled=false, ingredients=[{type="item", name="iron-plate", amount=1}], results=[{type="item", name="steelworks-balancer-frame", amount=1}]}"#,
+            &alloc::format!(
+                r#"extend {{type="technology", name="steelworks-balancer", unit={}, effects=[{{type="unlock-recipe", recipe="steelworks-balancer-frame"}}]}}"#,
+                LOGISTICS_2_UNIT
+            ),
+        ],
+    );
+}
+
 #[test]
 fn consumer_surface_refusals() {
     struct Case {
@@ -330,6 +392,131 @@ fn consumer_surface_refusals() {
                 );
             },
             want: "fkrecipes: the recipe balancer-part sets ingredients through Extra, which this library emits",
+        },
+        Case {
+            // THE OTHER DIRECTION of the migration exemption: the technology
+            // has landed, so the research is what turns the recipe on and the
+            // hand-written value would be the loser of a silent race.
+            name: "an Extra enabled on a recipe a plan technology unlocks",
+            build: |l| {
+                let it = l.item("balancer-part", ItemSpec::default());
+                let rec = l.recipe(
+                    it,
+                    RecipeSpec {
+                        extra: vec![kv("enabled", Value::Bool(false))],
+                        ..Default::default()
+                    },
+                );
+                l.technology(
+                    "balancer",
+                    TechSpec {
+                        cost_of: String::from("logistics-2"),
+                        unlocks: vec![rec],
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: the recipe balancer-part puts enabled in Extra, but the technology balancer unlocks it, so the library owns that field",
+        },
+        Case {
+            // Two unlockers name the FIRST IN DECLARATION ORDER, so the
+            // sentence does not depend on a scan direction nobody promised.
+            name: "an Extra enabled on a recipe two technologies unlock",
+            build: |l| {
+                let it = l.item("balancer-part", ItemSpec::default());
+                let rec = l.recipe(
+                    it,
+                    RecipeSpec {
+                        extra: vec![kv("enabled", Value::Bool(false))],
+                        ..Default::default()
+                    },
+                );
+                l.technology(
+                    "balancer",
+                    TechSpec {
+                        cost_of: String::from("logistics-2"),
+                        unlocks: vec![rec],
+                        ..Default::default()
+                    },
+                );
+                l.technology(
+                    "balancer-again",
+                    TechSpec {
+                        cost_of: String::from("logistics-2"),
+                        unlocks: vec![rec],
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: the recipe balancer-part puts enabled in Extra, but the technology balancer unlocks it, so the library owns that field",
+        },
+        Case {
+            // A HANDLE FROM ANOTHER PLAN is not an unlock in this one. The
+            // technology loop is what refuses it, by name; the check behind
+            // the enabled rule must not follow it and read past this plan's
+            // recipes on the way.
+            name: "an Extra enabled beside an unlock handle from another plan",
+            build: |l| {
+                let mut other = Lib::new();
+                let elsewhere = other.item("balancer-frame", ItemSpec::default());
+                let framing = other.recipe(elsewhere, RecipeSpec::default());
+                let it = l.item("balancer-part", ItemSpec::default());
+                l.recipe(
+                    it,
+                    RecipeSpec {
+                        extra: vec![kv("enabled", Value::Bool(false))],
+                        ..Default::default()
+                    },
+                );
+                l.technology(
+                    "balancer",
+                    TechSpec {
+                        cost_of: String::from("logistics-2"),
+                        unlocks: vec![framing],
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: the technology balancer unlocks a recipe that this plan never declared",
+        },
+        Case {
+            // The exemption is for ONE key. Another field the library emits is
+            // refused beside an accepted enabled, and the sentence is the
+            // ordinary one.
+            name: "a library field beside an accepted Extra enabled",
+            build: |l| {
+                let it = l.item("balancer-part", ItemSpec::default());
+                l.recipe(
+                    it,
+                    RecipeSpec {
+                        extra: vec![
+                            kv("enabled", Value::Bool(false)),
+                            kv("results", Value::Arr(Vec::new())),
+                        ],
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: the recipe balancer-part sets results through Extra, which this library emits",
+        },
+        Case {
+            // An accepted key is still refused TWICE: the exemption hands the
+            // field to the consumer, not the last-writer race with it.
+            name: "an accepted Extra enabled written twice",
+            build: |l| {
+                let it = l.item("balancer-part", ItemSpec::default());
+                l.recipe(
+                    it,
+                    RecipeSpec {
+                        extra: vec![
+                            kv("enabled", Value::Bool(false)),
+                            kv("enabled", Value::Bool(true)),
+                        ],
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: the recipe balancer-part sets enabled through Extra twice",
         },
         Case {
             name: "an Extra key set twice",
