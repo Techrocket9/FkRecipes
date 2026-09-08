@@ -154,6 +154,13 @@ LIBENGINE="$FKLUA_CHECKOUT/scripts/lib-engine.sh"
 # shellcheck source=/dev/null
 . "$LIBENGINE"
 
+# AND ONE COPY of the jump-row reader, shared with scripts/run-mirror.sh. It
+# needs refuse() and FKLUA_CHECKOUT, both set above.
+LIBREPORT="$ROOT/scripts/lib-report.sh"
+[ -f "$LIBREPORT" ] || refuse "no lib-report.sh at $LIBREPORT; it ships beside this script"
+# shellcheck source=/dev/null
+. "$LIBREPORT"
+
 # RE-ASKED EVERY RUN. A recorded engine version is a claim about a machine, and
 # the golden is keyed by this line: trusting a stale one is how a gate reports
 # a pass for an engine nobody ran.
@@ -238,7 +245,9 @@ if grep -q 'unknown command "modsettings"' "$TMP/modsettings-probe.log"; then
   and the fklua built from it has no modsettings subcommand, so the flipped
   row's mod-settings.dat cannot be written and this gate would cover only the
   settings the mod itself declares.
-  Point FKLUA_CHECKOUT at an FkLua checkout at c21ff07 or later."
+  Point FKLUA_CHECKOUT at an FkLua checkout at 2a541a7 or later: the
+  modsettings subcommand arrived at c21ff07, and the jumps row this gate reads
+  next arrived one commit after it."
 fi
 
 "$FKLUA" modsettings write --from "$FLIPPED_JSON" --out "$FLIPPED_DAT" \
@@ -325,14 +334,25 @@ dump_once() {
   local moddir="$TMP/mods-$lang"
   local ndata="$TMP/normalised-data-$lang-$run.json"
   local nsettings="$TMP/normalised-settings-$lang-$run.json"
+  local report="$TMP/report-$lang.json"
   local dhash shash
 
   rm -rf "$moddir"
   "$FKLUA" mod --data-module "$TMP/datastage-$lang.wasm" \
     --name "$MODNAME" --version "$MODVER" --author Techrocket9 \
     --factorio-version "$SERIES" \
-    -o "$moddir" >"$TMP/pack-$lang.log" 2>&1 ||
+    -o "$moddir" --report "$report" >"$TMP/pack-$lang.log" 2>&1 ||
     { cat "$TMP/pack-$lang.log" >&2; refuse "$lang: packaging failed"; }
+
+  # THE JUMP ROW, ONCE PER LANGUAGE AND BEFORE THE ENGINE. Three runs package
+  # the same wasm with the same flags (the flipped row differs only in a
+  # settings file copied in after packaging), so the three reports are the same
+  # report and the line belongs on the first. It sits here, above the engine
+  # run, so an fklua too old to carry the row refuses in a second rather than
+  # after three minutes of Factorio.
+  if [ "$run" = 1 ]; then
+    report_jumps "$lang" "$report"
+  fi
 
   # MEASURED: the engine reads MODS/mod-settings.dat, beside the mod folders
   # rather than inside one.

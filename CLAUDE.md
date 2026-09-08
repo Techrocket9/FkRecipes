@@ -38,9 +38,14 @@ cd rust && cargo build --target wasm32-unknown-unknown --workspace
 scripts/run-mirror.sh         # the cross-language mirror: both example guests packaged with a freshly
                               # built fklua, run under lua52f against the strict stand-in, transcripts
                               # byte-compared and pinned by testdata/mirror/transcript.golden. Needs
-                              # FKLUA_CHECKOUT (default ../FkLua), tinygo, cargo and the checkout's
+                              # FKLUA_CHECKOUT (default ../FkLua), tinygo, cargo, jq and the checkout's
                               # bin/lua52f; anything missing fails loudly with the remedy. --update
-                              # recaptures the golden and refuses to capture a divergent mirror
+                              # recaptures the golden and refuses to capture a divergent mirror.
+                              # It also prints each guest's jump row out of the packaging report: the
+                              # widest span BEFORE the relay, which is how near Lua's 18-bit limit
+                              # the guest already is, and the block room, which is the ceiling this
+                              # library meets as it grows. An fklua older than 2a541a7 writes no
+                              # jumps object and the gate reports NOT RUN naming it
 scripts/run-ingame.sh         # the engine gate: both packaged examples under a real Factorio via
                               # --dump-data, three runs per language: two on the declared defaults
                               # (which must agree, the determinism check) and one FLIPPED, with a
@@ -69,7 +74,12 @@ scripts/run-ingame.sh         # the engine gate: both packaged examples under a 
                               # one gate and on a preset in the other. A mod-set mismatch reports
                               # SKIPPED and exits 0 (an environmental difference, the FkLua
                               # convention); --strict or FKRECIPES_STRICT=1 makes it exit 1 for a CI
-                              # job that only reads exit codes
+                              # job that only reads exit codes.
+                              # It packages with --report and prints the same jump row as the
+                              # mirror, once per language, before that language's first engine run;
+                              # an fklua older than 2a541a7 carries no jumps object and the gate
+                              # reports NOT RUN naming it, which makes 2a541a7 the checkout floor
+                              # here rather than c21ff07
 ```
 
 The mirror harness (both example guests packaged with `fklua mod`, run under lua52f against the strict stand-in, transcripts byte-compared) and the in-game `--dump-data` gate land with their own commits and get their rows here then.
@@ -101,7 +111,10 @@ rust/examples/notext    dropdowns over IngredientsBy and CostBy, no text setting
                         its own module and only `go vet .` in its directory keeps it compiling; the
                         Rust one is a workspace member, so the wasm workspace build does. Nothing runs
                         either under an engine or the stand-in
-scripts/                gate scripts; run-mirror.sh is the cross-language mirror
+scripts/                gate scripts: run-mirror.sh is the cross-language mirror, run-ingame.sh the
+                        engine gate, and lib-report.sh the one copy both source. lib-report.sh reads
+                        the jumps row out of `fklua mod --report` and prints it per language, and it
+                        is where the remedy for an fklua too old to carry that row lives
 testdata/mirror/        the strict engine-shaped stand-in and the committed transcript golden
 testdata/locale/        the locale checker's committed fixture cfg and findings golden, the
                         cross-language pin that needs no toolchain (both suites reproduce it)

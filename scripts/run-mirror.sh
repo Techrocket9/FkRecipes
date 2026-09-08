@@ -53,6 +53,12 @@ command -v tinygo >/dev/null || refuse "tinygo is not on PATH; the Go guest cann
 command -v cargo  >/dev/null || refuse "cargo is not on PATH; the Rust guest cannot be built"
 command -v jq     >/dev/null || refuse "jq is not on PATH; the packaging report cannot be read"
 [ -f "$STANDIN" ] || refuse "no stand-in at $STANDIN"
+# ONE COPY of the jump-row reader, shared with scripts/run-ingame.sh: two gates
+# packaging the same two guests must say the same thing about the same number.
+LIBREPORT="$ROOT/scripts/lib-report.sh"
+[ -f "$LIBREPORT" ] || refuse "no lib-report.sh at $LIBREPORT; it ships beside this script"
+# shellcheck source=/dev/null
+. "$LIBREPORT"
 
 # EVERY RUN STARTS FROM NOTHING. A leftover in tmp/mirror survives a green run
 # and is then indistinguishable from something this run produced: a poisoned
@@ -116,6 +122,12 @@ package_and_run() {
   local ctl
   ctl="$(jq -r '.hooks.control | length' "$report")"
   [ "$ctl" = "0" ] || fail "$lang: $ctl control hooks were wired by a data-only mod"
+
+  # HOW NEAR LUA'S JUMP LIMIT THIS GUEST IS, and how much room the relay has
+  # left inside it. Read here rather than measured: this library used to
+  # transcribe the emitter's scan into a script of its own, and read the span
+  # after the relay as headroom. See scripts/lib-report.sh.
+  report_jumps "$lang" "$report"
 
   local inner
   inner="$(find "$moddir" -maxdepth 1 -mindepth 1 -type d | head -1)"
