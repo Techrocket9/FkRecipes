@@ -24,8 +24,8 @@ mod guest {
     use alloc::string::String;
     use alloc::vec;
     use fkrecipes::{
-        kv, CostChoice, CostChoices, Ingredient, IngredientChoice, IngredientChoices, ItemSpec,
-        Lib, NumericSpec, Pack, RecipeSpec, TechSpec, UnitSpec, Value,
+        kv, CostChoice, CostChoices, CustomCost, Ingredient, IngredientChoice, IngredientChoices,
+        ItemSpec, Lib, NumericSpec, Pack, RecipeSpec, TechSpec, UnitSpec, Value,
     };
 
     /// Declares the whole mod. Both stages call it, because the module is
@@ -48,8 +48,15 @@ mod guest {
                 max: Some(120.0),
             },
         );
-        let medium =
-            lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "oil"]);
+        // The customizer arrives as ONE MORE VALUE on a dropdown that already
+        // shipped: every stored preference is still one of the values, so
+        // nobody's choice is reset, and the players who see anything new are
+        // the ones who open the settings screen.
+        let medium = lib.dropdown_setting_needing_locale(
+            "quench-medium",
+            "water",
+            &["water", "oil", "custom"],
+        );
         let bonuses = lib.bool_setting("bonus-research", true);
         // Declared LAST on purpose: the generated order is derived from the
         // declaration index, so a new setting at the end leaves every existing
@@ -57,7 +64,7 @@ mod guest {
         let tier = lib.dropdown_setting_needing_locale(
             "tips-research-tier",
             "projectile",
-            &["projectile", "military"],
+            &["projectile", "military", "custom"],
         );
         // A FLOOR AND NO CEILING, the one NumericSpec arm the goldens did not
         // carry. Organic here: a longer hold keeps tempering, so there is
@@ -102,13 +109,72 @@ mod guest {
                 ..Default::default()
             },
         );
+        let chain = lib.item(
+            "steel-chain",
+            ItemSpec {
+                icon: String::from("__fkrecipes-example__/graphics/icons/steel-chain.png"),
+                icon_size: 64,
+                stack_size: 100,
+                subgroup: String::from("intermediate-product"),
+                order: String::from("b[steelworks]-b[chain]"),
+                ..Default::default()
+            },
+        );
+
+        // THE TEXT SETTINGS, declared after the items because two of them
+        // price a recipe in an item THIS PLAN declares and a handle exists
+        // only after its declaration. Settings are ordered by their own
+        // declaration index, so nothing above moves.
+        //
+        // The rivet recipe's whole list, handed to the player: the word
+        // `default` in the field means exactly this, and the description shows
+        // it written out.
+        let rivet_list = lib.ingredients_setting(
+            "rivet-ingredients",
+            vec![Ingredient::named(1, "iron-plate", &[])],
+        );
+        // The water preset, as the text a player switching to `custom` starts
+        // from. A ladder renders its FIRST rung and an item this plan declares
+        // renders prefixed, which is what the description has to show.
+        let quench_list = lib.ingredients_setting(
+            "quench-ingredients",
+            vec![
+                Ingredient::named(2, "tungsten-plate", &["steel-plate"]),
+                Ingredient::of(rivet, 4),
+                Ingredient::named(1, "tungsten-carbide", &["titanium-plate"]),
+            ],
+        );
+        let links = lib.dropdown_setting_needing_locale(
+            "chain-links",
+            "short",
+            &["short", "long", "custom"],
+        );
+        let chain_list =
+            lib.ingredients_setting("chain-ingredients", vec![Ingredient::of(rivet, 4)]);
+        // The research the player prices: the packs as text, the count and the
+        // seconds as numbers with the floors the engine's own refusals ask for.
+        let tips_packs = lib.packs_setting(
+            "tips-packs",
+            vec![
+                Pack::new("automation-science-pack", 1),
+                Pack::new("military-science-pack", 1),
+            ],
+        );
+        let tips_count = lib.int_setting("tips-count", 30, NumericSpec::between(1.0, 100000.0));
+        let tips_seconds =
+            lib.double_setting("tips-seconds", 15.0, NumericSpec::between(0.5, 600.0));
+        let chain_packs =
+            lib.packs_setting("chain-packs", vec![Pack::new("automation-science-pack", 1)]);
+        let chain_count = lib.int_setting("chain-count", 20, NumericSpec::between(1.0, 100000.0));
+        let chain_seconds =
+            lib.double_setting("chain-seconds", 10.0, NumericSpec::between(0.5, 600.0));
 
         let rivets = lib.recipe(
             rivet,
             RecipeSpec {
                 craft_time: 0.5,
                 result_count: 4,
-                ingredients: vec![Ingredient::named(1, "iron-plate", &[])],
+                ingredients_from: Some(rivet_list),
                 display_name: String::from("Steel rivets"),
                 // A REAL 2.0 RECIPE FIELD this library has no slot for, passed
                 // through verbatim. That is what extra is: the library emits
@@ -158,10 +224,14 @@ mod guest {
                             ],
                         },
                     ],
+                    custom: Some(quench_list),
                     ..Default::default()
                 }),
                 name: String::from("hardened-steel-plate-quenching"),
-                category: String::from("smelting"),
+                // A category that takes a fluid, because a player writing
+                // their own list may well reach for one and the crafting
+                // category is the one the engine refuses them in.
+                category: String::from("crafting-with-fluid"),
                 order: String::from("b[steelworks]-b[quenching]"),
                 display_name: String::from("Hardened steel plate"),
                 description: String::from("Quench the plate, then temper it back to workable."),
@@ -179,6 +249,36 @@ mod guest {
                 result_count: 3,
                 ingredients: vec![Ingredient::of(plate, 1)],
                 display_name: String::from("Salvaged steel rivets"),
+                ..Default::default()
+            },
+        );
+        // Presets AND a text: the dropdown says how long a link is, and the
+        // last value hands the whole list over.
+        let chains = lib.recipe(
+            chain,
+            RecipeSpec {
+                category: String::from("crafting-with-fluid"),
+                craft_time: 2.0,
+                ingredients_by: Some(IngredientChoices {
+                    setting: links,
+                    choices: vec![
+                        IngredientChoice {
+                            value: String::from("short"),
+                            ingredients: vec![Ingredient::of(rivet, 4)],
+                        },
+                        IngredientChoice {
+                            value: String::from("long"),
+                            ingredients: vec![
+                                Ingredient::of(rivet, 8),
+                                Ingredient::named(1, "steel-plate", &[]),
+                            ],
+                        },
+                    ],
+                    custom: Some(chain_list),
+                    ..Default::default()
+                }),
+                display_name: String::from("Steel chain"),
+                description: String::from("Links of rivets"),
                 ..Default::default()
             },
         );
@@ -251,11 +351,40 @@ mod guest {
                         seconds: 30.0,
                         packs: vec![Pack::new("automation-science-pack", 1)],
                     },
+                    // The last value prices the research out of three settings
+                    // instead of copying a technology, and the ladder is what
+                    // says where it hangs, because there is no source to take
+                    // the position from.
+                    custom: Some(CustomCost {
+                        packs: tips_packs,
+                        count: tips_count,
+                        seconds: tips_seconds,
+                        position: vec![String::from("military-2"), String::from("military")],
+                    }),
                     ..Default::default()
                 }),
                 enabled_by: bonuses,
                 display_name: String::from("Hardened tool tips"),
                 description: String::from("Every level puts a harder edge on the same tools."),
+                ..Default::default()
+            },
+        );
+        // The same cost with no dropdown in front of it: CostFrom is Unit with
+        // its three numbers in the player's hands, placed by the ordinary
+        // fields.
+        lib.technology(
+            "chain-forging",
+            TechSpec {
+                icon: String::from("__fkrecipes-example__/graphics/technology/chain-forging.png"),
+                icon_size: 128,
+                cost_from: Some(CustomCost {
+                    packs: chain_packs,
+                    count: chain_count,
+                    seconds: chain_seconds,
+                    position: alloc::vec::Vec::new(),
+                }),
+                after: String::from("steel-processing"),
+                unlocks: vec![chains],
                 ..Default::default()
             },
         );

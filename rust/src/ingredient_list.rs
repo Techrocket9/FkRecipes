@@ -37,11 +37,6 @@
 //! it asks is a presence probe. The whole module is host-testable for exactly
 //! that reason.
 
-// The settings layer that binds this module lands in the next commit; until
-// then the crate's own callers are its tests, and the unused warning would be
-// a gate failure over code that is finished.
-#![allow(dead_code)]
-
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -59,7 +54,7 @@ const NONE: &str = "none";
 
 /// The word that means the mod's own declared list. It is the setting's
 /// default value and the rendering of [`ListText::Default`].
-const DEFAULT: &str = "default";
+pub(crate) const DEFAULT: &str = "default";
 
 /// The longest text this language will look at, in Unicode scalars.
 ///
@@ -299,6 +294,33 @@ pub(crate) fn parse(
     }
 
     Ok(ListText::List(IngredientList { entries }))
+}
+
+/// Whether a stored text says anything other than "the mod's own list".
+///
+/// IT IS THE PARSER'S OWN ANSWER, and that is the point: the planner is about
+/// to IGNORE this text, because the dropdown beside it sits on a preset, and
+/// the line it writes has to agree with the reading the data path would have
+/// given the same bytes. A comparison against the bare word is a second answer
+/// to that question and drifts from it: `default,` carries the tolerated
+/// trailing comma this language accepts everywhere else, and telling the
+/// player their untouched field is edited sends them looking for an edit they
+/// never made.
+///
+/// THE REFUSAL IS DISCARDED, deliberately: a text that does not parse is not
+/// the word, so it is an edit, and it stays one log line rather than a load
+/// failure over a list nothing was going to read.
+pub(crate) fn is_edited(
+    text: &str,
+    kind: ListKind,
+    category: &str,
+    setting: &str,
+    w: &dyn World,
+) -> bool {
+    !matches!(
+        parse(text, kind, category, setting, w),
+        Ok(ListText::Default)
+    )
 }
 
 /// Writes a parse result back out in the canonical form, which is what a log

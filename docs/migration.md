@@ -235,6 +235,53 @@ The fallback is held to exactly the same rules as a hand-rolled `Unit`, because 
 
 The values must equal the setting's allowed values in order, the same as `IngredientsBy`, and `CostBy` is mutually exclusive with both `CostOf` and `Unit`.
 
+## Adding a customizer to a dropdown you already ship
+
+A mod that ships a dropdown of preset recipes can let the player write their own without losing anybody's stored choice. The dropdown stays, under its legacy name, and gains one value; a text setting arrives beside it; the text applies only while the dropdown says `custom`. See [The ingredient list](ingredient-list.md) for what the player types.
+
+```go
+cost := lib.LegacyDropdownSettingNeedingLocale("bbb-recipe-cost", "vanilla",
+	[]string{"vanilla", "cheap", "belt-fast", "belt-express", "splitter", "splitter-express", "custom"}, "a")
+custom := lib.IngredientsSetting("balancer-part-ingredients", vanillaIngredients)
+lib.LegacyRecipe(part, "bbb-balancer-part", fkrecipes.RecipeSpec{
+	IngredientsBy: &fkrecipes.IngredientChoices{Setting: cost, Choices: presets, Custom: custom},
+	CraftTime:     1,
+})
+```
+
+```rust
+let cost = lib.legacy_dropdown_setting_needing_locale("bbb-recipe-cost", "vanilla",
+    &["vanilla", "cheap", "belt-fast", "belt-express", "splitter", "splitter-express", "custom"], "a");
+let custom = lib.ingredients_setting("balancer-part-ingredients", vanilla_ingredients);
+lib.legacy_recipe(part, "bbb-balancer-part", RecipeSpec {
+    ingredients_by: Some(IngredientChoices { setting: cost, choices: presets, custom: Some(custom), ..Default::default() }),
+    craft_time: 1.0,
+    ..Default::default()
+});
+```
+
+Every value a player has stored is still one of the dropdown's values, so every preference survives the update untouched; the only players who see anything new are the ones who open the settings screen. The text setting is a new name, so it carries the generated prefix and the mod's default as its text.
+
+What the engine does not allow is filling that text from the player's old choice. The settings stage, where defaults are declared, cannot see any stored value (measured on Factorio 2.0.77: `data.raw` is empty there), and nothing at the data stage or at runtime can write a startup setting. A default is therefore one text for every player. What the library does instead is compose the dropdown's description: your own `[mod-setting-description]` entry, then one line per preset rendered as an ingredient list, so a player on `cheap` who picks `custom` can see what `cheap` was and start from it.
+
+Two locale entries are new: `[string-mod-setting]` for the `custom` value under the dropdown's name, and `[mod-setting-name]` and `[mod-setting-description]` for the text setting, where the description is the place to tell the player the format. `CheckLocaleWith` reports all three when they are missing. If a preset of yours is already named `custom`, give the arm another value with `CustomValue` rather than renaming the preset.
+
+One thing to check in the labels you already ship: a dropdown label such as `Default: 4 iron plates, 2 gears, 2 transport belts` speaks display names, and a player who copies it into the text field gets a refusal, because the language takes internal names. The composed description under the dropdown shows each preset in the language, so the two vocabularies sit side by side in one setting; either rewrite the labels in internal names, or keep them as they are and rely on the description, but decide it rather than discover it from a player.
+
+```
+[string-mod-setting]
+bbb-recipe-cost-custom=Custom (edit the ingredients below)
+
+[mod-setting-name]
+better-belt-balancer-balancer-part-ingredients=Balancer part ingredients
+[mod-setting-description]
+better-belt-balancer-balancer-part-ingredients=Used when the recipe above is set to Custom. Write the amount, then the item name, and separate ingredients with commas: 2 iron-plate, 3 copper-cable
+```
+
+This is the step whose settings hash is expected to move, because the dropdown's `allowed_values` grows and its description becomes a composed value, while the data hash stays where it was for every preset: the presets are the same plans as before, and the custom path is only taken by a player who chose it.
+
+One rule that reaches a migrated `CostBy` whether or not it takes a `Custom` arm: a `Fallback` unit must name at least one science pack, because a unit declared with none is refused at plan time even when no ladder ever reaches it. The pack is a ladder, so a fallback that names `automation-science-pack` with a rung behind it survives a modpack that renames the pack. A `CostBy` dropdown takes a `Custom` arm the same way, with a `PacksSetting`, an int setting for the count, a double setting for the seconds and a `Position` ladder for the prerequisite.
+
 ## A worked example: BetterBeltBalancer
 
 [BetterBeltBalancer](https://github.com/Techrocket9/BetterBeltBalancer) is the pilot for this path, and it is a good example because its names cannot be regenerated.
@@ -277,5 +324,6 @@ Nothing forces an all-at-once move. A plan may mix legacy and generated settings
 3. Use `IngredientsBy` and `CostBy` where a setting was driving a hand-rolled branch. This is the step that changes something, so it is the step whose hash is expected to move.
 4. Run `CheckLocaleWith` from your own test suite against the `.cfg` you already ship, passing the settings you still declare by hand. It should be clean, because the names have not moved, and anything it does report is a leftover the migration created. `LocaleEntries` reads the same file for assertions of your own, such as the entity name entry this library knows nothing about.
 5. Add new settings and prototypes with the generated constructors. Those get the prefix and a derived order, and they cost nothing to rename later because no save has ever seen them.
+6. Give a dropdown of presets a `custom` arm, as described above, when the mod is ready to let the player write the recipe. Stored preferences survive because the dropdown keeps its name and every value it had.
 
-Steps 1 and 2 are meant to be hash-neutral, which is what makes them safe to ship on their own. Step 3 is where behaviour changes, and separating them is what lets a bisect say which one did it.
+Steps 1 and 2 are meant to be hash-neutral, which is what makes them safe to ship on their own. Steps 3 and 6 are where behaviour changes, and separating them is what lets a bisect say which one did it.

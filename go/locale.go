@@ -121,15 +121,42 @@ func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, compl
 	}
 
 	// (1) and (2): what the player cannot read, in DECLARATION order, and a
-	// setting's own name before the values it offers.
-	for _, s := range l.settings {
+	// setting's own name before the description it needs and the values it
+	// offers.
+	customArm := l.dropdownsWithCustomArm()
+	for i, s := range l.settings {
 		full := s.emittedName(prefix)
 		if !localeHas(sections, "mod-setting-name", full) {
 			findings = append(findings, "the setting "+full+" has no [mod-setting-name] entry"+
 				elsewhere(sections, "mod-setting-name", full))
 		}
+		// A TEXT SETTING'S DESCRIPTION IS REQUIRED, and it is the one place a
+		// description is. Everywhere else a missing one costs a tooltip; here
+		// it costs the player the FORMAT, because a free-text field with no
+		// explanation is a field nobody can fill in. The library composes the
+		// declared list onto that entry, so an absent one also loses the list.
+		//
+		// NO elsewhere HINT ON THESE TWO. That hint names another section
+		// holding the same key, and a setting with a perfectly good
+		// [mod-setting-name] entry would then be told its description "sits
+		// under [mod-setting-name]" every single time. The hint earns its keep
+		// where the key appears in ONE settings section and the reader cannot
+		// see why it is missing; here it would fire on nearly every finding.
+		if s.kind.isText() {
+			if !localeHas(sections, "mod-setting-description", full) {
+				findings = append(findings, "the setting "+full+
+					" has no [mod-setting-description] entry, and a text setting needs one to tell the player the format")
+			}
+			continue
+		}
 		if s.kind != settingDropdown {
 			continue
+		}
+		// A dropdown with a Custom arm has its preset list composed onto its
+		// description, so the description stops being optional there too.
+		if customArm[i] && !localeHas(sections, "mod-setting-description", full) {
+			findings = append(findings, "the dropdown setting "+full+
+				" has no [mod-setting-description] entry, which the custom arm composes its preset list onto")
 		}
 		for _, v := range s.values {
 			key := full + "-" + v
@@ -253,6 +280,36 @@ func nameListed(handRolled []string, key string) bool {
 		}
 	}
 	return false
+}
+
+// dropdownsWithCustomArm marks the dropdown settings some recipe or technology
+// gives a Custom arm. The checker needs it because those, and only those, have
+// a composed description and so a required one.
+//
+// A handle this plan never issued is SKIPPED rather than followed, exactly as
+// every other walk over the plan skips one: the checker reports on locale, and
+// a declaration mistake is the planner's to refuse.
+//
+// IT STEPS PAST EXACTLY WHAT THE COMPOSITION STEPS PAST, len(Ingredients) and
+// all: a recipe that names Ingredients beside IngredientsBy is one the settings
+// planner composes nothing for, so demanding a description for its dropdown
+// would be a finding about a string the mod never emits. settingDescriptions is
+// the condition this mirrors.
+func (l *Lib) dropdownsWithCustomArm() []bool {
+	marks := make([]bool, len(l.settings))
+	for _, r := range l.recipes {
+		by := r.spec.IngredientsBy
+		if by != nil && by.Custom.index != 0 && len(r.spec.Ingredients) == 0 && l.validDropdownSetting(by.Setting) {
+			marks[by.Setting.index-1] = true
+		}
+	}
+	for _, t := range l.techs {
+		by := t.spec.CostBy
+		if by != nil && by.Custom != nil && l.validDropdownSetting(by.Setting) {
+			marks[by.Setting.index-1] = true
+		}
+	}
+	return marks
 }
 
 func (l *Lib) declaresSetting(prefix, key string) bool {

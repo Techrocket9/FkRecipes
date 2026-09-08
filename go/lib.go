@@ -84,6 +84,16 @@ type (
 		lib   uint64
 		index int
 	}
+	IngredientsSettingRef struct {
+		_     ingredientsSettingRefTag
+		lib   uint64
+		index int
+	}
+	PacksSettingRef struct {
+		_     packsSettingRefTag
+		lib   uint64
+		index int
+	}
 )
 
 // One zero-size marker per handle, so no two handles share an underlying
@@ -100,6 +110,12 @@ type (
 	itemRefTag            struct{}
 	recipeRefTag          struct{}
 	techRefTag            struct{}
+	// The two text settings are separate types for the same reason the rest
+	// are: an ingredient list and a pack list are read with different rules
+	// and bound to different fields, and a conversion between them would be a
+	// recipe priced in science packs.
+	ingredientsSettingRefTag struct{}
+	packsSettingRefTag       struct{}
 )
 
 // NumericSpec bounds an int or double setting. Both bounds are optional and
@@ -124,7 +140,20 @@ const (
 	settingInt
 	settingDouble
 	settingDropdown
+	// The two TEXT settings, which are string-settings the player writes into
+	// rather than picks from. Both hold an ingredient list in the language
+	// docs/ingredient-list.md describes; they differ in what a name may
+	// resolve to and in what they are bound to.
+	settingIngredients
+	settingPacks
 )
+
+// isText reports the two setting kinds whose value is a list the player types.
+// Everything that treats them alike (the emitted prototype, the locale
+// obligation, the bound-exactly-once rule) asks this rather than naming both.
+func (k settingKind) isText() bool {
+	return k == settingIngredients || k == settingPacks
+}
 
 type settingDecl struct {
 	kind settingKind
@@ -146,6 +175,14 @@ type settingDecl struct {
 	defStr string
 	spec   NumericSpec
 	values []string
+
+	// The DECLARED default of a text setting, which is what the reserved word
+	// default means and what the setting's description writes out. It is kept
+	// as declarations rather than as text because it carries presence ladders
+	// and handles into this plan's own items: the rendering needs the mod
+	// prefix, which only a planner has.
+	defIngredients []Ingredient
+	defPacks       []Pack
 }
 
 // emittedName is the name a setting prototype actually carries: prefixed for a
@@ -188,6 +225,96 @@ func (l *Lib) DoubleSetting(name string, def float64, spec NumericSpec) DoubleSe
 func (l *Lib) DropdownSettingNeedingLocale(name string, def string, values []string) DropdownSettingRef {
 	l.settings = append(l.settings, settingDecl{kind: settingDropdown, name: name, defStr: def, values: copyStrings(values)})
 	return DropdownSettingRef{lib: l.id, index: len(l.settings)}
+}
+
+// IngredientsSetting declares a startup text setting holding a recipe's
+// ingredient list, in the language docs/ingredient-list.md describes.
+//
+// THE SETTING'S DEFAULT TEXT IS THE WORD default, NOT THE RENDERED LIST, and
+// that is the decision the whole shape rests on. The engine stores every
+// setting's current value in mod-settings.dat, untouched defaults included
+// (measured), so a mod that changed its declared list would turn every player
+// who never opened the settings screen into a player with a hand-typed list:
+// frozen at the old balance, and refusing to load in a modpack that lacks a
+// rung of a ladder they never saw. The word keeps meaning "the list this mod
+// declares, with its ladders" across releases, and the declared list is
+// written out in the setting's description so the player can copy it.
+//
+// The list is bound to exactly one recipe, through RecipeSpec.IngredientsFrom
+// or as the Custom arm of an IngredientChoices dropdown. A setting nothing
+// reads is refused: a field the player can edit that changes nothing is a
+// declaration mistake, not a feature.
+func (l *Lib) IngredientsSetting(name string, def []Ingredient) IngredientsSettingRef {
+	return l.ingredientsSetting(name, false, def, "")
+}
+
+// LegacyIngredientsSetting declares an ingredient-list setting under a name
+// this mod ALREADY SHIPS, emitted verbatim with the given order. See the note
+// above the Legacy constructors.
+func (l *Lib) LegacyIngredientsSetting(fullName string, def []Ingredient, order string) IngredientsSettingRef {
+	return l.ingredientsSetting(fullName, true, def, order)
+}
+
+func (l *Lib) ingredientsSetting(name string, legacy bool, def []Ingredient, order string) IngredientsSettingRef {
+	l.settings = append(l.settings, settingDecl{
+		kind: settingIngredients, name: name, legacy: legacy, order: order,
+		defIngredients: copyIngredients(def),
+	})
+	return IngredientsSettingRef{lib: l.id, index: len(l.settings)}
+}
+
+// PacksSetting declares a startup text setting holding a research cost's
+// science packs, read with the same language and the same reserved word. Only
+// items the engine treats as science packs (prototype type tool) resolve, and
+// the word none is refused: a research with no packs is not something this
+// library emits on an author's behalf.
+//
+// It is bound through TechSpec.CostFrom or as the Custom arm of a CostChoices
+// dropdown, together with an int setting for the count and a double setting
+// for the seconds. See CustomCost.
+func (l *Lib) PacksSetting(name string, def []Pack) PacksSettingRef {
+	return l.packsSetting(name, false, def, "")
+}
+
+// LegacyPacksSetting declares a pack-list setting under a name this mod
+// ALREADY SHIPS, emitted verbatim with the given order. See the note above the
+// Legacy constructors.
+func (l *Lib) LegacyPacksSetting(fullName string, def []Pack, order string) PacksSettingRef {
+	return l.packsSetting(fullName, true, def, order)
+}
+
+func (l *Lib) packsSetting(name string, legacy bool, def []Pack, order string) PacksSettingRef {
+	l.settings = append(l.settings, settingDecl{
+		kind: settingPacks, name: name, legacy: legacy, order: order,
+		defPacks: copyPacks(def),
+	})
+	return PacksSettingRef{lib: l.id, index: len(l.settings)}
+}
+
+// CustomCost is a research cost with its three numbers in the PLAYER's hands:
+// the science packs as a text setting, the count as an int setting and the
+// seconds as a double setting.
+//
+// THE TWO NUMERIC SETTINGS MUST DECLARE MINIMA, and the library refuses a
+// CustomCost whose settings do not: the engine refuses a unit with a count of
+// 0 ("ResearchIngredient's amount must not be 0" for a pack, "time must be
+// positive" for the time, both measured), and a numeric setting whose stored
+// value falls outside its own bounds is RESET to the default rather than
+// clamped (measured). A minimum of at least 1 on the count and above 0 on the
+// seconds is therefore what makes every value the data stage can read legal,
+// without the data stage having to guess what to do with an illegal one.
+//
+// Position is the prerequisite ladder, and it belongs to a Custom arm: under
+// CostChoices.Custom the chosen tier's source technology would have been the
+// prerequisite, so the custom arm names its own ladder and the first rung the
+// game has becomes the sole prerequisite. Under TechSpec.CostFrom the ordinary
+// placement fields say where the technology goes, and a Position there is
+// refused rather than quietly ignored.
+type CustomCost struct {
+	Packs    PacksSettingRef
+	Count    IntSettingRef
+	Seconds  DoubleSettingRef
+	Position []string
 }
 
 // ItemSpec describes a generated item prototype. The integer fields are
@@ -360,6 +487,16 @@ type IngredientChoices struct {
 	// avoid. This commit declares the field and copies it; the commit that
 	// binds a text setting is where it starts selecting anything.
 	CustomValue string
+
+	// Custom hands the ingredients to a text setting the player writes, under
+	// the value CustomValue names. The dropdown lists that value and Choices
+	// do NOT cover it: it is the one value with no author-written plan behind
+	// it.
+	//
+	// The zero handle is no custom arm at all, and then the dropdown may not
+	// list a value named custom: a player choosing it would get a recipe made
+	// of nothing.
+	Custom IngredientsSettingRef
 }
 
 // CostChoice is one dropdown value and the technologies whose cost it selects,
@@ -388,6 +525,13 @@ type CostChoices struct {
 	// settings the player writes. Empty means the word custom, and it is a
 	// field for the same reason IngredientChoices.CustomValue is one.
 	CustomValue string
+
+	// Custom hands the research cost to settings the player writes, under the
+	// value CustomValue names, exactly as IngredientChoices.Custom does for a
+	// recipe. Its Position is REQUIRED, because a chosen tier's source
+	// technology would have been the prerequisite and the custom arm has no
+	// source to take one from.
+	Custom *CustomCost
 }
 
 // RecipeSpec describes a generated recipe prototype.
@@ -405,15 +549,23 @@ type RecipeSpec struct {
 	CraftTime     float64
 	CraftTimeFrom DoubleSettingRef
 
-	// Exactly one of Ingredients and IngredientsBy, or neither. Ingredients
-	// is one fixed list; IngredientsBy lets a dropdown setting choose between
-	// several.
+	// Exactly one of Ingredients, IngredientsBy and IngredientsFrom, or none
+	// of them. Ingredients is one fixed list; IngredientsBy lets a dropdown
+	// setting choose between several; IngredientsFrom hands the whole list to
+	// a text setting the PLAYER writes, in the language
+	// docs/ingredient-list.md describes.
 	IngredientsBy *IngredientChoices
 	Ingredients   []Ingredient
-	ResultCount   int64 // zero means 1
-	Category      string
-	DisplayName   string
-	Description   string
+
+	// IngredientsFrom is the text setting this recipe is made of. The zero
+	// handle means absent. See IngredientsSetting: the setting's text starts
+	// out as the word default, which means the list declared there with its
+	// ladders.
+	IngredientsFrom IngredientsSettingRef
+	ResultCount     int64 // zero means 1
+	Category        string
+	DisplayName     string
+	Description     string
 
 	// ResultNamed is an EXISTING item this recipe produces, for a recipe
 	// whose result this plan does not declare. Give a zero ItemRef and this
@@ -528,13 +680,16 @@ type TechSpec struct {
 	Icon     string
 	IconSize int64
 
-	// Exactly one of CostOf, Unit and CostBy. CostOf copies a named
+	// Exactly one of CostOf, Unit, CostBy and CostFrom. CostOf copies a named
 	// technology's whole unit verbatim, count_formula and all. CostBy lets a
 	// dropdown setting choose between several sources, and places the
-	// technology as well: see CostChoices.
-	CostOf string
-	Unit   *UnitSpec
-	CostBy *CostChoices
+	// technology as well: see CostChoices. CostFrom is Unit with its three
+	// numbers in the player's hands, placed by the ordinary placement fields:
+	// see CustomCost.
+	CostOf   string
+	Unit     *UnitSpec
+	CostBy   *CostChoices
+	CostFrom *CustomCost
 
 	// Tree placement, and exactly one anchor. After names a technology the
 	// GAME has; AfterTech names one THIS PLAN declares, which is how a plan
@@ -585,6 +740,7 @@ func (l *Lib) technology(name string, legacy bool, spec TechSpec) TechRef {
 	spec.Unlocks = copyRecipeRefs(spec.Unlocks)
 	spec.Unit = copyUnit(spec.Unit)
 	spec.CostBy = copyCostChoices(spec.CostBy)
+	spec.CostFrom = copyCustomCost(spec.CostFrom)
 	spec.Extra = copyKVs(spec.Extra)
 	l.techs = append(l.techs, techDecl{name: name, legacy: legacy, spec: spec})
 	return TechRef{lib: l.id, index: len(l.techs)}
@@ -844,9 +1000,101 @@ func copyCostChoices(in *CostChoices) *CostChoices {
 		out.Choices[i] = c
 	}
 	out.Fallback.Packs = copyPacks(in.Fallback.Packs)
+	out.Custom = copyCustomCost(in.Custom)
+	return &out
+}
+
+// copyCustomCost snapshots a custom research cost. The three handles are flat
+// values; Position is the caller's slice and is copied for the same reason
+// every other declared slice is.
+func copyCustomCost(in *CustomCost) *CustomCost {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Position = copyStrings(in.Position)
 	return &out
 }
 
 func (l *Lib) validDropdownSetting(r DropdownSettingRef) bool {
 	return r.lib == l.id && r.index >= 1 && r.index <= len(l.settings)
+}
+
+func (l *Lib) validIntSetting(r IntSettingRef) bool {
+	return r.lib == l.id && r.index >= 1 && r.index <= len(l.settings)
+}
+
+func (l *Lib) validIngredientsSetting(r IngredientsSettingRef) bool {
+	return r.lib == l.id && r.index >= 1 && r.index <= len(l.settings)
+}
+
+func (l *Lib) validPacksSetting(r PacksSettingRef) bool {
+	return r.lib == l.id && r.index >= 1 && r.index <= len(l.settings)
+}
+
+// customValue is the dropdown value a Custom arm answers to. Empty means the
+// word custom, which is what almost every mod will use; the field exists for
+// the mod that already ships a preset under that name and would lose every
+// stored preference by renaming it.
+func (c *IngredientChoices) customValue() string {
+	if c.CustomValue == "" {
+		return defaultCustomValue
+	}
+	return c.CustomValue
+}
+
+func (c *CostChoices) customValue() string {
+	if c.CustomValue == "" {
+		return defaultCustomValue
+	}
+	return c.CustomValue
+}
+
+// defaultCustomValue is the dropdown value a Custom arm takes when the author
+// names none, and the value a dropdown WITHOUT an arm may not offer.
+const defaultCustomValue = "custom"
+
+// coversValue reports whether an author-written choice already claims a value.
+func coversIngredientValue(choices []IngredientChoice, value string) bool {
+	for _, c := range choices {
+		if c.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
+func coversCostValue(choices []CostChoice, value string) bool {
+	for _, c := range choices {
+		if c.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
+// countValue is how many times a dropdown offers a value. The Custom arm needs
+// exactly one: none is an arm nothing can select, and two is an allowed_values
+// list the engine would keep the last of.
+func countValue(values []string, want string) int {
+	n := 0
+	for _, v := range values {
+		if v == want {
+			n++
+		}
+	}
+	return n
+}
+
+// withoutValue is the allowed-value list a Custom arm's Choices are compared
+// against: every value but the one the arm answers to.
+func withoutValue(values []string, drop string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if v == drop {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
 }

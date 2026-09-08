@@ -18,30 +18,14 @@ import fkrecipes "github.com/Techrocket9/fkrecipes/go"
 // instantiated fresh per stage and nothing carries across: the settings stage
 // needs the recipes to know which double setting backs a crafting time, and
 // the data stage needs the settings to read them back.
+//
+// THE ITEMS COME FIRST because the text settings name them. An ingredient list
+// a player edits is declared with the list the mod would have used, and that
+// list reaches this plan's own items through IngredientOf, which needs their
+// handles. Declaration order inside each kind is what the emitted order
+// strings derive from, and nothing here reorders either kind.
 func plan() *fkrecipes.Lib {
 	lib := fkrecipes.New()
-
-	hardened := lib.BoolSetting("hardened-tools", true)
-	lib.IntSetting("rivet-batch", 4, fkrecipes.Between(1, 20))
-	// A maximum and no minimum: the library generates the floor-safe minimum
-	// beside the declared ceiling, so both bounds are in the golden and the
-	// single-bound spec is exercised.
-	forging := lib.DoubleSetting("forging-time", 3, fkrecipes.NumericSpec{HasMax: true, Max: 120})
-	medium := lib.DropdownSettingNeedingLocale("quench-medium", "water", []string{"water", "oil"})
-	bonuses := lib.BoolSetting("bonus-research", true)
-	// Declared LAST on purpose: the generated order is derived from the
-	// declaration index, so a new setting at the end leaves every existing
-	// order alone.
-	tier := lib.DropdownSettingNeedingLocale("tips-research-tier", "projectile",
-		[]string{"projectile", "military"})
-	// A FLOOR AND NO CEILING, the one NumericSpec arm the goldens did not
-	// carry. Organic here: a longer hold keeps tempering, so there is nothing
-	// to cap, but below half a second the plate never reaches temperature.
-	// Bound as a crafting time too, which is what shows that a DECLARED
-	// minimum stands rather than being replaced by the generated floor-safe
-	// one: the generated minimum fills in only where the consumer named none.
-	tempering := lib.DoubleSetting("tempering-hold", 1.5,
-		fkrecipes.NumericSpec{HasMin: true, Min: 0.5})
 
 	plate := lib.Item("hardened-steel-plate", fkrecipes.ItemSpec{
 		Icon:        "__fkrecipes-example__/graphics/icons/hardened-steel-plate.png",
@@ -60,14 +44,82 @@ func plan() *fkrecipes.Lib {
 		// than wherever the engine's name ordering puts them.
 		Order: "b[steelworks]-a[rivet]",
 	})
+	chain := lib.Item("steel-chain", fkrecipes.ItemSpec{
+		Icon:      "__fkrecipes-example__/graphics/icons/steel-chain.png",
+		IconSize:  64,
+		StackSize: 100,
+		Subgroup:  "intermediate-product",
+		Order:     "b[steelworks]-b[chain]",
+	})
+
+	hardened := lib.BoolSetting("hardened-tools", true)
+	lib.IntSetting("rivet-batch", 4, fkrecipes.Between(1, 20))
+	// A maximum and no minimum: the library generates the floor-safe minimum
+	// beside the declared ceiling, so both bounds are in the golden and the
+	// single-bound spec is exercised.
+	forging := lib.DoubleSetting("forging-time", 3, fkrecipes.NumericSpec{HasMax: true, Max: 120})
+	// The quenching medium, which now offers a third value: custom, the arm
+	// that hands the whole ingredient list to the player.
+	medium := lib.DropdownSettingNeedingLocale("quench-medium", "water",
+		[]string{"water", "oil", "custom"})
+	bonuses := lib.BoolSetting("bonus-research", true)
+	// Declared LAST on purpose: the generated order is derived from the
+	// declaration index, so a new setting at the end leaves every existing
+	// order alone.
+	tier := lib.DropdownSettingNeedingLocale("tips-research-tier", "projectile",
+		[]string{"projectile", "military", "custom"})
+	// A FLOOR AND NO CEILING, the one NumericSpec arm the goldens did not
+	// carry. Organic here: a longer hold keeps tempering, so there is nothing
+	// to cap, but below half a second the plate never reaches temperature.
+	// Bound as a crafting time too, which is what shows that a DECLARED
+	// minimum stands rather than being replaced by the generated floor-safe
+	// one: the generated minimum fills in only where the consumer named none.
+	tempering := lib.DoubleSetting("tempering-hold", 1.5,
+		fkrecipes.NumericSpec{HasMin: true, Min: 0.5})
+
+	// The customizer's settings, all appended after the ones above so no
+	// existing order string moves. Each text setting's field starts out as the
+	// word default and its description carries the list written out.
+
+	// The whole ingredient list of one recipe, with no dropdown in front of
+	// it: the simplest binding there is.
+	rivetIngredients := lib.IngredientsSetting("rivet-ingredients", []fkrecipes.Ingredient{
+		fkrecipes.IngredientNamed(1, "iron-plate"),
+	})
+	// The custom arm of a dropdown, declared as the preset it sits beside so a
+	// player who switches to custom starts from what they had.
+	quenchIngredients := lib.IngredientsSetting("quench-ingredients", []fkrecipes.Ingredient{
+		fkrecipes.IngredientNamed(2, "tungsten-plate", "steel-plate"),
+		fkrecipes.IngredientOf(rivet, 4),
+		fkrecipes.IngredientNamed(1, "tungsten-carbide", "titanium-plate"),
+	})
+	chainLinks := lib.DropdownSettingNeedingLocale("chain-links", "short",
+		[]string{"short", "long", "custom"})
+	chainIngredients := lib.IngredientsSetting("chain-ingredients", []fkrecipes.Ingredient{
+		fkrecipes.IngredientOf(rivet, 4),
+	})
+	// A research cost the player prices: the packs as text, the count and the
+	// seconds as numbers, each with the minimum the engine's own floors need.
+	tipsPacks := lib.PacksSetting("tips-packs", []fkrecipes.Pack{
+		{Name: "automation-science-pack", Amount: 1},
+		{Name: "military-science-pack", Amount: 1},
+	})
+	tipsCount := lib.IntSetting("tips-count", 30, fkrecipes.Between(1, 100000))
+	tipsSeconds := lib.DoubleSetting("tips-seconds", 15, fkrecipes.Between(0.5, 600))
+	chainPacks := lib.PacksSetting("chain-packs", []fkrecipes.Pack{
+		{Name: "automation-science-pack", Amount: 1},
+	})
+	chainCount := lib.IntSetting("chain-count", 20, fkrecipes.Between(1, 100000))
+	chainSeconds := lib.DoubleSetting("chain-seconds", 10, fkrecipes.Between(0.5, 600))
 
 	rivets := lib.Recipe(rivet, fkrecipes.RecipeSpec{
 		CraftTime:   0.5,
 		ResultCount: 4,
-		Ingredients: []fkrecipes.Ingredient{
-			fkrecipes.IngredientNamed(1, "iron-plate"),
-		},
-		DisplayName: "Steel rivets",
+		// The list the player owns. The declared default is what the word
+		// default in the field means, and it is the fixed list this recipe
+		// used to carry.
+		IngredientsFrom: rivetIngredients,
+		DisplayName:     "Steel rivets",
 		// A REAL 2.0 RECIPE FIELD this library has no slot for, passed
 		// through verbatim. That is what Extra is: the library emits what it
 		// knows and gets out of the way for the rest, rather than growing a
@@ -77,7 +129,8 @@ func plan() *fkrecipes.Lib {
 	plates := lib.Recipe(plate, fkrecipes.RecipeSpec{
 		CraftTimeFrom: forging,
 		// The player picks what the plate is quenched in, and each medium is
-		// a whole ingredient plan rather than one substituted line.
+		// a whole ingredient plan rather than one substituted line. The third
+		// value hands the list over entirely.
 		IngredientsBy: &fkrecipes.IngredientChoices{
 			Setting: medium,
 			Choices: []fkrecipes.IngredientChoice{
@@ -103,9 +156,14 @@ func plan() *fkrecipes.Lib {
 					fkrecipes.IngredientNamed(1, "light-oil-barrel", "crude-oil-barrel"),
 				}},
 			},
+			Custom: quenchIngredients,
 		},
-		Name:        "hardened-steel-plate-quenching",
-		Category:    "smelting",
+		Name: "hardened-steel-plate-quenching",
+		// A CATEGORY THAT TAKES FLUIDS, because the player may now type one.
+		// The engine refuses a fluid in the crafting category (measured) and
+		// this library refuses it first, so a customizable recipe that wants
+		// to allow water has to say where it is crafted.
+		Category:    "crafting-with-fluid",
 		Order:       "b[steelworks]-b[quenching]",
 		DisplayName: "Hardened steel plate",
 		Description: "Quench the plate, then temper it back to workable.",
@@ -121,6 +179,26 @@ func plan() *fkrecipes.Lib {
 			fkrecipes.IngredientOf(plate, 1),
 		},
 		DisplayName: "Salvaged steel rivets",
+	})
+
+	chains := lib.Recipe(chain, fkrecipes.RecipeSpec{
+		CraftTime: 2,
+		Category:  "crafting-with-fluid",
+		IngredientsBy: &fkrecipes.IngredientChoices{
+			Setting: chainLinks,
+			Choices: []fkrecipes.IngredientChoice{
+				{Value: "short", Ingredients: []fkrecipes.Ingredient{
+					fkrecipes.IngredientOf(rivet, 4),
+				}},
+				{Value: "long", Ingredients: []fkrecipes.Ingredient{
+					fkrecipes.IngredientOf(rivet, 8),
+					fkrecipes.IngredientNamed(1, "steel-plate"),
+				}},
+			},
+			Custom: chainIngredients,
+		},
+		DisplayName: "Steel chain",
+		Description: "Links of rivets",
 	})
 
 	hardenedSteel := lib.Technology("hardened-steel", fkrecipes.TechSpec{
@@ -149,7 +227,8 @@ func plan() *fkrecipes.Lib {
 	// the first technology that is actually there and carries a cost, and THE
 	// PREREQUISITE MOVES WITH THE UNIT: whichever source pays for this one
 	// also becomes the thing it hangs off, so cost and tree position never
-	// disagree.
+	// disagree. The custom arm carries its own ladder for exactly that reason:
+	// it has no source technology to take a position from.
 	lib.Technology("hardened-tips", fkrecipes.TechSpec{
 		Icon:     "__fkrecipes-example__/graphics/technology/hardened-tips.png",
 		IconSize: 128,
@@ -172,10 +251,30 @@ func plan() *fkrecipes.Lib {
 				Seconds: 30,
 				Packs:   []fkrecipes.Pack{{Name: "automation-science-pack", Amount: 1}},
 			},
+			Custom: &fkrecipes.CustomCost{
+				Packs:    tipsPacks,
+				Count:    tipsCount,
+				Seconds:  tipsSeconds,
+				Position: []string{"military-2", "military"},
+			},
 		},
 		EnabledBy:   bonuses,
 		DisplayName: "Hardened tool tips",
 		Description: "Every level puts a harder edge on the same tools.",
+	})
+	// The other half of the custom cost: no dropdown at all, so the three
+	// settings are the whole price and the ordinary placement fields say where
+	// the technology goes.
+	lib.Technology("chain-forging", fkrecipes.TechSpec{
+		Icon:     "__fkrecipes-example__/graphics/technology/chain-forging.png",
+		IconSize: 128,
+		CostFrom: &fkrecipes.CustomCost{
+			Packs:   chainPacks,
+			Count:   chainCount,
+			Seconds: chainSeconds,
+		},
+		After:   "steel-processing",
+		Unlocks: []fkrecipes.RecipeRef{chains},
 	})
 
 	return lib

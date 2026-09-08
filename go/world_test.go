@@ -280,6 +280,23 @@ func (w *fixtureWorld) withoutFluid(name string) *fixtureWorld {
 	return w
 }
 
+func (w *fixtureWorld) withTool(name string) *fixtureWorld {
+	w.tools = append(w.tools, name)
+	w.items = append(w.items, name)
+	return w
+}
+
+func (w *fixtureWorld) withoutTool(name string) *fixtureWorld {
+	kept := make([]string, 0, len(w.tools))
+	for _, t := range w.tools {
+		if t != name {
+			kept = append(kept, t)
+		}
+	}
+	w.tools = kept
+	return w
+}
+
 func (w *fixtureWorld) withRecipe(name string) *fixtureWorld {
 	w.recipes = append(w.recipes, name)
 	return w

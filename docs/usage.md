@@ -56,7 +56,27 @@ let forging = lib.double_setting("forging-time", 3.0, NumericSpec { min: None, m
 lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "oil"]);
 ```
 
-If your mod already ships settings under names of its own, there are four `Legacy` constructors that take a full name and an explicit order and emit both verbatim. See [Migrating a mod that already ships settings](migration.md).
+If your mod already ships settings under names of its own, there are `Legacy` constructors that take a full name and an explicit order and emit both verbatim. See [Migrating a mod that already ships settings](migration.md).
+
+Two more constructors declare a text setting the player edits: an ingredient list, or a list of science packs. The setting's default text is the word `default`, which means the list you give here, and the list is written out in the setting's description in the form documented in [The ingredient list](ingredient-list.md), so the player sees both the format and your list before typing.
+
+```go
+rivets := lib.IngredientsSetting("rivet-ingredients", []fkrecipes.Ingredient{
+	fkrecipes.IngredientNamed(1, "steel-plate"),
+	fkrecipes.IngredientNamed(2, "iron-stick", "iron-plate"),
+})
+packs := lib.PacksSetting("chain-packs", []fkrecipes.Pack{{Name: "automation-science-pack", Amount: 1}})
+```
+
+```rust
+let rivets = lib.ingredients_setting("rivet-ingredients", vec![
+    Ingredient::named(1, "steel-plate", &[]),
+    Ingredient::named(2, "iron-stick", &["iron-plate"]),
+]);
+let packs = lib.packs_setting("chain-packs", vec![Pack::new("automation-science-pack", 1)]);
+```
+
+A text setting must be bound to exactly one recipe or technology (below); one that is declared and bound nowhere is refused, because a setting the player can edit that nothing reads is a mistake. A default that names an item of this plan renders it under its emitted, prefixed name, and the player can name that item the same way: the resolver counts the plan's own items as present even though they are extended after the text is read. A pack list declared with no pack is refused for the reason a unit without one is: `fkrecipes: the packs setting chain-packs declares no science pack; research takes at least one`. Both have `Legacy` forms, `LegacyIngredientsSetting` and `LegacyPacksSetting`, for a text setting a mod already ships under a name of its own.
 
 `NumericSpec` bounds an int or double setting and both bounds are optional: a zero value in Go, `None` in Rust, means unbounded rather than pinned to zero. `Between` and `NumericSpec::between` are shorthand for the common case of setting both.
 
@@ -171,6 +191,57 @@ Dropping rather than guessing is deliberate. An ingredient the game does not hav
 
 `IngredientsBy` binds the whole ingredient list to a dropdown setting: one plan per value, resolved by the ordinary ladder rules. It is mutually exclusive with `Ingredients`, and the values it offers must equal the setting's allowed values in the same order. A chosen plan that resolves to nothing falls back to the default option's plan, with a line saying so. See [Migrating a mod that already ships settings](migration.md) for the full shape and the refusals.
 
+### Ingredients the player writes
+
+`IngredientsFrom` binds the ingredient list to a text setting declared with `IngredientsSetting`. The player edits the text in the settings screen, in the form documented in [The ingredient list](ingredient-list.md), and the recipe is made of what they wrote. It is mutually exclusive with `Ingredients` and `IngredientsBy`.
+
+```go
+lib.Recipe(rivet, fkrecipes.RecipeSpec{IngredientsFrom: rivets, CraftTime: 1})
+```
+
+```rust
+lib.recipe(rivet, RecipeSpec { ingredients_from: Some(rivets), craft_time: 1.0, ..Default::default() });
+```
+
+The text starts out as the word `default`, which means the list you declared with its ladders, exactly as if you had written `Ingredients`, and it keeps meaning that when you change the list in a later release. An edited text is taken as written: every name must exist in the game as loaded, nothing is substituted, and a mistake refuses the load with a sentence naming the setting, the entry and the problem, from the table on that page. One text setting serves one recipe; a mod with several customizable recipes declares one setting per recipe. When the text applies, one line records what was read:
+
+```
+fkrecipes: steelworks-steel-rivet takes its ingredients from steelworks-rivet-ingredients: 3 steel-plate, 2 iron-stick
+```
+
+A dropdown of presets can offer the same thing as one more value. Give the dropdown a value named `custom`, leave it out of `Choices`, and put the text setting in `Custom`:
+
+```go
+IngredientsBy: &fkrecipes.IngredientChoices{
+	Setting: medium, // its values are water, oil, custom
+	Choices: []fkrecipes.IngredientChoice{
+		{Value: "water", Ingredients: []fkrecipes.Ingredient{fkrecipes.IngredientNamed(2, "steel-plate"), fkrecipes.FluidIngredient(10, "water")}},
+		{Value: "oil", Ingredients: []fkrecipes.Ingredient{fkrecipes.IngredientNamed(2, "steel-plate"), fkrecipes.FluidIngredient(5, "lubricant")}},
+	},
+	Custom: quench,
+},
+```
+
+```rust
+ingredients_by: Some(IngredientChoices {
+    setting: medium,
+    choices: vec![
+        IngredientChoice { value: "water".into(), ingredients: vec![Ingredient::named(2, "steel-plate", &[]), Ingredient::fluid(10.0, "water", &[])] },
+        IngredientChoice { value: "oil".into(), ingredients: vec![Ingredient::named(2, "steel-plate", &[]), Ingredient::fluid(5.0, "lubricant", &[])] },
+    ],
+    custom: Some(quench),
+    ..Default::default()
+}),
+```
+
+The text applies only while the dropdown says `custom`; on any preset the preset applies and the text is ignored. The dropdown's description is composed for you: your own `[mod-setting-description]` entry, then one line per preset, its localised label followed by its ingredients written out in the language, so the player switching to `custom` can start from the preset they were on. A dropdown that lists `custom` with no preset behind it and no `Custom` arm is refused, as is a `Custom` arm on a dropdown that does not list it, and so is a dropdown that takes a `Custom` arm from two recipes, because its composed description can only describe one. A dropdown whose presets already include one named `custom` is an ordinary dropdown until you give it an arm. If your dropdown already uses the value `custom` for a preset of its own, name the arm's value with `CustomValue` (`custom_value`) instead of renaming the preset, which would reset every player who had chosen it. A text edited while the dropdown still says a preset does nothing, and the log says so once:
+
+```
+fkrecipes: steelworks-quench-ingredients is edited, but steelworks-quench-medium is not on custom, so the text is ignored
+```
+
+A stored dropdown value that is none of the values you offer cannot come through the settings screen, which resets it, but a file edited by hand can carry one; it is refused by name rather than read as any preset.
+
 ### Crafting time
 
 `CraftTime` is a fixed number of seconds. Zero means "say nothing", and the engine applies its own default.
@@ -276,6 +347,58 @@ Before anything is emitted, the library walks the tree your plan is about to pro
 fkrecipes: a prerequisite cycle: logistics-2 -> steel-processing -> steelworks-steel-axes -> logistics-3 -> logistics-2
 ```
 
+### A research cost the player writes
+
+`CostFrom` is `Unit` with its three numbers in the player's hands: a `PacksSetting` for the science packs, written as an ingredient list, an int setting for the count and a double setting for the seconds. The int setting must declare a minimum of at least 1 and the double a minimum above 0, because the engine refuses a unit with a count of 0 or a time of 0 (measured on Factorio 2.0.77); a `CustomCost` whose settings do not is refused at plan time, and the engine's own rule that an out-of-range stored value resets to the default keeps every value the library reads legal. Placement is the ordinary placement fields, as for `Unit`.
+
+```go
+count := lib.IntSetting("chain-count", 20, fkrecipes.Between(1, 100000))
+seconds := lib.DoubleSetting("chain-seconds", 10, fkrecipes.Between(0.5, 600))
+lib.Technology("chain-forging", fkrecipes.TechSpec{
+	CostFrom: &fkrecipes.CustomCost{Packs: packs, Count: count, Seconds: seconds},
+	After:    "steel-processing",
+	Unlocks:  []fkrecipes.RecipeRef{chain},
+})
+```
+
+```rust
+let count = lib.int_setting("chain-count", 20, NumericSpec::between(1.0, 100000.0));
+let seconds = lib.double_setting("chain-seconds", 10.0, NumericSpec::between(0.5, 600.0));
+lib.technology("chain-forging", TechSpec {
+    cost_from: Some(CustomCost { packs, count, seconds, position: vec![] }),
+    after: "steel-processing".into(),
+    unlocks: vec![chain],
+    ..Default::default()
+});
+```
+
+Only items the game treats as science packs (prototype type `tool`) are accepted in the pack list, and the word `default` means the packs you declared, with their fallbacks. The unit is emitted in the engine's short tuple form, and one line records what was read:
+
+```
+fkrecipes: steelworks-chain-forging takes its research cost from steelworks-chain-packs: count 25, time 12.5, packs 1 automation-science-pack, 1 logistic-science-pack
+```
+
+A `CostBy` dropdown takes the same thing as its `Custom` arm, with one addition: a `Position` ladder, walked to the first technology the game has, which becomes the sole prerequisite exactly as a chosen tier's source would, or no prerequisite with a log line when no rung exists. `Position` is required in a `Custom` arm and refused under `CostFrom`, where the placement fields already say where the technology goes.
+
+```go
+CostBy: &fkrecipes.CostChoices{
+	Setting:  tier, // its values end with custom
+	Choices:  tiers,
+	Fallback: fallback,
+	Custom:   &fkrecipes.CustomCost{Packs: tipsPacks, Count: tipsCount, Seconds: tipsSeconds, Position: []string{"military-2", "military"}},
+},
+```
+
+```rust
+cost_by: Some(CostChoices {
+    setting: tier,
+    choices: tiers,
+    fallback,
+    custom: Some(CustomCost { packs: tips_packs, count: tips_count, seconds: tips_seconds, position: vec!["military-2".into(), "military".into()] }),
+    ..Default::default()
+}),
+```
+
 ### Unlocks and enablement
 
 `Unlocks` takes handles to recipes your plan declared and emits them as `unlock-recipe` effects, in the order given.
@@ -354,7 +477,8 @@ It checks both directions across `[mod-setting-name]`, `[mod-setting-description
 - every dropdown value needs its own `[string-mod-setting]` entry, keyed `<prefixed-setting>-<value>`;
 - an entry matching no setting or value of yours is reported as an orphan, because that is what a rename that was only half applied looks like;
 - two dropdown values that would produce one locale key are reported, since `<setting>-<value>` is a flat namespace and the engine keeps whichever came last;
-- a description is optional and is never reported missing, but a description matching nothing is still an orphan.
+- a description is optional for a bool, int, double or plain dropdown setting and is never reported missing there, but a description matching nothing is still an orphan;
+- a text setting (an ingredient list or a pack list) needs both a `[mod-setting-name]` entry and a `[mod-setting-description]` entry, because the description is where the player learns the format, and a dropdown with a `custom` arm needs a description too, since the library composes the preset texts onto it.
 
 Sample output over a file missing one name and one dropdown value, and carrying two leftovers:
 

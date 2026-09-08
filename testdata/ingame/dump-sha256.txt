@@ -1,10 +1,25 @@
-# The in-game dump hashes, one line per engine.
+# The in-game dump hashes, two lines per engine.
 #
-#   <engine> <data-sha256> <settings-sha256> <mod set, name@version, sorted>
+#   <engine> <row> <data-sha256> <settings-sha256> <mod set, name@version, sorted>
 #
 # ENGINE, because a dump is a function of the engine that produced it: a new
 # Factorio moves base prototypes and every hash with them, and a line keyed by
 # version lets one file hold several without either one being wrong.
+#
+# THE ROW, default or flipped, because the dump is also a function of the
+# settings the engine read. The default row is every setting where the mod
+# declared it, which is the load a player who never opens the settings screen
+# gets. The flipped row is testdata/ingame/flipped.json written into the mod
+# directory as mod-settings.dat by go/internal/modsettings: a dropdown on
+# custom with a player-typed ingredient list carrying a fluid, a research
+# priced out of three settings and placed by its own ladder, a whole list typed
+# into a setting with no dropdown in front of it, and one text left untouched
+# behind a preset. Only the engine can walk those paths, because the settings
+# stage stores a value and no stand-in has one to read back.
+#
+# THE TWO ROWS SHARE A SETTINGS HASH, and that is correct rather than
+# suspicious: setting PROTOTYPES are what mod-settings-dump.json holds, and a
+# stored value moves the data dump without moving a prototype.
 #
 # TWO HASHES, because setting prototypes never reach the data dump: a golden
 # over the data dump alone stays green for a guest whose settings stage did
@@ -15,5 +30,6 @@
 # different DLC produces a different dump for a mod that is perfectly fine.
 # A mismatch here is ENVIRONMENTAL and reports SKIPPED, not FAILED.
 #
-# Capture a line with: scripts/run-ingame.sh --update
-2.0.77 3c5ad6e464a93f870c1f903865a12af831e152f3afc4b785b1203e357c737e3c b47fe1f0c4ceb5d0f84daee5b65c45c1e4a5a666360719a2647f3f6b0b498aba base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
+# Capture both rows with: scripts/run-ingame.sh --update
+2.0.77 default e824cd8302c00fd07c3c3416ad8d9a5eea5612bce5ee455f1cf9669eee1685cd 72d8ca91c631c58769da700b6ff5e69fba628836803160e65eb42ae45a00e1d5 base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
+2.0.77 flipped b5ce9d7e05021f9e5ad1a2d728ebe78467b335ec2556a99bb3f99f617f4c6efe 72d8ca91c631c58769da700b6ff5e69fba628836803160e65eb42ae45a00e1d5 base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77

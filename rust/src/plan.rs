@@ -61,6 +61,19 @@ handle!(
     DropdownSettingRef
 );
 handle!(
+    /// A declared INGREDIENT-LIST text setting: the one a recipe reads what it
+    /// is made of from. Its own type rather than a `DropdownSettingRef`,
+    /// because the two are read differently and a handle that fits both
+    /// sockets is a mistake the compiler could have caught.
+    IngredientsSettingRef
+);
+handle!(
+    /// A declared SCIENCE-PACK text setting. See [`IngredientsSettingRef`]:
+    /// distinct for the same reason, and a pack list is not an ingredient list
+    /// (tools only, and `none` is refused).
+    PacksSettingRef
+);
+handle!(
     /// An item this plan declares.
     ItemRef
 );
@@ -97,6 +110,13 @@ pub(crate) enum SettingKind {
     Int,
     Double,
     Dropdown,
+    /// A string setting holding an INGREDIENT LIST the player writes. It is a
+    /// `string-setting` like a dropdown and nothing like one to read: no
+    /// allowed values, the reserved word `default` as its default, and the
+    /// language in docs/ingredient-list.md as its grammar.
+    Ingredients,
+    /// The same setting over a research unit's SCIENCE PACKS.
+    Packs,
 }
 
 pub(crate) struct SettingDecl {
@@ -116,6 +136,14 @@ pub(crate) struct SettingDecl {
     /// could have rounded on the way in is no longer there to check.
     pub(crate) def_int: i64,
     pub(crate) def_str: String,
+    /// A text setting's DECLARED list, which the word `default` stands for.
+    /// It is never the setting's `default_value`: that is the word itself, so
+    /// a player who never opened the settings screen keeps meaning "the mod's
+    /// list" when the mod changes it. The list is written into the setting's
+    /// description instead, rendered by the language.
+    pub(crate) def_ings: Vec<Ingredient>,
+    /// The same for a packs setting.
+    pub(crate) def_packs: Vec<Pack>,
     pub(crate) spec: NumericSpec,
     pub(crate) values: Vec<String>,
 }
@@ -280,6 +308,17 @@ fn candidate_list(first: &str, fallbacks: &[&str]) -> Vec<String> {
     candidates
 }
 
+/// The dropdown value a Custom arm answers to when the consumer named none.
+pub(crate) const DEFAULT_CUSTOM_VALUE: &str = "custom";
+
+/// The dropdown value a Custom arm actually answers to.
+pub(crate) fn custom_value(declared: &str) -> &str {
+    if declared.is_empty() {
+        return DEFAULT_CUSTOM_VALUE;
+    }
+    declared
+}
+
 /// One dropdown value and the ingredients it selects.
 #[derive(Clone, Default)]
 pub struct IngredientChoice {
@@ -304,9 +343,48 @@ pub struct IngredientChoices {
     /// IT EXISTS FOR THE MOD THAT ALREADY SHIPS A PRESET CALLED `custom`.
     /// Renaming that preset would reset every player who had chosen it, which
     /// is the stored-preference loss the migration path exists to avoid, so
-    /// the arm moves instead of the preset. The binding commit gives this
-    /// field its meaning; nothing reads it yet.
+    /// the arm moves instead of the preset.
     pub custom_value: String,
+
+    /// The text setting the player writes their own list into. The dropdown
+    /// lists [`custom_value`](IngredientChoices::custom_value) and `choices`
+    /// does NOT: the text is what that value selects.
+    pub custom: Option<IngredientsSettingRef>,
+}
+
+/// A research cost the PLAYER writes: the science packs as an ingredient list
+/// in a text setting, the count and the seconds as numeric settings of their
+/// own.
+///
+/// THE TWO NUMERIC SETTINGS CARRY THEIR OWN FLOORS, and this library refuses
+/// a pair that does not. The engine takes neither a unit count of 0 nor a
+/// research time of 0 (measured: "ResearchIngredient's amount must not be 0"
+/// is the pack's, and a unit with `time = 0` refuses with "time must be
+/// positive."), and it RESETS a stored value outside a setting's own bounds
+/// to that setting's default rather than clamping it (measured), so a
+/// declared minimum of at least 1 on the count and above 0 on the seconds is
+/// what makes every value this library can read back a legal one.
+#[derive(Clone, Default)]
+pub struct CustomCost {
+    pub packs: PacksSettingRef,
+    /// Its declared [`NumericSpec`] must carry a minimum of at least 1.
+    pub count: IntSettingRef,
+    /// Its declared [`NumericSpec`] must carry a minimum above 0.
+    pub seconds: DoubleSettingRef,
+    /// THE PREREQUISITE LADDER, walked to the first technology the game has.
+    /// Required under [`CostChoices::custom`], where the arm replaces a
+    /// chosen source and so has to say where the technology goes; refused
+    /// under [`TechSpec::cost_from`], where the ordinary placement fields
+    /// already say it.
+    pub position: Vec<String>,
+}
+
+/// What a text setting is bound to: how many declarations read it, and the
+/// category of the recipe when one does.
+#[derive(Default)]
+pub(crate) struct TextBinding {
+    pub(crate) count: usize,
+    pub(crate) category: String,
 }
 
 /// One dropdown value and the technologies whose cost it selects, in ladder
@@ -336,6 +414,10 @@ pub struct CostChoices {
     /// The dropdown value under which the player's own pack text applies.
     /// Empty means `custom`; see [`IngredientChoices::custom_value`].
     pub custom_value: String,
+
+    /// The cost the player writes: a pack text setting, a count, a time and
+    /// the prerequisite ladder that replaces the chosen source's own.
+    pub custom: Option<CustomCost>,
 }
 
 /// A generated recipe prototype.
@@ -356,11 +438,15 @@ pub struct RecipeSpec {
     pub craft_time: f64,
     pub craft_time_from: DoubleSettingRef,
 
-    /// Exactly one of `ingredients` and `ingredients_by`, or neither.
-    /// `ingredients` is one fixed list; `ingredients_by` lets a dropdown
-    /// setting choose between several.
+    /// Exactly one of `ingredients`, `ingredients_by` and `ingredients_from`,
+    /// or none of them. `ingredients` is one fixed list; `ingredients_by` lets
+    /// a dropdown setting choose between several; `ingredients_from` hands the
+    /// whole list to the player as text.
     pub ingredients_by: Option<IngredientChoices>,
     pub ingredients: Vec<Ingredient>,
+    /// The text setting this recipe is made of. See
+    /// [`Lib::ingredients_setting`] and docs/ingredient-list.md.
+    pub ingredients_from: Option<IngredientsSettingRef>,
     /// Zero means 1.
     pub result_count: i64,
     pub category: String,
@@ -470,13 +556,17 @@ pub struct TechSpec {
     pub icon: String,
     pub icon_size: i64,
 
-    /// Exactly one of `cost_of` and `unit`. `cost_of` copies a named
-    /// technology's whole unit verbatim, count_formula and all.
+    /// Exactly one of `cost_of`, `unit`, `cost_by` and `cost_from`. `cost_of`
+    /// copies a named technology's whole unit verbatim, count_formula and all.
     pub cost_of: String,
     pub unit: Option<UnitSpec>,
     /// Lets a dropdown setting choose between several sources, and places the
     /// technology as well: see [`CostChoices`].
     pub cost_by: Option<CostChoices>,
+    /// `unit` with its three numbers in the player's hands. It does NOT place
+    /// the technology, so its [`CustomCost::position`] must be empty and the
+    /// ordinary placement fields apply.
+    pub cost_from: Option<CustomCost>,
 
     /// Tree placement, and exactly one anchor. `after` names a technology the
     /// GAME has; `after_tech` names one THIS PLAN declares, which is how a
@@ -548,6 +638,8 @@ impl Lib {
             def_num: 0.0,
             def_int: 0,
             def_str: String::new(),
+            def_ings: Vec::new(),
+            def_packs: Vec::new(),
             spec: NumericSpec::default(),
             values: Vec::new(),
         });
@@ -568,6 +660,8 @@ impl Lib {
             def_num: def as f64,
             def_int: def,
             def_str: String::new(),
+            def_ings: Vec::new(),
+            def_packs: Vec::new(),
             spec,
             values: Vec::new(),
         });
@@ -588,6 +682,8 @@ impl Lib {
             def_num: def,
             def_int: 0,
             def_str: String::new(),
+            def_ings: Vec::new(),
+            def_packs: Vec::new(),
             spec,
             values: Vec::new(),
         });
@@ -625,10 +721,119 @@ impl Lib {
             def_num: 0.0,
             def_int: 0,
             def_str: String::from(def),
+            def_ings: Vec::new(),
+            def_packs: Vec::new(),
             spec: NumericSpec::default(),
             values: allowed,
         });
         DropdownSettingRef {
+            lib: self.id,
+            index: self.settings.len(),
+        }
+    }
+
+    /// Declares a startup text setting holding an INGREDIENT LIST the player
+    /// writes, in the language documented in docs/ingredient-list.md.
+    ///
+    /// `def` is the list the reserved word `default` stands for, ladders and
+    /// all. It is NOT the setting's default value: that is the word itself,
+    /// which is what keeps a player who never opened the settings screen on
+    /// the mod's list when the mod changes it (the engine writes every
+    /// setting's current value into mod-settings.dat, untouched defaults
+    /// included, so "untouched means equal to the rendered list" would have
+    /// frozen the old list into every such player's game). The list is
+    /// rendered into the setting's DESCRIPTION instead, so the player can see
+    /// it and copy it.
+    ///
+    /// A text setting is bound to exactly one recipe, through
+    /// [`RecipeSpec::ingredients_from`] or [`IngredientChoices::custom`]; one
+    /// that is declared and read by nothing is refused.
+    pub fn ingredients_setting(
+        &mut self,
+        name: &str,
+        def: Vec<Ingredient>,
+    ) -> IngredientsSettingRef {
+        self.ingredients_decl(name, false, "", def)
+    }
+
+    /// Declares an ingredient-list setting under a name this mod ALREADY
+    /// SHIPS. See [`Lib::legacy_bool_setting`] for why a migrating mod cannot
+    /// rename its settings.
+    pub fn legacy_ingredients_setting(
+        &mut self,
+        full_name: &str,
+        def: Vec<Ingredient>,
+        order: &str,
+    ) -> IngredientsSettingRef {
+        self.ingredients_decl(full_name, true, order, def)
+    }
+
+    /// Declares a startup text setting holding a research unit's SCIENCE
+    /// PACKS. The language is the same one, with tool-type items only and no
+    /// empty list. See [`Lib::ingredients_setting`] for what `def` means.
+    pub fn packs_setting(&mut self, name: &str, def: Vec<Pack>) -> PacksSettingRef {
+        self.packs_decl(name, false, "", def)
+    }
+
+    /// Declares a pack-list setting under a name this mod ALREADY SHIPS.
+    pub fn legacy_packs_setting(
+        &mut self,
+        full_name: &str,
+        def: Vec<Pack>,
+        order: &str,
+    ) -> PacksSettingRef {
+        self.packs_decl(full_name, true, order, def)
+    }
+
+    fn ingredients_decl(
+        &mut self,
+        name: &str,
+        legacy: bool,
+        order: &str,
+        def: Vec<Ingredient>,
+    ) -> IngredientsSettingRef {
+        self.settings.push(SettingDecl {
+            kind: SettingKind::Ingredients,
+            name: String::from(name),
+            legacy,
+            order: String::from(order),
+            def_bool: false,
+            def_num: 0.0,
+            def_int: 0,
+            def_str: String::new(),
+            def_ings: def,
+            def_packs: Vec::new(),
+            spec: NumericSpec::default(),
+            values: Vec::new(),
+        });
+        IngredientsSettingRef {
+            lib: self.id,
+            index: self.settings.len(),
+        }
+    }
+
+    fn packs_decl(
+        &mut self,
+        name: &str,
+        legacy: bool,
+        order: &str,
+        def: Vec<Pack>,
+    ) -> PacksSettingRef {
+        self.settings.push(SettingDecl {
+            kind: SettingKind::Packs,
+            name: String::from(name),
+            legacy,
+            order: String::from(order),
+            def_bool: false,
+            def_num: 0.0,
+            def_int: 0,
+            def_str: String::new(),
+            def_ings: Vec::new(),
+            def_packs: def,
+            spec: NumericSpec::default(),
+            values: Vec::new(),
+        });
+        PacksSettingRef {
             lib: self.id,
             index: self.settings.len(),
         }
@@ -808,6 +1013,8 @@ impl Lib {
             def_num: 0.0,
             def_int: 0,
             def_str: String::new(),
+            def_ings: Vec::new(),
+            def_packs: Vec::new(),
             spec: NumericSpec::default(),
             values: Vec::new(),
         });
@@ -834,6 +1041,8 @@ impl Lib {
             def_num: def as f64,
             def_int: def,
             def_str: String::new(),
+            def_ings: Vec::new(),
+            def_packs: Vec::new(),
             spec,
             values: Vec::new(),
         });
@@ -860,6 +1069,8 @@ impl Lib {
             def_num: def,
             def_int: 0,
             def_str: String::new(),
+            def_ings: Vec::new(),
+            def_packs: Vec::new(),
             spec,
             values: Vec::new(),
         });
@@ -892,6 +1103,8 @@ impl Lib {
             def_num: 0.0,
             def_int: 0,
             def_str: String::from(def),
+            def_ings: Vec::new(),
+            def_packs: Vec::new(),
             spec: NumericSpec::default(),
             values: allowed,
         });
@@ -911,6 +1124,70 @@ impl Lib {
 
     pub(crate) fn valid_double_setting(&self, r: DoubleSettingRef) -> bool {
         r.lib == self.id && r.index >= 1 && r.index <= self.settings.len()
+    }
+
+    pub(crate) fn valid_int_setting(&self, r: IntSettingRef) -> bool {
+        r.lib == self.id && r.index >= 1 && r.index <= self.settings.len()
+    }
+
+    pub(crate) fn valid_ingredients_setting(&self, r: IngredientsSettingRef) -> bool {
+        r.lib == self.id && r.index >= 1 && r.index <= self.settings.len()
+    }
+
+    pub(crate) fn valid_packs_setting(&self, r: PacksSettingRef) -> bool {
+        r.lib == self.id && r.index >= 1 && r.index <= self.settings.len()
+    }
+
+    /// Who reads each text setting, and under which recipe's category.
+    ///
+    /// THE CATEGORY TRAVELS WITH THE BINDING because the fluid rule is about
+    /// the RECIPE and not about the ingredient: the same declared fluid is
+    /// legal in a chemistry recipe and a load failure in a crafting one, so a
+    /// text setting's declared default can only be checked against the recipe
+    /// that reads it.
+    ///
+    /// A handle this plan never issued is SKIPPED rather than followed,
+    /// exactly as `craft_time_bound_settings` skips one: `validate_bindings`
+    /// is what refuses it by name, and following it here would mark the wrong
+    /// setting.
+    pub(crate) fn text_setting_bindings(&self) -> Vec<TextBinding> {
+        let mut out: Vec<TextBinding> = Vec::with_capacity(self.settings.len());
+        for _ in &self.settings {
+            out.push(TextBinding::default());
+        }
+        let mut mark = |index: usize, category: &str| {
+            out[index - 1].count += 1;
+            out[index - 1].category = String::from(category);
+        };
+        for r in &self.recipes {
+            if let Some(h) = r.spec.ingredients_from {
+                if self.valid_ingredients_setting(h) {
+                    mark(h.index, &r.spec.category);
+                }
+            }
+            if let Some(by) = &r.spec.ingredients_by {
+                if let Some(h) = by.custom {
+                    if self.valid_ingredients_setting(h) {
+                        mark(h.index, &r.spec.category);
+                    }
+                }
+            }
+        }
+        for t in &self.techs {
+            if let Some(cc) = &t.spec.cost_from {
+                if self.valid_packs_setting(cc.packs) {
+                    mark(cc.packs.index, "");
+                }
+            }
+            if let Some(by) = &t.spec.cost_by {
+                if let Some(cc) = &by.custom {
+                    if self.valid_packs_setting(cc.packs) {
+                        mark(cc.packs.index, "");
+                    }
+                }
+            }
+        }
+        out
     }
 
     /// Marks the double settings some recipe reads its crafting time from. The

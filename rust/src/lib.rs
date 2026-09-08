@@ -72,9 +72,10 @@ mod tests;
 pub use locale::{locale_entries, CfgEntry};
 pub use op::{Op, PathEl};
 pub use plan::{
-    BoolSettingRef, CostChoice, CostChoices, DoubleSettingRef, DropdownSettingRef, Ingredient,
-    IngredientChoice, IngredientChoices, IntSettingRef, ItemRef, ItemSpec, Lib, NumericSpec, Pack,
-    RecipeRef, RecipeSpec, TechRef, TechSpec, UnitSpec,
+    BoolSettingRef, CostChoice, CostChoices, CustomCost, DoubleSettingRef, DropdownSettingRef,
+    Ingredient, IngredientChoice, IngredientChoices, IngredientsSettingRef, IntSettingRef, ItemRef,
+    ItemSpec, Lib, NumericSpec, Pack, PacksSettingRef, RecipeRef, RecipeSpec, TechRef, TechSpec,
+    UnitSpec,
 };
 pub use value::{kv, Value};
 pub use world::{stage_kind, StageKind, World};

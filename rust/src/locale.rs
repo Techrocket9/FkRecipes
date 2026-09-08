@@ -141,13 +141,35 @@ impl Lib {
 
         // (1) and (2): what the player cannot read, in DECLARATION order, and
         // a setting's own name before the values it offers.
-        for s in &self.settings {
+        for (i, s) in self.settings.iter().enumerate() {
             let full = s.emitted_name(&prefix);
             if !locale_has(&sections, "mod-setting-name", &full) {
                 findings.push(format!(
                     "the setting {} has no [mod-setting-name] entry{}",
                     full,
                     elsewhere(&sections, "mod-setting-name", &full)
+                ));
+            }
+            // THE TWO SETTINGS WHOSE DESCRIPTION IS NOT OPTIONAL. A text
+            // setting's description is where the player learns the format, and
+            // it is what the declared list is written into; a dropdown with a
+            // custom arm has its presets composed onto its own description, so
+            // a missing entry there is a key rendered raw in the tooltip.
+            let missing_description = !locale_has(&sections, "mod-setting-description", &full);
+            if matches!(s.kind, SettingKind::Ingredients | SettingKind::Packs) {
+                if missing_description {
+                    findings.push(format!(
+                        "the setting {} has no [mod-setting-description] entry, and a text setting needs one to tell the player the format",
+                        full
+                    ));
+                }
+            } else if s.kind == SettingKind::Dropdown
+                && missing_description
+                && self.custom_arm_for(&prefix, i + 1).is_some()
+            {
+                findings.push(format!(
+                    "the dropdown setting {} has no [mod-setting-description] entry, which the custom arm composes its preset list onto",
+                    full
                 ));
             }
             if s.kind != SettingKind::Dropdown {
@@ -485,13 +507,194 @@ fn parse_locale(cfg: &str) -> (Vec<LocaleSect>, Vec<String>) {
 
 #[cfg(test)]
 mod tests {
-    use crate::plan::{Lib, NumericSpec};
+    use crate::plan::{
+        CostChoice, CostChoices, CustomCost, Ingredient, IngredientChoice, IngredientChoices,
+        ItemSpec, Lib, NumericSpec, Pack, RecipeSpec, TechSpec,
+    };
+    use alloc::string::String;
+    use alloc::vec::Vec;
 
-    /// Declares the settings the example guests declare, in the same order and
-    /// with the same values. The checker reads settings and nothing else, so
-    /// the example's items, recipes and technologies are not repeated here;
-    /// what has to match is every name a locale key is built from.
+    /// THE EXAMPLE GUEST'S OWN PLAN, which is what makes the golden below a
+    /// cross-language pin over a real mod rather than over a sketch: every one
+    /// of the seventeen settings both example guests declare, in the same
+    /// order, with the same values, and enough of the recipes and
+    /// technologies for the checker to see WHICH DROPDOWNS CARRY A CUSTOM ARM.
+    /// A dropdown that composes a preset list onto its description needs that
+    /// description, and the scan that decides so reads the bindings.
+    ///
+    /// The items and recipes are the fewest that carry those bindings: the
+    /// checker reads no ingredient and no cost, only who reads which setting.
     fn steelworks_settings() -> Lib {
+        let mut lib = Lib::new();
+        lib.bool_setting("hardened-tools", true);
+        lib.int_setting("rivet-batch", 4, NumericSpec::between(1.0, 20.0));
+        lib.double_setting(
+            "forging-time",
+            3.0,
+            NumericSpec {
+                min: None,
+                max: Some(120.0),
+            },
+        );
+        let medium = lib.dropdown_setting_needing_locale(
+            "quench-medium",
+            "water",
+            &["water", "oil", "custom"],
+        );
+        lib.bool_setting("bonus-research", true);
+        let tier = lib.dropdown_setting_needing_locale(
+            "tips-research-tier",
+            "projectile",
+            &["projectile", "military", "custom"],
+        );
+        lib.double_setting(
+            "tempering-hold",
+            1.5,
+            NumericSpec {
+                min: Some(0.5),
+                max: None,
+            },
+        );
+
+        let plate = lib.item("hardened-steel-plate", ItemSpec::default());
+        let rivet = lib.item("steel-rivet", ItemSpec::default());
+
+        let rivet_list = lib.ingredients_setting(
+            "rivet-ingredients",
+            alloc::vec![Ingredient::named(1, "iron-plate", &[])],
+        );
+        let quench_list = lib.ingredients_setting(
+            "quench-ingredients",
+            alloc::vec![
+                Ingredient::named(2, "tungsten-plate", &["steel-plate"]),
+                Ingredient::of(rivet, 4),
+                Ingredient::named(1, "tungsten-carbide", &["titanium-plate"]),
+            ],
+        );
+        let links = lib.dropdown_setting_needing_locale(
+            "chain-links",
+            "short",
+            &["short", "long", "custom"],
+        );
+        let chain_list =
+            lib.ingredients_setting("chain-ingredients", alloc::vec![Ingredient::of(rivet, 4)]);
+        let tips_packs = lib.packs_setting(
+            "tips-packs",
+            alloc::vec![
+                Pack::new("automation-science-pack", 1),
+                Pack::new("military-science-pack", 1),
+            ],
+        );
+        let tips_count = lib.int_setting("tips-count", 30, NumericSpec::between(1.0, 100000.0));
+        let tips_seconds =
+            lib.double_setting("tips-seconds", 15.0, NumericSpec::between(0.5, 600.0));
+        let chain_packs = lib.packs_setting(
+            "chain-packs",
+            alloc::vec![Pack::new("automation-science-pack", 1)],
+        );
+        let chain_count = lib.int_setting("chain-count", 20, NumericSpec::between(1.0, 100000.0));
+        let chain_seconds =
+            lib.double_setting("chain-seconds", 10.0, NumericSpec::between(0.5, 600.0));
+
+        lib.recipe(
+            rivet,
+            RecipeSpec {
+                ingredients_from: Some(rivet_list),
+                ..Default::default()
+            },
+        );
+        lib.recipe(
+            plate,
+            RecipeSpec {
+                name: String::from("hardened-steel-plate-quenching"),
+                category: String::from("crafting-with-fluid"),
+                ingredients_by: Some(IngredientChoices {
+                    setting: medium,
+                    choices: alloc::vec![
+                        IngredientChoice {
+                            value: String::from("water"),
+                            ingredients: alloc::vec![Ingredient::of(rivet, 4)],
+                        },
+                        IngredientChoice {
+                            value: String::from("oil"),
+                            ingredients: alloc::vec![Ingredient::of(rivet, 2)],
+                        },
+                    ],
+                    custom: Some(quench_list),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+        lib.recipe(
+            rivet,
+            RecipeSpec {
+                name: String::from("steel-chain"),
+                ingredients_by: Some(IngredientChoices {
+                    setting: links,
+                    choices: alloc::vec![
+                        IngredientChoice {
+                            value: String::from("short"),
+                            ingredients: alloc::vec![Ingredient::of(rivet, 4)],
+                        },
+                        IngredientChoice {
+                            value: String::from("long"),
+                            ingredients: alloc::vec![Ingredient::of(rivet, 8)],
+                        },
+                    ],
+                    custom: Some(chain_list),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+
+        lib.technology(
+            "hardened-tips",
+            TechSpec {
+                cost_by: Some(CostChoices {
+                    setting: tier,
+                    choices: alloc::vec![
+                        CostChoice {
+                            value: String::from("projectile"),
+                            sources: alloc::vec![String::from("physical-projectile-damage-7")],
+                        },
+                        CostChoice {
+                            value: String::from("military"),
+                            sources: alloc::vec![String::from("military-4")],
+                        },
+                    ],
+                    custom: Some(CustomCost {
+                        packs: tips_packs,
+                        count: tips_count,
+                        seconds: tips_seconds,
+                        position: alloc::vec![String::from("military-2")],
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+        lib.technology(
+            "chain-forging",
+            TechSpec {
+                cost_from: Some(CustomCost {
+                    packs: chain_packs,
+                    count: chain_count,
+                    seconds: chain_seconds,
+                    position: Vec::new(),
+                }),
+                ..Default::default()
+            },
+        );
+        lib
+    }
+
+    /// A SMALL PLAN for the rule tests below, which are about the checker's
+    /// own rules rather than about this mod: five settings keep each expected
+    /// report readable. The golden test runs the example's plan instead,
+    /// because that one is pinned byte for byte across the two halves.
+    fn a_few_settings() -> Lib {
         let mut lib = Lib::new();
         lib.bool_setting("hardened-tools", true);
         lib.int_setting("rivet-batch", 4, NumericSpec::between(1.0, 20.0));
@@ -546,7 +749,7 @@ fkrecipes-example-forging-time=Seconds to quench and temper one plate.
 fkrecipes-example-quench-medium-water=Water
 fkrecipes-example-quench-medium-oil=Oil
 ";
-        let findings = steelworks_settings().check_locale("fkrecipes-example", cfg);
+        let findings = a_few_settings().check_locale("fkrecipes-example", cfg);
         assert!(
             findings.is_empty(),
             "a complete file produced findings:\n{}",
@@ -623,10 +826,200 @@ fkrecipes-example-quench-medium-oil=Oil
         ];
 
         for c in cases {
-            let got = steelworks_settings().check_locale("fkrecipes-example", c.cfg);
+            let got = a_few_settings().check_locale("fkrecipes-example", c.cfg);
             let want: Vec<String> = c.want.iter().map(|s| String::from(*s)).collect();
             assert_eq!(got, want, "{}", c.name);
         }
+    }
+
+    /// The customizer's own plan: a text setting bound to a recipe, and a
+    /// dropdown that offers the same recipe a text of its own.
+    fn customizer_plan() -> Lib {
+        use crate::plan::{Ingredient, IngredientChoice, IngredientChoices, ItemSpec, RecipeSpec};
+
+        let mut lib = Lib::new();
+        // A dropdown with NO custom arm, so the rule that a description is
+        // optional for an ordinary dropdown keeps its witness.
+        lib.dropdown_setting_needing_locale("smelting-style", "furnace", &["furnace", "foundry"]);
+        let medium =
+            lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "custom"]);
+        let plate = lib.item("hardened-steel-plate", ItemSpec::default());
+        let rivet = lib.item("steel-rivet", ItemSpec::default());
+        let quench = lib.ingredients_setting(
+            "quench-ingredients",
+            alloc::vec![Ingredient::named(2, "steel-plate", &[])],
+        );
+        let rivets = lib.ingredients_setting(
+            "rivet-ingredients",
+            alloc::vec![Ingredient::named(1, "iron-plate", &[])],
+        );
+        lib.recipe(
+            plate,
+            RecipeSpec {
+                ingredients_by: Some(IngredientChoices {
+                    setting: medium,
+                    choices: alloc::vec![IngredientChoice {
+                        value: String::from("water"),
+                        ingredients: alloc::vec![Ingredient::named(2, "steel-plate", &[])],
+                    }],
+                    custom: Some(quench),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+        lib.recipe(
+            rivet,
+            RecipeSpec {
+                ingredients_from: Some(rivets),
+                ..Default::default()
+            },
+        );
+        lib
+    }
+
+    /// A DESCRIPTION IS NOT OPTIONAL FOR THESE TWO. A text setting's is where
+    /// the player learns the format and where the mod's own list is written
+    /// out; a custom-arm dropdown's is what the preset lines are composed
+    /// onto, so a missing entry renders a raw key in the tooltip.
+    #[test]
+    fn check_locale_requires_a_description_where_one_is_composed() {
+        let cfg = "[mod-setting-name]
+fkrecipes-example-smelting-style=Smelting
+fkrecipes-example-quench-medium=Quenching medium
+fkrecipes-example-quench-ingredients=Quenching ingredients
+fkrecipes-example-rivet-ingredients=Rivet ingredients
+
+[string-mod-setting]
+fkrecipes-example-smelting-style-furnace=Furnace
+fkrecipes-example-smelting-style-foundry=Foundry
+fkrecipes-example-quench-medium-water=Water
+fkrecipes-example-quench-medium-custom=Custom
+";
+        assert_eq!(
+            customizer_plan().check_locale("fkrecipes-example", cfg),
+            [
+                "the dropdown setting fkrecipes-example-quench-medium has no [mod-setting-description] entry, which the custom arm composes its preset list onto",
+                "the setting fkrecipes-example-quench-ingredients has no [mod-setting-description] entry, and a text setting needs one to tell the player the format",
+                "the setting fkrecipes-example-rivet-ingredients has no [mod-setting-description] entry, and a text setting needs one to tell the player the format",
+            ]
+        );
+    }
+
+    /// THE CHECKER ASKS FOR EXACTLY WHAT THE SETTINGS STAGE COMPOSES, and it
+    /// asks through the same walk: a recipe naming `Ingredients` beside
+    /// `IngredientsBy` is one the binding validator steps past, so no preset
+    /// list is composed onto its dropdown and no description is demanded for
+    /// it. A finding about a description nothing writes to is one the author
+    /// cannot act on.
+    #[test]
+    fn check_locale_asks_for_no_description_where_none_is_composed() {
+        use crate::plan::{Ingredient, IngredientChoice, IngredientChoices, ItemSpec, RecipeSpec};
+
+        let mut lib = Lib::new();
+        let medium =
+            lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "custom"]);
+        let plate = lib.item("hardened-steel-plate", ItemSpec::default());
+        let quench = lib.ingredients_setting(
+            "quench-ingredients",
+            alloc::vec![Ingredient::named(2, "steel-plate", &[])],
+        );
+        lib.recipe(
+            plate,
+            RecipeSpec {
+                // The declaration the data planner answers with "pick one".
+                ingredients: alloc::vec![Ingredient::named(2, "steel-plate", &[])],
+                ingredients_by: Some(IngredientChoices {
+                    setting: medium,
+                    choices: alloc::vec![IngredientChoice {
+                        value: String::from("water"),
+                        ingredients: alloc::vec![Ingredient::named(2, "steel-plate", &[])],
+                    }],
+                    custom: Some(quench),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+
+        let cfg = "[mod-setting-name]
+fkrecipes-example-quench-medium=Quenching medium
+fkrecipes-example-quench-ingredients=Quenching ingredients
+
+[mod-setting-description]
+fkrecipes-example-quench-ingredients=Amount then name, separated by commas.
+
+[string-mod-setting]
+fkrecipes-example-quench-medium-water=Water
+fkrecipes-example-quench-medium-custom=Custom
+";
+        assert_eq!(
+            lib.check_locale("fkrecipes-example", cfg),
+            Vec::<String>::new()
+        );
+    }
+
+    /// The same file with the three descriptions written, and the custom
+    /// value's own entry: clean. The ordinary dropdown still needs none, which
+    /// is what says the new rule is scoped rather than a blanket one.
+    #[test]
+    fn check_locale_accepts_a_complete_customizer_file() {
+        let cfg = "[mod-setting-name]
+fkrecipes-example-smelting-style=Smelting
+fkrecipes-example-quench-medium=Quenching medium
+fkrecipes-example-quench-ingredients=Quenching ingredients
+fkrecipes-example-rivet-ingredients=Rivet ingredients
+
+[mod-setting-description]
+fkrecipes-example-quench-medium=What the plate is quenched in.
+fkrecipes-example-quench-ingredients=Amount then name, separated by commas.
+fkrecipes-example-rivet-ingredients=Amount then name, separated by commas.
+
+[string-mod-setting]
+fkrecipes-example-smelting-style-furnace=Furnace
+fkrecipes-example-smelting-style-foundry=Foundry
+fkrecipes-example-quench-medium-water=Water
+fkrecipes-example-quench-medium-custom=Custom (edit the ingredients below)
+";
+        let findings = customizer_plan().check_locale("fkrecipes-example", cfg);
+        assert!(
+            findings.is_empty(),
+            "a complete file produced findings:\n{}",
+            findings.join("\n")
+        );
+    }
+
+    /// A blank description renders as nothing, which is the defect the player
+    /// meets, so it counts as missing here exactly as it does for a name.
+    #[test]
+    fn check_locale_counts_a_blank_description_as_missing() {
+        let cfg = "[mod-setting-name]
+fkrecipes-example-rivet-ingredients=Rivet ingredients
+
+[mod-setting-description]
+fkrecipes-example-rivet-ingredients=
+";
+        let got = customizer_plan().check_locale("fkrecipes-example", cfg);
+        assert!(
+            got.iter().any(|f| f
+                == "the setting fkrecipes-example-rivet-ingredients has no [mod-setting-description] entry, and a text setting needs one to tell the player the format"),
+            "a blank description was accepted: {:?}",
+            got
+        );
+    }
+
+    /// The custom value is a dropdown value like any other, so the per-value
+    /// rule is what asks for its entry.
+    #[test]
+    fn check_locale_asks_for_the_custom_values_own_entry() {
+        let cfg = "[string-mod-setting]\nfkrecipes-example-quench-medium-water=Water\n";
+        let got = customizer_plan().check_locale("fkrecipes-example", cfg);
+        assert!(
+            got.iter().any(|f| f
+                == "the dropdown setting fkrecipes-example-quench-medium has no [string-mod-setting] entry for its value custom"),
+            "the custom value was not asked for: {:?}",
+            got
+        );
     }
 
     /// `<setting>-<value>` is a flat namespace: two settings whose names are
@@ -688,7 +1081,7 @@ fkrecipes-example-quench-medium-oil=Oil
         ];
 
         for c in cases {
-            let got = steelworks_settings().check_locale("fkrecipes-example", c.cfg);
+            let got = a_few_settings().check_locale("fkrecipes-example", c.cfg);
             // Only the findings this shape is about; the other settings are
             // missing for the ordinary reason and are not the point.
             let kept: Vec<&String> = got.iter().filter(|f| f.contains(c.about)).collect();
@@ -738,7 +1131,7 @@ fkrecipes-example-quench-medium-oil=Oil
                 "[{}]\nfkrecipes-example-hardened-tools=Hardened tools\n",
                 section
             );
-            let got = steelworks_settings().check_locale("fkrecipes-example", &cfg);
+            let got = a_few_settings().check_locale("fkrecipes-example", &cfg);
             assert_eq!(got.first().map(String::as_str), Some(want), "{}", name);
         }
     }
@@ -750,7 +1143,7 @@ fkrecipes-example-quench-medium-oil=Oil
     #[test]
     fn check_locale_reports_a_byte_order_mark_once() {
         let cfg = "\u{feff}[mod-setting-name]\nfkrecipes-example-hardened-tools=Hardened tools\n";
-        let got = steelworks_settings().check_locale("fkrecipes-example", cfg);
+        let got = a_few_settings().check_locale("fkrecipes-example", cfg);
 
         assert_eq!(
             got.first().map(String::as_str),
@@ -770,7 +1163,7 @@ fkrecipes-example-quench-medium-oil=Oil
     #[test]
     fn check_locale_reports_malformed_shapes() {
         let cfg = "[]\n[mod-setting-name]\n=Hardened tools\nfkrecipes-example-orphan =Trailing space in the key\n";
-        let got = steelworks_settings().check_locale("fkrecipes-example", cfg);
+        let got = a_few_settings().check_locale("fkrecipes-example", cfg);
 
         assert_eq!(
             got.first().map(String::as_str),
@@ -801,7 +1194,7 @@ fkrecipes-example-quench-medium-oil=Oil
             for i in 0..n {
                 cfg.push_str(&format!("fkrecipes-example-orphan-{}=Left behind\n", i));
             }
-            steelworks_settings().check_locale("fkrecipes-example", &cfg)
+            a_few_settings().check_locale("fkrecipes-example", &cfg)
         };
 
         let got = report_with_orphans(150);

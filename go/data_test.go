@@ -450,7 +450,7 @@ func TestPlanDataRefusals(t *testing.T) {
 			build: func(l *Lib) {
 				l.Technology("steel-axes", TechSpec{After: "steel-processing"})
 			},
-			want: "fkrecipes: the technology steel-axes must name exactly one of CostOf, Unit or CostBy",
+			want: "fkrecipes: the technology steel-axes must name exactly one of CostOf, Unit, CostBy or CostFrom",
 		},
 		{
 			name: "both CostOf and Unit",
@@ -460,7 +460,7 @@ func TestPlanDataRefusals(t *testing.T) {
 					Unit:   &UnitSpec{Count: 50, Seconds: 15, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
 				})
 			},
-			want: "fkrecipes: the technology steel-axes must name exactly one of CostOf, Unit or CostBy",
+			want: "fkrecipes: the technology steel-axes must name exactly one of CostOf, Unit, CostBy or CostFrom",
 		},
 		{
 			name: "Before without After",
@@ -1057,7 +1057,11 @@ func TestWideAmountsSurviveTheEmit(t *testing.T) {
 	// the plain digits it is.
 	axe := lib.Item("steel-axe", ItemSpec{StackSize: 9007199254740992})
 	lib.Recipe(axe, RecipeSpec{
-		Ingredients: []Ingredient{IngredientNamed(3000000000, "steel-plate")},
+		// An INGREDIENT carries the engine's own ceiling of 65535 and so
+		// cannot be a wide number at all; the result count, the unit count and
+		// the pack amount below have no such ceiling and are what pin the
+		// width.
+		Ingredients: []Ingredient{IngredientNamed(65535, "steel-plate")},
 		ResultCount: 2500000000,
 	})
 	lib.Technology("steel-axes", TechSpec{Unit: &UnitSpec{
@@ -1071,7 +1075,7 @@ func TestWideAmountsSurviveTheEmit(t *testing.T) {
 
 	assertLines(t, transcript(ops), []string{
 		`extend {type="item", name="steelworks-steel-axe", stack_size=9007199254740992}`,
-		`extend {type="recipe", name="steelworks-steel-axe", enabled=true, ingredients=[{type="item", name="steel-plate", amount=3000000000}], results=[{type="item", name="steelworks-steel-axe", amount=2500000000}]}`,
+		`extend {type="recipe", name="steelworks-steel-axe", enabled=true, ingredients=[{type="item", name="steel-plate", amount=65535}], results=[{type="item", name="steelworks-steel-axe", amount=2500000000}]}`,
 		`extend {type="technology", name="steelworks-steel-axes", unit={count=5000000000, time=15, ingredients=[["automation-science-pack", 3000000000]]}}`,
 	})
 }

@@ -3,13 +3,18 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::ingredient_list::{
+    format_amount, is_edited, parse, render_list, IngredientList, ListEntry, ListKind, ListText,
+    DEFAULT,
+};
 use crate::op::{path_key, Op};
 use crate::plan::{
-    Amount, CostChoice, Ingredient, IngredientChoice, ItemDecl, Lib, Pack, RecipeDecl, SettingDecl,
-    TechDecl, UnitSpec,
+    custom_value, Amount, CostChoice, CustomCost, Ingredient, IngredientChoice,
+    IngredientsSettingRef, ItemDecl, Lib, Pack, RecipeDecl, SettingDecl, TechDecl, UnitSpec,
 };
 use crate::value::{
     finite, kv, localised, str_arr, Value, CRAFT_TIME_FLOOR, MAX_EXACT_INT, MAX_FLUID_AMOUNT,
+    MAX_ITEM_AMOUNT,
 };
 use crate::world::World;
 
@@ -42,6 +47,17 @@ impl Lib {
 
         self.validate(w, &prefix)?;
         let res = self.resolve(w, &prefix);
+        // WHAT THE PLAYER WROTE, FIRST. Resolution asks the World questions
+        // and mostly degrades; three answers it cannot degrade are a stored
+        // value that is not one of a dropdown's values, a text setting holding
+        // something that is not text, and an ingredient list the language
+        // refuses. Each is carried out of the pass rather than raised inside
+        // it, because resolution answers questions and this is where a plan is
+        // refused; the FIRST one found wins, and it wins over every refusal
+        // below because it is the earliest thing the pass met.
+        if let Some(message) = &res.refusal {
+            return Err(message.clone());
+        }
         self.check_resolved_craft_times(&res)?;
         self.check_resolved_packs(&res)?;
         self.check_cycles(w, &res, &prefix)?;
@@ -101,6 +117,15 @@ impl Lib {
     /// handle from another plan is in range for this one.
     fn validate(&self, w: &dyn World, prefix: &str) -> Result<(), String> {
         let at = "fkrecipes: ";
+
+        // THE BINDINGS FIRST, and the text settings after them, both shared
+        // with the settings planner. They come before the three declaration
+        // loops because a Custom arm that does not line up with its dropdown
+        // would otherwise be answered by the ordinary allowed-values
+        // comparison, which says "offers nothing for the value custom" and
+        // points at the wrong thing. Neither of them asks the World anything.
+        self.validate_bindings(prefix)?;
+        self.validate_text_settings(prefix)?;
 
         for (i, it) in self.items.iter().enumerate() {
             if it.name.is_empty() {
@@ -278,19 +303,24 @@ impl Lib {
                     ));
                 }
                 let setting = &self.settings[by.setting.index - 1];
+                // A CUSTOM ARM'S VALUE IS NOT A CHOICE, so it comes out of the
+                // comparison: the arm is the plan for it, and validate_bindings
+                // has already proved the dropdown offers it exactly once.
+                let allowed =
+                    presets_of(&setting.values, &by.custom, custom_value(&by.custom_value));
                 let offered: Vec<String> = by.choices.iter().map(|c| c.value.clone()).collect();
                 matches_allowed_values(
                     at,
                     &format!("the recipe {}", r.name),
                     &setting.emitted_name(prefix),
                     &offered,
-                    &setting.values,
+                    &allowed,
                 )?;
                 for c in &by.choices {
                     self.validate_ingredients(
                         at,
                         &format!("the recipe {}", r.name),
-                        &r.spec.category,
+                        Some(&r.spec.category),
                         &c.ingredients,
                     )?;
                 }
@@ -344,7 +374,7 @@ impl Lib {
             self.validate_ingredients(
                 at,
                 &format!("the recipe {}", r.name),
-                &r.spec.category,
+                Some(&r.spec.category),
                 &r.spec.ingredients,
             )?;
         }
@@ -379,13 +409,14 @@ impl Lib {
             let has_cost = !t.spec.cost_of.is_empty();
             let has_unit = t.spec.unit.is_some();
             let has_cost_by = t.spec.cost_by.is_some();
-            let named = [has_cost, has_unit, has_cost_by]
+            let has_cost_from = t.spec.cost_from.is_some();
+            let named = [has_cost, has_unit, has_cost_by, has_cost_from]
                 .iter()
                 .filter(|x| **x)
                 .count();
             if named != 1 {
                 return Err(format!(
-                    "{}the technology {} must name exactly one of CostOf, Unit or CostBy",
+                    "{}the technology {} must name exactly one of CostOf, Unit, CostBy or CostFrom",
                     at, t.name
                 ));
             }
@@ -410,13 +441,15 @@ impl Lib {
                     ));
                 }
                 let setting = &self.settings[by.setting.index - 1];
+                let allowed =
+                    presets_of(&setting.values, &by.custom, custom_value(&by.custom_value));
                 let offered: Vec<String> = by.choices.iter().map(|c| c.value.clone()).collect();
                 matches_allowed_values(
                     at,
                     &format!("the technology {}", t.name),
                     &setting.emitted_name(prefix),
                     &offered,
-                    &setting.values,
+                    &allowed,
                 )?;
                 // THE DECLARATION IS CHECKED HERE, THE WORLD IS NOT. A
                 // fallback count of zero is wrong however the ladder turns
@@ -477,8 +510,9 @@ impl Lib {
                 // A CostBy technology reaches here with neither field set,
                 // and has nothing named to check: its ladder is walked at
                 // resolution, where a source that cannot be used is stepped
-                // past rather than refused.
-                None if has_cost_by => {}
+                // past rather than refused. A CostFrom one names no source at
+                // all: its whole unit comes from the player's settings.
+                None if has_cost_by || has_cost_from => {}
                 None => {
                     if !w.tech_exists(&t.spec.cost_of) {
                         return Err(format!(
@@ -559,6 +593,10 @@ impl Lib {
     /// enablement before its tree placement.
     fn resolve(&self, w: &dyn World, prefix: &str) -> Resolution {
         let mut res = Resolution::default();
+        // THE PLAN'S OWN ITEMS, BEFORE ANY TEXT IS PARSED. See [`PlanItems`]:
+        // the names this plan is about to emit are the ones its own setting
+        // descriptions show the player, so the language has to know them.
+        let own = self.plan_items(w, prefix);
 
         for r in &self.recipes {
             // The crafting time first, then the ingredients: a recipe's own
@@ -585,6 +623,28 @@ impl Lib {
                 Some(by) => {
                     let setting = &self.settings[by.setting.index - 1];
                     let chosen = res.read_dropdown(w, setting, prefix);
+                    let cv = custom_value(&by.custom_value);
+                    if let Some(h) = by.custom {
+                        if chosen == cv {
+                            let list =
+                                self.resolve_text_ingredients(w, &own, &mut res, prefix, r, h);
+                            res.recipes.push(list);
+                            continue;
+                        }
+                        // THE PLAYER IS TOLD THEIR TEXT IS BEING IGNORED. A
+                        // list typed into the field while the dropdown sits on
+                        // a preset is a preference nothing reads, and silence
+                        // there is the report "my ingredients did nothing".
+                        note_ignored_text(
+                            &own,
+                            &mut res,
+                            &self.settings[h.index - 1].emitted_name(prefix),
+                            ListKind::Recipe,
+                            &r.spec.category,
+                            &setting.emitted_name(prefix),
+                            cv,
+                        );
+                    }
                     let declared = choice_for(&by.choices, &chosen);
                     let mut list = self.resolve_ingredients(w, &mut res, prefix, &r.name, declared);
                     // A plan that named things and got none of them is a
@@ -606,11 +666,22 @@ impl Lib {
                     }
                     res.recipes.push(list);
                 }
-                None => {
-                    let list =
-                        self.resolve_ingredients(w, &mut res, prefix, &r.name, &r.spec.ingredients);
-                    res.recipes.push(list);
-                }
+                None => match r.spec.ingredients_from {
+                    Some(h) => {
+                        let list = self.resolve_text_ingredients(w, &own, &mut res, prefix, r, h);
+                        res.recipes.push(list);
+                    }
+                    None => {
+                        let list = self.resolve_ingredients(
+                            w,
+                            &mut res,
+                            prefix,
+                            &r.name,
+                            &r.spec.ingredients,
+                        );
+                        res.recipes.push(list);
+                    }
+                },
             }
         }
 
@@ -640,9 +711,44 @@ impl Lib {
                 rt.no_packs = rt.packs.is_empty();
             }
 
+            // THE PLAYER'S OWN UNIT, in the same place a hand-rolled one is
+            // resolved: what the technology COSTS before where it sits.
+            if let Some(cc) = &t.spec.cost_from {
+                let (unit, no_packs) = self.resolve_custom_cost(w, &own, &mut res, prefix, t, cc);
+                rt.unit = Some(unit);
+                rt.no_packs = no_packs;
+            }
+
             if let Some(by) = &t.spec.cost_by {
                 let setting = &self.settings[by.setting.index - 1];
                 let chosen = res.read_dropdown(w, setting, prefix);
+                let cv = custom_value(&by.custom_value);
+                if let Some(cc) = &by.custom {
+                    if chosen == cv {
+                        let (unit, no_packs) =
+                            self.resolve_custom_cost(w, &own, &mut res, prefix, t, cc);
+                        rt.unit = Some(unit);
+                        rt.no_packs = no_packs;
+                        // THE PREREQUISITE STILL MOVES WITH THE UNIT, and the
+                        // unit is the player's, so the ladder the author wrote
+                        // is what says where the technology hangs. No rung
+                        // present is the same answer a ladder that finds
+                        // nothing gives anywhere else: say so, and place the
+                        // technology nowhere.
+                        rt.prereqs = custom_prereqs(w, &mut res, &t.name, &cc.position);
+                        res.techs.push(rt);
+                        continue;
+                    }
+                    note_ignored_text(
+                        &own,
+                        &mut res,
+                        &self.settings[cc.packs.index - 1].emitted_name(prefix),
+                        ListKind::Packs,
+                        "",
+                        &setting.emitted_name(prefix),
+                        cv,
+                    );
+                }
                 let mut source = String::new();
                 for name in sources_for(&by.choices, &chosen) {
                     if w.tech_has_research_trigger(name) {
@@ -789,9 +895,10 @@ impl Lib {
             }
             // Finiteness FIRST, and not only for the message: an infinity is
             // above the floor, so the floor arm would wave it through and ship
-            // a recipe that never completes. This is the one float in the
-            // library that arrives from outside and so never crossed the
-            // declaration checks.
+            // a recipe that never completes. It is one of the THREE floats
+            // that arrive from outside and so never crossed the declaration
+            // checks; a research count and a research time are the other two,
+            // and `resolve_custom_cost` asks them the same question.
             if !finite(ct.value) {
                 return Err(format!(
                     "fkrecipes: the recipe {} reads its crafting time from {}, which answers a value that is not a finite number",
@@ -904,6 +1011,21 @@ pub(crate) struct Resolution {
     pub(crate) recipes: Vec<Vec<ResolvedIngredient>>,
     pub(crate) techs: Vec<ResolvedTech>,
     pub(crate) rewrites: Vec<RewriteRec>,
+    /// The FIRST answer resolution could not degrade. Carried rather than
+    /// returned so the pass stays one shape: it keeps resolving, with an empty
+    /// list where the refused answer would have gone, and `plan_data` raises
+    /// this before it reads any of it.
+    pub(crate) refusal: Option<String>,
+}
+
+impl Resolution {
+    /// Records a refusal, keeping the first: resolution runs in declaration
+    /// order, so the first is the one a reader would have met.
+    fn refuse(&mut self, message: String) {
+        if self.refusal.is_none() {
+            self.refusal = Some(message);
+        }
+    }
 }
 
 impl Resolution {
@@ -917,6 +1039,51 @@ impl Resolution {
         }
         w.tech_prereqs(tech)
     }
+}
+
+/// Says out loud that a text nothing is reading was edited.
+///
+/// EDITED MEANS "THE LANGUAGE DOES NOT READ IT AS THE WORD", decided by the
+/// same parse the data path decides with: a text this planner would have taken
+/// as the mod's own list is not an edit, tolerated trailing comma and all, and
+/// a second trimmer here would be a second answer to the same question. A text
+/// that does not parse at all IS an edit and is still only a line: the dropdown
+/// sits on a preset, so nothing was going to read the list, and refusing a load
+/// over it would be the worse answer.
+///
+/// `own` is the overlay World the language reads a typed list under; its
+/// `startup_setting` is the game's own, so the value read here is the value the
+/// data path would read. The KIND and the CATEGORY come from the call site
+/// rather than from the setting, because each caller knows both: a recipe's
+/// dropdown hands over an ingredient list in that recipe's category, and a
+/// technology's hands over science packs, which have no category at all.
+fn note_ignored_text(
+    own: &dyn World,
+    res: &mut Resolution,
+    full: &str,
+    kind: ListKind,
+    category: &str,
+    dropdown: &str,
+    cv: &str,
+) {
+    if let Some(Value::Str(text)) = own.startup_setting(full) {
+        if is_edited(&text, kind, category, full, own) {
+            res.logs.push(format!(
+                "fkrecipes: {} is edited, but {} is not on {}, so the text is ignored",
+                full, dropdown, cv
+            ));
+        }
+    }
+}
+
+/// What a setting that answered with something no arithmetic can use is told.
+/// It names the SETTING rather than the technology, because the technology's
+/// own declaration is fine and the value came from outside it.
+fn not_finite(setting: &str) -> String {
+    format!(
+        "fkrecipes: {} holds a value that is not a finite number",
+        setting
+    )
 }
 
 fn drop_line(tech: &str, after: &str) -> String {
@@ -1068,7 +1235,7 @@ fn tech_proto(prefix: &str, l: &Lib, w: &dyn World, t: &TechDecl, rt: &ResolvedT
         if let Some(level) = &rt.max_level {
             pairs.push(kv("max_level", level.clone()));
         }
-    } else if t.spec.unit.is_none() {
+    } else if t.spec.unit.is_none() && t.spec.cost_from.is_none() {
         // A present-but-nil read is a value this library could not carry (a
         // LuaObject, or a table with a key it drops); emitting it would write
         // a nil max_level into the prototype.
@@ -1110,8 +1277,9 @@ fn tech_proto(prefix: &str, l: &Lib, w: &dyn World, t: &TechDecl, rt: &ResolvedT
 }
 
 fn tech_unit(w: &dyn World, t: &TechDecl, rt: &ResolvedTech) -> Value {
-    if t.spec.cost_by.is_some() {
-        // Resolution walked the ladder and settled this, fallback included.
+    if t.spec.cost_by.is_some() || t.spec.cost_from.is_some() {
+        // Resolution walked the ladder and settled this, fallback included;
+        // a CostFrom unit was built there too, out of the player's settings.
         return rt.unit.clone().unwrap_or(Value::Nil);
     }
     match &t.spec.unit {
@@ -1164,11 +1332,16 @@ impl Lib {
     /// RECIPE rather than the ingredient: a fluid in the crafting category is
     /// a load failure the engine reports in its own words, and this refuses
     /// it first, by name, before anything is emitted.
-    fn validate_ingredients(
+    ///
+    /// `None` asks every rule EXCEPT that one, which is what the settings
+    /// stage can answer: a text setting's declared list is checked there
+    /// before it is rendered into a description, and which recipe reads that
+    /// setting, in which category, is a data-stage question.
+    pub(crate) fn validate_ingredients(
         &self,
         at: &str,
         who: &str,
-        category: &str,
+        category: Option<&str>,
         ings: &[Ingredient],
     ) -> Result<(), String> {
         for ing in ings {
@@ -1212,7 +1385,7 @@ impl Lib {
                             at, who
                         ));
                     }
-                    if takes_items_only(category) {
+                    if category.map(takes_items_only).unwrap_or(false) {
                         return Err(format!(
                             "{}{} takes the fluid {}, and a recipe in the crafting category takes items only",
                             at,
@@ -1243,6 +1416,86 @@ impl Lib {
                     at, who
                 ));
             }
+            // THE ITEM CEILING, asked of the AUTHOR'S OWN LIST exactly as the
+            // language asks it of a text the player typed: the engine holds an
+            // item amount in a u16 and refuses 65536 with a message about a
+            // data type (measured), so a declared list and a typed one are
+            // held to one rule. It sits behind the handle check because the
+            // sentence names what the recipe takes, and this plan's own item
+            // has no candidate to name until its handle is proved.
+            if let Amount::Item(n) = ing.amount {
+                if n > MAX_ITEM_AMOUNT {
+                    return Err(format!(
+                        "{}{} takes {} of {}, and an item amount goes up to {}",
+                        at,
+                        who,
+                        n,
+                        self.ingredient_shown(ing),
+                        MAX_ITEM_AMOUNT
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The name a refusal about a declared ingredient quotes: the ladder's
+    /// first choice, or the DECLARED name of this plan's own item. Asked only
+    /// after the handle has been proved, which is what makes the index safe.
+    fn ingredient_shown(&self, ing: &Ingredient) -> String {
+        match ing.candidates.first() {
+            Some(name) => name.clone(),
+            None => self.items[ing.item.index - 1].name.clone(),
+        }
+    }
+
+    /// A player-written research cost: three handles this plan issued, and two
+    /// declared bounds that make every value the engine can hand back legal.
+    ///
+    /// THE BOUNDS ARE ASKED OF THE DECLARATION, not of what the setting
+    /// answers. The engine RESETS a stored value outside a setting's own range
+    /// to that setting's default rather than clamping it (measured), and it
+    /// refuses to load a numeric setting whose default lies outside its own
+    /// bounds, so a minimum of at least 1 on the count and above 0 on the
+    /// seconds closes the chain: nothing this library can read back is a count
+    /// of 0 or a time of 0, and both of those the engine refuses in a unit.
+    pub(crate) fn validate_custom_cost(
+        &self,
+        at: &str,
+        who: &str,
+        cc: &CustomCost,
+    ) -> Result<(), String> {
+        if !self.valid_packs_setting(cc.packs) {
+            return Err(format!(
+                "{}{} reads its science packs from a setting that this plan never declared",
+                at, who
+            ));
+        }
+        if !self.valid_int_setting(cc.count) {
+            return Err(format!(
+                "{}{} reads its research count from a setting that this plan never declared",
+                at, who
+            ));
+        }
+        if !self.valid_double_setting(cc.seconds) {
+            return Err(format!(
+                "{}{} reads its research time from a setting that this plan never declared",
+                at, who
+            ));
+        }
+        let count = &self.settings[cc.count.index - 1];
+        if count.spec.min.map(|m| m < 1.0).unwrap_or(true) {
+            return Err(format!(
+                "{}the setting {} backs a research count but declares no minimum of at least 1 (the engine refuses a unit count of 0)",
+                at, count.name
+            ));
+        }
+        let seconds = &self.settings[cc.seconds.index - 1];
+        if seconds.spec.min.map(|m| m <= 0.0).unwrap_or(true) {
+            return Err(format!(
+                "{}the setting {} backs a research time but declares no minimum above 0 (the engine refuses a unit time of 0)",
+                at, seconds.name
+            ));
         }
         Ok(())
     }
@@ -1316,6 +1569,19 @@ impl Lib {
     }
 }
 
+/// The dropdown values a Choices list has to cover: all of them, minus the one
+/// the Custom arm answers to.
+fn presets_of<T>(values: &[String], custom: &Option<T>, cv: &str) -> Vec<String> {
+    if custom.is_none() {
+        return values.to_vec();
+    }
+    values
+        .iter()
+        .filter(|v| v.as_str() != cv)
+        .cloned()
+        .collect()
+}
+
 fn matches_allowed_values(
     at: &str,
     who: &str,
@@ -1351,10 +1617,23 @@ impl Resolution {
     /// The dropdown's chosen value, or its default when the game does not
     /// answer with a string. An unreadable setting is logged once here, the
     /// same way enablement and crafting time log theirs.
+    ///
+    /// A STORED VALUE THE DROPDOWN DOES NOT LIST IS REFUSED. The engine resets
+    /// one to the default before any stage runs (measured), so this is only
+    /// reachable through a mod-settings.dat somebody edited by hand; what it
+    /// replaces is worse than a refusal, because the value simply matched no
+    /// choice and the recipe came out made of nothing with no line in the log.
     fn read_dropdown(&mut self, w: &dyn World, s: &SettingDecl, prefix: &str) -> String {
         let full = s.emitted_name(prefix);
         if let Some(Value::Str(v)) = w.startup_setting(&full) {
-            return v;
+            if s.values.contains(&v) {
+                return v;
+            }
+            self.refuse(format!(
+                "fkrecipes: {} holds \"{}\", which is not one of its values",
+                full, v
+            ));
+            return s.def_str.clone();
         }
         self.logs.push(format!(
             "fkrecipes: the setting {} was not readable, so its default applies",
@@ -1382,7 +1661,309 @@ fn sources_for<'a>(choices: &'a [CostChoice], value: &str) -> &'a [String] {
     &[]
 }
 
+/// The World a PLAYER'S TEXT is read under: the game as it stands, plus the
+/// items THIS PLAN is about to emit.
+///
+/// MEASURED (2.0.77): a text copied straight out of the setting's own
+/// description (`1 fkrecipes-example-steel-rivet, 10 water`) refused the load
+/// with "no item or fluid is named fkrecipes-example-steel-rivet". The data
+/// planner resolves texts before its own items reach data.raw, so the one
+/// list the description invites the player to copy was the one list they could
+/// not type. The overlay is the smaller of the two fixes: emitting the items
+/// first would work too and would reorder the whole stream.
+///
+/// ITEMS ONLY, and the two other probes are untouched on purpose: a plan's own
+/// items are never fluids and never tools, so a pack text naming one still
+/// hears "is an item, not a science pack", which is the true answer.
+///
+/// The names are a VECTOR in declaration order, like everything else here.
+struct PlanItems<'a> {
+    inner: &'a dyn World,
+    names: Vec<String>,
+}
+
+impl crate::world::Named for PlanItems<'_> {
+    fn mod_name(&self) -> String {
+        self.inner.mod_name()
+    }
+}
+
+impl World for PlanItems<'_> {
+    fn item_exists(&self, name: &str) -> bool {
+        self.names.iter().any(|n| n == name) || self.inner.item_exists(name)
+    }
+
+    // Everything else is the game's own answer.
+    fn startup_setting(&self, name: &str) -> Option<Value> {
+        self.inner.startup_setting(name)
+    }
+    fn tech_names(&self) -> Vec<String> {
+        self.inner.tech_names()
+    }
+    fn tech_prereqs(&self, name: &str) -> Vec<String> {
+        self.inner.tech_prereqs(name)
+    }
+    fn tech_unit(&self, name: &str) -> Option<Value> {
+        self.inner.tech_unit(name)
+    }
+    fn tech_max_level(&self, name: &str) -> Option<Value> {
+        self.inner.tech_max_level(name)
+    }
+    fn tech_has_research_trigger(&self, name: &str) -> bool {
+        self.inner.tech_has_research_trigger(name)
+    }
+    fn tech_exists(&self, name: &str) -> bool {
+        self.inner.tech_exists(name)
+    }
+    fn entity_exists(&self, name: &str) -> bool {
+        self.inner.entity_exists(name)
+    }
+    fn recipe_exists(&self, name: &str) -> bool {
+        self.inner.recipe_exists(name)
+    }
+    // The two DEFAULT methods are overridden to delegate rather than left to
+    // panic: a consumer's fixture answers them, and this overlay must not
+    // stand between a fluid ingredient and the World that knows about it.
+    fn fluid_exists(&self, name: &str) -> bool {
+        self.inner.fluid_exists(name)
+    }
+    fn tool_exists(&self, name: &str) -> bool {
+        self.inner.tool_exists(name)
+    }
+}
+
 impl Lib {
+    /// The overlay, built once per data plan from this plan's own item
+    /// declarations. The EMITTED name is what goes in, prefixed or legacy by
+    /// the declaration's own rule, because that is the name the description
+    /// showed and the name the recipe will carry.
+    fn plan_items<'a>(&self, w: &'a dyn World, prefix: &str) -> PlanItems<'a> {
+        let mut names = Vec::with_capacity(self.items.len());
+        for it in &self.items {
+            names.push(it.emitted_name(prefix));
+        }
+        PlanItems { inner: w, names }
+    }
+
+    /// What a text setting says, as the language reads it.
+    ///
+    /// AN UNREADABLE SETTING BECOMES THE WORD, which is the same degradation
+    /// every other bound setting takes and lands on the same path a player who
+    /// never typed takes. A readable value that is not a string is refused:
+    /// the engine resets a wrong-typed stored value to the default before any
+    /// stage runs (measured), so this is a hand-edited file, and guessing what
+    /// a number meant as an ingredient list is not something to do on a
+    /// player's behalf.
+    fn read_text_setting(&self, w: &dyn World, res: &mut Resolution, full: &str) -> Option<String> {
+        match w.startup_setting(full) {
+            Some(Value::Str(text)) => Some(text),
+            Some(_) => {
+                res.refuse(format!("fkrecipes: {} is not text", full));
+                None
+            }
+            None => {
+                res.logs.push(format!(
+                    "fkrecipes: the setting {} was not readable, so its default applies",
+                    full
+                ));
+                Some(String::from(DEFAULT))
+            }
+        }
+    }
+
+    /// One recipe's ingredients, from the text the player wrote.
+    ///
+    /// THE WORD `default` IS THE PRE-EXISTING PATH, ladders and all, and it
+    /// logs nothing of its own: the player who never typed gets exactly the
+    /// recipe the author declared, drops included. Anything else is taken as
+    /// written, and one line records what was read.
+    ///
+    /// TWO WORLDS, AND THE SPLIT IS THE POINT. What the PLAYER typed is read
+    /// against `own`, which knows this plan's own item names; the author's own
+    /// ladders behind the word `default` are walked against the game as it
+    /// stands, exactly as they were before, because a ladder is a tolerance
+    /// for a modpack rather than a lookup of this plan's own prototypes.
+    fn resolve_text_ingredients(
+        &self,
+        w: &dyn World,
+        own: &dyn World,
+        res: &mut Resolution,
+        prefix: &str,
+        r: &RecipeDecl,
+        h: IngredientsSettingRef,
+    ) -> Vec<ResolvedIngredient> {
+        let s = &self.settings[h.index - 1];
+        let full = s.emitted_name(prefix);
+        let text = match self.read_text_setting(w, res, &full) {
+            Some(text) => text,
+            None => return Vec::new(),
+        };
+        match parse(&text, ListKind::Recipe, &r.spec.category, &full, own) {
+            // THE MESSAGE IS THE WHOLE REFUSAL, verbatim: the language wrote
+            // it for the player, naming the setting, the entry and the
+            // problem, and there is nothing this layer can add to it.
+            Err(message) => {
+                res.refuse(message);
+                Vec::new()
+            }
+            Ok(ListText::Default) => self.resolve_ingredients(w, res, prefix, &r.name, &s.def_ings),
+            Ok(ListText::List(list)) => {
+                let out: Vec<ResolvedIngredient> = list
+                    .entries
+                    .iter()
+                    .map(|e| ResolvedIngredient {
+                        name: e.name.clone(),
+                        amount: e.amount,
+                    })
+                    .collect();
+                res.logs.push(format!(
+                    "fkrecipes: {} takes its ingredients from {}: {}",
+                    r.emitted_name(prefix),
+                    full,
+                    render_list(&list)
+                ));
+                out
+            }
+        }
+    }
+
+    /// One technology's unit, from two numeric settings and a pack text.
+    ///
+    /// The three are read in the order the log line names them and the order
+    /// the unit carries them: count, time, packs.
+    ///
+    /// THE TWO NUMBERS ARE FACTS ABOUT THE WORLD, not about the declaration,
+    /// so they are asked the finiteness question the resolved crafting time is
+    /// asked and then the bound their own declaration promised. The declared
+    /// minima keep the ENGINE from handing back a count below 1 or a time at
+    /// or below zero (measured: a stored value outside a setting's own bounds
+    /// is reset to that setting's default), but a fixture World can answer
+    /// anything at all, and a NaN reaching the decimal rule is a unit rendered
+    /// as `NaN` in this half and a trap in the Go mirror.
+    fn resolve_custom_cost(
+        &self,
+        w: &dyn World,
+        own: &dyn World,
+        res: &mut Resolution,
+        prefix: &str,
+        t: &TechDecl,
+        cc: &CustomCost,
+    ) -> (Value, bool) {
+        let (count, count_setting) = self.read_num_setting(w, res, prefix, cc.count.index);
+        let (seconds, seconds_setting) = self.read_num_setting(w, res, prefix, cc.seconds.index);
+        if !finite(count) {
+            res.refuse(not_finite(&count_setting));
+        } else if count < 1.0 {
+            res.refuse(format!(
+                "fkrecipes: {} holds a research count below 1",
+                count_setting
+            ));
+        }
+        if !finite(seconds) {
+            res.refuse(not_finite(&seconds_setting));
+        } else if seconds <= 0.0 {
+            res.refuse(format!(
+                "fkrecipes: {} holds a research time at or below zero",
+                seconds_setting
+            ));
+        }
+        let s = &self.settings[cc.packs.index - 1];
+        let full = s.emitted_name(prefix);
+        let packs = match self.read_text_setting(w, res, &full) {
+            None => Vec::new(),
+            Some(text) => match parse(&text, ListKind::Packs, "", &full, own) {
+                Err(message) => {
+                    res.refuse(message);
+                    Vec::new()
+                }
+                // THE LADDERS ARE THE AUTHOR'S, so the word walks them and a
+                // pack the game does not have is dropped with its line, the
+                // way it is for a hand-rolled unit.
+                Ok(ListText::Default) => resolve_packs(w, res, &t.name, &s.def_packs),
+                Ok(ListText::List(list)) => list
+                    .entries
+                    .iter()
+                    .map(|e| ResolvedPack {
+                        name: e.name.clone(),
+                        // A pack list resolves through tool_exists and a tool
+                        // is an item, so every entry the parser returns here
+                        // carries an item amount: `resolve_for_packs` answers
+                        // "not a fluid" for every name it accepts, and the
+                        // fluid arm of an entry is reached only behind that
+                        // answer. A 0 here would be a research the engine
+                        // refuses with a message naming nothing of this
+                        // library's, so the impossible case says so instead.
+                        amount: match e.amount {
+                            Amount::Item(n) => n,
+                            Amount::Fluid(_) => {
+                                unreachable!("a science pack list parsed a fluid entry")
+                            }
+                        },
+                    })
+                    .collect(),
+            },
+        };
+        // ONE LINE WHATEVER THE TEXT SAID, unlike the ingredients path: the
+        // count and the seconds come from their settings on every load, so
+        // there is always something the player set that this records.
+        res.logs.push(format!(
+            "fkrecipes: {} takes its research cost from {}: count {}, time {}, packs {}",
+            t.emitted_name(prefix),
+            full,
+            format_amount(count),
+            format_amount(seconds),
+            render_list(&resolved_pack_list(&packs))
+        ));
+        // The count is emitted as the NUMBER the setting answered with, not as
+        // an integer this library rounded: the engine's own field is a double
+        // like every other, and the setting's declared bounds are what keep it
+        // a whole one.
+        let ings: Vec<Value> = packs
+            .iter()
+            .map(|p| {
+                Value::Arr(vec![
+                    Value::Str(p.name.clone()),
+                    Value::Num(p.amount as f64),
+                ])
+            })
+            .collect();
+        (
+            Value::Map(vec![
+                kv("count", Value::Num(count)),
+                kv("time", Value::Num(seconds)),
+                kv("ingredients", Value::Arr(ings)),
+            ]),
+            packs.is_empty(),
+        )
+    }
+
+    /// A number a player set, or the declared default with a line saying the
+    /// setting was not readable, AND the setting's emitted name, because the
+    /// caller's refusals name whichever setting answered. One reader for both
+    /// numeric kinds: an int setting and a double setting both answer with a
+    /// Lua number, and an int setting's declared default is already a double
+    /// by the time it is here.
+    fn read_num_setting(
+        &self,
+        w: &dyn World,
+        res: &mut Resolution,
+        prefix: &str,
+        index: usize,
+    ) -> (f64, String) {
+        let s = &self.settings[index - 1];
+        let full = s.emitted_name(prefix);
+        match w.startup_setting(&full) {
+            Some(Value::Num(n)) => (n, full),
+            _ => {
+                res.logs.push(format!(
+                    "fkrecipes: the setting {} was not readable, so its default applies",
+                    full
+                ));
+                (s.def_num, full)
+            }
+        }
+    }
+
     fn resolve_ingredients(
         &self,
         w: &dyn World,
@@ -1475,6 +2056,43 @@ fn resolve_packs(
         }
     }
     list
+}
+
+/// The packs a unit was actually priced in, in the shape the language writes
+/// out: what the log line prints is what a player could type back into the
+/// field.
+fn resolved_pack_list(packs: &[ResolvedPack]) -> IngredientList {
+    let mut entries = Vec::with_capacity(packs.len());
+    for p in packs {
+        entries.push(ListEntry {
+            name: p.name.clone(),
+            amount: Amount::Item(p.amount),
+        });
+    }
+    IngredientList { entries }
+}
+
+/// Walks a Custom arm's Position ladder. The first technology the game has
+/// becomes the sole prerequisite, exactly as a chosen tier's source would; a
+/// ladder with no rung present leaves the technology unattached and says so, in
+/// the shape every other dropped ladder uses.
+fn custom_prereqs(
+    w: &dyn World,
+    res: &mut Resolution,
+    tech: &str,
+    position: &[String],
+) -> Vec<String> {
+    for name in position {
+        if w.tech_exists(name) {
+            return vec![name.clone()];
+        }
+    }
+    res.logs.push(format!(
+        "fkrecipes: {}: none of {} is present, so the technology has no prerequisite",
+        tech,
+        join_names(position, ", ")
+    ));
+    Vec::new()
 }
 
 /// A pack's rungs as the drop line names them, first choice first.

@@ -8,16 +8,89 @@ import (
 )
 
 // steelworksSettings declares the settings the example guests declare, in the
-// same order and with the same values. The checker reads settings and nothing
-// else, so the example's items, recipes and technologies are not repeated
-// here; what has to match is every name a locale key is built from.
+// same order and with the same values, because testdata/locale/example.cfg is
+// the example's own locale file and both halves have to produce one report
+// over it.
+//
+// THE RECIPES AND THE TECHNOLOGIES ARE HERE FOR ONE REASON: the checker asks
+// which dropdowns carry a Custom arm, and it asks the BINDINGS. A dropdown with
+// an arm has its preset list composed onto its description, so that description
+// stops being optional, and a fixture with the settings alone would report the
+// three armed dropdowns as needing nothing. Nothing else about them is read
+// here, which is why the items are the two a recipe needs a result for and the
+// ingredient lists are as short as they go.
 func steelworksSettings() *Lib {
 	lib := New()
+	rivet := lib.Item("steel-rivet", ItemSpec{})
+	chain := lib.Item("steel-chain", ItemSpec{})
+
 	lib.BoolSetting("hardened-tools", true)
 	lib.IntSetting("rivet-batch", 4, Between(1, 20))
 	lib.DoubleSetting("forging-time", 3, NumericSpec{HasMax: true, Max: 120})
-	lib.DropdownSettingNeedingLocale("quench-medium", "water", []string{"water", "oil"})
+	medium := lib.DropdownSettingNeedingLocale("quench-medium", "water",
+		[]string{"water", "oil", "custom"})
 	lib.BoolSetting("bonus-research", true)
+	tier := lib.DropdownSettingNeedingLocale("tips-research-tier", "projectile",
+		[]string{"projectile", "military", "custom"})
+	lib.DoubleSetting("tempering-hold", 1.5, NumericSpec{HasMin: true, Min: 0.5})
+	rivetIngredients := lib.IngredientsSetting("rivet-ingredients",
+		[]Ingredient{IngredientNamed(1, "iron-plate")})
+	quenchIngredients := lib.IngredientsSetting("quench-ingredients",
+		[]Ingredient{IngredientNamed(2, "steel-plate")})
+	chainLinks := lib.DropdownSettingNeedingLocale("chain-links", "short",
+		[]string{"short", "long", "custom"})
+	chainIngredients := lib.IngredientsSetting("chain-ingredients",
+		[]Ingredient{IngredientOf(rivet, 4)})
+	tipsPacks := lib.PacksSetting("tips-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+	tipsCount := lib.IntSetting("tips-count", 30, Between(1, 100000))
+	tipsSeconds := lib.DoubleSetting("tips-seconds", 15, Between(0.5, 600))
+	chainPacks := lib.PacksSetting("chain-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+	chainCount := lib.IntSetting("chain-count", 20, Between(1, 100000))
+	chainSeconds := lib.DoubleSetting("chain-seconds", 10, Between(0.5, 600))
+
+	lib.Recipe(rivet, RecipeSpec{Name: "steel-rivet", IngredientsFrom: rivetIngredients})
+	lib.Recipe(rivet, RecipeSpec{
+		Name:     "hardened-steel-plate-quenching",
+		Category: "crafting-with-fluid",
+		IngredientsBy: &IngredientChoices{
+			Setting: medium,
+			Choices: []IngredientChoice{
+				{Value: "water", Ingredients: []Ingredient{IngredientNamed(2, "steel-plate")}},
+				{Value: "oil", Ingredients: []Ingredient{IngredientNamed(2, "steel-plate")}},
+			},
+			Custom: quenchIngredients,
+		},
+	})
+	lib.Recipe(chain, RecipeSpec{
+		Name: "steel-chain",
+		IngredientsBy: &IngredientChoices{
+			Setting: chainLinks,
+			Choices: []IngredientChoice{
+				{Value: "short", Ingredients: []Ingredient{IngredientOf(rivet, 4)}},
+				{Value: "long", Ingredients: []Ingredient{IngredientOf(rivet, 8)}},
+			},
+			Custom: chainIngredients,
+		},
+	})
+	lib.Technology("hardened-tips", TechSpec{CostBy: &CostChoices{
+		Setting: tier,
+		Choices: []CostChoice{
+			{Value: "projectile", Sources: []string{"physical-projectile-damage-7"}},
+			{Value: "military", Sources: []string{"military-4"}},
+		},
+		Fallback: UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+		Custom: &CustomCost{
+			Packs: tipsPacks, Count: tipsCount, Seconds: tipsSeconds,
+			Position: []string{"military-2"},
+		},
+	}})
+	// No dropdown, so it arms nothing and the checker marks nothing for it. It
+	// is here because the example declares it and its three settings would
+	// otherwise sit in the fixture with nothing reading them.
+	lib.Technology("chain-forging", TechSpec{
+		CostFrom: &CustomCost{Packs: chainPacks, Count: chainCount, Seconds: chainSeconds},
+		After:    "steel-processing",
+	})
 	return lib
 }
 
@@ -43,7 +116,11 @@ func TestCheckLocaleMatchesTheGolden(t *testing.T) {
 	}
 }
 
-// A file with every entry the plan needs and nothing it does not.
+// A file with every entry the plan needs and nothing it does not: a name for
+// each of the seventeen settings, a description for each text setting and for
+// each dropdown a Custom arm composes onto, and an entry for every dropdown
+// value. The descriptions the engine treats as optional are left out on
+// purpose, so this file is the MINIMUM rather than a copy of the example's.
 func TestCheckLocaleAcceptsACompleteFile(t *testing.T) {
 	cfg := `[mod-setting-name]
 fkrecipes-example-hardened-tools=Hardened tools
@@ -51,17 +128,93 @@ fkrecipes-example-rivet-batch=Rivets per batch
 fkrecipes-example-forging-time=Forging time
 fkrecipes-example-quench-medium=Quenching medium
 fkrecipes-example-bonus-research=Bonus research
+fkrecipes-example-tips-research-tier=Tool tip research cost
+fkrecipes-example-tempering-hold=Tempering hold
+fkrecipes-example-rivet-ingredients=Steel rivet ingredients
+fkrecipes-example-quench-ingredients=Custom quenching ingredients
+fkrecipes-example-chain-links=Chain links
+fkrecipes-example-chain-ingredients=Custom steel chain ingredients
+fkrecipes-example-tips-packs=Tool tip science packs
+fkrecipes-example-tips-count=Tool tip research count
+fkrecipes-example-tips-seconds=Tool tip research seconds
+fkrecipes-example-chain-packs=Chain forging science packs
+fkrecipes-example-chain-count=Chain forging research count
+fkrecipes-example-chain-seconds=Chain forging research seconds
 
 [mod-setting-description]
-fkrecipes-example-forging-time=Seconds to quench and temper one plate.
+fkrecipes-example-quench-medium=What the hot plate is dropped into.
+fkrecipes-example-tips-research-tier=What a level of hardened tool tips costs.
+fkrecipes-example-rivet-ingredients=Amount, then name, commas between.
+fkrecipes-example-quench-ingredients=Amount, then name, commas between.
+fkrecipes-example-chain-links=How much rivet a length of chain takes.
+fkrecipes-example-chain-ingredients=Amount, then name, commas between.
+fkrecipes-example-tips-packs=Amount, then pack name, commas between.
+fkrecipes-example-chain-packs=Amount, then pack name, commas between.
 
 [string-mod-setting]
 fkrecipes-example-quench-medium-water=Water
 fkrecipes-example-quench-medium-oil=Oil
+fkrecipes-example-quench-medium-custom=Custom
+fkrecipes-example-tips-research-tier-projectile=As projectile damage
+fkrecipes-example-tips-research-tier-military=As military research
+fkrecipes-example-tips-research-tier-custom=Custom
+fkrecipes-example-chain-links-short=Short links
+fkrecipes-example-chain-links-long=Long links
+fkrecipes-example-chain-links-custom=Custom
 `
 	if findings := steelworksSettings().CheckLocale("fkrecipes-example", cfg); len(findings) != 0 {
 		t.Errorf("a complete file produced findings:\n%s", strings.Join(findings, "\n"))
 	}
+}
+
+// everyNameMissing is what a file that names nothing produces over this plan:
+// one finding per setting in DECLARATION order, and under each dropdown with a
+// Custom arm the description that arm composes its preset list onto, then the
+// dropdown's values. It is written once because the cases below are about one
+// finding each and would otherwise be seventeen settings of scenery apiece.
+var everyNameMissing = []string{
+	"the setting fkrecipes-example-hardened-tools has no [mod-setting-name] entry",
+	"the setting fkrecipes-example-rivet-batch has no [mod-setting-name] entry",
+	"the setting fkrecipes-example-forging-time has no [mod-setting-name] entry",
+	"the setting fkrecipes-example-quench-medium has no [mod-setting-name] entry",
+	"the dropdown setting fkrecipes-example-quench-medium has no [mod-setting-description] entry, which the custom arm composes its preset list onto",
+	"the dropdown setting fkrecipes-example-quench-medium has no [string-mod-setting] entry for its value water",
+	"the dropdown setting fkrecipes-example-quench-medium has no [string-mod-setting] entry for its value oil",
+	"the dropdown setting fkrecipes-example-quench-medium has no [string-mod-setting] entry for its value custom",
+	"the setting fkrecipes-example-bonus-research has no [mod-setting-name] entry",
+	"the setting fkrecipes-example-tips-research-tier has no [mod-setting-name] entry",
+	"the dropdown setting fkrecipes-example-tips-research-tier has no [mod-setting-description] entry, which the custom arm composes its preset list onto",
+	"the dropdown setting fkrecipes-example-tips-research-tier has no [string-mod-setting] entry for its value projectile",
+	"the dropdown setting fkrecipes-example-tips-research-tier has no [string-mod-setting] entry for its value military",
+	"the dropdown setting fkrecipes-example-tips-research-tier has no [string-mod-setting] entry for its value custom",
+	"the setting fkrecipes-example-tempering-hold has no [mod-setting-name] entry",
+	"the setting fkrecipes-example-rivet-ingredients has no [mod-setting-name] entry",
+	"the setting fkrecipes-example-rivet-ingredients has no [mod-setting-description] entry, and a text setting needs one to tell the player the format",
+	"the setting fkrecipes-example-quench-ingredients has no [mod-setting-name] entry",
+	"the setting fkrecipes-example-quench-ingredients has no [mod-setting-description] entry, and a text setting needs one to tell the player the format",
+	"the setting fkrecipes-example-chain-links has no [mod-setting-name] entry",
+	"the dropdown setting fkrecipes-example-chain-links has no [mod-setting-description] entry, which the custom arm composes its preset list onto",
+	"the dropdown setting fkrecipes-example-chain-links has no [string-mod-setting] entry for its value short",
+	"the dropdown setting fkrecipes-example-chain-links has no [string-mod-setting] entry for its value long",
+	"the dropdown setting fkrecipes-example-chain-links has no [string-mod-setting] entry for its value custom",
+	"the setting fkrecipes-example-chain-ingredients has no [mod-setting-name] entry",
+	"the setting fkrecipes-example-chain-ingredients has no [mod-setting-description] entry, and a text setting needs one to tell the player the format",
+	"the setting fkrecipes-example-tips-packs has no [mod-setting-name] entry",
+	"the setting fkrecipes-example-tips-packs has no [mod-setting-description] entry, and a text setting needs one to tell the player the format",
+	"the setting fkrecipes-example-tips-count has no [mod-setting-name] entry",
+	"the setting fkrecipes-example-tips-seconds has no [mod-setting-name] entry",
+	"the setting fkrecipes-example-chain-packs has no [mod-setting-name] entry",
+	"the setting fkrecipes-example-chain-packs has no [mod-setting-description] entry, and a text setting needs one to tell the player the format",
+	"the setting fkrecipes-example-chain-count has no [mod-setting-name] entry",
+	"the setting fkrecipes-example-chain-seconds has no [mod-setting-name] entry",
+}
+
+// alsoFinding is everyNameMissing with more findings after it, copied so a
+// case cannot write into the shared slice.
+func alsoFinding(tail ...string) []string {
+	out := make([]string, 0, len(everyNameMissing)+len(tail))
+	out = append(out, everyNameMissing...)
+	return append(out, tail...)
 }
 
 func TestCheckLocaleFindings(t *testing.T) {
@@ -75,14 +228,9 @@ func TestCheckLocaleFindings(t *testing.T) {
 			cfg: `[mod-setting-name]
 fkrecipes-example-hardened-tools=Hardened tools
 `,
-			want: []string{
-				"the setting fkrecipes-example-rivet-batch has no [mod-setting-name] entry",
-				"the setting fkrecipes-example-forging-time has no [mod-setting-name] entry",
-				"the setting fkrecipes-example-quench-medium has no [mod-setting-name] entry",
-				"the dropdown setting fkrecipes-example-quench-medium has no [string-mod-setting] entry for its value water",
-				"the dropdown setting fkrecipes-example-quench-medium has no [string-mod-setting] entry for its value oil",
-				"the setting fkrecipes-example-bonus-research has no [mod-setting-name] entry",
-			},
+			// The one setting the file names is the one finding that goes
+			// away; everything after it is the ordinary report.
+			want: everyNameMissing[1:],
 		},
 		{
 			// Present but blank renders as nothing, which is the defect the
@@ -91,31 +239,14 @@ fkrecipes-example-hardened-tools=Hardened tools
 			cfg: `[mod-setting-name]
 fkrecipes-example-hardened-tools=
 `,
-			want: []string{
-				"the setting fkrecipes-example-hardened-tools has no [mod-setting-name] entry",
-				"the setting fkrecipes-example-rivet-batch has no [mod-setting-name] entry",
-				"the setting fkrecipes-example-forging-time has no [mod-setting-name] entry",
-				"the setting fkrecipes-example-quench-medium has no [mod-setting-name] entry",
-				"the dropdown setting fkrecipes-example-quench-medium has no [string-mod-setting] entry for its value water",
-				"the dropdown setting fkrecipes-example-quench-medium has no [string-mod-setting] entry for its value oil",
-				"the setting fkrecipes-example-bonus-research has no [mod-setting-name] entry",
-			},
+			want: everyNameMissing,
 		},
 		{
 			name: "a description entry matching nothing",
 			cfg: `[mod-setting-description]
 fkrecipes-example-scrap-recovery=Left behind by a rename.
 `,
-			want: []string{
-				"the setting fkrecipes-example-hardened-tools has no [mod-setting-name] entry",
-				"the setting fkrecipes-example-rivet-batch has no [mod-setting-name] entry",
-				"the setting fkrecipes-example-forging-time has no [mod-setting-name] entry",
-				"the setting fkrecipes-example-quench-medium has no [mod-setting-name] entry",
-				"the dropdown setting fkrecipes-example-quench-medium has no [string-mod-setting] entry for its value water",
-				"the dropdown setting fkrecipes-example-quench-medium has no [string-mod-setting] entry for its value oil",
-				"the setting fkrecipes-example-bonus-research has no [mod-setting-name] entry",
-				"the [mod-setting-description] entry fkrecipes-example-scrap-recovery matches no setting this plan declares",
-			},
+			want: alsoFinding("the [mod-setting-description] entry fkrecipes-example-scrap-recovery matches no setting this plan declares"),
 		},
 		{
 			// Another mod's string setting shares the section and is none of
@@ -124,31 +255,18 @@ fkrecipes-example-scrap-recovery=Left behind by a rename.
 			cfg: `[string-mod-setting]
 someothermod-belt-tier-express=Express
 `,
-			want: []string{
-				"the setting fkrecipes-example-hardened-tools has no [mod-setting-name] entry",
-				"the setting fkrecipes-example-rivet-batch has no [mod-setting-name] entry",
-				"the setting fkrecipes-example-forging-time has no [mod-setting-name] entry",
-				"the setting fkrecipes-example-quench-medium has no [mod-setting-name] entry",
-				"the dropdown setting fkrecipes-example-quench-medium has no [string-mod-setting] entry for its value water",
-				"the dropdown setting fkrecipes-example-quench-medium has no [string-mod-setting] entry for its value oil",
-				"the setting fkrecipes-example-bonus-research has no [mod-setting-name] entry",
-			},
+			want: everyNameMissing,
 		},
 		{
 			name: "a line that is neither a section nor an entry",
 			cfg: `[mod-setting-name]
 this line has no equals sign
 `,
-			want: []string{
-				"the locale line this line has no equals sign is neither a section nor an entry",
-				"the setting fkrecipes-example-hardened-tools has no [mod-setting-name] entry",
-				"the setting fkrecipes-example-rivet-batch has no [mod-setting-name] entry",
-				"the setting fkrecipes-example-forging-time has no [mod-setting-name] entry",
-				"the setting fkrecipes-example-quench-medium has no [mod-setting-name] entry",
-				"the dropdown setting fkrecipes-example-quench-medium has no [string-mod-setting] entry for its value water",
-				"the dropdown setting fkrecipes-example-quench-medium has no [string-mod-setting] entry for its value oil",
-				"the setting fkrecipes-example-bonus-research has no [mod-setting-name] entry",
-			},
+			// The parse finding comes first, before anything about the
+			// settings: the reader is told the file is malformed before they
+			// are told what it is missing.
+			want: append([]string{"the locale line this line has no equals sign is neither a section nor an entry"},
+				everyNameMissing...),
 		},
 	}
 
@@ -343,9 +461,8 @@ fkrecipes-example-orphan =Trailing space in the key
 // A generated or badly encoded file produces one finding per line, and a
 // thousand sentences help nobody read the first.
 func TestCheckLocaleCapsItsFindings(t *testing.T) {
-	// 5 settings with no name and 2 dropdown values with no entry come before
-	// the orphans, so the orphan count sets how far past the cap a report
-	// lands.
+	// everyNameMissing comes first, so its length is what the orphan count is
+	// measured from: a report is that many findings plus one per orphan.
 	reportWithOrphans := func(n int) []string {
 		var b strings.Builder
 		b.WriteString("[mod-setting-name]\n")
@@ -359,12 +476,12 @@ func TestCheckLocaleCapsItsFindings(t *testing.T) {
 	if len(got) != localeFindingCap+1 {
 		t.Fatalf("got %d findings, want the cap plus one closing line", len(got))
 	}
-	if got[len(got)-1] != "(and 57 more findings)" {
+	if got[len(got)-1] != "(and 84 more findings)" {
 		t.Errorf("the closing line is %q", got[len(got)-1])
 	}
 
 	// The boundary: exactly one finding past the cap reads as one.
-	got = reportWithOrphans(94)
+	got = reportWithOrphans(localeFindingCap + 1 - len(everyNameMissing))
 	if len(got) != localeFindingCap+1 {
 		t.Fatalf("got %d findings at the boundary", len(got))
 	}
@@ -373,7 +490,7 @@ func TestCheckLocaleCapsItsFindings(t *testing.T) {
 	}
 
 	// One below it is not capped at all, so no closing line is added.
-	got = reportWithOrphans(93)
+	got = reportWithOrphans(localeFindingCap - len(everyNameMissing))
 	if len(got) != localeFindingCap {
 		t.Fatalf("got %d findings just below the cap", len(got))
 	}

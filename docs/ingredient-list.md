@@ -1,6 +1,6 @@
 # The ingredient list
 
-An ingredient list is the text a player types into a startup setting to say what a recipe is made of, or which science packs a research takes. This page is the reference for that text: what to type, how it is read, and what every refusal means. The setting that holds it is a startup text setting a mod declares through this library; players see it in the Mod Settings screen under the Startup tab.
+An ingredient list is the text a player types into a startup setting to say what a recipe is made of, or which science packs a research takes. This page is the reference for that text: what to type, how it is read, and what every refusal means. Mod authors declare the setting as described at the end of this page and in [Using FkRecipes](usage.md); players see it in the Mod Settings screen under the Startup tab.
 
 ## What to type
 
@@ -23,7 +23,7 @@ Write the amount, then the name, and separate ingredients with commas:
 
 The setting starts out as the word `default`. Leave it there and the mod's own list applies, including any fallbacks the mod declared for a modpack that lacks an ingredient. The setting's description shows that list written out, so you can copy it and change it.
 
-Names are the game's internal prototype names, the ones that appear in the game's data and in rich text, such as `iron-plate`, `advanced-circuit` or `water`. They are not the translated names shown on screen. Names use letters, digits, `-` and `_`, and are case sensitive.
+Names are the game's internal prototype names, the ones that appear in the game's data and in rich text, such as `iron-plate`, `advanced-circuit` or `water`. They are not the translated names shown on screen. Names use letters, digits, `-` and `_`, and are case sensitive. The mod's own items count, under the names the setting's description shows for them.
 
 ## The rules
 
@@ -92,3 +92,14 @@ A refusal stops the game from loading and shows a message. Every message starts 
 | `... no science pack is named <name>` | A pack name the game does not have, with the same suggestion where one exists. |
 | `... a tag is [item=name] or [fluid=name]` | A bracketed tag of any other shape, including one that is not closed. |
 | `... ingredients carry no quality; write [item=<name>]` | A rich-text tag carrying `,quality=`. Recipes and research costs do not take a quality. |
+
+## Declaring the setting
+
+A mod declares the text setting with `IngredientsSetting` (Go) or `ingredients_setting` (Rust), giving the bare name and the default list, and binds it to a recipe through `IngredientsFrom`, or as the `Custom` arm of a dropdown of presets. A pack list is declared with `PacksSetting` and bound through `CostFrom` or as the `Custom` arm of a research-cost dropdown, together with an int setting for the count and a double setting for the seconds. The setting's default text is the word `default`; the list you declared is written out in the setting's description after your own description text. The name and description come from the mod's locale file under `mod-setting-name` and `mod-setting-description`, and the locale checker treats both as required for a text setting. A short description that tells the player the format is enough:
+
+```
+[mod-setting-description]
+mymod-parts-ingredients=What the part is made of. Write the amount, then the item name, and separate ingredients with commas: 2 iron-plate, 3 copper-cable
+```
+
+See [Using FkRecipes](usage.md) for the constructors and [Migrating a mod that already ships settings](migration.md) for adding a custom arm to a dropdown a mod already ships.

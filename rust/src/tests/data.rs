@@ -1068,7 +1068,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: the technology steel-axes must name exactly one of CostOf, Unit or CostBy",
+            want: "fkrecipes: the technology steel-axes must name exactly one of CostOf, Unit, CostBy or CostFrom",
         },
         Case {
             name: "both cost_of and unit",
@@ -1087,7 +1087,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: the technology steel-axes must name exactly one of CostOf, Unit or CostBy",
+            want: "fkrecipes: the technology steel-axes must name exactly one of CostOf, Unit, CostBy or CostFrom",
         },
         Case {
             name: "before without after",
@@ -2090,7 +2090,12 @@ fn wide_amounts_survive_the_emit() {
     lib.recipe(
         axe,
         RecipeSpec {
-            ingredients: vec![Ingredient::named(3_000_000_000, "steel-plate", &[])],
+            // The INGREDIENT rides its own ceiling rather than a wide number:
+            // an item amount goes up to 65535 (the engine's u16, measured) and
+            // a declared list is held to that exactly as a typed one is. The
+            // wide number in this recipe is the result count, which has no
+            // such ceiling.
+            ingredients: vec![Ingredient::named(65_535, "steel-plate", &[])],
             result_count: 2_500_000_000,
             ..Default::default()
         },
@@ -2113,7 +2118,7 @@ fn wide_amounts_survive_the_emit() {
         &transcript(&ops),
         &[
             r#"extend {type="item", name="steelworks-steel-axe", stack_size=9007199254740992}"#,
-            r#"extend {type="recipe", name="steelworks-steel-axe", enabled=true, ingredients=[{type="item", name="steel-plate", amount=3000000000}], results=[{type="item", name="steelworks-steel-axe", amount=2500000000}]}"#,
+            r#"extend {type="recipe", name="steelworks-steel-axe", enabled=true, ingredients=[{type="item", name="steel-plate", amount=65535}], results=[{type="item", name="steelworks-steel-axe", amount=2500000000}]}"#,
             r#"extend {type="technology", name="steelworks-steel-axes", unit={count=5000000000, time=15, ingredients=[["automation-science-pack", 3000000000]]}}"#,
         ],
     );

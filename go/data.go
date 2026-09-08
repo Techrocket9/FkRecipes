@@ -37,6 +37,14 @@ func (l *Lib) PlanData(w World) ([]Op, error) {
 		return nil, err
 	}
 	res := l.resolve(w, prefix)
+	// THE LANGUAGE'S OWN REFUSAL FIRST, before any check about what the plan
+	// declared. A text the player typed is the thing they can act on, and it
+	// was found earliest in the walk; letting a crafting-time floor or a lost
+	// science pack answer in front of it would send them looking at the mod
+	// instead of at the field they just edited.
+	if res.refusal != "" {
+		return nil, errors.New(res.refusal)
+	}
 	if err := l.checkResolvedCraftTimes(res); err != nil {
 		return nil, err
 	}
@@ -86,6 +94,19 @@ func (l *Lib) PlanData(w World) ([]Op, error) {
 // another plan is in range for this one.
 func (l *Lib) validate(w World, prefix string) error {
 	at := "fkrecipes: "
+
+	// THE BINDINGS FIRST, and the text settings after them, both shared with
+	// the settings planner. They come before the three declaration loops
+	// because a Custom arm that does not line up with its dropdown would
+	// otherwise be answered by the ordinary allowed-values comparison, which
+	// says "offers nothing for the value custom" and points at the wrong
+	// thing. Neither of them asks the World anything.
+	if err := l.validateBindings(prefix); err != nil {
+		return err
+	}
+	if err := l.validateTextSettings(prefix); err != nil {
+		return err
+	}
 
 	for i, it := range l.items {
 		if it.name == "" {
@@ -193,6 +214,12 @@ func (l *Lib) validate(w World, prefix string) error {
 				return errors.New(at + "the recipe " + r.name + " names an ingredients setting that this plan never declared")
 			}
 			values := l.settings[by.Setting.index-1].values
+			// A CUSTOM ARM'S VALUE IS NOT A CHOICE, so it comes out of the
+			// comparison: the arm is the plan for it, and validateBindings has
+			// already proved the dropdown offers it exactly once.
+			if by.Custom.index != 0 {
+				values = withoutValue(values, by.customValue())
+			}
 			offered := make([]string, 0, len(by.Choices))
 			for _, c := range by.Choices {
 				offered = append(offered, c.Value)
@@ -253,14 +280,15 @@ func (l *Lib) validate(w World, prefix string) error {
 		hasCost := t.spec.CostOf != ""
 		hasUnit := t.spec.Unit != nil
 		hasCostBy := t.spec.CostBy != nil
+		hasCostFrom := t.spec.CostFrom != nil
 		named := 0
-		for _, set := range []bool{hasCost, hasUnit, hasCostBy} {
+		for _, set := range []bool{hasCost, hasUnit, hasCostBy, hasCostFrom} {
 			if set {
 				named++
 			}
 		}
 		if named != 1 {
-			return errors.New(at + "the technology " + t.name + " must name exactly one of CostOf, Unit or CostBy")
+			return errors.New(at + "the technology " + t.name + " must name exactly one of CostOf, Unit, CostBy or CostFrom")
 		}
 		// CostBy carries the prerequisite with the unit, so it is the thing
 		// that places the technology. A second placement would be a second
@@ -274,6 +302,9 @@ func (l *Lib) validate(w World, prefix string) error {
 				return errors.New(at + "the technology " + t.name + " names a cost setting that this plan never declared")
 			}
 			values := l.settings[by.Setting.index-1].values
+			if by.Custom != nil {
+				values = withoutValue(values, by.customValue())
+			}
 			offered := make([]string, 0, len(by.Choices))
 			for _, c := range by.Choices {
 				offered = append(offered, c.Value)
@@ -406,6 +437,13 @@ type resolution struct {
 	// raised inside it because resolve answers with facts and PlanData decides
 	// which of them is a refusal, exactly as the crafting-time floor does.
 	packless string
+
+	// refusal is the FIRST sentence the walk found that stops the load: a
+	// setting bound as a text list that holds something that is not text, a
+	// dropdown holding a value it does not offer, or the language's own
+	// refusal for a text the player typed. Carried out rather than raised for
+	// the same reason packless is: resolve answers with facts.
+	refusal string
 }
 
 // resolve asks the World everything the plan needs to know and records what
@@ -416,6 +454,12 @@ type resolution struct {
 func (l *Lib) resolve(w World, prefix string) resolution {
 	var res resolution
 
+	// THE OVERLAY IS BUILT BEFORE ANY TEXT IS PARSED, which is the whole point
+	// of it: a player's text may name an item THIS plan emits, and data.raw
+	// does not have one yet. Every text path below takes it; the declared
+	// ladders keep the real World. See planItemWorld.
+	text := l.ownItemWorld(w, prefix)
+
 	for _, r := range l.recipes {
 		// The crafting time first, then the ingredients: a recipe's own field
 		// before what it is made of, mirroring a technology's enablement
@@ -423,22 +467,33 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 		var ct craftTime
 		if r.spec.CraftTimeFrom.index != 0 {
 			setting := l.settings[r.spec.CraftTimeFrom.index-1]
-			full := setting.emittedName(prefix)
 			ct.bound = true
-			ct.setting = full
-			ct.value = setting.defNum
-			if v, ok := w.StartupSetting(full); ok && v.Kind == KindNum {
-				ct.value = v.Num
-			} else {
-				res.logs = append(res.logs, "fkrecipes: the setting "+full+" was not readable, so its default applies")
-			}
+			ct.setting = setting.emittedName(prefix)
+			ct.value = res.readNumber(w, setting, prefix)
 		}
 		res.craftTimes = append(res.craftTimes, ct)
 
 		declared := r.spec.Ingredients
+		if r.spec.IngredientsFrom.index != 0 {
+			// The whole list is the player's. There is no dropdown in front of
+			// it, so the text is live whatever it says.
+			res.recipes = append(res.recipes,
+				l.resolveIngredientsFrom(w, text, &res, prefix, r, l.settings[r.spec.IngredientsFrom.index-1]))
+			continue
+		}
 		if by := r.spec.IngredientsBy; by != nil {
 			setting := l.settings[by.Setting.index-1]
 			chosen := res.readDropdown(w, setting, prefix)
+			if by.Custom.index != 0 {
+				custom := l.settings[by.Custom.index-1]
+				if chosen == by.customValue() {
+					res.recipes = append(res.recipes, l.resolveIngredientsFrom(w, text, &res, prefix, r, custom))
+					continue
+				}
+				// BEFORE THE PRESET APPLIES, so the line reads as the reason
+				// the drops that follow are the preset's and not the text's.
+				l.noteIgnoredText(text, &res, custom, prefix, r.spec.Category, setting.emittedName(prefix), by.customValue())
+			}
 			declared = choiceFor(by.Choices, chosen)
 			list := l.resolveIngredients(w, &res, prefix, r.name, declared)
 			// A plan that named things and got none of them is a recipe made
@@ -473,6 +528,21 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 		if by := t.spec.CostBy; by != nil {
 			setting := l.settings[by.Setting.index-1]
 			chosen := res.readDropdown(w, setting, prefix)
+			if by.Custom != nil {
+				custom := l.settings[by.Custom.Packs.index-1]
+				if chosen == by.customValue() {
+					// THE COST FIRST, THEN THE PLACEMENT, which is the order
+					// every other technology is resolved in and the order a
+					// reader of the transcript expects: what it costs, then
+					// where it hangs.
+					rt.unit = l.resolveCustomCost(w, text, &res, prefix, t, by.Custom)
+					rt.hasUnit = true
+					rt.prereqs = customPrereqs(w, &res, t.name, by.Custom.Position)
+					res.techs = append(res.techs, rt)
+					continue
+				}
+				l.noteIgnoredText(text, &res, custom, prefix, "", setting.emittedName(prefix), by.customValue())
+			}
 			source := ""
 			for _, name := range sourcesFor(by.Choices, chosen) {
 				if w.TechHasResearchTrigger(name) {
@@ -533,6 +603,14 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 		// this technology's tree placement.
 		if t.spec.Unit != nil {
 			rt.unit = resolveUnit(w, &res, t.name, t.spec.Unit)
+			rt.hasUnit = true
+		}
+		// CostFrom is Unit with the three numbers read from settings, and it is
+		// placed by the ORDINARY placement fields below rather than by a ladder
+		// of its own: nothing moves with this unit, because no source
+		// technology was named.
+		if t.spec.CostFrom != nil {
+			rt.unit = l.resolveCustomCost(w, text, &res, prefix, t, t.spec.CostFrom)
 			rt.hasUnit = true
 		}
 
@@ -635,9 +713,10 @@ func (l *Lib) checkResolvedCraftTimes(res resolution) error {
 		}
 		// Finiteness FIRST, and not only for the message: an infinity is
 		// above the floor, so the floor arm would wave it through and ship a
-		// recipe that never completes. This is the one float in the library
-		// that arrives from outside and so never crossed the declaration
-		// checks.
+		// recipe that never completes. Three numbers in this library arrive
+		// from outside and so never crossed the declaration checks: this one,
+		// and the research count and research time a custom cost reads, which
+		// are held to the same rule where they are read.
 		if !finite(ct.value) {
 			return errors.New("fkrecipes: the recipe " + l.recipes[i].name +
 				" reads its crafting time from " + ct.setting +
@@ -857,7 +936,10 @@ func techMaxLevel(w World, t techDecl, rt resolvedTech) (Value, bool) {
 	if t.spec.CostBy != nil {
 		return rt.maxLevel, rt.hasMaxLevel
 	}
-	if t.spec.Unit != nil {
+	// A hand-rolled cost has no source technology to read a cap from, and a
+	// custom one has none either: both are prices this plan wrote, not copies
+	// of somebody else's multi-level research.
+	if t.spec.Unit != nil || t.spec.CostFrom != nil {
 		return Nil(), false
 	}
 	// A present-but-nil read is a value this library could not carry (a
@@ -883,22 +965,10 @@ func techMaxLevel(w World, t techDecl, rt resolvedTech) (Value, bool) {
 // so. A unit that loses ALL of them is refused instead, because a research with
 // no pack at all is not something to emit on an author's behalf.
 func resolveUnit(w World, res *resolution, tech string, u *UnitSpec) Value {
-	packs := make([]Value, 0, len(u.Packs))
-	for _, p := range u.Packs {
-		candidates := p.ladder()
-		picked := ""
-		for _, c := range candidates {
-			if w.ToolExists(c) {
-				picked = c
-				break
-			}
-		}
-		if picked == "" {
-			res.logs = append(res.logs, "fkrecipes: "+tech+": none of "+strings.Join(candidates, ", ")+
-				" is present, so the science pack is dropped")
-			continue
-		}
-		packs = append(packs, Arr(Str(picked), Num(float64(p.Amount))))
+	resolved := resolvePackLadders(w, res, tech, u.Packs)
+	packs := make([]Value, 0, len(resolved))
+	for _, p := range resolved {
+		packs = append(packs, Arr(Str(p.name), Num(float64(p.amount))))
 	}
 	// A cost that named packs and got none of them. A unit that DECLARED none
 	// never reaches here: plan validation refused it before any of this was
@@ -914,6 +984,40 @@ func resolveUnit(w World, res *resolution, tech string, u *UnitSpec) Value {
 		kv("time", Num(u.Seconds)),
 		kv("ingredients", Arr(packs...)),
 	)
+}
+
+// resolvePackLadders walks each declared pack's ladder and drops what the game
+// does not have, answering with the packs that survived.
+//
+// IT IS THE ONE PLACE THE DROP LINE IS WRITTEN, which is what the design record
+// asks for: a pack that resolves to nothing is dropped with a log line
+// WHEREVER a unit is built, so the hand-rolled Unit, the CostBy Fallback and a
+// pack list left on the word default all say the same sentence.
+//
+// THE LADDER ASKS ToolExists AND NOTHING ELSE. MEASURED: a research unit priced
+// in a plain item refuses the load with "Invalid research unit (iron-plate).
+// Research unit(s) can only be tool type items at the moment", and a fluid name
+// in a unit refuses with "Error in assignID: item with name 'water' does not
+// exist". Asking ItemExists would let either of those through as a rung.
+func resolvePackLadders(w World, res *resolution, tech string, packs []Pack) ingredientList {
+	out := make(ingredientList, 0, len(packs))
+	for _, p := range packs {
+		candidates := p.ladder()
+		picked := ""
+		for _, c := range candidates {
+			if w.ToolExists(c) {
+				picked = c
+				break
+			}
+		}
+		if picked == "" {
+			res.logs = append(res.logs, "fkrecipes: "+tech+": none of "+strings.Join(candidates, ", ")+
+				" is present, so the science pack is dropped")
+			continue
+		}
+		out = append(out, listEntry{name: picked, amount: p.Amount})
+	}
+	return out
 }
 
 func appendLocalised(pairs []KV, displayName, description string) []KV {
@@ -1024,6 +1128,25 @@ func (l *Lib) validateIngredients(at, who, category string, ings []Ingredient) e
 		if len(ing.candidates) == 0 && !l.validItem(ing.item) {
 			return errors.New(at + who + " names an ingredient item that this plan never declared")
 		}
+		// THE ENGINE'S CEILING, and the one the language already holds a TYPED
+		// list to. MEASURED: amount=65536 refuses the load with "Value (65536)
+		// outside of range. The data type allows values from 0 to 65535". A
+		// declared list above it used to reach the engine and be refused there,
+		// which blames the consumer's mod for a number its author wrote.
+		//
+		// AFTER THE HANDLE CHECK, because the sentence names the ingredient and
+		// this plan's own item has no candidate to name: the handle is proved
+		// first, so the declared name is safe to read.
+		if ing.amount > maxItemAmount {
+			name := ""
+			if len(ing.candidates) > 0 {
+				name = ing.candidates[0]
+			} else {
+				name = l.items[ing.item.index-1].name
+			}
+			return errors.New(at + who + " takes " + strconv.FormatInt(ing.amount, 10) + " of " + name +
+				", and an item amount goes up to " + strconv.FormatInt(maxItemAmount, 10))
+		}
 	}
 	return nil
 }
@@ -1103,13 +1226,27 @@ func matchesAllowedValues(at, who, setting string, offered, allowed []string) er
 
 // readDropdown answers with the value a dropdown setting holds, or with the
 // declared default and the ordinary unreadable line.
+//
+// A STORED VALUE THE DROPDOWN DOES NOT OFFER IS REFUSED. It is unreachable
+// through the engine, which resets such a value to the default before any stage
+// runs (measured), and reachable through a hand-edited mod-settings.dat. What
+// it used to do was worse than a refusal: the choice lookup found no plan,
+// the recipe came out made of nothing, and no line said so. This is the
+// pilot's own finding, closed.
 func (r *resolution) readDropdown(w World, s settingDecl, prefix string) string {
 	full := s.emittedName(prefix)
-	if v, ok := w.StartupSetting(full); ok && v.Kind == KindStr {
-		return v.Str
+	v, ok := w.StartupSetting(full)
+	if !ok || v.Kind != KindStr {
+		r.logs = append(r.logs, "fkrecipes: the setting "+full+" was not readable, so its default applies")
+		return s.defStr
 	}
-	r.logs = append(r.logs, "fkrecipes: the setting "+full+" was not readable, so its default applies")
-	return s.defStr
+	for _, allowed := range s.values {
+		if allowed == v.Str {
+			return v.Str
+		}
+	}
+	r.refuse("fkrecipes: " + full + ` holds "` + v.Str + `", which is not one of its values`)
+	return v.Str
 }
 
 func choiceFor(choices []IngredientChoice, value string) []Ingredient {

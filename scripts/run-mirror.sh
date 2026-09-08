@@ -218,6 +218,52 @@ grep -q '^TRANSCRIPT extend#[0-9]*.*"name"="fkrecipes-example-hardened-tips".*"c
   fail "the ladder did not copy the chosen source unit"
 grep -q '^TRANSCRIPT extend#[0-9]*.*"name"="fkrecipes-example-hardened-tips".*"prerequisites"={1="military-4"}' "$T" ||
   fail "the prerequisite did not move with the copied unit"
+
+# ---------------------------------------------------------------------------
+# THE CUSTOMIZER, which is what this stand-in's settings table exists for. Each
+# check below names one path a player can reach through the settings screen,
+# and each one is a line the golden would otherwise hold silently.
+# ---------------------------------------------------------------------------
+# The FIELD IS THE WORD DEFAULT and never the rendered list: a mod that changes
+# its list must not turn every player who never opened the screen into an
+# edited-text player. The list lives in the description instead.
+grep -q '"auto_trim"=true,"default_value"="default"' "$T" ||
+  fail "no text setting came out with the reserved word as its default"
+if grep -q '"auto_trim"=true,"default_value"="1 iron-plate"' "$T"; then
+  fail "a text setting's default is a rendered list rather than the word default"
+fi
+# The composed descriptions, both shapes: a text setting's own key plus the
+# declared list, and a dropdown's key plus one nested string per preset under
+# the preset's OWN localised label.
+grep -qF '{1="",2={1="mod-setting-description.fkrecipes-example-rivet-ingredients"},3="\ndefault: 1 iron-plate"}' "$T" ||
+  fail "the text setting's composed description is not in the transcript"
+grep -qF '{1="",2="\n",3={1="string-mod-setting.fkrecipes-example-chain-links-long"},4=": 8 fkrecipes-example-steel-rivet, 1 steel-plate"}' "$T" ||
+  fail "the custom-arm dropdown's composed preset line is not in the transcript"
+# A WHOLE LIST THE PLAYER WROTE, through a setting with no dropdown in front of
+# it, in two forms no author would write: a rich-text tag and a glued sign. The
+# canonical rendering in the log line is what says both were read.
+grep -q "^LOG fkrecipes: fkrecipes-example-steel-rivet takes its ingredients from fkrecipes-example-rivet-ingredients: 3 steel-plate, 2 iron-stick$" "$T" ||
+  fail "the edited ingredient text logged no canonical rendering"
+grep -qF '"ingredients"={1={"amount"=3,"name"="steel-plate","type"="item"},2={"amount"=2,"name"="iron-stick","type"="item"}}' "$T" ||
+  fail "the edited ingredient text did not reach the recipe"
+# A TEXT THE PLAYER EDITED THAT IS NOT LIVE, because the dropdown beside it is
+# on a preset. Without the line the player edits a field and nothing happens.
+grep -q "^LOG fkrecipes: fkrecipes-example-quench-ingredients is edited, but fkrecipes-example-quench-medium is not on custom, so the text is ignored$" "$T" ||
+  fail "the ignored text said nothing in the log"
+# THE CUSTOM ARM OF A DROPDOWN, with a typed FLUID and a fractional amount: the
+# one ingredient shape whose amount is a double rather than an item count.
+grep -q "^LOG fkrecipes: fkrecipes-example-steel-chain takes its ingredients from fkrecipes-example-chain-ingredients: 2 steel-plate, 0.5 \[fluid=water\]$" "$T" ||
+  fail "the custom arm's edited text logged no canonical rendering"
+grep -qF '{"amount"=0.5,"name"="water","type"="fluid"}' "$T" ||
+  fail "the typed fluid did not reach the recipe as a fluid ingredient"
+# A RESEARCH COST THE PLAYER PRICED: the packs from the text, the count and the
+# seconds from their own settings, and the unit in the engine's short tuple
+# form rather than the long ingredient form a recipe takes.
+grep -q "^LOG fkrecipes: fkrecipes-example-chain-forging takes its research cost from fkrecipes-example-chain-packs: count 25, time 12.5, packs 2 automation-science-pack, 1 logistic-science-pack$" "$T" ||
+  fail "the custom research cost logged nothing"
+grep -qF '"unit"={"count"=25,"ingredients"={1={1="automation-science-pack",2=2},2={1="logistic-science-pack",2=1}},"time"=12.5}' "$T" ||
+  fail "the custom research unit did not reach the technology in the short tuple form"
+
 grep -q "fkrecipes-example-hardened-steel" "$T" || fail "the generated technology is missing"
 grep -q 'FINAL .*"logistics-2".*fkrecipes-example-hardened-steel' "$T" ||
   fail "the prerequisite splice is not visible in the final data.raw"

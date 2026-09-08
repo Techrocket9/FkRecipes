@@ -37,6 +37,18 @@ func (l *Lib) PlanSettings(w Named) ([]Op, error) {
 	if err := l.validateSettings(prefix, bound); err != nil {
 		return nil, err
 	}
+	// THE SETTINGS STAGE VALIDATES BINDINGS TOO, and it has to: a text
+	// setting's default is rendered into its description here, and a dropdown
+	// with a Custom arm has its whole preset list composed here. Both read the
+	// recipes and technologies, so both need them well formed. The two
+	// validators are shared with the data planner rather than written twice.
+	if err := l.validateBindings(prefix); err != nil {
+		return nil, err
+	}
+	if err := l.validateTextSettings(prefix); err != nil {
+		return nil, err
+	}
+	descriptions := l.settingDescriptions(prefix)
 	ops := make([]Op, 0, len(l.settings))
 	for i, s := range l.settings {
 		// A legacy setting carries the name and the order the mod already
@@ -63,6 +75,24 @@ func (l *Lib) PlanSettings(w Named) ([]Op, error) {
 		}
 		if s.kind == settingDropdown {
 			pairs = append(pairs, kv("allowed_values", strArr(s.values)))
+		}
+		// A TEXT SETTING CARRIES NEITHER allowed_values NOR allow_blank, and
+		// that is measured rather than stylistic: allowed_values would turn a
+		// free-text field into a picker, and the engine RESETS a stored empty
+		// or blank text to the default before any stage runs, so allow_blank
+		// would be the one way to reach a blank value the parser then has to
+		// refuse. auto_trim is a GUI courtesy: it tidies what the player sees
+		// and leaves what mod-settings.dat holds untouched (measured, both
+		// space runs read back), so the parser trims for itself anyway.
+		if s.kind.isText() {
+			pairs = append(pairs, kv("auto_trim", Bool(true)))
+		}
+		// LAST, because it is the bulkiest field and because it is composed
+		// out of everything above it. Nil for the settings that carry none,
+		// which is every kind but a text setting and a dropdown with a Custom
+		// arm.
+		if descriptions[i].Kind != KindNil {
+			pairs = append(pairs, kv("localised_description", descriptions[i]))
 		}
 		ops = append(ops, extendOp(Obj(pairs...)))
 	}
@@ -163,6 +193,12 @@ func (s settingDecl) defaultValue() Value {
 		return Bool(s.defBool)
 	case settingDropdown:
 		return Str(s.defStr)
+	case settingIngredients, settingPacks:
+		// THE RESERVED WORD, never the rendered list. See IngredientsSetting:
+		// the engine stores every setting's current value including untouched
+		// defaults, so a rendered default would freeze every silent player's
+		// balance at the day they installed the mod.
+		return Str(defaultWord)
 	default:
 		return Num(s.defNum)
 	}

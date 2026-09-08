@@ -19,14 +19,35 @@
 # FkLua's recorded lesson and it applies here twice over, because this library
 # generates settings AND reads them back at the data stage.
 #
+# TWO ROWS PER ENGINE, AND THE SECOND ONE IS THE CUSTOMIZER. The DEFAULT row is
+# every setting left where the mod declared it, which is the load a player who
+# never opens the settings screen gets. The FLIPPED row is that same mod with
+# testdata/ingame/flipped.json written into the mod directory as
+# mod-settings.dat by go/internal/modsettings: a dropdown on custom with a
+# player-typed ingredient list carrying a FLUID, a research priced out of three
+# settings and placed by its own ladder, a whole ingredient list typed into a
+# setting with no dropdown in front of it, and one text left untouched behind a
+# preset. Nothing but the engine can say those work, because the settings stage
+# reads a stored value and no stand-in has one.
+#
+# THE DEFAULT ROW RUNS TWICE AND THE FLIPPED ROW ONCE. Determinism is a
+# property of the data stage and not of a particular settings file, so the
+# second default run is what proves it and a second flipped run would buy
+# nothing but twenty seconds.
+#
 # ASSERTIONS, IN ORDER OF STRENGTH:
-#   1. The normalised hashes match the committed golden. The real one.
-#   2. The Go and Rust guests produce the SAME hashes. Two hand-written
-#      libraries drift, and this is the in-game half of that mirror.
+#   1. The normalised hashes match the committed golden, for BOTH rows. The
+#      real one.
+#   2. The Go and Rust guests produce the SAME hashes, for both rows. Two
+#      hand-written libraries drift, and this is the in-game half of that
+#      mirror.
 #   3. Two runs of one guest agree. A tripwire: the day it stops being true the
 #      data stage has become nondeterministic and every mod built on this
 #      library is a join refusal waiting to happen.
-#   4. Cause-naming assertions a hash cannot make. A hash says "different"; jq
+#   4. The flipped row DIFFERS from the default one. A settings file the engine
+#      ignored, or one this script failed to install, would otherwise produce a
+#      second row identical to the first and every check above would pass.
+#   5. Cause-naming assertions a hash cannot make. A hash says "different"; jq
 #      over the dump says WHICH decision moved.
 #
 # FLAGS:
@@ -75,6 +96,7 @@ USERDIR="${FACTORIO_USERDIR:-/tmp/fkrecipes}"
 
 TMP="$ROOT/tmp/ingame"
 GOLDEN="$ROOT/testdata/ingame/dump-sha256.txt"
+FLIPPED_JSON="$ROOT/testdata/ingame/flipped.json"
 MODNAME=fkrecipes-example
 MODVER=0.1.0
 
@@ -169,11 +191,39 @@ echo "== building the Rust guest"
   { cat "$TMP/build-rust.log" >&2; refuse "the Rust guest did not build"; }
 cp "$TMP/cargo/wasm32-unknown-unknown/release/datastage.wasm" "$TMP/datastage-rust.wasm"
 
+# THE FLIPPED ROW'S SETTINGS FILE, written by this repository's own encoder.
+# There is no CLI for a mod-settings.dat: the engine writes it and reads it
+# back, and a headless gate that wants a player's typed text in front of the
+# settings stage has to write those bytes itself. go/internal/modsettings is
+# host-only Go inside the library module, so this needs the Go the fklua build
+# above already needed and nothing else. Its own suite round trips the file and
+# pins it against a committed byte golden; the refusal here is for the case
+# where the JSON was edited into something that does not encode.
+FLIPPED_DAT="$TMP/mod-settings.dat"
+echo "== writing the flipped row's mod-settings.dat"
+[ -f "$FLIPPED_JSON" ] || refuse "no flipped settings at $FLIPPED_JSON"
+( cd "$ROOT/go" && go run ./internal/modsettings/cmd/writesettings \
+    -in "$FLIPPED_JSON" -out "$FLIPPED_DAT" ) >"$TMP/writesettings.log" 2>&1 ||
+  { cat "$TMP/writesettings.log" >&2; refuse "the flipped settings file did not encode"; }
+cat "$TMP/writesettings.log"
+
 DUMP="$USERDIR/script-output/data-raw-dump.json"
 SDUMP="$USERDIR/script-output/mod-settings-dump.json"
 
-# dump_once LANG RUN -- one packaged mod, one engine run, two hashes written to
-# $TMP/hash-LANG-RUN.
+# dump_once LANG RUN [SETTINGS] -- one packaged mod, one engine run, two hashes
+# written to $TMP/hash-LANG-RUN, and the two dumps kept as
+# $TMP/raw-{data,settings}-LANG-RUN.json.
+#
+# SETTINGS, when given, is a mod-settings.dat copied into the mod directory
+# before the run; without it the engine writes its own from the declared
+# defaults. THE DUMPS ARE KEPT because the assertions below have to name a
+# particular row: reading whatever the last run happened to leave in
+# script-output would silently re-point every default-row assertion at the
+# flipped one the day a run is added.
+#
+# THE ENGINE REWRITES THE FILE after the run with the values it settled on
+# (measured), which is harmless here only because the mod directory is torn
+# down and repackaged for every single run.
 #
 # NOT A COMMAND SUBSTITUTION, and NO PIPES ANYWHERE, and both are the same
 # lesson. `jq -S . < dump | shasum` reports only shasum's status, so a
@@ -186,6 +236,7 @@ SDUMP="$USERDIR/script-output/mod-settings-dump.json"
 dump_once() {
   local lang="$1"
   local run="$2"
+  local settings="${3:-}"
   local moddir="$TMP/mods-$lang"
   local ndata="$TMP/normalised-data-$lang-$run.json"
   local nsettings="$TMP/normalised-settings-$lang-$run.json"
@@ -198,6 +249,13 @@ dump_once() {
     -o "$moddir" >"$TMP/pack-$lang.log" 2>&1 ||
     { cat "$TMP/pack-$lang.log" >&2; refuse "$lang: packaging failed"; }
 
+  # MEASURED: the engine reads MODS/mod-settings.dat, beside the mod folders
+  # rather than inside one.
+  if [ -n "$settings" ]; then
+    cp "$settings" "$moddir/mod-settings.dat" ||
+      refuse "$lang: could not install $settings into $moddir"
+  fi
+
   rm -f "$DUMP" "$SDUMP"
   "$FACTORIO" -c "$CFG" --mod-directory "$moddir" --dump-data \
     >"$TMP/dump-$lang-$run.log" 2>&1 ||
@@ -209,6 +267,9 @@ dump_once() {
 
   [ -f "$DUMP" ]  || refuse "$lang: the engine wrote no data dump at $DUMP"
   [ -f "$SDUMP" ] || refuse "$lang: the engine wrote no settings dump at $SDUMP"
+
+  cp "$DUMP"  "$TMP/raw-data-$lang-$run.json"     || refuse "$lang: could not keep the data dump"
+  cp "$SDUMP" "$TMP/raw-settings-$lang-$run.json" || refuse "$lang: could not keep the settings dump"
 
   jq -S . "$DUMP" > "$ndata" ||
     refuse "$lang: the data dump is not readable JSON: $DUMP"
@@ -233,19 +294,23 @@ mod_set() {
 }
 
 FIRSTLANG=""
-FIRSTHASH=""
+DEFAULTHASH=""
+FLIPPEDHASH=""
 MODSET=""
 for lang in go rust; do
   echo "--- $lang ---"
   started=$(date +%s)
   dump_once "$lang" 1
   dump_once "$lang" 2
+  dump_once "$lang" flipped "$FLIPPED_DAT"
   h1="$(cat "$TMP/hash-$lang-1")"
   h2="$(cat "$TMP/hash-$lang-2")"
+  hf="$(cat "$TMP/hash-$lang-flipped")"
   elapsed=$(( $(date +%s) - started ))
 
-  echo "  sha256 (data settings) $h1"
-  echo "  two engine runs in ${elapsed}s"
+  echo "  sha256 default (data settings) $h1"
+  echo "  sha256 flipped (data settings) $hf"
+  echo "  three engine runs in ${elapsed}s"
 
   if [ "$h1" != "$h2" ]; then
     fail "$lang: two runs of the same guest produced different dumps"
@@ -255,16 +320,37 @@ for lang in go rust; do
     echo "  ok: two runs agree (the data stage is deterministic)"
   fi
 
+  # A SETTINGS FILE THE ENGINE IGNORED would leave the flipped row identical to
+  # the default one, and every other check in this script would still pass:
+  # the two languages would agree, both runs would agree, and the golden would
+  # hold two identical hashes that prove nothing about the customizer.
+  if [ "$hf" = "$h1" ]; then
+    fail "$lang: the flipped row produced the same dump as the default one, so mod-settings.dat changed nothing"
+    echo "        $FLIPPED_DAT was installed into $TMP/mods-$lang" >&2
+  else
+    echo "  ok: the flipped settings file moved the dump"
+  fi
+
   if [ -z "$FIRSTLANG" ]; then
     FIRSTLANG="$lang"
-    FIRSTHASH="$h1"
+    DEFAULTHASH="$h1"
+    FLIPPEDHASH="$hf"
     MODSET="$(mod_set "$TMP/dump-$lang-2.log")"
-  elif [ "$h1" != "$FIRSTHASH" ]; then
-    fail "$lang and $FIRSTLANG disagree about what the data stage produced"
-    echo "        $FIRSTLANG $FIRSTHASH" >&2
-    echo "        $lang $h1" >&2
   else
-    echo "  ok: $lang and $FIRSTLANG agree (the in-game mirror holds)"
+    if [ "$h1" != "$DEFAULTHASH" ]; then
+      fail "$lang and $FIRSTLANG disagree about the default row"
+      echo "        $FIRSTLANG $DEFAULTHASH" >&2
+      echo "        $lang $h1" >&2
+    else
+      echo "  ok: $lang and $FIRSTLANG agree on the default row"
+    fi
+    if [ "$hf" != "$FLIPPEDHASH" ]; then
+      fail "$lang and $FIRSTLANG disagree about the flipped row"
+      echo "        $FIRSTLANG $FLIPPEDHASH" >&2
+      echo "        $lang $hf" >&2
+    else
+      echo "  ok: $lang and $FIRSTLANG agree on the flipped row"
+    fi
   fi
 done
 
@@ -274,6 +360,12 @@ done
 # ---------------------------------------------------------------------------
 echo "== checking the dump says something"
 LOG="$TMP/dump-rust-2.log"
+FLOG="$TMP/dump-rust-flipped.log"
+# EVERY ASSERTION NAMES ITS ROW. These are the kept dumps rather than whatever
+# script-output holds, so adding a run cannot silently re-point them.
+DDUMP="$TMP/raw-data-rust-2.json"
+DSDUMP="$TMP/raw-settings-rust-2.json"
+FDUMP="$TMP/raw-data-rust-flipped.json"
 
 # The library's own log line, through fkdata.Log, in a real base game where
 # neither candidate for the optional hardener exists either.
@@ -287,22 +379,22 @@ jqassert() {
   [ "$got" = "true" ] || fail "$what (the dump says $got)"
 }
 
-jqassert "the prerequisite splice reached logistics-2" "$DUMP" \
+jqassert "the prerequisite splice reached logistics-2" "$DDUMP" \
   '(.technology["logistics-2"].prerequisites // []) | index("fkrecipes-example-hardened-steel") != null'
-jqassert "the bound crafting time reached the quenching recipe" "$DUMP" \
+jqassert "the bound crafting time reached the quenching recipe" "$DDUMP" \
   '.recipe["fkrecipes-example-hardened-steel-plate-quenching"].energy_required == 3'
-jqassert "the switched-on technology is enabled with no hidden field" "$DUMP" \
+jqassert "the switched-on technology is enabled with no hidden field" "$DDUMP" \
   '.technology["fkrecipes-example-hardened-tips"] | (.enabled == true) and (has("hidden") | not)'
 # NO PLAYER HAS TOUCHED A SETTING HERE, so every EnabledBy reads its DECLARED
 # DEFAULT: hardened-tools is true, and the technology comes out enabled with no
 # hidden key. The switched-OFF branch belongs to scripts/run-mirror.sh, whose
 # stand-in sets the setting false; between them the two gates cover both sides
 # of the hidden-not-absent decision, and neither could cover both alone.
-jqassert "the setting default reached the technology it gates" "$DUMP" \
+jqassert "the setting default reached the technology it gates" "$DDUMP" \
   '.technology["fkrecipes-example-hardened-steel"] | (.enabled == true) and (has("hidden") | not)'
-jqassert "research still gates the recipes it unlocks" "$DUMP" \
+jqassert "research still gates the recipes it unlocks" "$DDUMP" \
   '.recipe["fkrecipes-example-hardened-steel-plate-quenching"].enabled == false and .recipe["fkrecipes-example-steel-rivet"].enabled == false'
-jqassert "the recipe nothing unlocks is enabled from the start" "$DUMP" \
+jqassert "the recipe nothing unlocks is enabled from the start" "$DDUMP" \
   '.recipe["fkrecipes-example-salvaged-steel-rivet"].enabled == true'
 
 # THE STAND-IN GUESSED AT THE WORLD AND THIS IS WHERE THE GUESS IS CHECKED. The
@@ -316,43 +408,105 @@ jqassert "the recipe nothing unlocks is enabled from the start" "$DUMP" \
 # declared default and the ladder walked is the PROJECTILE one. The mirror's
 # stand-in sets that setting to military and walks the other; between them the
 # two gates cover both ladders, and neither could cover both alone.
-jqassert "the cost ladder copied the real formula out of base" "$DUMP" \
+jqassert "the cost ladder copied the real formula out of base" "$DDUMP" \
   '.technology["fkrecipes-example-hardened-tips"].unit == .technology["physical-projectile-damage-7"].unit'
-jqassert "the cost ladder carried the real level cap out of base" "$DUMP" \
+jqassert "the cost ladder carried the real level cap out of base" "$DDUMP" \
   '.technology["fkrecipes-example-hardened-tips"].max_level == .technology["physical-projectile-damage-7"].max_level'
 # THE PREREQUISITE MOVES WITH THE UNIT, and the first rung of that ladder names
 # a technology no vanilla install has, so this also says the ladder stepped
 # past what is not there rather than stopping at it.
-jqassert "the prerequisite moved with the copied unit" "$DUMP" \
+jqassert "the prerequisite moved with the copied unit" "$DDUMP" \
   '.technology["fkrecipes-example-hardened-tips"].prerequisites == ["physical-projectile-damage-7"]'
-jqassert "the ladder stepped past the technology no install has" "$DUMP" \
+jqassert "the ladder stepped past the technology no install has" "$DDUMP" \
   '.technology["tungsten-hardening"] == null'
-jqassert "all seven generated settings reached the settings dump" "$SDUMP" \
-  '[paths(scalars) | select(length > 1) | .[1]] | map(select(startswith("fkrecipes-example-"))) | unique | length == 7'
+jqassert "all seventeen generated settings reached the settings dump" "$DSDUMP" \
+  '[paths(scalars) | select(length > 1) | .[1]] | map(select(startswith("fkrecipes-example-"))) | unique | length == 17'
 # The one-sided NumericSpec arms, in the engine's own settings dump rather than
 # only in the stand-in's: a declared maximum with no minimum of its own, and a
 # declared minimum with no maximum. The second is craft-time-bound, so a
 # maximum appearing on it would mean the generated floor-safe bound had
 # replaced the consumer's declaration rather than filling a gap.
-jqassert "the min-only setting kept its declared minimum and gained no maximum" "$SDUMP" \
+jqassert "the min-only setting kept its declared minimum and gained no maximum" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-tempering-hold")] | length > 0 and all(.minimum_value == 0.5 and (has("maximum_value") | not))'
 # The two prototype-field slots the consumer round added, checked in the ENGINE
 # dump rather than only in the stand-in: an order the library has a slot for,
 # and a real 2.0 recipe field it does not, passed through Extra verbatim. The
 # pilot measured all four of its fields DROPPED before these existed.
-jqassert "the item order reached the dump" "$DUMP" \
+jqassert "the item order reached the dump" "$DDUMP" \
   '.item["fkrecipes-example-steel-rivet"].order == "b[steelworks]-a[rivet]"'
-jqassert "the recipe order reached the dump" "$DUMP" \
+jqassert "the recipe order reached the dump" "$DDUMP" \
   '.recipe["fkrecipes-example-hardened-steel-plate-quenching"].order == "b[steelworks]-b[quenching]"'
-jqassert "the Extra passthrough reached the dump" "$DUMP" \
+jqassert "the Extra passthrough reached the dump" "$DDUMP" \
   '.recipe["fkrecipes-example-steel-rivet"].allow_productivity == true'
-jqassert "the generated craft-time minimum reached the settings dump" "$SDUMP" \
+jqassert "the generated craft-time minimum reached the settings dump" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-forging-time") | .minimum_value] | any(. == 0.002)'
 
 # ---------------------------------------------------------------------------
-# The golden.
+# THE FLIPPED ROW. Everything above reads the default dump, where no player has
+# touched anything. These read the run that had testdata/ingame/flipped.json in
+# front of it, and each one names a path only the engine can walk: the settings
+# stage stores a value, the data stage reads it back, and no stand-in has a
+# stored value to read.
 # ---------------------------------------------------------------------------
-LINE="$ENGINE $FIRSTHASH $MODSET"
+echo "== checking the flipped row says something"
+
+# A TYPED FLUID, in a recipe whose category allows one. This is the whole
+# reason the quenching recipe is crafting-with-fluid: the engine refuses a
+# fluid in the crafting category (measured), so a customizable recipe that
+# wants to allow water has to say where it is crafted, and a fluid ingredient
+# reaching a real prototype loader is the only proof that holds.
+jqassert "the player's typed fluid reached the quenching recipe" "$FDUMP" \
+  '.recipe["fkrecipes-example-hardened-steel-plate-quenching"].ingredients ==
+   [{"amount":1,"name":"steel-plate","type":"item"},{"amount":10,"name":"water","type":"fluid"}]'
+# THE WHOLE LIST OF A RECIPE WITH NO DROPDOWN in front of it, in the order the
+# player wrote rather than the order the mod declared.
+jqassert "the player's typed list reached the recipe that has no dropdown" "$FDUMP" \
+  '.recipe["fkrecipes-example-steel-rivet"].ingredients ==
+   [{"amount":2,"name":"iron-stick","type":"item"},{"amount":1,"name":"steel-plate","type":"item"}]'
+# A TEXT LEFT UNTOUCHED BEHIND A PRESET: chain-links is on long and
+# chain-ingredients is not in the settings file at all, so the preset applies
+# and the mod's own item comes through under its emitted name.
+jqassert "the preset applied while its text was left untouched" "$FDUMP" \
+  '.recipe["fkrecipes-example-steel-chain"].ingredients ==
+   [{"amount":8,"name":"fkrecipes-example-steel-rivet","type":"item"},{"amount":1,"name":"steel-plate","type":"item"}]'
+# A RESEARCH PRICED OUT OF THREE SETTINGS, in the short tuple form, and PLACED
+# BY ITS OWN LADDER: a custom arm has no source technology to take a position
+# from, so it carries one, and military-2 is the first rung a stock install
+# has. The default row copies a whole unit out of base instead, formula, level
+# cap and all, so these two rows cover the two ways a cost is built.
+jqassert "the player's research cost reached the technology" "$FDUMP" \
+  '.technology["fkrecipes-example-hardened-tips"].unit ==
+   {"count":40,"time":20,"ingredients":[["automation-science-pack",2],["military-science-pack",1]]}'
+jqassert "the custom arm's position ladder placed the technology" "$FDUMP" \
+  '.technology["fkrecipes-example-hardened-tips"].prerequisites == ["military-2"]'
+# A BUILT unit is not a COPIED one: nothing was copied here, so the level cap
+# the default row brings across must not be present.
+jqassert "the built unit carried no level cap of a technology it never copied" "$FDUMP" \
+  '.technology["fkrecipes-example-hardened-tips"] | has("max_level") | not'
+
+# THE LOG LINES, in the engine's own log. A player who typed gets one line per
+# thing they changed, and it renders the list CANONICALLY rather than quoting
+# what they typed, so they learn the form the library would have written.
+grep -q "fkrecipes: fkrecipes-example-hardened-steel-plate-quenching takes its ingredients from fkrecipes-example-quench-ingredients: 1 steel-plate, 10 \[fluid=water\]" "$FLOG" ||
+  fail "the custom arm's edited text logged nothing in the engine's own log"
+grep -q "fkrecipes: fkrecipes-example-steel-rivet takes its ingredients from fkrecipes-example-rivet-ingredients: 2 iron-stick, 1 steel-plate" "$FLOG" ||
+  fail "the edited ingredient text logged nothing in the engine's own log"
+grep -q "fkrecipes: fkrecipes-example-hardened-tips takes its research cost from fkrecipes-example-tips-packs: count 40, time 20, packs 2 automation-science-pack, 1 military-science-pack" "$FLOG" ||
+  fail "the custom research cost logged nothing in the engine's own log"
+# AND THE LINE THAT MUST NOT BE THERE. An untouched text is the author's list
+# with its ladders, which is the pre-existing path and gets no line of its own;
+# a line here would mean the reserved word had been read as an edit.
+if grep -q "takes its ingredients from fkrecipes-example-chain-ingredients" "$FLOG"; then
+  fail "an untouched text was logged as an edit"
+fi
+
+# ---------------------------------------------------------------------------
+# The golden. TWO ROWS PER ENGINE, tagged, because one file now describes two
+# loads of the same mod: the settings as the mod declares them, and the
+# settings as a player typed them.
+# ---------------------------------------------------------------------------
+DEFAULT_LINE="$ENGINE default $DEFAULTHASH $MODSET"
+FLIPPED_LINE="$ENGINE flipped $FLIPPEDHASH $MODSET"
 mkdir -p "$(dirname "$GOLDEN")"
 
 if [ "$UPDATE" = 1 ]; then
@@ -368,7 +522,7 @@ if [ "$UPDATE" = 1 ]; then
   # to disagree with, so strict has nothing to say about it.
   strict_mods=""
   if [ "$STRICT" != 0 ] && [ -f "$GOLDEN" ]; then
-    strict_mods="$(grep "^$ENGINE " "$GOLDEN" | cut -d' ' -f4- || true)"
+    strict_mods="$(grep "^$ENGINE default " "$GOLDEN" | cut -d' ' -f5- || true)"
   fi
   if [ -n "$strict_mods" ] && [ "$strict_mods" != "$MODSET" ]; then
     echo "  refusing to record a golden from a mod set the golden does not carry; drop --strict to re-record after an environment change" >&2
@@ -383,13 +537,20 @@ if [ "$UPDATE" = 1 ]; then
       mv "$GOLDEN.tmp" "$GOLDEN"
     else
       cat > "$GOLDEN" <<'EOF'
-# The in-game dump hashes, one line per engine.
+# The in-game dump hashes, two lines per engine.
 #
-#   <engine> <data-sha256> <settings-sha256> <mod set, name@version, sorted>
+#   <engine> <row> <data-sha256> <settings-sha256> <mod set, name@version, sorted>
 #
 # ENGINE, because a dump is a function of the engine that produced it: a new
 # Factorio moves base prototypes and every hash with them, and a line keyed by
 # version lets one file hold several without either one being wrong.
+#
+# THE ROW, default or flipped, because the dump is also a function of the
+# settings the engine read. The default row is every setting where the mod
+# declared it; the flipped row is testdata/ingame/flipped.json written into the
+# mod directory as mod-settings.dat, which is a player who opened the settings
+# screen and typed. Only the engine can run that path, so only this file can
+# pin it.
 #
 # TWO HASHES, because setting prototypes never reach the data dump: a golden
 # over the data dump alone stays green for a guest whose settings stage did
@@ -400,38 +561,48 @@ if [ "$UPDATE" = 1 ]; then
 # different DLC produces a different dump for a mod that is perfectly fine.
 # A mismatch here is ENVIRONMENTAL and reports SKIPPED, not FAILED.
 #
-# Capture a line with: scripts/run-ingame.sh --update
+# Capture both rows with: scripts/run-ingame.sh --update
 EOF
     fi
-    printf '%s\n' "$LINE" >> "$GOLDEN"
-    echo "== golden recorded: $LINE"
+    printf '%s\n%s\n' "$DEFAULT_LINE" "$FLIPPED_LINE" >> "$GOLDEN"
+    echo "== golden recorded: $DEFAULT_LINE"
+    echo "== golden recorded: $FLIPPED_LINE"
   fi
 elif [ ! -f "$GOLDEN" ]; then
   fail "no golden at $GOLDEN; capture it deliberately with: scripts/run-ingame.sh --update"
 else
-  WANT="$(grep "^$ENGINE " "$GOLDEN" || true)"
-  if [ -z "$WANT" ]; then
-    fail "the golden has no line for Factorio $ENGINE; capture it with: scripts/run-ingame.sh --update"
-  else
-    want_mods="$(printf '%s' "$WANT" | cut -d' ' -f4-)"
-    want_hashes="$(printf '%s' "$WANT" | cut -d' ' -f2,3)"
+  # compare_row ROW HASHES KEPT -- one tagged golden line against one row's
+  # hashes. The mod-set arm sets SKIPPED and the hash arm FAILs, which is the
+  # split the header argues for: a different DLC set is a different world, and
+  # a hash taken in one cannot speak about the other.
+  compare_row() {
+    local row="$1" hashes="$2" kept="$3"
+    local want want_mods want_hashes
+    want="$(grep "^$ENGINE $row " "$GOLDEN" || true)"
+    if [ -z "$want" ]; then
+      fail "the golden has no $row row for Factorio $ENGINE; capture both with: scripts/run-ingame.sh --update"
+      return
+    fi
+    want_mods="$(printf '%s' "$want" | cut -d' ' -f5-)"
+    want_hashes="$(printf '%s' "$want" | cut -d' ' -f3,4)"
     if [ "$want_mods" != "$MODSET" ]; then
-      # NOT A FAILURE OF THE MOD. Saying so is the whole reason the mod set is
-      # in the file: a different DLC set is a different world, and a hash taken
-      # in one cannot speak about the other.
-      echo "  SKIPPED: the mod set differs from the golden's, so the hashes are not comparable" >&2
+      echo "  SKIPPED: the $row row's mod set differs from the golden's, so the hashes are not comparable" >&2
       echo "    golden: $want_mods" >&2
       echo "    here:   $MODSET" >&2
       SKIPPED=1
-    elif [ "$want_hashes" != "$FIRSTHASH" ]; then
-      fail "the dumps do not match the golden for Factorio $ENGINE"
-      echo "    golden: $want_hashes" >&2
-      echo "    here:   $FIRSTHASH" >&2
-      echo "    the dumps are at $DUMP and $SDUMP" >&2
-    else
-      echo "  ok: the dumps match the golden for Factorio $ENGINE"
+      return
     fi
-  fi
+    if [ "$want_hashes" != "$hashes" ]; then
+      fail "the $row dumps do not match the golden for Factorio $ENGINE"
+      echo "    golden: $want_hashes" >&2
+      echo "    here:   $hashes" >&2
+      echo "    the dumps are at $kept" >&2
+      return
+    fi
+    echo "  ok: the $row dumps match the golden for Factorio $ENGINE"
+  }
+  compare_row default "$DEFAULTHASH" "$TMP/raw-data-$FIRSTLANG-2.json and $TMP/raw-settings-$FIRSTLANG-2.json"
+  compare_row flipped "$FLIPPEDHASH" "$TMP/raw-data-$FIRSTLANG-flipped.json and $TMP/raw-settings-$FIRSTLANG-flipped.json"
 fi
 
 if [ "$FAIL" != 0 ]; then
