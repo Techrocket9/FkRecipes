@@ -3,12 +3,6 @@ use alloc::vec::Vec;
 
 use crate::value::Value;
 
-/// Everything the planner is allowed to know about the game outside its own
-/// plan. The emit layer implements it over fkdata; host tests implement it
-/// over fixtures, which is the whole point of the trait.
-///
-/// Every method is a QUESTION, never a write: a planner that could mutate
-/// could not be replayed, and the plan is what the two languages compare.
 /// The one question a SETTINGS plan asks.
 ///
 /// [`Lib::plan_settings`](crate::Lib::plan_settings) takes this rather than
@@ -22,6 +16,21 @@ pub trait Named {
     fn mod_name(&self) -> String;
 }
 
+/// Everything the planner is allowed to know about the game outside its own
+/// plan. The emit layer implements it over fkdata; host tests implement it
+/// over fixtures, which is the whole point of the trait.
+///
+/// Every method is a QUESTION, never a write: a planner that could mutate
+/// could not be replayed, and the plan is what the two languages compare.
+///
+/// IT GROWS ADDITIVELY, from now on. A new question lands as a DEFAULT method
+/// whose body panics naming itself, never as a new required method: the pilot
+/// measured what the other shape costs, where adding `entity_exists` broke
+/// every consumer's host fixture at once and each of them had to write a stub
+/// for a question their tests never ask. A fixture keeps compiling until the
+/// declaration it holds up to the light actually reaches the new probe, and
+/// the panic then says which method to write, by name. The Go mirror gets the
+/// same property from an embeddable `UnimplementedWorld`.
 pub trait World: Named {
     /// Reads a startup setting by its FULL, prefixed name. `None` is a
     /// setting that is not readable, which the planner degrades to the
@@ -73,6 +82,29 @@ pub trait World: Named {
     /// an existing prototype is refused, which is also what keeps every
     /// planned name new for the cycle overlay.
     fn recipe_exists(&self, name: &str) -> bool;
+
+    /// The presence question for a FLUID ingredient, asked of
+    /// `data.raw.fluid` alone. Items and fluids are separate namespaces and a
+    /// name can be in both (base Factorio has none, but an overhaul pack
+    /// may), so the two probes stay two.
+    ///
+    /// A DEFAULT THAT PANICS, see the trait's note: a fixture that never
+    /// reaches a fluid never has to answer, and one that does gets told which
+    /// method to write.
+    fn fluid_exists(&self, _name: &str) -> bool {
+        panic!("fkrecipes: World::fluid_exists is not implemented by this fixture")
+    }
+
+    /// The presence question for a SCIENCE PACK, asked of `data.raw.tool`
+    /// alone. The engine takes tool-type items in a research unit and nothing
+    /// else (measured: "Invalid research unit (iron-plate). Research unit(s)
+    /// can only be tool type items at the moment."), so a pack list resolves
+    /// through this and never through `item_exists`.
+    ///
+    /// A DEFAULT THAT PANICS, see [`World::fluid_exists`].
+    fn tool_exists(&self, _name: &str) -> bool {
+        panic!("fkrecipes: World::tool_exists is not implemented by this fixture")
+    }
 }
 
 /// Which of this library's two plans a stage calls for.

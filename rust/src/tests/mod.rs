@@ -1,6 +1,7 @@
 mod consumer;
 mod cycle;
 pub(crate) mod data;
+mod ingredient_list;
 mod migration;
 mod settings;
 mod source;

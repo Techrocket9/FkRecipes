@@ -9,6 +9,8 @@ type fixtureWorld struct {
 	modName  string
 	settings []KV
 	items    []string
+	fluids   []string
+	tools    []string
 	recipes  []string
 	techs    []fixtureTech
 
@@ -137,6 +139,28 @@ func (w *fixtureWorld) ItemExists(name string) bool {
 	return false
 }
 
+// The fluids and the science packs are their OWN namespaces here, exactly as
+// they are in data.raw: a name in items answers ItemExists and nothing else,
+// which is what lets a fixture say "both" is an item and a fluid at once and
+// hold the tie rule up to the light.
+func (w *fixtureWorld) FluidExists(name string) bool {
+	for _, f := range w.fluids {
+		if f == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *fixtureWorld) ToolExists(name string) bool {
+	for _, t := range w.tools {
+		if t == name {
+			return true
+		}
+	}
+	return false
+}
+
 func (w *fixtureWorld) EntityExists(name string) bool {
 	for _, e := range w.entities {
 		if e == name {
@@ -240,6 +264,22 @@ func (w *fixtureWorld) withItem(name string) *fixtureWorld {
 	return w
 }
 
+func (w *fixtureWorld) withFluid(name string) *fixtureWorld {
+	w.fluids = append(w.fluids, name)
+	return w
+}
+
+func (w *fixtureWorld) withoutFluid(name string) *fixtureWorld {
+	kept := make([]string, 0, len(w.fluids))
+	for _, f := range w.fluids {
+		if f != name {
+			kept = append(kept, f)
+		}
+	}
+	w.fluids = kept
+	return w
+}
+
 func (w *fixtureWorld) withRecipe(name string) *fixtureWorld {
 	w.recipes = append(w.recipes, name)
 	return w
@@ -289,6 +329,15 @@ func baseWorld() *fixtureWorld {
 			"electronic-circuit",
 			"iron-gear-wheel",
 			"steel-plate",
+		},
+		// The two fluids a steelworks quenches with, and the science packs as
+		// TOOLS as well as items: a pack is a tool-type item, so the game
+		// answers both questions about it with yes.
+		fluids: []string{"steam", "water"},
+		tools: []string{
+			"automation-science-pack",
+			"chemical-science-pack",
+			"logistic-science-pack",
 		},
 		items: []string{
 			"automation-science-pack",

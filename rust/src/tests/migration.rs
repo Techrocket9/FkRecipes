@@ -202,6 +202,7 @@ fn quench_plan(choices: Vec<IngredientChoice>) -> Lib {
             ingredients_by: Some(IngredientChoices {
                 setting: medium,
                 choices,
+                ..Default::default()
             }),
             ..Default::default()
         },
@@ -310,6 +311,12 @@ fn ingredients_by_emits_nothing_when_no_plan_resolves() {
 // ---------------------------------------------------------------------------
 
 fn tier_plan(choices: Vec<CostChoice>) -> Lib {
+    tier_plan_priced(choices, vec![Pack::new("automation-science-pack", 1)])
+}
+
+/// The same plan with the fallback's price named, for the tests that are
+/// about the fallback's own packs.
+fn tier_plan_priced(choices: Vec<CostChoice>, packs: Vec<Pack>) -> Lib {
     let mut lib = Lib::new();
     let tier = lib.dropdown_setting_needing_locale(
         "tips-research-tier",
@@ -325,11 +332,9 @@ fn tier_plan(choices: Vec<CostChoice>) -> Lib {
                 fallback: UnitSpec {
                     count: 60,
                     seconds: 30.0,
-                    packs: vec![Pack {
-                        name: "automation-science-pack".into(),
-                        amount: 1,
-                    }],
+                    packs,
                 },
+                ..Default::default()
             }),
             ..Default::default()
         },
@@ -483,6 +488,40 @@ fn cost_by_falls_back_with_no_prerequisite() {
     ]);
 }
 
+/// A FALLBACK NOBODY REACHES ASKS THE GAME NOTHING. The chosen ladder settles
+/// on a real source, so the fallback's own packs are never walked: no rung is
+/// probed, no drop is logged, and the load is not refused over a price that
+/// could never apply.
+///
+/// This is the pilot's finding turned into a test. The fallback here is
+/// priced entirely in packs no vanilla install has, which under the old order
+/// refused the load of a plan whose cost came from somewhere else entirely.
+#[test]
+fn an_unreached_fallback_is_never_resolved() {
+    let choices = vec![
+        cost_choice("logistics", &["logistics-2"]),
+        cost_choice("military", &["steel-processing"]),
+    ];
+    let lib = tier_plan_priced(
+        choices,
+        vec![Pack::named(
+            1,
+            "military-science-pack",
+            &["space-science-pack"],
+        )],
+    );
+
+    let ops = lib.plan_data(&base_world()).expect("plan refused");
+
+    assert_lines(&transcript(&ops), &[
+        "log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies",
+        &alloc::format!(
+            r#"extend {{type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"], unit={}}}"#,
+            LOGISTICS_2_UNIT
+        ),
+    ]);
+}
+
 /// The edge the ladder chose joins the cycle overlay like any other.
 #[test]
 fn cost_by_edge_reaches_the_cycle_walk() {
@@ -532,6 +571,7 @@ fn choice_refusals() {
                                 value: "water".into(),
                                 ingredients: Vec::new(),
                             }],
+                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -558,6 +598,7 @@ fn choice_refusals() {
                                 value: "water".into(),
                                 ingredients: Vec::new(),
                             }],
+                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -586,6 +627,7 @@ fn choice_refusals() {
                                     ingredients: Vec::new(),
                                 },
                             ],
+                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -608,6 +650,7 @@ fn choice_refusals() {
                                 value: "water".into(),
                                 ingredients: Vec::new(),
                             }],
+                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -636,6 +679,7 @@ fn choice_refusals() {
                                     ingredients: Vec::new(),
                                 },
                             ],
+                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -658,6 +702,7 @@ fn choice_refusals() {
                                 value: "water".into(),
                                 ingredients: vec![Ingredient::of(ItemRef::default(), 1)],
                             }],
+                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -685,6 +730,7 @@ fn choice_refusals() {
                                 seconds: 1.0,
                                 packs: Vec::new(),
                             },
+                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -718,6 +764,7 @@ fn choice_refusals() {
                                 seconds: 1.0,
                                 packs: Vec::new(),
                             },
+                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -744,6 +791,7 @@ fn choice_refusals() {
                                 seconds: 1.0,
                                 packs: Vec::new(),
                             },
+                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -772,6 +820,7 @@ fn choice_refusals() {
                                 seconds: 30.0,
                                 packs: Vec::new(),
                             },
+                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -780,7 +829,12 @@ fn choice_refusals() {
             want: "fkrecipes: the technology hardened-tips has a unit count below 1, which the engine refuses",
         },
         Case {
-            name: "a fallback priced in a pack that does not exist",
+            // The fallback IS reached here (the chosen ladder is empty), so
+            // its pack ladder is walked, the one rung drops, and the unit is
+            // left with nothing to price the research in. A fallback nobody
+            // reaches asks the game nothing at all, which is what
+            // an_unreached_fallback_is_never_resolved holds.
+            name: "a reached fallback whose only pack the game does not have",
             build: |l| {
                 let tier = l.dropdown_setting_needing_locale(
                     "tips-research-tier",
@@ -796,17 +850,15 @@ fn choice_refusals() {
                             fallback: UnitSpec {
                                 count: 60,
                                 seconds: 30.0,
-                                packs: vec![Pack {
-                                    name: "military-science-pack".into(),
-                                    amount: 1,
-                                }],
+                                packs: vec![Pack::new("military-science-pack", 1)],
                             },
+                            ..Default::default()
                         }),
                         ..Default::default()
                     },
                 );
             },
-            want: "fkrecipes: the technology hardened-tips prices itself in military-science-pack, which does not exist",
+            want: "fkrecipes: the technology hardened-tips has no science pack the game has; research takes at least one",
         },
     ];
 
@@ -844,6 +896,7 @@ fn choices_do_not_alias_the_caller_vectors() {
             ingredients_by: Some(IngredientChoices {
                 setting: medium,
                 choices: choices.clone(),
+                ..Default::default()
             }),
             ..Default::default()
         },

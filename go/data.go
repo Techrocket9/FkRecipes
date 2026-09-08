@@ -40,6 +40,9 @@ func (l *Lib) PlanData(w World) ([]Op, error) {
 	if err := l.checkResolvedCraftTimes(res); err != nil {
 		return nil, err
 	}
+	if err := checkResolvedPacks(res); err != nil {
+		return nil, err
+	}
 	if err := l.checkCycles(w, res, prefix); err != nil {
 		return nil, err
 	}
@@ -199,7 +202,7 @@ func (l *Lib) validate(w World, prefix string) error {
 				return err
 			}
 			for _, c := range by.Choices {
-				if err := l.validateIngredients(at, "the recipe "+r.name, c.Ingredients); err != nil {
+				if err := l.validateIngredients(at, "the recipe "+r.name, r.spec.Category, c.Ingredients); err != nil {
 					return err
 				}
 			}
@@ -227,7 +230,7 @@ func (l *Lib) validate(w World, prefix string) error {
 		if w.RecipeExists(r.emittedName(prefix)) {
 			return errors.New(at + "the recipe " + r.emittedName(prefix) + " already exists in data.raw; this plan would overwrite it")
 		}
-		if err := l.validateIngredients(at, "the recipe "+r.name, r.spec.Ingredients); err != nil {
+		if err := l.validateIngredients(at, "the recipe "+r.name, r.spec.Category, r.spec.Ingredients); err != nil {
 			return err
 		}
 	}
@@ -279,7 +282,7 @@ func (l *Lib) validate(w World, prefix string) error {
 				l.settings[by.Setting.index-1].emittedName(prefix), offered, values); err != nil {
 				return err
 			}
-			if err := l.validateUnit(at, w, t.name, &by.Fallback); err != nil {
+			if err := l.validateUnit(at, t.name, &by.Fallback); err != nil {
 				return err
 			}
 		}
@@ -302,7 +305,7 @@ func (l *Lib) validate(w World, prefix string) error {
 			return errors.New(at + "the technology " + t.name + " declares an icon size a Lua double cannot hold exactly: " + strconv.FormatInt(t.spec.IconSize, 10))
 		}
 		if hasUnit {
-			if err := l.validateUnit(at, w, t.name, t.spec.Unit); err != nil {
+			if err := l.validateUnit(at, t.name, t.spec.Unit); err != nil {
 				return err
 			}
 		} else if hasCost {
@@ -346,9 +349,13 @@ func (l *Lib) validate(w World, prefix string) error {
 	return nil
 }
 
+// resolvedIngredient is one ingredient after the ladder answered: the name the
+// game actually has, and the amount in the shape its kind takes.
 type resolvedIngredient struct {
+	kind   ingredientKind
 	name   string
-	amount int64
+	amount int64   // kindItem
+	fluid  float64 // kindFluid
 }
 
 // rewriteRec is one planned rewrite of another technology's prerequisite
@@ -361,10 +368,15 @@ type rewriteRec struct {
 }
 
 type resolvedTech struct {
-	// The cost a CostBy ladder settled on, and the level cap that rode along
+	// The cost this technology settled on, and the level cap that rode along
 	// with it. Resolved rather than emitted straight from the spec, because
-	// which source answered is a fact about the game.
+	// which source answered, and which rung of each pack's ladder the game
+	// actually has, are facts about the game.
+	//
+	// hasUnit is false only for CostOf, whose unit is copied verbatim out of
+	// the World at emit and so has nothing to resolve.
 	unit        Value
+	hasUnit     bool
 	maxLevel    Value
 	hasMaxLevel bool
 
@@ -388,6 +400,12 @@ type resolution struct {
 	recipes    [][]resolvedIngredient
 	techs      []resolvedTech
 	rewrites   []rewriteRec
+
+	// packless is the first technology, in declaration order, whose every
+	// declared science pack dropped. It is carried out of resolve rather than
+	// raised inside it because resolve answers with facts and PlanData decides
+	// which of them is a refusal, exactly as the crafting-time floor does.
+	packless string
 }
 
 // resolve asks the World everything the plan needs to know and records what
@@ -493,15 +511,29 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 				break
 			}
 			if source == "" {
-				rt.unit = unitValue(&by.Fallback)
+				// THE FALLBACK IS RESOLVED ONLY HERE, which is the point: its
+				// packs are probed when the fallback is what applies, and never
+				// when a source answered. The line saying why comes first, so
+				// the drops that follow read as consequences of it.
 				res.logs = append(res.logs, "fkrecipes: "+t.name+": no source for the "+chosen+
 					" cost carries a unit, so the fallback cost applies and the technology has no prerequisite")
+				rt.unit = resolveUnit(w, &res, t.name, &by.Fallback)
 			} else {
 				// THE PREREQUISITE MOVES WITH THE UNIT.
 				rt.prereqs = []string{source}
 			}
+			rt.hasUnit = true
 			res.techs = append(res.techs, rt)
 			continue
+		}
+
+		// The hand-rolled cost, with each pack's ladder walked here rather than
+		// at emit: which rung the game has is a fact about the game, and the
+		// drops belong in the log stream at the point they were decided, before
+		// this technology's tree placement.
+		if t.spec.Unit != nil {
+			rt.unit = resolveUnit(w, &res, t.name, t.spec.Unit)
+			rt.hasUnit = true
 		}
 
 		after, before := t.spec.After, t.spec.Before
@@ -621,6 +653,28 @@ func (l *Lib) checkResolvedCraftTimes(res resolution) error {
 	return nil
 }
 
+// checkResolvedPacks refuses a technology whose every declared science pack
+// dropped. It runs after resolution for the same reason the crafting-time check
+// does: which packs the game has is a fact about the World, not about the plan,
+// and a fallback that never applies is never asked about at all.
+//
+// A COST WITH NO PACKS IS NOT A CHEAP RESEARCH, it is a free one. The engine
+// loads such a unit (measured), which is exactly why this half refuses: a
+// modpack missing every pack a technology was priced in would otherwise hand
+// the player a research they finish instantly and nobody would see a refusal.
+//
+// ONE SENTENCE, NAMING THE FIRST SUCH TECHNOLOGY IN DECLARATION ORDER, because
+// resolution walks the plan in that order and records only the first. A plan
+// with two costs the game cannot pay answers the same way every run, in both
+// languages.
+func checkResolvedPacks(res resolution) error {
+	if res.packless == "" {
+		return nil
+	}
+	return errors.New("fkrecipes: the technology " + res.packless +
+		" has no science pack the game has; research takes at least one")
+}
+
 func (l *Lib) unlockedRecipes() []bool {
 	marks := make([]bool, len(l.recipes))
 	for _, t := range l.techs {
@@ -683,8 +737,21 @@ func recipeProto(prefix string, l *Lib, r recipeDecl, ings []resolvedIngredient,
 	// Recipe ingredients are the LONG DICT form. The technology unit's short
 	// tuple form is REFUSED here and the other way round; measured, not
 	// generalised from one to the other.
+	//
+	// A FLUID CARRIES ITS OWN TYPE AND ITS OWN AMOUNT. type="fluid" is what
+	// makes the engine read it out of data.raw.fluid, and the amount rides as
+	// the double it was declared as: the engine dumped 0.5 and 1000000000
+	// unchanged (measured), so nothing here rounds one.
 	items := make([]Value, 0, len(ings))
 	for _, ing := range ings {
+		if ing.kind == kindFluid {
+			items = append(items, Obj(
+				kv("type", Str("fluid")),
+				kv("name", Str(ing.name)),
+				kv("amount", Num(ing.fluid)),
+			))
+			continue
+		}
 		items = append(items, Obj(
 			kv("type", Str("item")),
 			kv("name", Str(ing.name)),
@@ -767,22 +834,21 @@ func techProto(prefix string, l *Lib, w World, t techDecl, rt resolvedTech) Valu
 }
 
 func techUnit(w World, t techDecl, rt resolvedTech) Value {
-	if t.spec.CostBy != nil {
+	// Unit and CostBy both settled their cost during resolution, because both
+	// of them had a question to ask the game. CostOf is the one arm left.
+	if rt.hasUnit {
 		return rt.unit
 	}
-	if t.spec.Unit == nil {
-		// Verbatim, whatever it holds: a count_formula is a string and
-		// copying one needs no evaluator, so multi-level and infinite
-		// technologies come along for free. Validation proved the unit is
-		// there; the flag is still read rather than dropped, because the
-		// Rust mirror maps its absent case to the same nil.
-		u, ok := w.TechUnit(t.spec.CostOf)
-		if !ok {
-			return Nil()
-		}
-		return u
+	// Verbatim, whatever it holds: a count_formula is a string and copying one
+	// needs no evaluator, so multi-level and infinite technologies come along
+	// for free. Validation proved the unit is there; the flag is still read
+	// rather than dropped, because the Rust mirror maps its absent case to the
+	// same nil.
+	u, ok := w.TechUnit(t.spec.CostOf)
+	if !ok {
+		return Nil()
 	}
-	return unitValue(t.spec.Unit)
+	return u
 }
 
 // techMaxLevel is the level cap a technology carries, if any. A hand-rolled
@@ -801,12 +867,47 @@ func techMaxLevel(w World, t techDecl, rt resolvedTech) (Value, bool) {
 	return level, ok && level.Kind != KindNil
 }
 
-// unitValue is the hand-rolled cost's wire shape. Technology unit ingredients
+// resolveUnit walks each pack's ladder and drops what the game does not have,
+// then builds the hand-rolled cost's wire shape. Technology unit ingredients
 // are the SHORT TUPLE form; the dict form is refused here by the engine.
-func unitValue(u *UnitSpec) Value {
+//
+// THE LADDER ASKS ToolExists AND NOTHING ELSE. MEASURED: a research unit priced
+// in a plain item refuses the load with "Invalid research unit (iron-plate).
+// Research unit(s) can only be tool type items at the moment", and a fluid name
+// in a unit refuses with "Error in assignID: item with name 'water' does not
+// exist". Asking ItemExists would let either of those through as a rung.
+//
+// A DROP RATHER THAN A REFUSAL, which is the change this ladder is here to
+// make: a modpack that renamed or removed a science pack used to fail the load
+// with the author's name on it, and now loses that pack from the cost and says
+// so. A unit that loses ALL of them is refused instead, because a research with
+// no pack at all is not something to emit on an author's behalf.
+func resolveUnit(w World, res *resolution, tech string, u *UnitSpec) Value {
 	packs := make([]Value, 0, len(u.Packs))
 	for _, p := range u.Packs {
-		packs = append(packs, Arr(Str(p.Name), Num(float64(p.Amount))))
+		candidates := p.ladder()
+		picked := ""
+		for _, c := range candidates {
+			if w.ToolExists(c) {
+				picked = c
+				break
+			}
+		}
+		if picked == "" {
+			res.logs = append(res.logs, "fkrecipes: "+tech+": none of "+strings.Join(candidates, ", ")+
+				" is present, so the science pack is dropped")
+			continue
+		}
+		packs = append(packs, Arr(Str(picked), Num(float64(p.Amount))))
+	}
+	// A cost that named packs and got none of them. A unit that DECLARED none
+	// never reaches here: plan validation refused it before any of this was
+	// asked, which is what leaves this sentence to the world's answer alone.
+	//
+	// The FIRST technology in declaration order is the one reported, because
+	// the walk runs in that order and the refusal is one sentence.
+	if len(packs) == 0 && res.packless == "" {
+		res.packless = tech
 	}
 	return Obj(
 		kv("count", Num(float64(u.Count))),
@@ -854,8 +955,66 @@ func holdsDroppedSubtree(v Value) bool {
 
 // validateIngredients is the ordinary ingredient check, shared by a fixed
 // ingredient list and by every plan a dropdown can select.
-func (l *Lib) validateIngredients(at, who string, ings []Ingredient) error {
+//
+// THE CATEGORY IS A PARAMETER because the fluid rule is about the recipe and
+// not about the ingredient: the same FluidIngredient is legal in a chemistry
+// recipe and a load failure in a crafting one, so the check needs both halves.
+func (l *Lib) validateIngredients(at, who, category string, ings []Ingredient) error {
 	for _, ing := range ings {
+		// A RUNG WITH NO NAME IS A LADDER THAT CAN NEVER ANSWER, exactly as it
+		// is for a science pack, and it is refused here for the same reason:
+		// ItemExists("") and FluidExists("") are questions no World has a
+		// useful answer to, and an ingredient that reached resolution would
+		// either be dropped with a log line reading "none of , iron-plate is
+		// present" or be named by a sentence with a hole where a name goes.
+		//
+		// BEFORE THE KIND ARMS, so it covers a first rung and a fallback of
+		// either kind in one place, and so the fluid sentences below can name
+		// candidates[0] knowing it is a name.
+		for _, c := range ing.candidates {
+			if c == "" {
+				return errors.New(at + who + " names an ingredient with an empty name")
+			}
+		}
+		if ing.kind == kindFluid {
+			if !finite(ing.fluidAmount) {
+				return errors.New(at + who + " declares a fluid amount that is not a finite number")
+			}
+			// MEASURED: a fluid ingredient with amount 0 refuses the load with
+			// "amount must be larger than 0", and 0.5 and 1000000000 both
+			// load. So the floor is the only bound a fluid has, and it is
+			// exclusive.
+			if ing.fluidAmount <= 0 {
+				return errors.New(at + who + " has a fluid amount at or below zero, which the engine refuses")
+			}
+			// The engine's own rule, and categoryTakesItemsOnly is where it is
+			// written: the language asks the same question of a text the
+			// player typed, and one predicate is what keeps the two answers
+			// the same rule rather than the same sentence twice.
+			//
+			// The FIRST candidate is what the sentence names: a ladder of
+			// fluids is wrong in a crafting recipe whichever rung answers, and
+			// naming the one the consumer wrote first points at the
+			// declaration rather than at the game. That candidate is a NAME by
+			// construction: the empty-name check at the top of this loop has
+			// already refused a ladder whose first rung is nothing, so no
+			// refusal can come out reading "takes the fluid , and".
+			if categoryTakesItemsOnly(category) {
+				return errors.New(at + who + " takes the fluid " + ing.candidates[0] +
+					", and a recipe in the crafting category takes items only")
+			}
+			// THE CEILING IS THE ENGINE'S, and above it the engine does not
+			// refuse, it ABORTS (measured: 1e301 loads and dumps, 1e302 dies in
+			// FixedPointNumber.hpp with the crash handler). A crash is not
+			// something a player can read, so the declared path refuses here
+			// exactly as the typed path does, and AFTER the category rule,
+			// because a fluid in a crafting recipe is wrong at any amount.
+			if ing.fluidAmount > maxFluidAmount {
+				return errors.New(at + who + " takes the fluid " + ing.candidates[0] +
+					" at an amount above 1e301, which the game cannot hold")
+			}
+			continue
+		}
 		if ing.amount < 1 {
 			return errors.New(at + who + " has an ingredient amount below 1, which the engine refuses")
 		}
@@ -871,9 +1030,28 @@ func (l *Lib) validateIngredients(at, who string, ings []Ingredient) error {
 
 // validateUnit is the hand-rolled cost check, shared by Unit and by CostBy's
 // fallback: a fallback the engine would refuse is not a fallback.
-func (l *Lib) validateUnit(at string, w World, name string, u *UnitSpec) error {
+//
+// IT ASKS THE WORLD NOTHING, which is what lets the fallback be checked here
+// while its packs are probed only when it is used. Every rule below is about
+// what the plan DECLARED, so a fallback nobody reaches is still held to the
+// engine's numbers without a single presence question being asked about a cost
+// that never applies.
+func (l *Lib) validateUnit(at string, name string, u *UnitSpec) error {
 	if u.Count < 1 {
 		return errors.New(at + "the technology " + name + " has a unit count below 1, which the engine refuses")
+	}
+	// A DECLARED PACK LIST THAT IS EMPTY IS REFUSED HERE, before a single
+	// question is asked about the world, because it is a fact about the plan:
+	// the author priced a research in nothing. The engine LOADS such a unit
+	// (measured), so nothing downstream would complain and the player would
+	// get a research that completes instantly.
+	//
+	// It is a different sentence from the one a cost that named packs and lost
+	// them all gets, and it has to be, because the two have different answers:
+	// this one is the author's to fix, and that one is about a game that does
+	// not have what the author named.
+	if len(u.Packs) == 0 {
+		return errors.New(at + "the technology " + name + " declares no science pack; research takes at least one")
 	}
 	if u.Count > maxExactInt {
 		return errors.New(at + "the technology " + name + " declares a unit count a Lua double cannot hold exactly: " + strconv.FormatInt(u.Count, 10))
@@ -894,8 +1072,12 @@ func (l *Lib) validateUnit(at string, w World, name string, u *UnitSpec) error {
 		if p.Name == "" {
 			return errors.New(at + "the technology " + name + " prices itself in a pack with an empty name")
 		}
-		if !w.ItemExists(p.Name) {
-			return errors.New(at + "the technology " + name + " prices itself in " + p.Name + ", which does not exist")
+		// A rung with no name is a ladder that can never answer, and it would
+		// otherwise reach a log line reading "none of a, , b is present".
+		for _, c := range p.Fallbacks {
+			if c == "" {
+				return errors.New(at + "the technology " + name + " prices itself in a pack with an empty name")
+			}
 		}
 	}
 	return nil
@@ -949,6 +1131,12 @@ func sourcesFor(choices []CostChoice, value string) []string {
 }
 
 // resolveIngredients walks each ladder and drops what the game does not have.
+//
+// A FLUID LADDER ASKS A DIFFERENT QUESTION. Items and fluids are separate
+// namespaces, so a fluid candidate is probed with FluidExists: asking
+// ItemExists about water would drop every fluid ingredient in the game, and
+// asking both would let an item answer for a fluid and emit a recipe the
+// engine refuses.
 func (l *Lib) resolveIngredients(w World, res *resolution, prefix, recipe string, ings []Ingredient) []resolvedIngredient {
 	list := make([]resolvedIngredient, 0, len(ings))
 	for _, ing := range ings {
@@ -958,13 +1146,21 @@ func (l *Lib) resolveIngredients(w World, res *resolution, prefix, recipe string
 		}
 		picked := ""
 		for _, c := range ing.candidates {
-			if w.ItemExists(c) {
+			present := w.ItemExists(c)
+			if ing.kind == kindFluid {
+				present = w.FluidExists(c)
+			}
+			if present {
 				picked = c
 				break
 			}
 		}
 		if picked == "" {
 			res.logs = append(res.logs, "fkrecipes: "+recipe+": none of "+strings.Join(ing.candidates, ", ")+" is present, so the ingredient is dropped")
+			continue
+		}
+		if ing.kind == kindFluid {
+			list = append(list, resolvedIngredient{kind: kindFluid, name: picked, fluid: ing.fluidAmount})
 			continue
 		}
 		list = append(list, resolvedIngredient{name: picked, amount: ing.amount})

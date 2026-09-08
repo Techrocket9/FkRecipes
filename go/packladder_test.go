@@ -1,0 +1,492 @@
+package fkrecipes
+
+import "testing"
+
+// THE SCIENCE PACK LADDER. A pack is somebody else's prototype: base's own, an
+// overhaul's, or one a modpack renamed. Before this ladder a Unit naming a pack
+// the install lacked refused the load with the consumer's name on it, while an
+// INGREDIENT in the same position was dropped with a line saying so. These hold
+// the two halves of the answer to that: the ladder resolves or drops, and a
+// cost left with nothing is refused rather than emitted as a free research.
+
+// toolProbeWorld records every ToolExists question, so a test can assert that a
+// question was NOT asked. That is the only way to hold up "the fallback is
+// probed only when it is used": the plan is accepted either way, and what
+// changes is which questions the World was put to.
+type toolProbeWorld struct {
+	*fixtureWorld
+	asked []string
+}
+
+func (w *toolProbeWorld) ToolExists(name string) bool {
+	w.asked = append(w.asked, name)
+	return w.fixtureWorld.ToolExists(name)
+}
+
+func (w *toolProbeWorld) wasAsked(name string) bool {
+	for _, n := range w.asked {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
+// The first rung the game has is the one that is emitted, and a ladder that
+// resolves says nothing: a log line for every walked rung would bury the drops
+// that matter under the ones that are ordinary.
+func TestPackLadderTakesTheFirstRungPresent(t *testing.T) {
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{Unit: &UnitSpec{
+		Count:   50,
+		Seconds: 15,
+		Packs: []Pack{
+			{Name: "military-science-pack", Amount: 2, Fallbacks: []string{"chemical-science-pack", "logistic-science-pack"}},
+		},
+	}})
+
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="technology", name="steelworks-steel-axes", unit={count=50, time=15, ingredients=[["chemical-science-pack", 2]]}}`,
+	})
+}
+
+// THE LADDER ASKS ToolExists AND NOT ItemExists. MEASURED: a research unit
+// priced in a plain item refuses the load with "Invalid research unit
+// (iron-plate). Research unit(s) can only be tool type items at the moment", so
+// an item that is not a tool is not a rung, and a ladder that walked past a
+// present tool to reach an item would emit that refusal on the author's behalf.
+func TestPackLadderWalksPastAnItemThatIsNotATool(t *testing.T) {
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{Unit: &UnitSpec{
+		Count:   50,
+		Seconds: 15,
+		Packs:   []Pack{{Name: "iron-plate", Amount: 1, Fallbacks: []string{"automation-science-pack"}}},
+	}})
+
+	// iron-plate is an ITEM in this world and never a tool.
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="technology", name="steelworks-steel-axes", unit={count=50, time=15, ingredients=[["automation-science-pack", 1]]}}`,
+	})
+}
+
+// A pack no rung resolves is DROPPED with a line in the same shape an
+// ingredient drop uses, and the rest of the cost is emitted: a modpack without
+// military science still gets the research, priced in what it has.
+func TestPackLadderDropsWhatNoRungResolves(t *testing.T) {
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{Unit: &UnitSpec{
+		Count:   50,
+		Seconds: 15,
+		Packs: []Pack{
+			{Name: "automation-science-pack", Amount: 1},
+			{Name: "military-science-pack", Amount: 3, Fallbacks: []string{"space-science-pack"}},
+			{Name: "logistic-science-pack", Amount: 2},
+		},
+	}})
+
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: steel-axes: none of military-science-pack, space-science-pack is present, so the science pack is dropped`,
+		`extend {type="technology", name="steelworks-steel-axes", unit={count=50, time=15, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 2]]}}`,
+	})
+}
+
+// A pack with no ladder at all drops the same way: the single name is the whole
+// candidate list, and the line reads as one.
+func TestPackWithNoFallbacksDropsWithItsOneName(t *testing.T) {
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{Unit: &UnitSpec{
+		Count:   50,
+		Seconds: 15,
+		Packs: []Pack{
+			{Name: "automation-science-pack", Amount: 1},
+			{Name: "military-science-pack", Amount: 3},
+		},
+	}})
+
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: steel-axes: none of military-science-pack is present, so the science pack is dropped`,
+		`extend {type="technology", name="steelworks-steel-axes", unit={count=50, time=15, ingredients=[["automation-science-pack", 1]]}}`,
+	})
+}
+
+// A UNIT THAT LOSES EVERY PACK IS REFUSED, and this is the other side of the
+// drop: the engine LOADS a unit with an empty ingredient list (measured), so
+// nothing downstream would complain and the player would get a research that
+// completes instantly. The refusal names the technology and no rung, because
+// the drop lines above it already named every rung that was tried.
+func TestUnitWithEveryPackDroppedIsRefused(t *testing.T) {
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{Unit: &UnitSpec{
+		Count:   50,
+		Seconds: 15,
+		Packs: []Pack{
+			{Name: "military-science-pack", Amount: 1},
+			{Name: "space-science-pack", Amount: 1, Fallbacks: []string{"metallurgic-science-pack"}},
+		},
+	}})
+
+	ops, err := lib.PlanData(baseWorld())
+	if err == nil {
+		t.Fatal("a research priced in nothing the game has was accepted")
+	}
+	want := "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one"
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+	if ops != nil {
+		t.Errorf("a refused plan still produced %d ops", len(ops))
+	}
+}
+
+// THE ALL-DROPPED REFUSAL NAMES THE FIRST TECHNOLOGY IN DECLARATION ORDER.
+//
+// Two technologies lose every pack here, and one sentence has to come out. The
+// names are chosen so that declaration order and alphabetical order disagree:
+// a walk that sorted, or that iterated a map, would name aaa-first about half
+// the time or every time, and either would be a refusal whose text depends on
+// something the author cannot see.
+func TestTheAllDroppedRefusalNamesTheFirstTechnologyDeclared(t *testing.T) {
+	lib := New()
+	packless := &UnitSpec{
+		Count:   50,
+		Seconds: 15,
+		Packs:   []Pack{{Name: "military-science-pack", Amount: 1}},
+	}
+	lib.Technology("bbb-second", TechSpec{Unit: packless})
+	lib.Technology("aaa-first", TechSpec{Unit: packless})
+
+	ops, err := lib.PlanData(baseWorld())
+	if err == nil {
+		t.Fatal("two researches priced in nothing the game has were accepted")
+	}
+	want := "fkrecipes: the technology bbb-second has no science pack the game has; research takes at least one"
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+	if ops != nil {
+		t.Errorf("a refused plan still produced %d ops", len(ops))
+	}
+}
+
+// wrongThreeWaysAfterResolution is a plan that is wrong in all three of the
+// ways the post-resolution checks answer for, so the order between them is the
+// only thing that decides which sentence comes out:
+//
+//   - its recipe reads a crafting time from a setting another mod can answer
+//     at or below the engine floor,
+//   - its technology is priced in a pack the game does not have, so every pack
+//     drops,
+//   - and the World it is planned against carries a prerequisite ring.
+//
+// The declaration is FIXED and the World is what changes between the two
+// witnesses below: the crafting-time problem is the setting's answer, so
+// dropping it changes nothing about the plan and leaves the other two exactly
+// as they were.
+func wrongThreeWaysAfterResolution() *Lib {
+	lib := New()
+	axe := lib.Item("steel-axe", ItemSpec{})
+	from := lib.DoubleSetting("axe-craft-time", 2.5, NumericSpec{})
+	lib.Recipe(axe, RecipeSpec{
+		CraftTimeFrom: from,
+		Ingredients:   []Ingredient{IngredientNamed(4, "steel-plate")},
+	})
+	lib.Technology("steel-axes", TechSpec{Unit: &UnitSpec{
+		Count:   50,
+		Seconds: 15,
+		Packs:   []Pack{{Name: "military-science-pack", Amount: 1}},
+	}})
+	return lib
+}
+
+// worldWithAPrerequisiteRing is that plan's World with a ring in somebody
+// else's technologies: logistics-2 requires logistics-3, and logistics-3
+// already requires logistics-2.
+func worldWithAPrerequisiteRing() *fixtureWorld {
+	return baseWorld().withPrereqs("logistics-2", "logistics", "logistics-3")
+}
+
+// THE ORDER OF THE POST-RESOLUTION CHECKS IS PART OF THE CONTRACT, because a
+// plan can be wrong in more than one of these ways at once and one sentence
+// has to come out. The design record fixes it so the two languages answer the
+// same declaration the same way: crafting times, then packs, then the cycle
+// walk. These two witnesses are what hold that order still, because without
+// them the pack check could be moved anywhere between resolution and emit and
+// every existing test would stay green.
+func TestTheCraftingTimeSentenceBeatsTheDroppedPacks(t *testing.T) {
+	// The setting another mod redeclared, answering below the floor.
+	w := worldWithAPrerequisiteRing().withSetting("steelworks-axe-craft-time", Num(0.001))
+
+	ops, err := wrongThreeWaysAfterResolution().PlanData(w)
+	if err == nil {
+		t.Fatal("a plan wrong three ways over was accepted")
+	}
+	want := "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, " +
+		"which answers at or below the engine floor (energy_required can't be <= 0.001)"
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+	if ops != nil {
+		t.Errorf("a refused plan still produced %d ops", len(ops))
+	}
+}
+
+// And the packs beat the ring, which is the other side of the same order and
+// the half a check moved one line further down would break.
+func TestTheDroppedPacksSentenceBeatsThePrerequisiteRing(t *testing.T) {
+	// The same plan, and the same ring, with the crafting-time setting left
+	// unanswered so the declared default of 2.5 stands.
+	ops, err := wrongThreeWaysAfterResolution().PlanData(worldWithAPrerequisiteRing())
+	if err == nil {
+		t.Fatal("a plan with an unpayable cost and a prerequisite ring was accepted")
+	}
+	want := "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one"
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+	if ops != nil {
+		t.Errorf("a refused plan still produced %d ops", len(ops))
+	}
+}
+
+// The ring really is there, in both worlds above: a witness that the pack
+// sentence beats a cycle is worth nothing if the World it was planned against
+// has no cycle in it. The plan here is priced in a pack the game HAS, so the
+// pack check passes and the walk is what answers.
+func TestTheRingInThatWorldIsReal(t *testing.T) {
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{Unit: &UnitSpec{
+		Count:   50,
+		Seconds: 15,
+		Packs:   []Pack{{Name: "automation-science-pack", Amount: 1}},
+	}})
+
+	_, err := lib.PlanData(worldWithAPrerequisiteRing())
+	if err == nil {
+		t.Fatal("that World accepted a plan; it carries no ring")
+	}
+	want := "fkrecipes: a prerequisite cycle: logistics-2 -> logistics-3 -> logistics-2"
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+}
+
+// A unit that DECLARES no packs is refused too, and by a DIFFERENT sentence:
+// this one is about what the author wrote, not about what the game turned out
+// to have, and the two have different answers. The engine loads such a unit
+// (measured), so nobody downstream would say anything and the player would get
+// a research that completes the moment it is started.
+func TestUnitDeclaredWithNoPacksIsRefused(t *testing.T) {
+	t.Run("a hand-rolled unit", func(t *testing.T) {
+		lib := New()
+		lib.Technology("steel-axes", TechSpec{Unit: &UnitSpec{Count: 50, Seconds: 15}})
+
+		ops, err := lib.PlanData(baseWorld())
+		if err == nil {
+			t.Fatal("a research priced in nothing at all was accepted")
+		}
+		want := "fkrecipes: the technology steel-axes declares no science pack; research takes at least one"
+		if err.Error() != want {
+			t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+		}
+		if ops != nil {
+			t.Errorf("a refused plan still produced %d ops", len(ops))
+		}
+	})
+
+	// THE FALLBACK IS REFUSED WITHOUT BEING REACHED, which is what places this
+	// rule at plan validation rather than after resolution: steel-processing
+	// answers, so the fallback is the cost nothing uses, and its numbers are
+	// still the author's to get right. The pack ladder is the opposite case and
+	// is probed only when the fallback applies.
+	t.Run("a fallback nothing reaches", func(t *testing.T) {
+		lib := New()
+		tier := lib.DropdownSettingNeedingLocale("tips-research-tier", "logistics", []string{"logistics"})
+		lib.Technology("hardened-tips", TechSpec{
+			CostBy: &CostChoices{
+				Setting:  tier,
+				Choices:  []CostChoice{{Value: "logistics", Sources: []string{"steel-processing"}}},
+				Fallback: UnitSpec{Count: 60, Seconds: 30},
+			},
+		})
+
+		ops, err := lib.PlanData(baseWorld())
+		if err == nil {
+			t.Fatal("a fallback priced in nothing at all was accepted")
+		}
+		want := "fkrecipes: the technology hardened-tips declares no science pack; research takes at least one"
+		if err.Error() != want {
+			t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+		}
+		if ops != nil {
+			t.Errorf("a refused plan still produced %d ops", len(ops))
+		}
+	})
+}
+
+func fallbackTierPlan(fallbackPack string, sources []string) *Lib {
+	lib := New()
+	tier := lib.DropdownSettingNeedingLocale("tips-research-tier", "logistics", []string{"logistics"})
+	lib.Technology("hardened-tips", TechSpec{
+		CostBy: &CostChoices{
+			Setting: tier,
+			Choices: []CostChoice{{Value: "logistics", Sources: sources}},
+			Fallback: UnitSpec{
+				Count:   60,
+				Seconds: 30,
+				Packs:   []Pack{{Name: fallbackPack, Amount: 1}},
+			},
+		},
+	})
+	return lib
+}
+
+// THE FALLBACK IS PROBED ONLY WHEN IT IS USED, which is the pilot's finding
+// answered: a cost that never applies used to have its science pack presence
+// checked anyway, so a mod could not name a pack from an optional dependency in
+// a fallback without every install without that dependency refusing to load.
+//
+// The witness is the QUESTION, not the outcome: the plan is accepted either
+// way, and what this holds up is that the World was never asked about a pack in
+// a cost nothing reaches.
+func TestFallbackPacksAreProbedOnlyWhenTheFallbackApplies(t *testing.T) {
+	t.Run("a source answers, so the fallback is never asked about", func(t *testing.T) {
+		w := &toolProbeWorld{fixtureWorld: baseWorld()}
+		// steel-processing carries a unit, so the ladder settles there and the
+		// fallback is unreachable. Its pack is one this world does not have.
+		ops, err := fallbackTierPlan("space-science-pack", []string{"steel-processing"}).PlanData(w)
+		assertNoError(t, err)
+
+		assertLines(t, transcript(ops), []string{
+			`log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies`,
+			`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["steel-processing"], unit={count=50, ingredients=[["automation-science-pack", 1]], time=15}}`,
+		})
+		if w.wasAsked("space-science-pack") {
+			t.Errorf("the World was asked about a pack in a fallback nothing reaches; questions asked: %v", w.asked)
+		}
+	})
+
+	t.Run("no source answers, so the fallback is resolved", func(t *testing.T) {
+		w := &toolProbeWorld{fixtureWorld: baseWorld()}
+		// No sources at all, so the fallback is what applies and its pack IS
+		// probed. It resolves here, which is what keeps this arm about the
+		// probe rather than about the refusal.
+		ops, err := fallbackTierPlan("logistic-science-pack", nil).PlanData(w)
+		assertNoError(t, err)
+
+		assertLines(t, transcript(ops), []string{
+			`log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies`,
+			`log fkrecipes: hardened-tips: no source for the logistics cost carries a unit, so the fallback cost applies and the technology has no prerequisite`,
+			`extend {type="technology", name="steelworks-hardened-tips", unit={count=60, time=30, ingredients=[["logistic-science-pack", 1]]}}`,
+		})
+		if !w.wasAsked("logistic-science-pack") {
+			t.Errorf("the World was never asked about the pack of the fallback that applied; questions asked: %v", w.asked)
+		}
+	})
+}
+
+// The fallback's drop line comes AFTER the line saying why the fallback
+// applies, because that is the order the planner decided them in and the log
+// stream is the two halves' comparison surface.
+func TestFallbackPackDropsInLogOrder(t *testing.T) {
+	lib := New()
+	tier := lib.DropdownSettingNeedingLocale("tips-research-tier", "logistics", []string{"logistics"})
+	lib.Technology("hardened-tips", TechSpec{
+		CostBy: &CostChoices{
+			Setting: tier,
+			Choices: []CostChoice{{Value: "logistics"}},
+			Fallback: UnitSpec{
+				Count:   60,
+				Seconds: 30,
+				Packs: []Pack{
+					{Name: "automation-science-pack", Amount: 1},
+					{Name: "military-science-pack", Amount: 2, Fallbacks: []string{"space-science-pack"}},
+				},
+			},
+		},
+	})
+
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies`,
+		`log fkrecipes: hardened-tips: no source for the logistics cost carries a unit, so the fallback cost applies and the technology has no prerequisite`,
+		`log fkrecipes: hardened-tips: none of military-science-pack, space-science-pack is present, so the science pack is dropped`,
+		`extend {type="technology", name="steelworks-hardened-tips", unit={count=60, time=30, ingredients=[["automation-science-pack", 1]]}}`,
+	})
+}
+
+// A pack's ladder is DEEP COPIED at declaration, like every other slice a
+// consumer hands in: a caller reusing one buffer across two technologies must
+// not find the first one rewritten by the second.
+func TestPackLaddersDoNotAliasCallerSlices(t *testing.T) {
+	lib := New()
+	rungs := []string{"military-science-pack", "automation-science-pack"}
+	packs := []Pack{{Name: "space-science-pack", Amount: 1, Fallbacks: rungs}}
+	lib.Technology("steel-axes", TechSpec{Unit: &UnitSpec{Count: 50, Seconds: 15, Packs: packs}})
+	// The caller reuses the buffer, both the row and the ladder inside it.
+	rungs[1] = "logistic-science-pack"
+	packs[0].Name = "chemical-science-pack"
+
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="technology", name="steelworks-steel-axes", unit={count=50, time=15, ingredients=[["automation-science-pack", 1]]}}`,
+	})
+}
+
+// The two CustomValue fields are declared and copied and mean nothing else yet.
+// They exist because a mod whose dropdown already has a value literally named
+// custom cannot rename it without discarding every player's stored choice; the
+// commit that binds a text setting is where they start selecting anything.
+func TestCustomValueIsCarriedAndDoesNothingYet(t *testing.T) {
+	lib := New()
+	plate := lib.Item("hardened-steel-plate", ItemSpec{})
+	medium := lib.DropdownSettingNeedingLocale("quench-medium", "dry", []string{"dry", "wet"})
+	choices := &IngredientChoices{
+		Setting:     medium,
+		Choices:     []IngredientChoice{{Value: "dry"}, {Value: "wet"}},
+		CustomValue: "hand-written",
+	}
+	lib.Recipe(plate, RecipeSpec{IngredientsBy: choices})
+
+	tier := lib.DropdownSettingNeedingLocale("tips-research-tier", "logistics", []string{"logistics"})
+	cost := &CostChoices{
+		Setting:     tier,
+		Choices:     []CostChoice{{Value: "logistics", Sources: []string{"steel-processing"}}},
+		Fallback:    UnitSpec{Count: 60, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+		CustomValue: "hand-written",
+	}
+	lib.Technology("hardened-tips", TechSpec{CostBy: cost})
+
+	// The declaration took a copy, so the caller's later edit cannot reach it.
+	choices.CustomValue = "rewritten"
+	cost.CustomValue = "rewritten"
+
+	if got := lib.recipes[0].spec.IngredientsBy.CustomValue; got != "hand-written" {
+		t.Errorf("IngredientChoices.CustomValue is %q, want hand-written", got)
+	}
+	if got := lib.techs[0].spec.CostBy.CustomValue; got != "hand-written" {
+		t.Errorf("CostChoices.CustomValue is %q, want hand-written", got)
+	}
+
+	// AND IT CHANGES NOTHING TODAY. A value no dropdown offers would be a
+	// refusal if the field meant anything yet; the plan is accepted, which is
+	// what says the field is declared and inert.
+	if _, err := lib.PlanData(baseWorld()); err != nil {
+		t.Errorf("CustomValue changed what a plan does: %s", err)
+	}
+}

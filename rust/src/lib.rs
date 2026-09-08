@@ -50,6 +50,7 @@ extern crate alloc;
 
 mod cycle;
 mod data;
+mod ingredient_list;
 mod locale;
 // The emit layer, and the only module that touches fkdata. Gated so the host
 // gates compile the pure half with no wasm target and no fkdata at all.

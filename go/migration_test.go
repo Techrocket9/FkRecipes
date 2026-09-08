@@ -532,7 +532,11 @@ func TestChoiceRefusals(t *testing.T) {
 			want: "fkrecipes: the technology hardened-tips has a unit count below 1, which the engine refuses",
 		},
 		{
-			name: "a fallback priced in a pack that does not exist",
+			// The chosen value names no source at all, so the fallback IS what
+			// applies: its packs are probed, the only one drops, and a cost with
+			// nothing left is refused. A fallback nobody reaches is a different
+			// test, below.
+			name: "a fallback that applies and whose every pack the game lacks",
 			build: func(l *Lib) {
 				tier := l.DropdownSettingNeedingLocale("tips-research-tier", "logistics", []string{"logistics"})
 				l.Technology("hardened-tips", TechSpec{
@@ -541,7 +545,7 @@ func TestChoiceRefusals(t *testing.T) {
 							Packs: []Pack{{Name: "military-science-pack", Amount: 1}}}},
 				})
 			},
-			want: "fkrecipes: the technology hardened-tips prices itself in military-science-pack, which does not exist",
+			want: "fkrecipes: the technology hardened-tips has no science pack the game has; research takes at least one",
 		},
 	}
 	for _, c := range cases {

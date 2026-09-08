@@ -116,6 +116,10 @@ func ringWorld(n int) *fixtureWorld {
 	w := &fixtureWorld{
 		modName: "steelworks",
 		items:   []string{"automation-science-pack"},
+		// A science pack is a TOOL as well as an item, and the pack ladder asks
+		// the tool question: a fixture that named it only as an item would drop
+		// the pack and refuse the cost before the cycle walk ever ran.
+		tools: []string{"automation-science-pack"},
 	}
 	for i := 0; i < n; i++ {
 		w.techs = append(w.techs, fixtureTech{

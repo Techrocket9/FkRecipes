@@ -11,6 +11,8 @@ pub(crate) struct FixtureWorld {
     pub(crate) mod_name: String,
     pub(crate) settings: Vec<(String, Value)>,
     pub(crate) items: Vec<String>,
+    pub(crate) fluids: Vec<String>,
+    pub(crate) tools: Vec<String>,
     pub(crate) recipes: Vec<String>,
     pub(crate) techs: Vec<FixtureTech>,
 
@@ -116,6 +118,18 @@ impl World for FixtureWorld {
         self.items.iter().any(|it| it.as_str() == name)
     }
 
+    // Both of these are DEFAULT methods on the trait, overridden here because
+    // this fixture reaches them. A consumer's fixture that never declares a
+    // fluid or a research cost keeps compiling without them, which is the
+    // property the defaults exist for.
+    fn fluid_exists(&self, name: &str) -> bool {
+        self.fluids.iter().any(|f| f.as_str() == name)
+    }
+
+    fn tool_exists(&self, name: &str) -> bool {
+        self.tools.iter().any(|t| t.as_str() == name)
+    }
+
     fn recipe_exists(&self, name: &str) -> bool {
         self.recipes.iter().any(|r| r.as_str() == name)
     }
@@ -187,6 +201,11 @@ impl FixtureWorld {
         self
     }
 
+    pub(crate) fn without_fluid(mut self, name: &str) -> FixtureWorld {
+        self.fluids.retain(|f| f.as_str() != name);
+        self
+    }
+
     pub(crate) fn with_recipe(mut self, name: &str) -> FixtureWorld {
         self.recipes.push(String::from(name));
         self
@@ -252,6 +271,12 @@ pub(crate) fn base_world() -> FixtureWorld {
         nil_unit_for: Vec::new(),
         nil_max_level_for: Vec::new(),
         recipes: strings(&["electronic-circuit", "iron-gear-wheel", "steel-plate"]),
+        // The two fluids a fluid-taking recipe can name, and the science
+        // packs the game treats as tools. A pack is an ITEM as well, which is
+        // why the item list carries the same two names: the engine's tool
+        // type is one of the 21 item types.
+        fluids: strings(&["steam", "water"]),
+        tools: strings(&["automation-science-pack", "logistic-science-pack"]),
         items: strings(&[
             "automation-science-pack",
             "chemical-science-pack",

@@ -5,10 +5,12 @@ use alloc::vec::Vec;
 
 use crate::op::{path_key, Op};
 use crate::plan::{
-    CostChoice, Ingredient, IngredientChoice, ItemDecl, Lib, RecipeDecl, SettingDecl, TechDecl,
-    UnitSpec,
+    Amount, CostChoice, Ingredient, IngredientChoice, ItemDecl, Lib, Pack, RecipeDecl, SettingDecl,
+    TechDecl, UnitSpec,
 };
-use crate::value::{finite, kv, localised, str_arr, Value, CRAFT_TIME_FLOOR, MAX_EXACT_INT};
+use crate::value::{
+    finite, kv, localised, str_arr, Value, CRAFT_TIME_FLOOR, MAX_EXACT_INT, MAX_FLUID_AMOUNT,
+};
 use crate::world::World;
 
 impl Lib {
@@ -41,6 +43,7 @@ impl Lib {
         self.validate(w, &prefix)?;
         let res = self.resolve(w, &prefix);
         self.check_resolved_craft_times(&res)?;
+        self.check_resolved_packs(&res)?;
         self.check_cycles(w, &res, &prefix)?;
 
         let mut ops = Vec::with_capacity(
@@ -287,6 +290,7 @@ impl Lib {
                     self.validate_ingredients(
                         at,
                         &format!("the recipe {}", r.name),
+                        &r.spec.category,
                         &c.ingredients,
                     )?;
                 }
@@ -337,7 +341,12 @@ impl Lib {
                     r.emitted_name(prefix)
                 ));
             }
-            self.validate_ingredients(at, &format!("the recipe {}", r.name), &r.spec.ingredients)?;
+            self.validate_ingredients(
+                at,
+                &format!("the recipe {}", r.name),
+                &r.spec.category,
+                &r.spec.ingredients,
+            )?;
         }
 
         for (i, t) in self.techs.iter().enumerate() {
@@ -409,7 +418,15 @@ impl Lib {
                     &offered,
                     &setting.values,
                 )?;
-                self.validate_unit(at, w, &t.name, &by.fallback)?;
+                // THE DECLARATION IS CHECKED HERE, THE WORLD IS NOT. A
+                // fallback count of zero is wrong however the ladder turns
+                // out, so it is refused whether or not the fallback is
+                // reached; which science packs the GAME has is asked only
+                // when the fallback is actually used, because the pilot
+                // measured what the other order costs: a fallback priced in a
+                // pack a modpack renamed refused a load that would never have
+                // reached the fallback at all.
+                self.validate_unit(at, &t.name, &by.fallback)?;
             }
             if !t.spec.after.is_empty() && t.spec.after_tech.index != 0 {
                 return Err(format!(
@@ -455,7 +472,7 @@ impl Lib {
             )?;
             match &t.spec.unit {
                 Some(unit) => {
-                    self.validate_unit(at, w, &t.name, unit)?;
+                    self.validate_unit(at, &t.name, unit)?;
                 }
                 // A CostBy technology reaches here with neither field set,
                 // and has nothing named to check: its ladder is walked at
@@ -614,6 +631,15 @@ impl Lib {
                 }
             }
 
+            // A HAND-ROLLED UNIT'S PACKS, before the tree placement, in the
+            // same order a recipe's ingredients come after its crafting time:
+            // what the technology COSTS is its own field, and where it sits
+            // is the world's answer.
+            if let Some(unit) = &t.spec.unit {
+                rt.packs = resolve_packs(w, &mut res, &t.name, &unit.packs);
+                rt.no_packs = rt.packs.is_empty();
+            }
+
             if let Some(by) = &t.spec.cost_by {
                 let setting = &self.settings[by.setting.index - 1];
                 let chosen = res.read_dropdown(w, setting, prefix);
@@ -654,11 +680,17 @@ impl Lib {
                     break;
                 }
                 if source.is_empty() {
-                    rt.unit = Some(unit_value(&by.fallback));
                     res.logs.push(format!(
                         "fkrecipes: {}: no source for the {} cost carries a unit, so the fallback cost applies and the technology has no prerequisite",
                         t.name, chosen
                     ));
+                    // THE FALLBACK IS RESOLVED ONLY HERE, which is the whole
+                    // point of doing it at resolution: a fallback nobody
+                    // reaches asks the game nothing and so can refuse
+                    // nothing.
+                    let packs = resolve_packs(w, &mut res, &t.name, &by.fallback.packs);
+                    rt.no_packs = packs.is_empty();
+                    rt.unit = Some(unit_value(by.fallback.count, by.fallback.seconds, &packs));
                 } else {
                     // THE PREREQUISITE MOVES WITH THE UNIT.
                     rt.prereqs = vec![source];
@@ -777,6 +809,27 @@ impl Lib {
         Ok(())
     }
 
+    /// A unit with no science pack left is refused, in declaration order.
+    ///
+    /// THIS IS THE ONE PLACE A DROP BECOMES A REFUSAL. An ingredient that
+    /// drops leaves a cheaper recipe, which is a game somebody can still
+    /// play; a research unit with no packs at all is a technology the player
+    /// cannot pay for, and the engine takes it (measured only as far as the
+    /// load, so this library does not find out what it does in a game). The
+    /// author is told by name instead.
+    fn check_resolved_packs(&self, res: &Resolution) -> Result<(), String> {
+        for (i, rt) in res.techs.iter().enumerate() {
+            if !rt.no_packs {
+                continue;
+            }
+            return Err(format!(
+                "fkrecipes: the technology {} has no science pack the game has; research takes at least one",
+                self.techs[i].name
+            ));
+        }
+        Ok(())
+    }
+
     /// Marks the recipes some technology unlocks. Those are emitted disabled,
     /// because the research is what turns them on.
     fn unlocked_recipes(&self) -> Vec<bool> {
@@ -792,7 +845,10 @@ impl Lib {
 
 pub(crate) struct ResolvedIngredient {
     pub(crate) name: String,
-    pub(crate) amount: i64,
+    /// Carries the KIND as well as the number: an ingredient's `type` field is
+    /// decided here and nowhere else, so a fluid cannot reach the prototype
+    /// as an item by being read through the wrong branch downstream.
+    pub(crate) amount: Amount,
 }
 
 /// One planned rewrite of another technology's prerequisite list. A second
@@ -814,6 +870,22 @@ pub(crate) struct ResolvedTech {
     pub(crate) on: bool,
     /// A 1-based index into `Resolution::rewrites`; zero is none.
     pub(crate) rewrite: usize,
+    /// The science packs a hand-rolled `Unit` resolved to, drops removed. A
+    /// CostBy technology keeps its whole unit in `unit` instead, fallback
+    /// included.
+    pub(crate) packs: Vec<ResolvedPack>,
+    /// Set when a unit this plan rolled ITSELF (a declared `Unit`, or a
+    /// `CostChoices` fallback that was actually reached) ended up with no
+    /// science pack the game has. Carried rather than refused on the spot,
+    /// because resolution answers questions and `plan_data` is where a plan
+    /// is refused.
+    pub(crate) no_packs: bool,
+}
+
+/// One science pack a ladder settled on.
+pub(crate) struct ResolvedPack {
+    pub(crate) name: String,
+    pub(crate) amount: i64,
 }
 
 /// What a bound recipe's energy_required resolved to, and which setting
@@ -928,10 +1000,15 @@ fn recipe_proto(
     // generalised from one to the other.
     let mut items = Vec::with_capacity(ings.len());
     for ing in ings {
+        let typ = if ing.amount.is_fluid() {
+            "fluid"
+        } else {
+            "item"
+        };
         items.push(Value::Map(vec![
-            kv("type", Value::string("item")),
+            kv("type", Value::string(typ)),
             kv("name", Value::Str(ing.name.clone())),
-            kv("amount", Value::Num(ing.amount as f64)),
+            kv("amount", Value::Num(ing.amount.value())),
         ]));
     }
     pairs.push(kv("ingredients", Value::Arr(items)));
@@ -1039,21 +1116,10 @@ fn tech_unit(w: &dyn World, t: &TechDecl, rt: &ResolvedTech) -> Value {
     }
     match &t.spec.unit {
         // Technology unit ingredients are the SHORT TUPLE form. The dict form
-        // is refused here by the engine.
-        Some(unit) => {
-            let mut packs = Vec::with_capacity(unit.packs.len());
-            for p in &unit.packs {
-                packs.push(Value::Arr(vec![
-                    Value::string(&p.name),
-                    Value::Num(p.amount as f64),
-                ]));
-            }
-            Value::Map(vec![
-                kv("count", Value::Num(unit.count as f64)),
-                kv("time", Value::Num(unit.seconds)),
-                kv("ingredients", Value::Arr(packs)),
-            ])
-        }
+        // is refused here by the engine. The packs are the RESOLVED ones:
+        // resolution walked each ladder, and a pack the game does not have is
+        // already gone with its log line behind it.
+        Some(unit) => unit_value(unit.count, unit.seconds, &rt.packs),
         // Verbatim, whatever it holds: a count_formula is a string and
         // copying one needs no evaluator, so multi-level and infinite
         // technologies come along for free. Validation proved the unit is
@@ -1094,19 +1160,82 @@ pub(crate) fn holds_dropped_subtree(v: &Value) -> bool {
 }
 
 impl Lib {
-    fn validate_ingredients(&self, at: &str, who: &str, ings: &[Ingredient]) -> Result<(), String> {
+    /// The category comes along because one of these rules is about the
+    /// RECIPE rather than the ingredient: a fluid in the crafting category is
+    /// a load failure the engine reports in its own words, and this refuses
+    /// it first, by name, before anything is emitted.
+    fn validate_ingredients(
+        &self,
+        at: &str,
+        who: &str,
+        category: &str,
+        ings: &[Ingredient],
+    ) -> Result<(), String> {
         for ing in ings {
-            if ing.amount < 1 {
+            // THE NAME BEFORE THE NUMBERS, and before the category, which is
+            // the one ordering that makes the sentences below safe: each of
+            // them names the ladder's first candidate, and a first candidate
+            // that is the empty string would leave a hole in the middle of a
+            // refusal. A rung that can never resolve is the empty pack rung's
+            // mistake with one word changed, and it gets the same answer.
+            if ing.candidates.iter().any(|c| c.is_empty()) {
                 return Err(format!(
-                    "{}{} has an ingredient amount below 1, which the engine refuses",
+                    "{}{} names an ingredient with an empty name",
                     at, who
                 ));
             }
-            if ing.amount > MAX_EXACT_INT {
-                return Err(format!(
-                    "{}{} declares an ingredient amount a Lua double cannot hold exactly: {}",
-                    at, who, ing.amount
-                ));
+            match ing.amount {
+                Amount::Item(n) => {
+                    if n < 1 {
+                        return Err(format!(
+                            "{}{} has an ingredient amount below 1, which the engine refuses",
+                            at, who
+                        ));
+                    }
+                    if n > MAX_EXACT_INT {
+                        return Err(format!(
+                            "{}{} declares an ingredient amount a Lua double cannot hold exactly: {}",
+                            at, who, n
+                        ));
+                    }
+                }
+                Amount::Fluid(v) => {
+                    if !finite(v) {
+                        return Err(format!(
+                            "{}{} declares a fluid amount that is not a finite number",
+                            at, who
+                        ));
+                    }
+                    if v <= 0.0 {
+                        return Err(format!(
+                            "{}{} has a fluid amount at or below zero, which the engine refuses",
+                            at, who
+                        ));
+                    }
+                    if takes_items_only(category) {
+                        return Err(format!(
+                            "{}{} takes the fluid {}, and a recipe in the crafting category takes items only",
+                            at,
+                            who,
+                            first_candidate(ing)
+                        ));
+                    }
+                    // THE CEILING IS THE PLAYER-TYPED PATH'S CEILING, asked
+                    // of the author's own declaration for the same measured
+                    // reason: above it the engine does not refuse the load,
+                    // it aborts inside FixedPointNumber and hands the player
+                    // the crash handler. The category question comes first
+                    // because a fluid the recipe cannot take at all is the
+                    // larger mistake, whatever its amount.
+                    if v > MAX_FLUID_AMOUNT {
+                        return Err(format!(
+                            "{}{} takes the fluid {} at an amount above 1e301, which the game cannot hold",
+                            at,
+                            who,
+                            first_candidate(ing)
+                        ));
+                    }
+                }
             }
             if ing.candidates.is_empty() && !self.valid_item(ing.item) {
                 return Err(format!(
@@ -1118,16 +1247,23 @@ impl Lib {
         Ok(())
     }
 
-    fn validate_unit(
-        &self,
-        at: &str,
-        w: &dyn World,
-        name: &str,
-        u: &UnitSpec,
-    ) -> Result<(), String> {
+    fn validate_unit(&self, at: &str, name: &str, u: &UnitSpec) -> Result<(), String> {
         if u.count < 1 {
             return Err(format!(
                 "{}the technology {} has a unit count below 1, which the engine refuses",
+                at, name
+            ));
+        }
+        // A UNIT THAT NAMED NO PACK AT ALL is refused here, before any world
+        // question, and that placement is the whole point: the sentence about
+        // packs the game does not have is reserved for a list that named some
+        // and lost them all, so an author who simply forgot to price the
+        // research is told THAT rather than being told the game is missing
+        // something. It sits behind the count check so a fallback with a
+        // count of zero still hears about the count.
+        if u.packs.is_empty() {
+            return Err(format!(
+                "{}the technology {} declares no science pack; research takes at least one",
                 at, name
             ));
         }
@@ -1162,18 +1298,19 @@ impl Lib {
                     at, name, p.amount
                 ));
             }
-            if p.name.is_empty() {
+            // EVERY RUNG, not just the first: an empty name in a fallback is
+            // a rung that can never resolve and would silently shorten the
+            // ladder the author wrote.
+            if p.name.is_empty() || p.fallbacks.iter().any(|f| f.is_empty()) {
                 return Err(format!(
                     "{}the technology {} prices itself in a pack with an empty name",
                     at, name
                 ));
             }
-            if !w.item_exists(&p.name) {
-                return Err(format!(
-                    "{}the technology {} prices itself in {}, which does not exist",
-                    at, name, p.name
-                ));
-            }
+            // WHETHER THE GAME HAS THE PACK IS NOT ASKED HERE. It is a ladder
+            // now, and a ladder is walked at resolution, where a pack the
+            // game does not have is dropped with a log line the way an
+            // ingredient is.
         }
         Ok(())
     }
@@ -1265,7 +1402,15 @@ impl Lib {
             }
             let mut picked: Option<String> = None;
             for c in &ing.candidates {
-                if w.item_exists(c) {
+                // Items and fluids are separate namespaces, so the ladder
+                // asks the question its own kind answers. A fluid rung found
+                // among the items would be a name the recipe cannot use.
+                let present = if ing.is_fluid() {
+                    w.fluid_exists(c)
+                } else {
+                    w.item_exists(c)
+                };
+                if present {
                     picked = Some(c.clone());
                     break;
                 }
@@ -1286,10 +1431,66 @@ impl Lib {
     }
 }
 
-/// A hand-rolled cost as the engine wants it.
-fn unit_value(u: &UnitSpec) -> Value {
-    let packs: Vec<Value> = u
-        .packs
+/// Walks every pack's ladder and reports what the game actually has.
+///
+/// A PACK IS DROPPED, NOT REFUSED, exactly as an ingredient is, and the log
+/// line is the ingredient's line with one word changed: the author who wrote
+/// a ladder asked for tolerance, and a modpack that renamed the science packs
+/// is the case the ladder is for. The unit that ends up with nothing is
+/// refused later, by name, because that one cannot be researched at all.
+///
+/// THROUGH `tool_exists`, NEVER `item_exists`: the engine takes tool-type
+/// items in a research unit and nothing else (measured: "Invalid research
+/// unit (iron-plate). Research unit(s) can only be tool type items at the
+/// moment."), so a rung that is an item but not a tool is not a rung.
+fn resolve_packs(
+    w: &dyn World,
+    res: &mut Resolution,
+    tech: &str,
+    packs: &[Pack],
+) -> Vec<ResolvedPack> {
+    let mut list = Vec::with_capacity(packs.len());
+    for p in packs {
+        let mut picked: Option<String> = None;
+        if w.tool_exists(&p.name) {
+            picked = Some(p.name.clone());
+        } else {
+            for f in &p.fallbacks {
+                if w.tool_exists(f) {
+                    picked = Some(f.clone());
+                    break;
+                }
+            }
+        }
+        match picked {
+            Some(name) => list.push(ResolvedPack {
+                name,
+                amount: p.amount,
+            }),
+            None => res.logs.push(format!(
+                "fkrecipes: {}: none of {} is present, so the science pack is dropped",
+                tech,
+                pack_ladder(p)
+            )),
+        }
+    }
+    list
+}
+
+/// A pack's rungs as the drop line names them, first choice first.
+fn pack_ladder(p: &Pack) -> String {
+    let mut out = p.name.clone();
+    for f in &p.fallbacks {
+        out.push_str(", ");
+        out.push_str(f);
+    }
+    out
+}
+
+/// A hand-rolled cost as the engine wants it, built from the packs the game
+/// answered for rather than from the ones the author wrote.
+fn unit_value(count: i64, seconds: f64, packs: &[ResolvedPack]) -> Value {
+    let ings: Vec<Value> = packs
         .iter()
         .map(|p| {
             Value::Arr(vec![
@@ -1299,9 +1500,9 @@ fn unit_value(u: &UnitSpec) -> Value {
         })
         .collect();
     Value::Map(vec![
-        kv("count", Value::Num(u.count as f64)),
-        kv("time", Value::Num(u.seconds)),
-        kv("ingredients", Value::Arr(packs)),
+        kv("count", Value::Num(count as f64)),
+        kv("time", Value::Num(seconds)),
+        kv("ingredients", Value::Arr(ings)),
     ])
 }
 
@@ -1373,4 +1574,28 @@ fn check_extra(at: &str, who: &str, extra: &[(String, Value)], own: &[&str]) -> 
         }
     }
     Ok(())
+}
+
+/// Whether a recipe in this category takes items and nothing else. An empty
+/// category is the engine's own default, which IS `crafting` (measured: a
+/// fluid ingredient with no category refuses with "Recipe is in 'crafting'
+/// category but has a non-item ingredient 'water' (fluid)."), so the two
+/// spellings are one answer.
+///
+/// ONE PREDICATE FOR TWO CALLERS: the recipe validation asks it of the
+/// author's declaration and the ingredient list asks it of the player's, and
+/// a rule spelled twice is a rule that can drift in one place.
+pub(crate) fn takes_items_only(category: &str) -> bool {
+    category.is_empty() || category == "crafting"
+}
+
+/// The name a refusal about a laddered ingredient quotes: the author's first
+/// choice, which is the one they wrote the declaration for. Validation runs
+/// before resolution, so which rung the game actually has is not known yet
+/// and cannot be what the sentence names.
+fn first_candidate(ing: &Ingredient) -> String {
+    match ing.candidates.first() {
+        Some(name) => name.clone(),
+        None => String::new(),
+    }
 }

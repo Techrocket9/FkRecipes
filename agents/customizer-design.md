@@ -1,0 +1,193 @@
+# The customizer round: an ingredient list the player edits
+
+Status: DESIGN RESOLVED 2026-09-07, implementation in progress. This note is the design record for the round that closes the requirements gap between the charter as resolved (FkLua `agents/drafts/recipes-library-design.md`, 2026-08-31) and the library's stated value: a recipe customizer in the Mod Settings screen that lets a player override the ingredients and cost of any recipe or research the mod author enables it for. The charter's settings layer bound three things: enablement to a bool, crafting time to a double, and (through BetterBeltBalancer's port) ingredients and cost to a dropdown over author-written presets. Nothing in it let a player write an ingredient list. This round adds that, as a text setting holding a small language, and keeps every existing shape working.
+
+The player-facing reference for the language is [docs/ingredient-list.md](../docs/ingredient-list.md). This note holds what that page must not: the measurements, the alternatives, the surface, the semantics the two halves must agree on, the harness, and the fold-in of BetterBeltBalancer's round-two friction.
+
+## Decisions
+
+1. **A mini language in one text setting per recipe**, not per-ingredient slot settings. The settings screen is a flat list per mod with no groups or conditional visibility (wiki, Tutorial:Mod_settings), so slots cost 2K+1 rows per recipe; one text field costs one row and can be validated with sentences the slots cannot give ("names two ingredients; a comma separates them").
+2. **Refusal, never fallback, for an edited text.** A typed unknown name stops the load naming the setting, the entry and the problem, and suggests the case-folded or dash-folded name when that exists. A silent substitute would hide the player's typo. An UNTOUCHED text (equal to the declared default after trimming) means the author's default with its presence ladders, so modpack tolerance is unchanged for players who never type.
+3. **Research cost is in scope** with the same language for the pack list plus an int setting for the count and a double for the seconds.
+4. **Presets stay.** A dropdown of presets gains a `custom` value and the text applies only then. This is also the migration path from a dropdown a mod already ships: the dropdown keeps its legacy name and values, so every stored preference stays valid, and the customizer arrives beside it. Automatic pre-population of the text from the old choice is IMPOSSIBLE in the engine: the settings stage sees no stored values (measured, empty `data.raw`), nothing at the data stage can write a setting, and `settings.startup` is read only at the control stage (FkLua's abi note). What the library can do instead: compose the dropdown's description with each preset rendered in the language, so the player switching to `custom` can start from the preset they were on.
+5. **Fluids** become expressible, both typed by a player and declared by an author (`FluidIngredient`), because a customizer that refuses `water` in a chemistry recipe is not a customizer. The engine's category rule (below) is enforced by the library with a sentence.
+6. **The `World` interface grows additively from now on.** Round two of the pilot found that adding `EntityExists` broke every consumer's host fixture. Go gets `UnimplementedWorld`, a struct a fixture embeds whose methods panic naming the missing method; Rust gets default trait methods that panic the same way. New methods land there first and a fixture compiles until it actually needs them.
+
+## Measured on Factorio 2.0.77 (build 84539, mac-arm64, steam), 2026-09-07
+
+Every fact below came from a Lua-only probe mod run under `factorio -c CFG --mod-directory MODS --dump-data`, CFG a copy of the install's config.ini with `write-data` pointed at a private directory, MODS holding `fkrecipes-probe_0.0.1/{info.json,settings.lua,data.lua}` and a mod-list.json enabling base and the probe and disabling space-age, quality and elevated-rails. A refusal is the first `Error` line of the run's stdout; a success is exit 0 plus a written `script-output/data-raw-dump.json`. The probe bodies are one `data:extend` each, using `item(name)` = `{type="item", name=name, icon="__base__/graphics/icons/iron-plate.png", stack_size=10}`, `recipe(name, ingredients, category)` with `results={{type="item", name="iron-plate", amount=1}}`, and `tech(name, unit)` with the automation-1 icon at size 256.
+
+| Question | Probe | Answer |
+|---|---|---|
+| What can the settings stage see? | settings.lua logs the sorted keys of `data.raw` and `data.raw.item` | no keys at all; `item` and `recipe` are nil. No picker over the game's items can exist |
+| Do setting prototypes take inline names? | string-setting with `allow_blank`, `auto_trim`, `localised_name={"", "Ingredient 1 of ", {"item-name.iron-gear-wheel"}}` and a composed `localised_description` | accepted; all four fields survive into `mod-settings-dump.json` verbatim |
+| Are setting prototypes readable at the data stage? | `data.raw["string-setting"]` in data.lua | nil (indexing it is a Lua error); the plan must carry the declarations |
+| Prototype name charset | `item("a.b")`, `"a b"`, `"a:b"`, `"a,b"`, `"a/b"`, `"a*b"`, `"[a]"`, `"ä"` | each: `Invalid prototype name. Only characters A-Z a-z 0-9 _- are allowed.` |
+| Name length | `item(string.rep("a", 201))`; 200 | 201: `Name field is too large. Max allowed size is: 200.`; 200 loads |
+| Odd but legal names | `item("42")`, `item("x")`, `item("none")` | all load, which is why the language has a tag form |
+| Item amount floor | recipe ingredient `amount=0` | `Item ingredient can't have count of 0.` |
+| Item amount ceiling | `amount=65536`; `65535` | `Value (65536) outside of range. The data type allows values from 0 to 65535`; 65535 loads |
+| Fractional item amount | `amount=1.5`; `amount=3.0` | 1.5 LOADS and is dumped as 1.5; 3.0 is dumped as 3. The library refuses fractions on items by its own rule, since the engine's runtime meaning of 1.5 items is not something to ship a player |
+| Fluid amount | `{type="fluid", name="water", amount=0}`; `0.5`; `1000000000` (category crafting-with-fluid) | 0: `amount must be larger than 0`; 0.5 and 1000000000 load and dump as written |
+| Fluid in the default category | fluid ingredient with no `category` | `Recipe is in 'crafting' category but has a non-item ingredient 'water' (fluid).` |
+| Fluid in other categories | `advanced-crafting`, `basic-crafting`, `smelting`, `crafting-with-fluid`, `chemistry` | each loads |
+| Duplicate ingredient | iron-plate twice in one recipe | `Duplicate item ingredients are not allowed (iron-plate exists 2 or more times).` |
+| Empty ingredient list | `ingredients={}` | loads, dumped as `{}` |
+| Research pack type | `unit.ingredients={{"iron-plate", 1}}` | `Invalid research unit (iron-plate). Research unit(s) can only be tool type items at the moment.` |
+| Fluid name in a unit | `{{"water", 1}}` | `Error in assignID: item with name 'water' does not exist.` |
+| Pack amount floor and ceiling | `{{"automation-science-pack", 0}}`; 65535 | 0: `ResearchIngredient's amount must not be 0`; 65535 loads |
+| Unit time | `time=0`; `time=0.5` | 0: `time must be positive.`; 0.5 loads |
+| Empty unit | `unit={count=10, time=5, ingredients={}}` | loads. The library still refuses `none` for packs: whether such a research completes in a game was not measured, and a headless probe cannot |
+| Long text default | string-setting `default_value` of 2401 characters | accepted; the data stage reads back length 2401 |
+
+The `mod-settings.dat` round trip, which is what lets a gate flip a text setting headlessly:
+
+| Question | Probe | Answer |
+|---|---|---|
+| File layout | decoded the install's own file with a 40-line reader | version as four u16 plus one u8; then a property tree: every node is a type byte (1 bool, 2 double, 3 string, 5 dictionary, 6 signed 64-bit) plus an any-type byte; a string is an empty flag byte then a space-optimised length (u8, or 255 then u32) then bytes; a dictionary is a u32 count then (string key, node) pairs. Root keys `startup`, `runtime-global`, `runtime-per-user`; each setting is a dictionary holding `value`. The reader consumed exactly 196 of 196 bytes |
+| Does the engine read a written file? | encoded values and ran `--dump-data` | yes, from `MODS/mod-settings.dat`, and it REWRITES the file after the run with the values it settled on |
+| Is a stored text trimmed? | `"  3 iron-plate , 0.5 [fluid=water]  "` on a setting with `auto_trim=true` | read back VERBATIM with both space runs. `auto_trim` is a GUI behaviour; the parser trims for itself |
+| A blank stored text | `"   "` on `allow_blank=true`; `""` on a setting without `allow_blank` | spaces survive as spaces; the empty one is reset to the default |
+| A stored dropdown value outside `allowed_values` | `"bogus"` | reset to the default before any stage runs (confirms the pilot's measurement) |
+| A stored number outside the range | int 70000 above `maximum_value=65535`; double 0.1 below `minimum_value=0.5` | both reset to the default, not clamped |
+| Number encodings | the int written as type 6 and as type 2 | both read as the same number |
+| Unknown keys and non-ASCII | a value under a name no mod declares; `"unicode ✓ café"` | ignored; survives byte for byte |
+
+## The language, and why it looks this way
+
+The reference is docs/ingredient-list.md. The choices:
+
+- **Amount first, then name, commas between entries.** It reads like a recipe card, needs no operator, and a missing amount means 1. The forms a Factorio player types from habit (`2x iron-plate`, `iron-plate x2`, `iron-plate*2`, `iron-plate 2`) are accepted because they are unambiguous: a number never looks like a name (a digits-only name is reachable only through its tag), and `x` is an operator only when it stands alone or is glued to a number. `*` and `×` cannot appear in a name and always split.
+- **No `:` or `=` amount separators.** They collide with the rich-text tag and with any future `key=value` clause. A player who types `iron-plate:2` gets a sentence quoting the character and showing the canonical form.
+- **The game's own rich text is the tag form.** `[item=name]` and `[fluid=name]` are what shift-clicking produces in a text field, they disambiguate an item from a fluid of the same name, and they reach names that look like amounts. A `,quality=` parameter is refused with the plain form to write instead.
+- **`none` is the explicit empty list**, so a free recipe is something a player says on purpose. An empty text is refused with the format to write. Research refuses `none`.
+- **Fluid before item is never guessed.** Untagged names resolve item types first (the 21 `defines.prototypes.item` types the library already probes), then `fluid`. Packs resolve `tool` only, and an item that is not a tool gets its own sentence, because that is the engine's rule and its own message does not name the setting.
+- **Every message quotes the entry as typed and numbers it from 1.** Character offsets are fragile across UTF-8 handling in two languages; an entry number plus the quoted text is exact and stable.
+- **Entry diagnosis order is fixed** so both halves say the same thing for a malformed entry: a character outside the syntax (first one, quoted) or a minus-number, then no name, then two amounts, then two names, then more than one sign, then a sign with no amount, then a sign not between amount and name, then an amount of zero, then resolution, then the kind rules (a fluid in the crafting category, a fraction on an item, the item ceiling, the fluid ceiling), then duplicates across entries (first pair in order: the second occurrence with the lowest index, paired with its earliest partner). Across the whole list, the bracket-aware comma split runs first, the last entry is dropped when it is empty and more than one came back (that is the tolerated trailing comma), then every empty entry is reported positionally BEFORE the `none` rule, so `none, , 2 iron-plate` and `none,,` both report entry 2 empty and `none,` is the empty list. In a pack list a `[fluid=...]` tag is looked up as a fluid whatever the name is: an existing fluid is refused as a fluid, anything else is "no fluid is named", and it never resolves to a pack. The corpus pins each of these because the two implementers, aligning to each other's intermediate trees, first landed on opposite answers.
+- **Rendering is the inverse.** The declared default and the log line render as `<amount> <name>` joined by `, `; fluids as `<amount> [fluid=<name>]`; an item whose plain name would not lex back as one plain name (an amount shape, a sign shape, the words `none` and `default`) in its `[item=...]` tag; integers plain; fluid amounts as the fewest significant digits that read back to the same double, never in exponent form. Rendering then parsing a rendered list is an identity, and both suites test it as a property over their fixtures.
+- **The decimal rule, because the obvious one was wrong twice.** Go's shortest-round-trip printer and Rust's `Display` break the last digit differently on exact ties (the transcript formatter met this first; the code review of this commit found it again in the renderer, with 129 divergences in 204,105 doubles, the smallest at 1.0000076293945312). The renderer therefore does not use either. For p from 0 to 16 it formats v in scientific form with p digits after the leading digit, correctly rounded at that fixed precision (Go `strconv.FormatFloat(v, 'e', p, 64)`, Rust `format!("{:.*e}", p, v)`; both are exact at a fixed precision, which the transcript formatter already relies on at p = 16), takes the mantissa digits D and the exponent, and considers the three candidates D minus one in the last digit, D, D plus one (only those that need no borrow or carry). A candidate qualifies when its scientific form parses back to exactly v. None qualifying: next p. Otherwise, in ascending order, the first qualifying candidate whose last digit is even; if none is even, D when it qualifies, else the first qualifying one. That makes the choice independent of how either platform rounds an exact tie. The chosen digits are then laid out in fixed notation from the exponent, with no trailing zeros in a fraction and no dot when the fraction is empty. The same routine renders the seconds in the research log line. The corpus pins two exact ties (1.00000762939453125 and 1059438285926254.25) beside the ordinary values.
+- **Two lexical corrections from the same review.** The thousands shape requires a nonzero integer part (`^[0-9]*[1-9][0-9]*\.000$`), so `0.000` is an amount of zero and gets the "more than 0" sentence rather than advice about a thousand. A sign in front of an exponent number (`-1e3`) is "is not an amount" like `-2` and `1e3`, not a name. And the order of the trailing comma against the bracket rule: split on commas outside brackets FIRST, then drop the last entry when it is empty and more than one came back; a comma at the end of an unclosed tag therefore stays inside the tag and is quoted back (`[item=iron-plate,` is one entry).
+
+## Surface (Go; Rust mirrors in snake_case)
+
+```go
+// Settings. The default is rendered into the setting's default text.
+func (l *Lib) IngredientsSetting(name string, def []Ingredient) IngredientsSettingRef
+func (l *Lib) LegacyIngredientsSetting(fullName string, def []Ingredient, order string) IngredientsSettingRef
+func (l *Lib) PacksSetting(name string, def []Pack) PacksSettingRef
+func (l *Lib) LegacyPacksSetting(fullName string, def []Pack, order string) PacksSettingRef
+
+// An author-declared fluid, with the same resolve-or-drop ladder as IngredientNamed.
+func FluidIngredient(amount float64, first string, fallbacks ...string) Ingredient
+
+// Binding.
+RecipeSpec.IngredientsFrom IngredientsSettingRef   // exclusive with Ingredients and IngredientsBy
+IngredientChoices.Custom   IngredientsSettingRef   // optional; the dropdown lists "custom", Choices do not
+TechSpec.CostFrom          *CustomCost             // exclusive with CostOf, Unit, CostBy; placed by After/Before/AfterTech
+CostChoices.Custom         *CustomCost             // optional; the dropdown lists "custom", Choices do not
+
+type CustomCost struct {
+	Packs    PacksSettingRef
+	Count    IntSettingRef    // its declared NumericSpec must have a minimum of at least 1
+	Seconds  DoubleSettingRef // its declared NumericSpec must have a minimum above 0
+	Position []string         // under CostChoices.Custom: the prerequisite ladder; under CostFrom: must be empty
+}
+
+// World grows two questions, and a fixture embeds UnimplementedWorld.
+FluidExists(name string) bool
+ToolExists(name string) bool
+type UnimplementedWorld struct{}
+```
+
+Rust: `ingredients_setting`, `legacy_ingredients_setting`, `packs_setting`, `legacy_packs_setting`, `Ingredient::fluid(amount, first, fallbacks)`, `RecipeSpec.ingredients_from: Option<IngredientsSettingRef>`, `IngredientChoices.custom: Option<IngredientsSettingRef>`, `TechSpec.cost_from: Option<CustomCost>`, `CostChoices.custom: Option<CustomCost>`, `CustomCost { packs, count, seconds, position: Vec<String> }`, `World::fluid_exists` and `World::tool_exists` as default methods that panic naming themselves. `Ingredient` carries a kind (item or fluid); fluid amounts are f64, item amounts stay i64.
+
+## Semantics both halves must share
+
+Plan time (host-testable, refused before any op):
+
+- The exclusivity rules above, with sentences naming the recipe or technology and the two fields.
+- A `Custom` arm requires the dropdown's values to contain `custom` exactly once and the `Choices` to cover every other value, in order, exactly once. A text setting is bound exactly once (one recipe or one technology); an unbound one is refused as a declaration mistake.
+- `CustomCost.Count` and `Seconds` bounds as above, checked on the DECLARED spec so the engine's own reset rule (out-of-range resets to the default) keeps every readable value legal.
+- A declared fluid ingredient in a recipe whose `Category` is empty or `crafting` is refused with the measured rule; a player-typed one is refused at the data stage with the same sentence.
+- The rendered default of every text setting parses back to the same list.
+- Handles validated as every handle is (zero, wrong Lib).
+
+Settings stage:
+
+- A text setting emits a `string-setting` with `default_value` = the rendered default, `auto_trim = true`, no `allowed_values`, no `allow_blank`, order from declaration order (or the legacy order), and no inline name or description: both come from the consumer's locale, and the checker treats the description as REQUIRED for a text setting because it is where the format is explained.
+- A dropdown that has a `Custom` arm emits `localised_description = {"", {"mod-setting-description.<full>"}, "\n<value>: <rendered list>", ...}` for each preset in choice order, so the player can see what each preset means in the language. The consumer's description key is therefore required too.
+
+Data stage:
+
+- The text is read through `StartupSetting`; unreadable takes the declared default with the existing log line; a non-string is refused (`<setting> is not text`).
+- Trimmed text equal to the rendered default: the author's declared list with its ladders, exactly the pre-existing path, and no log line.
+- Otherwise: parse and resolve per the reference, refuse on the first problem, else emit the list in the typed order and log one line: `fkrecipes: <emitted recipe name> takes its ingredients from <setting>: <canonical>`.
+- Under `IngredientChoices.Custom`: dropdown value `custom` selects the text path; any preset value selects that preset as today. A stored value that is none of the dropdown's values (unreachable through the engine, which resets it, but reachable through a hand-edited file) is REFUSED: `fkrecipes: <dropdown> holds "<value>", which is not one of its values`. This closes the pilot's "unknown option yields a free recipe with no log line".
+- Research under `Custom` or `CostFrom`: count and seconds always come from their settings; an untouched pack text means the declared default packs, presence-probed as `tool` and refused by name if absent; an edited one is parsed. The unit is `{count, time, ingredients={{name, amount}, ...}}` in the short tuple form. Under `CostChoices.Custom` the prerequisite is the first technology in `Position` that exists, or none with a log line, in the Fallback shape. The log line: `fkrecipes: <technology> takes its research cost from <packs setting>: count <n>, time <seconds>, packs <canonical>`.
+- A fluid ingredient emits `{type="fluid", name=<name>, amount=<f64>}`; an item keeps `{type="item", name, amount=<int>}`.
+
+## Harness
+
+- `testdata/ingredient-list/cases.txt` is the cross-language corpus: every case is an input between `|` and the exact canonical rendering or the exact refusal, against a fixture World stated in the file's header. Both suites read the file and run every case; a case that disagrees names itself. The corpus is the language's contract, and a message changed in one half without the corpus is a red suite.
+- Both suites also run the render-then-parse identity property over their fixtures, and a differential fuzz corpus of generated inputs is compared across the halves by the reviewers on scratchpad copies.
+- The mirror stand-in gains `data.raw.fluid` (water, steam), `data.raw.tool` (the science packs it names), and validation of the measured rules (fluid in `crafting`, duplicates, amount ranges, unit tool-only, unit time and count floors), so a regression in either half is a refusal in the transcript rather than a green line. Its settings table flips the new text settings to edited values. The transcript golden is re-recorded deliberately.
+- The in-game gate gains a FLIPPED row per engine: `go/internal/modsettings` writes `mod-settings.dat` from `testdata/ingame/flipped.json` (bool, i64, double, string), round-trip tested against its own reader with a committed byte golden; the script writes it into each packaged mod directory and runs each language once more; the golden line gains a `default`/`flipped` tag. Coverage rule: every path (an edited `IngredientsFrom`, a `custom` dropdown with an edited text, a `custom` dropdown with an untouched text, a typed fluid, a custom research cost with its position ladder) is exercised by at least one of the mirror and the flipped in-game row, and all of them by host tests.
+
+## The pilot's round-two friction, folded in
+
+| Finding | Answer in this round |
+|---|---|
+| `World` grew a method and broke every consumer's host stub | `UnimplementedWorld` / default methods, from now on |
+| the recipe and technology cannot migrate one at a time because `enabled` derives from same-plan unlocks and `Extra` refuses that key | `Extra` may carry `enabled` when no technology in the plan unlocks the recipe; refused as before when one does |
+| the place_result probe imposes statement ordering the docs call "beside" | the docs say what the probe needs: the entity exists by the time Emit runs |
+| the fallback's science pack is validated even when unreachable | the Fallback unit is probed only when it is used |
+| `max_level` inheritance | kept (charter Q8: the whole unit and the level cap travel together); migration.md names it as a behaviour to expect |
+| the `choiceFor` nil path yields a free recipe with no log line | refused with a sentence, see above |
+| the data plan sits at 83% of the Lua parser's measured limit in the pilot's build | measured again after this round with `fklua mod --report` on both examples and recorded in implementation-notes.md; the parser is written to keep the emitted Lua small, and the number is the round's headline cost |
+
+## The design review, and what it changed (2026-09-07)
+
+An adversarial review of the language design (not the code) ran after both halves had implemented the first specification. Its findings, with the decision on each. Where a decision below contradicts an earlier section of this note, the decision wins; the sections above are kept as the record of the first shape.
+
+| Finding | Decision |
+|---|---|
+| The engine stores EVERY setting's current value in mod-settings.dat, untouched defaults included (measured: a fresh install with no file gets a 117-byte file holding the default text). Under "untouched means equal to the rendered default", a mod that changes its default list turns every player who never opened the settings into an edited-text player: they keep the old balance forever, and in a modpack lacking a ladder's first rung their load REFUSES for a text they never typed | The text setting's default value is the reserved word `default`. `default` means the mod's declared list with its ladders, and keeps meaning that across releases. The declared list is written out in the setting's description instead. `default` joins `none` as a reserved word (an item so named needs its tag), and the rendering of "the mod's list" is the word itself |
+| `2 iron plates` (a display name) reads as two names and the message tells the player to add a comma, twice, and never mentions internal names. BetterBeltBalancer's own dropdown labels spell display names | Two or more names in one entry: if joining them with `-` (lowercased, `_` to `-`, optionally dropping a trailing `s`) names something the game has, "no item or fluid is named "iron plates"; did you mean iron-plate"; if every word names something, "names two ingredients; a comma separates them"; otherwise "... names are the game's internal names, such as iron-plate, and a comma separates two ingredients". migration.md tells authors that preset labels and the language must agree on vocabulary |
+| A localised string takes at most 20 parameters and 20 levels of nesting (measured: 21 parameters and depth 21 both refuse; two nested groups of 20 load). The composed description with 20 presets is a hard load failure naming nothing useful | The composition nests: the consumer's key, then one nested string per preset `{"", "\n", {"string-mod-setting.<setting>-<value>"}, ": <rendering>"}`, at most 19 of them at the top level; beyond 19 presets they are grouped 19 per nested level. The preset is labelled by its localised value, not its raw key |
+| `0,5 water` (a decimal comma) refuses entry 1 as "0" with advice that repeats what the player did; `1.000 iron-plate` silently becomes 1 | A bare amount followed by an entry that starts with a digit: "a comma separates two ingredients, not the digits of one number; write a dot for a fraction, as in "0.5 water"". Exactly three zeros after a dot: ""1.000" is not an amount here; a dot marks a fraction, and a thousand is written 1000" |
+| Invalid UTF-8 survives the file and the engine (measured); fkdata's Rust side decodes lossily and its Go side does not, so the two halves would quote different entries | Before anything else: a text that is not valid UTF-8 or contains U+FFFD is refused whole, "contains characters that are not text; retype the list". Both halves see the same refusal. The corpus gained `\xNN` and `\uNNNN` escapes to pin it |
+| A fluid amount above about 1.07e301 loads as far as the guest is concerned and then aborts the engine (measured: 1e301 loads, 1e302 is `FixedPointNumber.hpp:31: double value not in range for fixed point number: inf` followed by the crash handler) | Fluid amounts above 1e301 are refused: "the amount is too large; fluid amounts go up to 1e301". The old "overflows to infinity" rule is folded into it |
+| A mod whose dropdown already has a value literally named `custom` cannot take the arm without renaming it, which is the stored-preference loss the migration path exists to avoid | `IngredientChoices.CustomValue` and `CostChoices.CustomValue` (Rust `custom_value: String`), empty meaning `custom`; refused if it names a value the Choices cover |
+| Pasted invisible characters (no-break space, zero-width space, soft hyphen, BOM, ESC) are quoted as nothing or as a blank; tab, CR, LF and ESC all reach the guest (measured) | Whitespace is ASCII space, tab, CR, LF plus U+00A0, U+2007, U+202F and U+3000; U+FEFF, U+200B, U+200C and U+200D are stripped anywhere; any other character in the invisible set (U+0000 to U+001F, U+007F to U+009F, U+00AD, U+061C, U+180E, U+2000 to U+200F, U+2028 to U+202F, U+205F to U+206F, U+3000, U+FEFF, U+FFF9 to U+FFFB) is refused by code point: "an invisible character (U+00AD) has no place here; retype the entry rather than pasting it". The generic character message now says what characters are allowed instead of repeating "write the amount before the name" |
+| The rendered default showed a ladder's first rung, which a modpack may lack, so a good-faith edit of the text the field showed refused | Closed by the `default` word: the field never shows a name |
+| `x` between digits inside a name (`loader-1x1` and `1x2-remnants` exist in base 2.0.77, measured) was unspecified | The glued sign shapes apply to a whole piece only: `2x`, `x2`, `2x3` and their decimal forms; `loader-1x1` is a name. A whole entry that names something the game has but reads as an amount or a sign ("2x4", "X2", "42", "x") gets its own sentence: ""2x4" is a name that reads as an amount; write it in its tag, as [item=2x4]" |
+| The bracket-aware comma split was implied by one corpus case and stated nowhere | Stated in the reference and pinned with an unclosed tag containing a comma |
+| A `string-setting` with an empty default and no `allow_blank` is a hard load failure (measured); an empty declared list would have rendered as an empty default | Closed by the `default` word. An empty declared ingredient list is legal and reads as `none` in the description; an empty declared pack list is refused at plan time. The engine resets a stored empty or blank text to the default before any stage runs (measured), so "is empty" and "is not text" are unreachable through the engine and are kept as internal guards |
+| The render rule was a closed list of three shapes and `X2` fell outside it | Operational rule: render plain only when re-lexing the plain form yields exactly one plain name; the fixture gained `X2`, `2x4` and `loader-1x1` so the identity property has teeth |
+| Untouched packs refused where untouched ingredients drop, and `Pack` had no ladder | `Pack` gains `Fallbacks` (Go: a field; Rust: `Pack::named(amount, first, fallbacks)` beside `Pack::new`); a pack that resolves to nothing is dropped with a log line wherever a unit is built (`Unit`, `Fallback`, a `default` pack text), and a unit whose packs all drop is refused. This also answers the pilot's "fallback pack validated when unreachable": the Fallback is resolved only when used |
+| A stored value of 98,000 characters reaches the guest (measured) and would be quoted whole | A text longer than 2000 characters is refused before parsing: "is longer than 2000 characters; that is not an ingredient list" |
+| Two corpus messages had no row in the reference | Rows added |
+| The composed description named the raw dropdown value where the screen shows a localised label | See the composition rule above |
+| `+2` got the generic character message with wrong advice; `1e3` was told to add a comma | Both get "is not an amount; amounts are plain digits such as 2 or 0.5" |
+| The "did you mean" namespace for a tagged name was unpinned | Pinned: same kind only (`[item=Water]` suggests nothing) |
+| One text setting per recipe is a limit the pilot does not hit but the docs did not state | Stated in usage.md |
+
+Three orderings the revision left open, fixed here so the halves agree: the refusal of a unit whose packs all dropped (`fkrecipes: the technology <name> has no science pack the game has; research takes at least one`) runs after the resolved crafting-time checks and before the cycle walk, reporting the first technology in declaration order; a DECLARED pack list that is empty (a `Unit` or `Fallback` with no packs, or a packs setting declared with none) is refused at plan validation, before any world question and IMMEDIATELY after the count-below-1 check inside the unit validation (so a packless unit with a bad time gets the packs sentence, and a unit with a bad count keeps the count sentence), with `fkrecipes: the technology <name> declares no science pack; research takes at least one` (a packs setting: `fkrecipes: the packs setting <name> declares no science pack; research takes at least one`), so the "the game has" sentence is reserved for a list that named packs and lost them all; and a `Fallback` unit's numeric validation (count, seconds, amounts, empty rung names) stays eager because those are the author's numbers, while its world questions run only when the fallback is used. The drop line for a pack reads `fkrecipes: <technology>: none of <a>, <b> is present, so the science pack is dropped`.
+
+Growth decisions the review asked for: a future modifier (catalyst, ignored-by-productivity) is introduced by a sigil, never by a bare word; `-` is a name character and is not available as a range separator (a temperature range would use `..`); `*` stays a multiplication sign, so a research `count_formula` will never be typed in this language and gets a setting of its own if ever wanted. Every character those futures need refuses today, so growing into them cannot change the meaning of a text that parses now.
+
+Measured by the review on 2.0.77, beyond the tables above: a string setting's `auto_trim` leaves a stored value untouched (both space runs read back); a NUL byte truncates the stored value inside the engine and the truncation is persisted; a wrong-typed stored value (a double or a bool under a string setting) is reset to the default with `Failed to load mod mod setting (...): Value must be a string` and exit 0; a numeric setting whose default lies outside its own bounds refuses to load, which with the reset rule is what makes the `CustomCost` bound chain close; the fluid-in-`crafting` rule keys on the category NAME and not on hand-craftability (a fluid in a mod category added to `character.crafting_categories` loads); an item and a fluid of the same name in one recipe load (base carries `parameter-0` to `parameter-9` as both); `temperature`, `minimum_temperature`, `maximum_temperature` and `ignored_by_productivity` are accepted on ingredients; an undeclared setting key survives the engine's rewrite of the file, so removing and re-adding a mod keeps the player's old text.
+
+Claims that a headless probe cannot settle, carried as assumptions until a client run checks them: that `\n` renders as a line break in a setting's description tooltip; that a composed multi-line description is readable there; that the settings-screen text field has no length limit of its own; whether rich text renders as an icon inside that field; whether a research with no packs completes. The pilot's next round runs a client and is asked to look. The sentence claiming that shift-clicking an item inserts rich text into a settings text field was removed from the reference: startup settings are edited from the main menu, where no inventory exists.
+
+## Work plan
+
+Commits, each reviewed adversarially in both halves before landing and each red-proven:
+
+1. `language:` parser and renderer in both halves, `Ingredient` kinds and `FluidIngredient`, the corpus and its readers, docs/ingredient-list.md, this note.
+2. `customize:` the settings, the bindings, `World` growth with the embeddable stub, emit of fluids and custom units, the example guests, the stand-in, the mirror golden, usage.md and migration.md.
+3. `flip:` the dat writer, the flipped in-game row and its golden, CLAUDE.md gate rows.
+4. `consumer:` the round-two fold-in above.
+5. `report:` implementation-notes.md and the pilot's round-three prompt.
+
+File ownership per agent: the Go implementer owns `go/` except `go/internal/`; the Rust implementer owns `rust/`; the harness agent owns `scripts/`, `testdata/`, `go/internal/modsettings`; docs and this note are the orchestrator's. Nobody writes into FkLua or BetterBeltBalancer.

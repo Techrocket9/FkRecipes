@@ -49,6 +49,25 @@ type World interface {
 	// ItemExists answers the same question for ingredients and science packs.
 	ItemExists(name string) bool
 
+	// FluidExists answers it for a fluid ingredient, which is a SEPARATE
+	// namespace: data.raw.fluid is not reachable from the item family at all,
+	// so a name that is not an item may still be a fluid, and a name that is
+	// both is two different prototypes. An untagged name in an ingredient
+	// list is asked of ItemExists first and of this only then, which is the
+	// tie rule the reference states.
+	FluidExists(name string) bool
+
+	// ToolExists answers whether a name is a SCIENCE PACK. The engine takes
+	// tool-type items and nothing else in a research unit (measured: an item
+	// ingredient refuses with "Research unit(s) can only be tool type items at
+	// the moment"), so a pack list asks this rather than ItemExists, and an
+	// item that is not a tool gets a sentence of its own.
+	//
+	// It is also the question a declared Pack's ladder walks, so a fixture
+	// that names a science pack only in its items will see every hand-rolled
+	// research cost lose its packs.
+	ToolExists(name string) bool
+
 	// EntityExists answers it for ItemSpec.PlaceResult. The engine's failure
 	// for an item naming an entity that is not there is an assignID abort
 	// naming the item, so this probe is what turns that into a sentence
@@ -72,6 +91,90 @@ type Named interface {
 	// ModName is the packaged mod's name, the sole source of the prefix.
 	ModName() string
 }
+
+// UnimplementedWorld is the World a fixture EMBEDS. Every method panics
+// naming itself, so a fixture implements the questions its own test asks and
+// inherits a loud refusal for the rest:
+//
+//	type myWorld struct {
+//		fkrecipes.UnimplementedWorld
+//		items []string
+//	}
+//
+//	func (w *myWorld) ModName() string            { return "mymod" }
+//	func (w *myWorld) ItemExists(n string) bool   { ... }
+//
+// WHY IT EXISTS, measured by the pilot. This interface grew EntityExists in
+// round two and every consumer's host stub stopped compiling on the same day,
+// with a Go error naming a method they had never heard of rather than the
+// declaration that needed it. The interface will keep growing; embedding this
+// means a method added later costs a consumer nothing until a plan of theirs
+// actually asks the question, and then it costs them a panic that names the
+// method to write.
+//
+// IT PANICS RATHER THAN ANSWERING. A zero answer would be a fixture quietly
+// claiming the game has no items, which is a green test over a plan that
+// dropped every ingredient. The Rust mirror gets the same behaviour from
+// default trait methods.
+//
+// It is not for the emit layer, which answers every question for real.
+type UnimplementedWorld struct{}
+
+// The embed is only worth anything if it covers the whole interface, so the
+// compiler is asked. A method added to World above without an arm here is a
+// build failure in this file rather than in a consumer's fixture.
+var _ World = UnimplementedWorld{}
+
+// unimplemented is the one message, so all of them read alike.
+func unimplemented(method string) string {
+	return "fkrecipes: World." + method + " is not implemented by this fixture"
+}
+
+// ModName panics. A fixture that plans anything needs it, because the prefix
+// derives from it.
+func (UnimplementedWorld) ModName() string { panic(unimplemented("ModName")) }
+
+// StartupSetting panics.
+func (UnimplementedWorld) StartupSetting(name string) (Value, bool) {
+	panic(unimplemented("StartupSetting"))
+}
+
+// TechNames panics.
+func (UnimplementedWorld) TechNames() []string { panic(unimplemented("TechNames")) }
+
+// TechPrereqs panics.
+func (UnimplementedWorld) TechPrereqs(name string) []string { panic(unimplemented("TechPrereqs")) }
+
+// TechUnit panics.
+func (UnimplementedWorld) TechUnit(name string) (Value, bool) { panic(unimplemented("TechUnit")) }
+
+// TechMaxLevel panics.
+func (UnimplementedWorld) TechMaxLevel(name string) (Value, bool) {
+	panic(unimplemented("TechMaxLevel"))
+}
+
+// TechHasResearchTrigger panics.
+func (UnimplementedWorld) TechHasResearchTrigger(name string) bool {
+	panic(unimplemented("TechHasResearchTrigger"))
+}
+
+// TechExists panics.
+func (UnimplementedWorld) TechExists(name string) bool { panic(unimplemented("TechExists")) }
+
+// ItemExists panics.
+func (UnimplementedWorld) ItemExists(name string) bool { panic(unimplemented("ItemExists")) }
+
+// FluidExists panics.
+func (UnimplementedWorld) FluidExists(name string) bool { panic(unimplemented("FluidExists")) }
+
+// ToolExists panics.
+func (UnimplementedWorld) ToolExists(name string) bool { panic(unimplemented("ToolExists")) }
+
+// EntityExists panics.
+func (UnimplementedWorld) EntityExists(name string) bool { panic(unimplemented("EntityExists")) }
+
+// RecipeExists panics.
+func (UnimplementedWorld) RecipeExists(name string) bool { panic(unimplemented("RecipeExists")) }
 
 // StageKind is which of this library's two plans a stage calls for.
 //

@@ -90,6 +90,24 @@ pub(crate) fn finite(n: f64) -> bool {
 /// mirror carries the same constant.
 pub(crate) const MAX_EXACT_INT: i64 = 9007199254740992;
 
+/// The engine's ceiling for an ITEM ingredient's amount, inclusive.
+///
+/// MEASURED (Factorio 2.0.77, build 84539, mac-arm64, steam): a recipe
+/// ingredient with `amount = 65536` refuses the load with "Value (65536)
+/// outside of range. The data type allows values from 0 to 65535", and 65535
+/// loads. A fluid has no such ceiling: 1000000000 loads and dumps as written.
+pub(crate) const MAX_ITEM_AMOUNT: i64 = 65535;
+
+/// The engine's ceiling for a FLUID ingredient's amount, inclusive.
+///
+/// MEASURED (Factorio 2.0.77, build 84539, mac-arm64, steam): a fluid
+/// ingredient of 1e301 loads and dumps as written; 1e302 does not refuse the
+/// load, it aborts inside the engine with "FixedPointNumber.hpp:31: double
+/// value not in range for fixed point number: inf" and hands the player the
+/// crash handler. A ceiling one order below the first abort is the round
+/// number on the safe side of a measurement, and the refusal quotes it.
+pub(crate) const MAX_FLUID_AMOUNT: f64 = 1e301;
+
 /// The engine's exclusive floor for a recipe's `energy_required`. A value must
 /// be STRICTLY GREATER than this.
 ///

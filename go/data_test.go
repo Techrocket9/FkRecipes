@@ -477,11 +477,35 @@ func TestPlanDataRefusals(t *testing.T) {
 			want: "fkrecipes: the technology steel-axes has a unit count below 1, which the engine refuses",
 		},
 		{
-			name: "a science pack the game does not have",
+			// A pack the game lacks is DROPPED, not refused, so a unit that
+			// named only that one is a research with no cost at all. The engine
+			// loads such a unit, which is why this half will not emit one.
+			name: "a unit whose every science pack the game lacks",
 			build: func(l *Lib) {
 				l.Technology("steel-axes", TechSpec{Unit: &UnitSpec{Count: 50, Seconds: 15, Packs: []Pack{{Name: "military-science-pack", Amount: 1}}}})
 			},
-			want: "fkrecipes: the technology steel-axes prices itself in military-science-pack, which does not exist",
+			want: "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one",
+		},
+		{
+			// And with a ladder: every rung absent is the same refusal, and the
+			// sentence says nothing about which rungs were tried, because the
+			// log line already did.
+			name: "a unit whose pack ladder resolves nothing",
+			build: func(l *Lib) {
+				l.Technology("steel-axes", TechSpec{Unit: &UnitSpec{Count: 50, Seconds: 15,
+					Packs: []Pack{{Name: "military-science-pack", Amount: 1, Fallbacks: []string{"space-science-pack"}}}}})
+			},
+			want: "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one",
+		},
+		{
+			// An empty rung is a ladder that can never answer, and it would
+			// reach a log line with a hole in it.
+			name: "a pack ladder with an empty rung",
+			build: func(l *Lib) {
+				l.Technology("steel-axes", TechSpec{Unit: &UnitSpec{Count: 50, Seconds: 15,
+					Packs: []Pack{{Name: "automation-science-pack", Amount: 1, Fallbacks: []string{""}}}}})
+			},
+			want: "fkrecipes: the technology steel-axes prices itself in a pack with an empty name",
 		},
 		{
 			name: "CostOf names a technology that is not there",
@@ -752,6 +776,48 @@ func TestPlanDataRefusals(t *testing.T) {
 				l.Recipe(axe, RecipeSpec{Ingredients: []Ingredient{IngredientNamed(0, "steel-plate")}})
 			},
 			want: "fkrecipes: the recipe steel-axe has an ingredient amount below 1, which the engine refuses",
+		},
+		{
+			// A rung with no name is a ladder that can never answer, exactly
+			// as it is for a science pack: ItemExists("") is a question no
+			// World has a useful answer to, and the drop line the ingredient
+			// would otherwise reach reads "none of  is present".
+			name: "an ingredient ladder whose first rung has no name",
+			build: func(l *Lib) {
+				axe := l.Item("steel-axe", ItemSpec{})
+				l.Recipe(axe, RecipeSpec{Ingredients: []Ingredient{IngredientNamed(4, "")}})
+			},
+			want: "fkrecipes: the recipe steel-axe names an ingredient with an empty name",
+		},
+		{
+			// The FALLBACKS are held to the same rule, and they are the arm a
+			// check written against the first name alone would miss.
+			name: "an ingredient ladder whose fallback has no name",
+			build: func(l *Lib) {
+				axe := l.Item("steel-axe", ItemSpec{})
+				l.Recipe(axe, RecipeSpec{Ingredients: []Ingredient{IngredientNamed(4, "steel-plate", "")}})
+			},
+			want: "fkrecipes: the recipe steel-axe names an ingredient with an empty name",
+		},
+		{
+			// And inside a dropdown's plan, which is validated exactly like a
+			// fixed list: a preset nobody selects today is a refusal the day
+			// somebody does.
+			name: "an empty ingredient name inside a dropdown's plan",
+			build: func(l *Lib) {
+				axe := l.Item("steel-axe", ItemSpec{})
+				temper := l.DropdownSettingNeedingLocale("axe-temper", "hard", []string{"hard", "soft"})
+				l.Recipe(axe, RecipeSpec{
+					IngredientsBy: &IngredientChoices{
+						Setting: temper,
+						Choices: []IngredientChoice{
+							{Value: "hard", Ingredients: []Ingredient{IngredientNamed(4, "steel-plate")}},
+							{Value: "soft", Ingredients: []Ingredient{IngredientNamed(4, "", "iron-plate")}},
+						},
+					},
+				})
+			},
+			want: "fkrecipes: the recipe steel-axe names an ingredient with an empty name",
 		},
 		{
 			name: "a negative result count",

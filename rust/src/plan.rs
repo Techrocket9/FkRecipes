@@ -173,15 +173,51 @@ pub(crate) fn proto_name(legacy: bool, prefix: &str, name: &str) -> String {
     alloc::format!("{}{}", prefix, name)
 }
 
-/// One line of a recipe. It is built by [`Ingredient::of`] or
-/// [`Ingredient::named`] and cannot be built from a bare string any other
-/// way: an ingredient the game does not have is a hard load failure naming
-/// the consumer's mod, so a name reaches a prototype only after a presence
-/// probe.
+/// WHAT AN INGREDIENT IS MADE OF, and how much of it, in one value.
+///
+/// THE KIND AND THE AMOUNT ARE THE SAME FIELD, deliberately. The engine takes
+/// a whole count for an item and any positive double for a fluid (measured on
+/// 2.0.77: `amount = 1.5` on an item LOADS and dumps as 1.5, which is a
+/// runtime meaning no player asked for, while a fluid `amount = 0.5` is
+/// ordinary and `amount = 0` refuses with "amount must be larger than 0"). A
+/// kind flag beside two numbers has a state where the flag says item and the
+/// double says 0.5, and nothing in the type stops it; this way that state is
+/// unrepresentable and every reader branches once.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Amount {
+    /// An item count. The engine holds it in a u16, so 0 and 65536 are both
+    /// refusals; see [`MAX_ITEM_AMOUNT`](crate::value::MAX_ITEM_AMOUNT).
+    Item(i64),
+    /// A fluid amount, which may be fractional and has no ceiling but the
+    /// double's own.
+    Fluid(f64),
+}
+
+impl Amount {
+    /// Which of `data.raw`'s two ingredient families this amount belongs to.
+    pub(crate) fn is_fluid(&self) -> bool {
+        matches!(self, Amount::Fluid(_))
+    }
+
+    /// The number the prototype field carries. Factorio has one number type
+    /// and it is a double, so an item count rides here too.
+    pub(crate) fn value(&self) -> f64 {
+        match self {
+            Amount::Item(n) => *n as f64,
+            Amount::Fluid(v) => *v,
+        }
+    }
+}
+
+/// One line of a recipe. It is built by [`Ingredient::of`],
+/// [`Ingredient::named`] or [`Ingredient::fluid`] and cannot be built from a
+/// bare string any other way: an ingredient the game does not have is a hard
+/// load failure naming the consumer's mod, so a name reaches a prototype only
+/// after a presence probe.
 #[derive(Clone)]
 pub struct Ingredient {
     pub(crate) item: ItemRef,
-    pub(crate) amount: i64,
+    pub(crate) amount: Amount,
     pub(crate) candidates: Vec<String>,
 }
 
@@ -191,7 +227,7 @@ impl Ingredient {
     pub fn of(it: ItemRef, amount: i64) -> Ingredient {
         Ingredient {
             item: it,
-            amount,
+            amount: Amount::Item(amount),
             candidates: Vec::new(),
         }
     }
@@ -201,17 +237,47 @@ impl Ingredient {
     /// is DROPPED with a log line, never guessed at, because a wrong guess is
     /// somebody else's overhaul pack failing to load.
     pub fn named(amount: i64, first: &str, fallbacks: &[&str]) -> Ingredient {
-        let mut candidates = Vec::with_capacity(1 + fallbacks.len());
-        candidates.push(String::from(first));
-        for f in fallbacks {
-            candidates.push(String::from(*f));
-        }
         Ingredient {
             item: ItemRef::default(),
-            amount,
-            candidates,
+            amount: Amount::Item(amount),
+            candidates: candidate_list(first, fallbacks),
         }
     }
+
+    /// A FLUID, with the same ladder as [`Ingredient::named`] and one probe
+    /// of its own: presence is asked of `data.raw.fluid` rather than of the
+    /// item family, because the two are separate namespaces and a fluid found
+    /// among the items would be a name the recipe cannot use.
+    ///
+    /// The amount is a double because the engine's is. A recipe that takes a
+    /// fluid may not sit in the `crafting` category: the engine refuses that
+    /// combination by name (measured: "Recipe is in 'crafting' category but
+    /// has a non-item ingredient 'water' (fluid).") and so does this plan,
+    /// before anything is emitted.
+    pub fn fluid(amount: f64, first: &str, fallbacks: &[&str]) -> Ingredient {
+        Ingredient {
+            item: ItemRef::default(),
+            amount: Amount::Fluid(amount),
+            candidates: candidate_list(first, fallbacks),
+        }
+    }
+
+    /// Whether this line names a fluid, which decides both the presence probe
+    /// and the `type` field of the emitted ingredient.
+    pub(crate) fn is_fluid(&self) -> bool {
+        self.amount.is_fluid()
+    }
+}
+
+/// The ladder, in declaration order: the author's first choice, then the
+/// fallbacks as written.
+fn candidate_list(first: &str, fallbacks: &[&str]) -> Vec<String> {
+    let mut candidates = Vec::with_capacity(1 + fallbacks.len());
+    candidates.push(String::from(first));
+    for f in fallbacks {
+        candidates.push(String::from(*f));
+    }
+    candidates
 }
 
 /// One dropdown value and the ingredients it selects.
@@ -232,6 +298,15 @@ pub struct IngredientChoice {
 pub struct IngredientChoices {
     pub setting: DropdownSettingRef,
     pub choices: Vec<IngredientChoice>,
+    /// The dropdown value under which the player's own text applies. Empty
+    /// means `custom`.
+    ///
+    /// IT EXISTS FOR THE MOD THAT ALREADY SHIPS A PRESET CALLED `custom`.
+    /// Renaming that preset would reset every player who had chosen it, which
+    /// is the stored-preference loss the migration path exists to avoid, so
+    /// the arm moves instead of the preset. The binding commit gives this
+    /// field its meaning; nothing reads it yet.
+    pub custom_value: String,
 }
 
 /// One dropdown value and the technologies whose cost it selects, in ladder
@@ -258,6 +333,9 @@ pub struct CostChoices {
     pub setting: DropdownSettingRef,
     pub choices: Vec<CostChoice>,
     pub fallback: UnitSpec,
+    /// The dropdown value under which the player's own pack text applies.
+    /// Empty means `custom`; see [`IngredientChoices::custom_value`].
+    pub custom_value: String,
 }
 
 /// A generated recipe prototype.
@@ -326,11 +404,47 @@ impl RecipeDecl {
     }
 }
 
-/// One science pack of a hand-rolled research cost.
+/// One science pack of a hand-rolled research cost, with the same presence
+/// ladder an ingredient carries.
+///
+/// A PACK IS DROPPED, NOT REFUSED, when the game has none of its rungs: an
+/// untouched pack list in a modpack that renamed the packs used to be a hard
+/// load failure while an untouched ingredient list degraded quietly, and the
+/// two are the same promise to the same author. A unit whose packs ALL drop
+/// is refused, because a research nobody can pay for is not something this
+/// library emits on an author's behalf.
 #[derive(Clone, Default)]
 pub struct Pack {
     pub name: String,
     pub amount: i64,
+    /// The rungs after `name`, tried in the order given.
+    pub fallbacks: Vec<String>,
+}
+
+impl Pack {
+    /// A one-rung ladder: the pack the author means, and no substitute.
+    pub fn new(name: &str, amount: i64) -> Pack {
+        Pack {
+            name: String::from(name),
+            amount,
+            fallbacks: Vec::new(),
+        }
+    }
+
+    /// The ladder, in the shape [`Ingredient::named`] uses: the amount first,
+    /// then the first choice and the fallbacks behind it. The first rung the
+    /// game actually has is the one priced.
+    pub fn named(amount: i64, first: &str, fallbacks: &[&str]) -> Pack {
+        let mut rungs = Vec::with_capacity(fallbacks.len());
+        for f in fallbacks {
+            rungs.push(String::from(*f));
+        }
+        Pack {
+            name: String::from(first),
+            amount,
+            fallbacks: rungs,
+        }
+    }
 }
 
 /// The hand-rolled research cost, the ESCAPE HATCH. Prefer `cost_of`: it

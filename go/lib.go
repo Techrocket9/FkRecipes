@@ -264,14 +264,38 @@ func (l *Lib) item(name string, legacy bool, spec ItemSpec) ItemRef {
 	return ItemRef{lib: l.id, index: len(l.items)}
 }
 
-// Ingredient is one line of a recipe. It is built by IngredientOf or
-// IngredientNamed and cannot be built from a bare string any other way: an
-// ingredient the game does not have is a hard load failure naming the
-// consumer's mod, so a name reaches a prototype only after a presence probe.
+// ingredientKind is which namespace an ingredient's name lives in. The engine
+// keeps items and fluids apart and spells the difference in the recipe form
+// itself ({type="item", ...} against {type="fluid", ...}), so the plan carries
+// the answer rather than guessing at emit.
+//
+// THE ZERO VALUE IS AN ITEM, deliberately: every Ingredient built before
+// fluids existed stays exactly what it was, and no existing declaration had to
+// be rewritten to gain the field.
+type ingredientKind uint8
+
+const (
+	kindItem ingredientKind = iota
+	kindFluid
+)
+
+// Ingredient is one line of a recipe. It is built by IngredientOf,
+// IngredientNamed or FluidIngredient and cannot be built from a bare string
+// any other way: an ingredient the game does not have is a hard load failure
+// naming the consumer's mod, so a name reaches a prototype only after a
+// presence probe.
+//
+// AN ITEM AMOUNT IS AN INTEGER AND A FLUID AMOUNT IS NOT. The engine refuses
+// an item count outside 0..65535 and accepts a fractional one only to mean
+// something no mod should ship a player, while a fluid takes any positive
+// amount, 0.5 included (both measured). Two fields rather than one double
+// keeps that difference in the type instead of in a comment.
 type Ingredient struct {
-	item       ItemRef
-	amount     int64
-	candidates []string
+	item        ItemRef
+	amount      int64
+	fluidAmount float64
+	kind        ingredientKind
+	candidates  []string
 }
 
 // IngredientOf names an item this plan declares. It always resolves: the
@@ -291,6 +315,24 @@ func IngredientNamed(amount int64, first string, fallbacks ...string) Ingredient
 	return Ingredient{amount: amount, candidates: candidates}
 }
 
+// FluidIngredient names a FLUID by the same presence ladder as
+// IngredientNamed: the candidates are tried in order, the first one the game
+// actually has is used, and an ingredient no candidate resolves is dropped
+// with a log line rather than guessed at.
+//
+// THERE IS NO HANDLE ARM. This library declares items and never fluids, so
+// every fluid it can name is somebody else's and the ladder is the only way
+// to name one. That is also why the amount is a plain double: the engine takes
+// any positive amount for a fluid, and a fluid ingredient in a recipe whose
+// category is crafting is refused by the planner with the engine's own rule
+// before it can become a load failure.
+func FluidIngredient(amount float64, first string, fallbacks ...string) Ingredient {
+	candidates := make([]string, 0, 1+len(fallbacks))
+	candidates = append(candidates, first)
+	candidates = append(candidates, fallbacks...)
+	return Ingredient{kind: kindFluid, fluidAmount: amount, candidates: candidates}
+}
+
 // IngredientChoice is one dropdown value and the ingredients it selects.
 type IngredientChoice struct {
 	Value       string
@@ -307,6 +349,17 @@ type IngredientChoice struct {
 type IngredientChoices struct {
 	Setting DropdownSettingRef
 	Choices []IngredientChoice
+
+	// CustomValue is the dropdown value that hands the ingredients to a text
+	// setting the player writes. Empty means the word custom.
+	//
+	// IT IS A FIELD RATHER THAN A CONSTANT because a mod that already ships a
+	// dropdown may already have a value literally named custom, and Factorio
+	// keys a stored choice by its value: renaming one discards what every
+	// player had chosen, which is exactly the loss the migration path exists to
+	// avoid. This commit declares the field and copies it; the commit that
+	// binds a text setting is where it starts selecting anything.
+	CustomValue string
 }
 
 // CostChoice is one dropdown value and the technologies whose cost it selects,
@@ -330,6 +383,11 @@ type CostChoices struct {
 	Setting  DropdownSettingRef
 	Choices  []CostChoice
 	Fallback UnitSpec
+
+	// CustomValue is the dropdown value that hands the research cost to
+	// settings the player writes. Empty means the word custom, and it is a
+	// field for the same reason IngredientChoices.CustomValue is one.
+	CustomValue string
 }
 
 // RecipeSpec describes a generated recipe prototype.
@@ -424,10 +482,29 @@ func (l *Lib) recipe(name string, legacy bool, result ItemRef, spec RecipeSpec) 
 	return RecipeRef{lib: l.id, index: len(l.recipes)}
 }
 
-// Pack is one science pack of a hand-rolled research cost.
+// Pack is one science pack of a hand-rolled research cost, with the same
+// presence ladder every other name in this library gets.
+//
+// FALLBACKS EXIST BECAUSE A SCIENCE PACK IS SOMEBODY ELSE'S PROTOTYPE. Name and
+// then Fallbacks are tried in order through ToolExists and the first one the
+// game has is used; a pack no rung resolves is DROPPED with a log line, exactly
+// as an ingredient is, rather than refusing the load of a modpack that renamed
+// or removed a pack. A unit whose every pack drops is refused, because research
+// with no pack at all is not something this library will emit on an author's
+// behalf.
 type Pack struct {
-	Name   string
-	Amount int64
+	Name      string
+	Amount    int64
+	Fallbacks []string
+}
+
+// ladder is the whole candidate list, first rung first. Built rather than
+// stored so that a Pack written as a plain literal, which is how nearly every
+// one of them is written, needs no constructor.
+func (p Pack) ladder() []string {
+	out := make([]string, 0, 1+len(p.Fallbacks))
+	out = append(out, p.Name)
+	return append(out, p.Fallbacks...)
 }
 
 // UnitSpec is the hand-rolled research cost, the ESCAPE HATCH. Prefer CostOf:
@@ -657,11 +734,23 @@ func copyUnit(in *UnitSpec) *UnitSpec {
 		return nil
 	}
 	out := *in
-	if in.Packs != nil {
-		out.Packs = make([]Pack, len(in.Packs))
-		copy(out.Packs, in.Packs)
-	}
+	out.Packs = copyPacks(in.Packs)
 	return &out
+}
+
+// copyPacks is a DEEP copy: a Pack carries a ladder of its own now, and a
+// shallow row copy would leave the caller holding the same backing array for
+// every fallback list in the plan.
+func copyPacks(in []Pack) []Pack {
+	if in == nil {
+		return nil
+	}
+	out := make([]Pack, len(in))
+	for i, p := range in {
+		p.Fallbacks = copyStrings(p.Fallbacks)
+		out[i] = p
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------
@@ -754,10 +843,7 @@ func copyCostChoices(in *CostChoices) *CostChoices {
 		c.Sources = copyStrings(c.Sources)
 		out.Choices[i] = c
 	}
-	if in.Fallback.Packs != nil {
-		out.Fallback.Packs = make([]Pack, len(in.Fallback.Packs))
-		copy(out.Fallback.Packs, in.Fallback.Packs)
-	}
+	out.Fallback.Packs = copyPacks(in.Fallback.Packs)
 	return &out
 }
 

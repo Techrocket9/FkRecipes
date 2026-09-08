@@ -165,6 +165,8 @@ fkrecipes: hardened-steel-plate-quenching: none of tungsten-carbide, titanium-pl
 
 Dropping rather than guessing is deliberate. An ingredient the game does not have is a hard load failure that names your mod, inside whatever overhaul pack the player has installed, and a substituted guess is a recipe you did not design. Use the ladder for anything optional, and put a staple last when the ingredient is required.
 
+`FluidIngredient` (`Ingredient::fluid`) is the same ladder over fluid names, with an amount that may be fractional: `fkrecipes.FluidIngredient(0.5, "water")`. A fluid is accepted only in a recipe whose category allows one. The default category, `crafting`, is the hand-crafting category and the engine refuses a fluid there (measured on Factorio 2.0.77), so a declared fluid in a recipe with no category or with `crafting` is refused at plan time with a sentence naming the recipe, the fluid and the category. Set `Category` to `crafting-with-fluid`, `chemistry` or whichever category your recipe belongs in.
+
 ### Ingredients a dropdown chooses
 
 `IngredientsBy` binds the whole ingredient list to a dropdown setting: one plan per value, resolved by the ordinary ladder rules. It is mutually exclusive with `Ingredients`, and the values it offers must equal the setting's allowed values in the same order. A chosen plan that resolves to nothing falls back to the default option's plan, with a line saying so. See [Migrating a mod that already ships settings](migration.md) for the full shape and the refusals.
@@ -221,7 +223,7 @@ fkrecipes: CostOf(steam-power): steam-power is a research_trigger technology wit
 
 `CostBy` is `CostOf` with a ladder per dropdown value: the player picks a tier, and the ladder is walked to the first technology that exists and carries a unit. That unit is copied verbatim with its `max_level`, and the source becomes the technology's sole prerequisite, so it does not combine with any of the placement fields. A `Fallback` unit applies when no rung works out. See [Migrating a mod that already ships settings](migration.md).
 
-`Unit` is the escape hatch when no existing technology has the price you want. It takes a count, a time in seconds and a list of science packs, each of which must exist.
+`Unit` is the escape hatch when no existing technology has the price you want. It takes a count, a time in seconds and a list of science packs. A pack is a presence ladder like an ingredient: `Pack{Name: "automation-science-pack", Amount: 1}` is a one-rung ladder, `Fallbacks` adds rungs, and a pack whose rungs are all absent is dropped with a log line. A unit whose packs all drop is refused, because a research with no packs is not something this library emits on your behalf, and a unit declared with no pack at all is refused for the same reason.
 
 ```go
 Unit: &fkrecipes.UnitSpec{
@@ -235,7 +237,7 @@ Unit: &fkrecipes.UnitSpec{
 unit: Some(UnitSpec {
     count: 45,
     seconds: 20.0,
-    packs: vec![Pack { name: "automation-science-pack".into(), amount: 1 }],
+    packs: vec![Pack::new("automation-science-pack", 1)],
 }),
 ```
 
@@ -327,6 +329,12 @@ fkrecipes: Emit runs only inside a wasm guest; this build is for the host
 That is what lets `go vet ./...`, `go build ./...` and `cargo check` pass on your guest with no tag and no target: the tag belongs on the build that produces the wasm, not on every check you run. Your own host tests do not go through the stubs; they call `PlanSettings` and `PlanData`, below.
 
 `PlanSettings` and `PlanData` are the seams `Emit` stands on. They are public so your own host tests can inspect a plan without a wasm toolchain, and they take the same World the emit layer implements over `fkdata`. Consumers call `Emit`.
+
+A fixture World of your own should embed `fkrecipes.UnimplementedWorld` in Go; in Rust the trait's newer questions are default methods. Either way a question this library adds in a later version panics with its own name when your plan first asks it, instead of breaking your build the day you update:
+
+```
+fkrecipes: World.FluidExists is not implemented by this fixture
+```
 
 ## Checking your locale file
 

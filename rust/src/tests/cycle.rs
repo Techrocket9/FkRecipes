@@ -183,6 +183,8 @@ fn ring_world(n: usize) -> FixtureWorld {
         nil_max_level_for: Vec::new(),
         recipes: Vec::new(),
         items: strings(&["automation-science-pack"]),
+        fluids: Vec::new(),
+        tools: strings(&["automation-science-pack"]),
         techs: Vec::new(),
     };
     for i in 0..n {
@@ -209,10 +211,7 @@ fn cycle_path_is_capped() {
             unit: Some(UnitSpec {
                 count: 50,
                 seconds: 15.0,
-                packs: alloc::vec![Pack {
-                    name: "automation-science-pack".into(),
-                    amount: 1,
-                }],
+                packs: alloc::vec![Pack::new("automation-science-pack", 1)],
             }),
             ..Default::default()
         },

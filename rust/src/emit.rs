@@ -320,6 +320,22 @@ impl World for DataWorld {
             .push((String::from(name), present));
         present
     }
+
+    /// One leaf get, and NO MEMO. `item_exists` caches because "item" is an
+    /// abstract family whose miss costs a walk over 21 derived types; `fluid`
+    /// is one concrete table, so an answer costs exactly one probe and a
+    /// cache would only add a scan in front of it.
+    fn fluid_exists(&self, name: &str) -> bool {
+        name_leaf_exists("fluid", name)
+    }
+
+    /// `data.raw.tool` alone, for the same reason as
+    /// [`World::fluid_exists`]: the engine takes tool-type items in a
+    /// research unit and nothing else, and "tool" is a concrete type with no
+    /// family under it.
+    fn tool_exists(&self, name: &str) -> bool {
+        name_leaf_exists("tool", name)
+    }
 }
 
 fn name_leaf_exists(typ: &str, name: &str) -> bool {

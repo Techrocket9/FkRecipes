@@ -1,0 +1,648 @@
+# The ingredient list corpus: the cross-language contract for docs/ingredient-list.md.
+#
+# Both suites read this file and run every case against the SAME fixture World:
+#   items  (ItemExists):  iron-plate copper-cable steel-plate iron-gear-wheel 42 x none default both
+#                         loader-1x1 2x4 X2 7 automation-science-pack logistic-science-pack
+#   fluids (FluidExists): water steam both 2x2
+#   tools  (ToolExists):  automation-science-pack logistic-science-pack 7
+#
+# A section line selects the parse kind, the recipe category where one applies, and the
+# full setting name the messages carry:
+#   [recipe <category> <setting>]   an ingredient list for a recipe in that category
+#   [packs <setting>]               a science-pack list for a research unit
+#
+# A case is an "in:" line followed by an "ok:" line (the exact canonical rendering; the
+# word default is the mod's own list and none is the empty list) or a "refuse:" line (the
+# exact refusal message, without the host's stage prefix). The text between the first and
+# last "|" is taken verbatim, spaces included, after these escapes are applied to all three
+# line kinds: \xNN is one raw byte (which is how a value that is not valid UTF-8 is
+# written), \uNNNN and \UNNNNNNNN are code points (valid scalar values only: a surrogate or a
+# point above U+10FFFF is a reader error, and a case that needs such bytes writes them with
+# \x), \t \r \n are the ASCII controls, and \\ is one backslash. Lines starting with "#" and
+# blank lines are ignored.
+
+[recipe crafting mymod-parts]
+
+in:|2 iron-plate, 3 copper-cable|
+ok:|2 iron-plate, 3 copper-cable|
+
+in:|iron-plate|
+ok:|1 iron-plate|
+
+in:|  2   iron-plate ,3 copper-cable  |
+ok:|2 iron-plate, 3 copper-cable|
+
+in:|2x iron-plate|
+ok:|2 iron-plate|
+
+in:|2 x iron-plate|
+ok:|2 iron-plate|
+
+in:|2X iron-plate|
+ok:|2 iron-plate|
+
+in:|iron-plate x2|
+ok:|2 iron-plate|
+
+in:|iron-plate x 2|
+ok:|2 iron-plate|
+
+in:|iron-plate*2|
+ok:|2 iron-plate|
+
+in:|2*iron-plate|
+ok:|2 iron-plate|
+
+in:|iron-plate×2|
+ok:|2 iron-plate|
+
+in:|2 × iron-plate|
+ok:|2 iron-plate|
+
+in:|iron-plate\u00D72|
+ok:|2 iron-plate|
+
+in:|iron-plate 2|
+ok:|2 iron-plate|
+
+in:|2\x20iron-plate|
+ok:|2 iron-plate|
+
+in:|2\tiron-plate|
+ok:|2 iron-plate|
+
+in:|2 iron-plate\r\n|
+ok:|2 iron-plate|
+
+in:|2\u00A0iron-plate|
+ok:|2 iron-plate|
+
+in:|\uFEFF2 iron-plate|
+ok:|2 iron-plate|
+
+in:|2 iron-plate\u200B|
+ok:|2 iron-plate|
+
+in:|2 iron-plate,|
+ok:|2 iron-plate|
+
+in:|2 iron-plate, |
+ok:|2 iron-plate|
+
+in:|[item=iron-plate] 2|
+ok:|2 iron-plate|
+
+in:|2 [item=iron-plate]|
+ok:|2 iron-plate|
+
+in:|[item=iron-plate]2|
+ok:|2 iron-plate|
+
+in:|[item=42] 3|
+ok:|3 [item=42]|
+
+in:|[item=x]|
+ok:|1 [item=x]|
+
+in:|2 none|
+ok:|2 [item=none]|
+
+in:|2 default|
+ok:|2 [item=default]|
+
+in:|[item=default] 2|
+ok:|2 [item=default]|
+
+in:|[item=2x4] 3|
+ok:|3 [item=2x4]|
+
+in:|[item=X2]|
+ok:|1 [item=X2]|
+
+in:|2 loader-1x1|
+ok:|2 loader-1x1|
+
+in:|loader-1x1|
+ok:|1 loader-1x1|
+
+in:|none|
+ok:|none|
+
+in:|  none  |
+ok:|none|
+
+in:|none,|
+ok:|none|
+
+in:|default|
+ok:|default|
+
+in:|  default  |
+ok:|default|
+
+in:|default,|
+ok:|default|
+
+in:|3.0 iron-plate|
+ok:|3 iron-plate|
+
+in:|007 iron-plate|
+ok:|7 iron-plate|
+
+in:|65535 iron-plate|
+ok:|65535 iron-plate|
+
+in:|2 both|
+ok:|2 both|
+
+in:|1 iron-plate, 2 copper-cable, 3 steel-plate, 4 iron-gear-wheel|
+ok:|1 iron-plate, 2 copper-cable, 3 steel-plate, 4 iron-gear-wheel|
+
+# A 2000-character text is read (and refused for its duplicates); a 2002-character one is not.
+in:|2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate|
+refuse:|fkrecipes: mymod-parts: entries 1 and 2 both name iron-plate|
+
+in:|2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, |
+refuse:|fkrecipes: mymod-parts is longer than 2000 characters; that is not an ingredient list|
+
+in:|2 Iron-Plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 Iron-Plate"): no item or fluid is named Iron-Plate; did you mean iron-plate|
+
+in:|2 iron_plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron_plate"): no item or fluid is named iron_plate; did you mean iron-plate|
+
+in:|2 unobtainium|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 unobtainium"): no item or fluid is named unobtainium|
+
+in:||
+refuse:|fkrecipes: mymod-parts is empty; write the ingredients as "2 iron-plate, 3 copper-cable", the word default for the mod's own list, or the word none for a recipe with no ingredients|
+
+in:|   |
+refuse:|fkrecipes: mymod-parts is empty; write the ingredients as "2 iron-plate, 3 copper-cable", the word default for the mod's own list, or the word none for a recipe with no ingredients|
+
+in:|2 iron-\xff\xfeplate|
+refuse:|fkrecipes: mymod-parts contains characters that are not text; retype the list|
+
+in:|2 iron-\uFFFDplate|
+refuse:|fkrecipes: mymod-parts contains characters that are not text; retype the list|
+
+in:|2|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2"): has no name; write the amount before the name, as in "2 iron-plate"|
+
+in:|2 x|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 x"): has no name; write the amount before the name, as in "2 iron-plate"|
+
+in:|x|
+refuse:|fkrecipes: mymod-parts, entry 1 ("x"): "x" is a name that reads as an amount; write it in its tag, as [item=x]|
+
+in:|42|
+refuse:|fkrecipes: mymod-parts, entry 1 ("42"): "42" is a name that reads as an amount; write it in its tag, as [item=42]|
+
+in:|2x4|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2x4"): "2x4" is a name that reads as an amount; write it in its tag, as [item=2x4]|
+
+in:|X2|
+refuse:|fkrecipes: mymod-parts, entry 1 ("X2"): "X2" is a name that reads as an amount; write it in its tag, as [item=X2]|
+
+in:|0,5 water|
+refuse:|fkrecipes: mymod-parts, entry 1 ("0"): a comma separates two ingredients, not the digits of one number; write a dot for a fraction, as in "0.5 water"|
+
+in:|1,000 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("1"): a comma separates two ingredients, not the digits of one number; write a dot for a fraction, as in "0.5 water"|
+
+in:|1.000 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("1.000 iron-plate"): "1.000" is not an amount here; a dot marks a fraction, and a thousand is written 1000|
+
+in:|iron-plate copper-cable|
+refuse:|fkrecipes: mymod-parts, entry 1 ("iron-plate copper-cable"): names two ingredients; a comma separates them|
+
+in:|2 iron plates|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron plates"): no item or fluid is named "iron plates"; did you mean iron-plate|
+
+in:|2 iron plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron plate"): no item or fluid is named "iron plate"; did you mean iron-plate|
+
+in:|2 iron ore|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron ore"): no item or fluid is named "iron ore"; names are the game's internal names, such as iron-plate, and a comma separates two ingredients|
+
+in:|2 iron-plate 3|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate 3"): has two amounts|
+
+in:|2 3 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 3 iron-plate"): has two amounts|
+
+in:|2 iron-plate 3 copper-cable|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate 3 copper-cable"): has two amounts|
+
+in:|2x3 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2x3 iron-plate"): has two amounts|
+
+in:|2 x x iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 x x iron-plate"): has more than one "x"|
+
+in:|iron-plate x|
+refuse:|fkrecipes: mymod-parts, entry 1 ("iron-plate x"): has "x" with no amount beside it|
+
+in:|x iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("x iron-plate"): has "x" with no amount beside it|
+
+in:|2 iron-plate ×|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate ×"): "×" goes between the amount and the name|
+
+in:|iron-plate:2|
+refuse:|fkrecipes: mymod-parts, entry 1 ("iron-plate:2"): ":" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
+
+in:|iron-plate=2|
+refuse:|fkrecipes: mymod-parts, entry 1 ("iron-plate=2"): "=" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
+
+in:|2 iron-plate; 3 copper-cable|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate; 3 copper-cable"): ";" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
+
+in:|2 iron.plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron.plate"): "." has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
+
+in:|.5 water|
+refuse:|fkrecipes: mymod-parts, entry 1 (".5 water"): "." has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
+
+in:|2 iron-platé|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-platé"): "é" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
+
+in:|2 iron-plate 🙂|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate 🙂"): "🙂" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
+
+in:|\uFF12 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("\uFF12 iron-plate"): "\uFF12" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
+
+in:|2 iron\\plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron\\plate"): "\\" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
+
+in:|2 iron-plate\u00AD|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u00AD"): an invisible character (U+00AD) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\x1b[31m|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\x1b[31m"): an invisible character (U+001B) has no place here; retype the entry rather than pasting it|
+
+in:|2\u2000iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2\u2000iron-plate"): an invisible character (U+2000) has no place here; retype the entry rather than pasting it|
+
+in:|-2 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("-2 iron-plate"): "-2" is not an amount; amounts are plain digits such as 2 or 0.5|
+
+in:|+2 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("+2 iron-plate"): "+2" is not an amount; amounts are plain digits such as 2 or 0.5|
+
+in:|2 iron-plate, 1e3 copper-cable|
+refuse:|fkrecipes: mymod-parts, entry 2 ("1e3 copper-cable"): "1e3" is not an amount; amounts are plain digits such as 2 or 0.5|
+
+in:|0 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("0 iron-plate"): the amount must be more than 0|
+
+in:|0.0 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("0.0 iron-plate"): the amount must be more than 0|
+
+in:|1.5 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("1.5 iron-plate"): iron-plate is an item, and items take whole amounts|
+
+in:|65536 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("65536 iron-plate"): iron-plate takes at most 65535|
+
+in:|99999999999999999999 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("99999999999999999999 iron-plate"): iron-plate takes at most 65535|
+
+in:|70000 iron-plate, 70000 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("70000 iron-plate"): iron-plate takes at most 65535|
+
+in:|2 iron-plate, 3 iron-plate|
+refuse:|fkrecipes: mymod-parts: entries 1 and 2 both name iron-plate|
+
+in:|2 iron-plate, copper-cable, [item=iron-plate]|
+refuse:|fkrecipes: mymod-parts: entries 1 and 3 both name iron-plate|
+
+in:|2 iron-plate, 3 iron-plate, 4 iron-plate|
+refuse:|fkrecipes: mymod-parts: entries 1 and 2 both name iron-plate|
+
+in:|iron-plate, copper-cable, iron-plate, copper-cable|
+refuse:|fkrecipes: mymod-parts: entries 1 and 3 both name iron-plate|
+
+in:|2 iron-plate,, 3 copper-cable|
+refuse:|fkrecipes: mymod-parts, entry 2 is empty; one comma separates two ingredients|
+
+in:|, 2 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 is empty; one comma separates two ingredients|
+
+in:|2 iron-plate,,|
+refuse:|fkrecipes: mymod-parts, entry 2 is empty; one comma separates two ingredients|
+
+in:|none, , 2 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 2 is empty; one comma separates two ingredients|
+
+in:|none,,|
+refuse:|fkrecipes: mymod-parts, entry 2 is empty; one comma separates two ingredients|
+
+in:|none, 2 iron-plate|
+refuse:|fkrecipes: mymod-parts: none stands alone; remove the other entries or the word|
+
+in:|2 iron-plate, none|
+refuse:|fkrecipes: mymod-parts: none stands alone; remove the other entries or the word|
+
+in:|none, 2 iron.plate|
+refuse:|fkrecipes: mymod-parts: none stands alone; remove the other entries or the word|
+
+in:|default, 2 iron-plate|
+refuse:|fkrecipes: mymod-parts: default stands alone; remove the other entries or the word|
+
+in:|10 water|
+refuse:|fkrecipes: mymod-parts, entry 1 ("10 water"): water is a fluid, and a recipe in the crafting category takes items only|
+
+in:|[fluid=water] 10|
+refuse:|fkrecipes: mymod-parts, entry 1 ("[fluid=water] 10"): water is a fluid, and a recipe in the crafting category takes items only|
+
+in:|2 iron-plate, 3 copper-cable, 4 water|
+refuse:|fkrecipes: mymod-parts, entry 3 ("4 water"): water is a fluid, and a recipe in the crafting category takes items only|
+
+in:|10 water, 10 water|
+refuse:|fkrecipes: mymod-parts, entry 1 ("10 water"): water is a fluid, and a recipe in the crafting category takes items only|
+
+in:|[fluid=iron-plate] 2|
+refuse:|fkrecipes: mymod-parts, entry 1 ("[fluid=iron-plate] 2"): no fluid is named iron-plate|
+
+in:|[item=water] 2|
+refuse:|fkrecipes: mymod-parts, entry 1 ("[item=water] 2"): no item is named water|
+
+in:|[item=Iron-Plate] 2|
+refuse:|fkrecipes: mymod-parts, entry 1 ("[item=Iron-Plate] 2"): no item is named Iron-Plate; did you mean iron-plate|
+
+in:|[item=Water] 2|
+refuse:|fkrecipes: mymod-parts, entry 1 ("[item=Water] 2"): no item is named Water|
+
+in:|[entity=x] 2|
+refuse:|fkrecipes: mymod-parts, entry 1 ("[entity=x] 2"): a tag is [item=name] or [fluid=name]|
+
+in:|[item=] 2|
+refuse:|fkrecipes: mymod-parts, entry 1 ("[item=] 2"): a tag is [item=name] or [fluid=name]|
+
+in:|[item=iron-plate 2|
+refuse:|fkrecipes: mymod-parts, entry 1 ("[item=iron-plate 2"): a tag is [item=name] or [fluid=name]|
+
+in:|[item=iron-plate, 3 copper-cable|
+refuse:|fkrecipes: mymod-parts, entry 1 ("[item=iron-plate, 3 copper-cable"): a tag is [item=name] or [fluid=name]|
+
+# Every member of the whitespace set separates, and every stripped character vanishes,
+# inside a word as well as at the edges.
+in:|2\u2007iron-plate|
+ok:|2 iron-plate|
+
+in:|2\u202Firon-plate|
+ok:|2 iron-plate|
+
+in:|2\u3000iron-plate|
+ok:|2 iron-plate|
+
+in:|2 iron-plate\u200C|
+ok:|2 iron-plate|
+
+in:|2 iron\u200D-plate|
+ok:|2 iron-plate|
+
+# The invisible set at its boundaries: each member is named by its code point, and the
+# visible character just past each boundary is quoted as itself.
+in:|2 iron-plate\x00|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\x00"): an invisible character (U+0000) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\x7f|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\x7f"): an invisible character (U+007F) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u009F|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u009F"): an invisible character (U+009F) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u061C|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u061C"): an invisible character (U+061C) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u180E|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u180E"): an invisible character (U+180E) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u200E|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u200E"): an invisible character (U+200E) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u200F|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u200F"): an invisible character (U+200F) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u2010|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u2010"): "\u2010" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
+
+in:|2 iron-plate\u2028|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u2028"): an invisible character (U+2028) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u2029|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u2029"): an invisible character (U+2029) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u2030|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u2030"): "\u2030" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
+
+in:|2 iron-plate\u205F|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u205F"): an invisible character (U+205F) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u2060|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u2060"): an invisible character (U+2060) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u206F|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u206F"): an invisible character (U+206F) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u2070|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u2070"): "\u2070" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
+
+in:|2 iron-plate\uFFF9|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\uFFF9"): an invisible character (U+FFF9) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\uFFFB|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\uFFFB"): an invisible character (U+FFFB) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\uFFFC|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\uFFFC"): "\uFFFC" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
+
+# A tool is an item, so a science pack whose name reads as an amount gets the item tag here.
+in:|7|
+refuse:|fkrecipes: mymod-parts, entry 1 ("7"): "7" is a name that reads as an amount; write it in its tag, as [item=7]|
+
+# A fluid whose name reads as an amount is pointed at its fluid tag, whatever the category.
+in:|2x2|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2x2"): "2x2" is a name that reads as an amount; write it in its tag, as [fluid=2x2]|
+
+in:|[item=iron-plate,|
+refuse:|fkrecipes: mymod-parts, entry 1 ("[item=iron-plate,"): a tag is [item=name] or [fluid=name]|
+
+in:|0.000 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("0.000 iron-plate"): the amount must be more than 0|
+
+in:|-1e3 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("-1e3 iron-plate"): "-1e3" is not an amount; amounts are plain digits such as 2 or 0.5|
+
+in:|[item=both] 2|
+ok:|2 both|
+
+in:|2 iron-\xe0\x80\x80plate|
+refuse:|fkrecipes: mymod-parts contains characters that are not text; retype the list|
+
+in:|2 iron-\xf4\x90\x80\x80plate|
+refuse:|fkrecipes: mymod-parts contains characters that are not text; retype the list|
+
+# 2001 characters is the first refused length.
+in:|2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plate, 2 iron-plates|
+refuse:|fkrecipes: mymod-parts is longer than 2000 characters; that is not an ingredient list|
+
+in:|[item=iron-plate,quality=rare] 2|
+refuse:|fkrecipes: mymod-parts, entry 1 ("[item=iron-plate,quality=rare] 2"): ingredients carry no quality; write [item=iron-plate]|
+
+[recipe crafting-with-fluid mymod-parts]
+
+in:|3 [item=iron-plate], 0.5 water|
+ok:|3 iron-plate, 0.5 [fluid=water]|
+
+in:|water 0.25|
+ok:|0.25 [fluid=water]|
+
+in:|1000000000 water|
+ok:|1000000000 [fluid=water]|
+
+in:|2.50 water|
+ok:|2.5 [fluid=water]|
+
+in:|1.500 water|
+ok:|1.5 [fluid=water]|
+
+in:|0.1 water|
+ok:|0.1 [fluid=water]|
+
+in:|10 steam, 10 both|
+ok:|10 [fluid=steam], 10 both|
+
+in:|10 [fluid=both]|
+ok:|10 [fluid=both]|
+
+in:|10 both, 10 [fluid=both]|
+ok:|10 both, 10 [fluid=both]|
+
+in:|2 iron-plate|
+ok:|2 iron-plate|
+
+in:|1000000000000000000000 water|
+ok:|1000000000000000000000 [fluid=water]|
+
+# The fluid ceiling, measured: 1e301 loads, 1e302 aborts the engine.
+in:|10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 water|
+ok:|10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 [fluid=water]|
+
+in:|100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 water|
+refuse:|fkrecipes: mymod-parts, entry 1 ("100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 water"): the amount is too large; fluid amounts go up to 1e301|
+
+in:|1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 water|
+refuse:|fkrecipes: mymod-parts, entry 1 ("1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 water"): the amount is too large; fluid amounts go up to 1e301|
+
+# Exact ties at the seventeenth digit, where a shortest-round-trip printer differs between
+# the two languages; the rendering rule breaks the tie towards the even digit in both.
+in:|1.00000762939453125 water|
+ok:|1.0000076293945312 [fluid=water]|
+
+in:|1059438285926254.25 water|
+ok:|1059438285926254.2 [fluid=water]|
+
+in:|1.0000 water|
+ok:|1 [fluid=water]|
+
+in:|0.000 water|
+refuse:|fkrecipes: mymod-parts, entry 1 ("0.000 water"): the amount must be more than 0|
+
+in:|[fluid=2x2] 3|
+ok:|3 [fluid=2x2]|
+
+in:|1.5 water, 1.5 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 2 ("1.5 iron-plate"): iron-plate is an item, and items take whole amounts|
+
+in:|0.1 water, 0.2 water|
+refuse:|fkrecipes: mymod-parts: entries 1 and 2 both name water|
+
+in:|water 0.5 x|
+refuse:|fkrecipes: mymod-parts, entry 1 ("water 0.5 x"): "x" goes between the amount and the name|
+
+in:|0 water|
+refuse:|fkrecipes: mymod-parts, entry 1 ("0 water"): the amount must be more than 0|
+
+in:|1.000 water|
+refuse:|fkrecipes: mymod-parts, entry 1 ("1.000 water"): "1.000" is not an amount here; a dot marks a fraction, and a thousand is written 1000|
+
+[packs mymod-packs]
+
+in:|automation-science-pack, 2 logistic-science-pack|
+ok:|1 automation-science-pack, 2 logistic-science-pack|
+
+in:|[item=automation-science-pack] 3|
+ok:|3 automation-science-pack|
+
+in:|default|
+ok:|default|
+
+in:|2 iron-plate|
+refuse:|fkrecipes: mymod-packs, entry 1 ("2 iron-plate"): iron-plate is an item, not a science pack|
+
+in:|[item=iron-plate] 1|
+refuse:|fkrecipes: mymod-packs, entry 1 ("[item=iron-plate] 1"): iron-plate is an item, not a science pack|
+
+in:|2 both|
+refuse:|fkrecipes: mymod-packs, entry 1 ("2 both"): both is an item, not a science pack|
+
+in:|10 water|
+refuse:|fkrecipes: mymod-packs, entry 1 ("10 water"): water is a fluid, and research takes science packs only|
+
+in:|[fluid=water] 1|
+refuse:|fkrecipes: mymod-packs, entry 1 ("[fluid=water] 1"): water is a fluid, and research takes science packs only|
+
+in:|[fluid=automation-science-pack] 1|
+refuse:|fkrecipes: mymod-packs, entry 1 ("[fluid=automation-science-pack] 1"): no fluid is named automation-science-pack|
+
+in:|none|
+refuse:|fkrecipes: mymod-packs: research takes at least one science pack|
+
+in:|none, automation-science-pack|
+refuse:|fkrecipes: mymod-packs: none stands alone; remove the other entries or the word|
+
+in:||
+refuse:|fkrecipes: mymod-packs is empty; write the science packs as "1 automation-science-pack, 1 logistic-science-pack", or the word default for the mod's own list|
+
+in:|1.5 automation-science-pack|
+refuse:|fkrecipes: mymod-packs, entry 1 ("1.5 automation-science-pack"): automation-science-pack is an item, and items take whole amounts|
+
+in:|65536 automation-science-pack|
+refuse:|fkrecipes: mymod-packs, entry 1 ("65536 automation-science-pack"): automation-science-pack takes at most 65535|
+
+in:|Automation-Science-Pack|
+refuse:|fkrecipes: mymod-packs, entry 1 ("Automation-Science-Pack"): no science pack is named Automation-Science-Pack; did you mean automation-science-pack|
+
+in:|Iron-Plate|
+refuse:|fkrecipes: mymod-packs, entry 1 ("Iron-Plate"): no science pack is named Iron-Plate|
+
+in:|[item=Water] 1|
+refuse:|fkrecipes: mymod-packs, entry 1 ("[item=Water] 1"): no science pack is named Water|
+
+in:|[item=water] 1|
+refuse:|fkrecipes: mymod-packs, entry 1 ("[item=water] 1"): water is a fluid, and research takes science packs only|
+
+in:|2 unobtainium|
+refuse:|fkrecipes: mymod-packs, entry 1 ("2 unobtainium"): no science pack is named unobtainium|
+
+in:|automation science pack|
+refuse:|fkrecipes: mymod-packs, entry 1 ("automation science pack"): no science pack is named "automation science pack"; did you mean automation-science-pack|
+
+in:|7|
+refuse:|fkrecipes: mymod-packs, entry 1 ("7"): "7" is a name that reads as an amount; write it in its tag, as [item=7]|
+
+in:|[item=7] 2|
+ok:|2 [item=7]|
+
+in:|2 military science pack|
+refuse:|fkrecipes: mymod-packs, entry 1 ("2 military science pack"): no science pack is named "military science pack"; names are the game's internal names, such as automation-science-pack, and a comma separates two ingredients|
+
+in:|automation-science-pack logistic-science-pack|
+refuse:|fkrecipes: mymod-packs, entry 1 ("automation-science-pack logistic-science-pack"): names two ingredients; a comma separates them|
+
+in:|2 automation-science-pack, 1 automation-science-pack|
+refuse:|fkrecipes: mymod-packs: entries 1 and 2 both name automation-science-pack|

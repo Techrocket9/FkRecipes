@@ -1,7 +1,7 @@
 use crate::op::Op;
 use crate::plan::{
-    Ingredient, ItemRef, ItemSpec, Lib, NumericSpec, Pack, RecipeRef, RecipeSpec, TechSpec,
-    UnitSpec,
+    Ingredient, IngredientChoice, IngredientChoices, ItemRef, ItemSpec, Lib, NumericSpec, Pack,
+    RecipeRef, RecipeSpec, TechSpec, UnitSpec,
 };
 use crate::tests::*;
 use crate::value::{kv, Value};
@@ -101,6 +101,211 @@ fn ingredient_ladder_falls_back_and_drops() {
             "log fkrecipes: steel-axe: none of tungsten-plate, titanium-plate is present, so the ingredient is dropped",
             r#"extend {type="item", name="steelworks-steel-axe", icon="__steelworks__/graphics/icons/steel-axe.png", stack_size=50}"#,
             r#"extend {type="recipe", name="steelworks-steel-axe", enabled=true, ingredients=[{type="item", name="iron-plate", amount=4}], results=[{type="item", name="steelworks-steel-axe", amount=1}]}"#,
+        ],
+    );
+}
+
+/// A FLUID IS ITS OWN NAMESPACE AND ITS OWN FIELD. The ladder asks
+/// `fluid_exists`, so a rung that names an item is skipped even though the
+/// game has that item, and what reaches the prototype carries type="fluid"
+/// and the double the author declared.
+///
+/// MEASURED (2.0.77): a fluid ingredient is {type="fluid", name=..., amount=...}
+/// and the engine takes a fractional amount there (0.5 and 1000000000 both
+/// load and dump as written), which is why the amount is a double and not the
+/// item path's integer.
+#[test]
+fn fluid_ingredients_carry_their_own_type_and_their_own_ladder() {
+    let mut lib = Lib::new();
+    let mix = lib.item("sulfuric-mix", ItemSpec::default());
+    lib.recipe(
+        mix,
+        RecipeSpec {
+            category: "chemistry".into(),
+            ingredients: vec![
+                Ingredient::named(2, "iron-plate", &[]),
+                Ingredient::fluid(0.5, "water", &[]),
+                // The first rung is an ITEM the world has and not a fluid, so
+                // a ladder that asked the item question would stop here.
+                Ingredient::fluid(10.0, "iron-plate", &["steam"]),
+                Ingredient::fluid(1.0, "light-oil", &["lubricant"]),
+            ],
+            ..Default::default()
+        },
+    );
+
+    let ops = lib.plan_data(&base_world()).expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: sulfuric-mix: none of light-oil, lubricant is present, so the ingredient is dropped",
+            r#"extend {type="item", name="steelworks-sulfuric-mix", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-sulfuric-mix", category="chemistry", enabled=true, ingredients=[{type="item", name="iron-plate", amount=2}, {type="fluid", name="water", amount=5.0000000000000000e-1}, {type="fluid", name="steam", amount=10}], results=[{type="item", name="steelworks-sulfuric-mix", amount=1}]}"#,
+        ],
+    );
+}
+
+/// The engine refuses a fluid in the crafting category by name (measured:
+/// "Recipe is in \'crafting\' category but has a non-item ingredient
+/// \'water\' (fluid)."), and an empty category IS crafting. The plan refuses
+/// first, so the consumer reads a sentence naming their own recipe instead of
+/// the engine naming a prototype they did not write by hand.
+#[test]
+fn plan_data_refuses_a_declared_fluid_a_recipe_cannot_take() {
+    struct Case {
+        name: &'static str,
+        category: &'static str,
+        ingredient: fn() -> Ingredient,
+        want: &'static str,
+    }
+
+    let cases = [
+        Case {
+            name: "the default category",
+            category: "",
+            ingredient: || Ingredient::fluid(10.0, "water", &["steam"]),
+            want: "fkrecipes: the recipe sulfuric-mix takes the fluid water, and a recipe in the crafting category takes items only",
+        },
+        Case {
+            name: "the crafting category, spelled out",
+            category: "crafting",
+            ingredient: || Ingredient::fluid(10.0, "water", &[]),
+            want: "fkrecipes: the recipe sulfuric-mix takes the fluid water, and a recipe in the crafting category takes items only",
+        },
+        Case {
+            name: "an amount the engine refuses",
+            category: "chemistry",
+            ingredient: || Ingredient::fluid(0.0, "water", &[]),
+            want: "fkrecipes: the recipe sulfuric-mix has a fluid amount at or below zero, which the engine refuses",
+        },
+        Case {
+            name: "an amount that is not a number",
+            category: "chemistry",
+            ingredient: || Ingredient::fluid(f64::NAN, "water", &[]),
+            want: "fkrecipes: the recipe sulfuric-mix declares a fluid amount that is not a finite number",
+        },
+        Case {
+            // The measured ceiling, asked of the AUTHOR's declaration: above
+            // it the engine does not refuse the load, it aborts inside
+            // FixedPointNumber and hands the player the crash handler. The
+            // player-typed path has had this since the language landed;
+            // without it here, only one of the two ways into a recipe was
+            // guarded.
+            name: "an amount above the measured ceiling",
+            category: "chemistry",
+            ingredient: || Ingredient::fluid(1e302, "water", &[]),
+            want: "fkrecipes: the recipe sulfuric-mix takes the fluid water at an amount above 1e301, which the game cannot hold",
+        },
+        Case {
+            // THE CATEGORY BEATS THE CEILING, the same way round as in the
+            // player's path (see the language's own
+            // a_crafting_recipe_hears_about_the_category_before_the_ceiling):
+            // a fluid this recipe cannot take at all is the larger mistake.
+            name: "an amount above the ceiling in a category that takes no fluid",
+            category: "crafting",
+            ingredient: || Ingredient::fluid(1e302, "water", &[]),
+            want: "fkrecipes: the recipe sulfuric-mix takes the fluid water, and a recipe in the crafting category takes items only",
+        },
+        Case {
+            // The ladder's FIRST candidate is what the sentence names, and an
+            // empty one would leave a hole in it. That is why the empty-name
+            // refusal runs ahead of both.
+            name: "a fluid with an empty name",
+            category: "chemistry",
+            ingredient: || Ingredient::fluid(10.0, "", &["water"]),
+            want: "fkrecipes: the recipe sulfuric-mix names an ingredient with an empty name",
+        },
+    ];
+
+    for c in cases {
+        let mut lib = Lib::new();
+        let mix = lib.item("sulfuric-mix", ItemSpec::default());
+        lib.recipe(
+            mix,
+            RecipeSpec {
+                category: c.category.into(),
+                ingredients: vec![(c.ingredient)()],
+                ..Default::default()
+            },
+        );
+        match lib.plan_data(&base_world()) {
+            Ok(ops) => panic!(
+                "{}: the plan was accepted with {} ops, want refusal {}",
+                c.name,
+                ops.len(),
+                c.want
+            ),
+            Err(got) => assert_eq!(got, c.want, "{}", c.name),
+        }
+    }
+}
+
+/// The same rule reaches a fluid a DROPDOWN would have chosen: every choice
+/// is validated, not just the default one, because the player picking the
+/// third preset is not a load failure the mod author should hear about from
+/// the engine.
+#[test]
+fn plan_data_refuses_a_fluid_inside_a_choice_a_player_could_pick() {
+    let mut lib = Lib::new();
+    let medium = lib.dropdown_setting_needing_locale("quench-medium", "dry", &["dry", "wet"]);
+    let mix = lib.item("sulfuric-mix", ItemSpec::default());
+    lib.recipe(
+        mix,
+        RecipeSpec {
+            ingredients_by: Some(IngredientChoices {
+                setting: medium,
+                choices: vec![
+                    IngredientChoice {
+                        value: "dry".into(),
+                        ingredients: vec![Ingredient::named(2, "iron-plate", &[])],
+                    },
+                    IngredientChoice {
+                        value: "wet".into(),
+                        ingredients: vec![Ingredient::fluid(10.0, "water", &[])],
+                    },
+                ],
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    );
+
+    match lib.plan_data(&base_world()) {
+        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
+        Err(got) => assert_eq!(
+            got,
+            "fkrecipes: the recipe sulfuric-mix takes the fluid water, and a recipe in the crafting category takes items only"
+        ),
+    }
+}
+
+/// A fluid ladder with nothing present drops the ingredient and says so,
+/// exactly as the item ladder does: the two kinds share the sentence because
+/// they share the decision.
+#[test]
+fn a_fluid_ladder_with_no_rung_present_drops_the_ingredient() {
+    let mut lib = Lib::new();
+    let mix = lib.item("sulfuric-mix", ItemSpec::default());
+    lib.recipe(
+        mix,
+        RecipeSpec {
+            category: "chemistry".into(),
+            ingredients: vec![Ingredient::fluid(2.0, "water", &["steam"])],
+            ..Default::default()
+        },
+    );
+
+    let ops = lib
+        .plan_data(&base_world().without_fluid("water").without_fluid("steam"))
+        .expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: sulfuric-mix: none of water, steam is present, so the ingredient is dropped",
+            r#"extend {type="item", name="steelworks-sulfuric-mix", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-sulfuric-mix", category="chemistry", enabled=true, ingredients=[], results=[{type="item", name="steelworks-sulfuric-mix", amount=1}]}"#,
         ],
     );
 }
@@ -218,10 +423,7 @@ fn technology_unit_spec_carries_no_max_level() {
             unit: Some(UnitSpec {
                 count: 75,
                 seconds: 30.0,
-                packs: vec![Pack {
-                    name: "automation-science-pack".into(),
-                    amount: 1,
-                }],
+                packs: vec![Pack::new("automation-science-pack", 1)],
             }),
             ..Default::default()
         },
@@ -254,14 +456,8 @@ fn technology_unit_spec_uses_short_tuple_form() {
                 count: 75,
                 seconds: 30.0,
                 packs: vec![
-                    Pack {
-                        name: "automation-science-pack".into(),
-                        amount: 1,
-                    },
-                    Pack {
-                        name: "logistic-science-pack".into(),
-                        amount: 2,
-                    },
+                    Pack::new("automation-science-pack", 1),
+                    Pack::new("logistic-science-pack", 2),
                 ],
             }),
             ..Default::default()
@@ -276,6 +472,108 @@ fn technology_unit_spec_uses_short_tuple_form() {
             r#"extend {type="technology", name="steelworks-steel-axes", unit={count=75, time=30, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 2]]}}"#,
         ],
     );
+}
+
+/// A PACK IS A LADDER, and it is walked through `tool_exists` and nothing
+/// else.
+///
+/// The middle rung is the whole test: `chemical-science-pack` is an ITEM this
+/// world has and is not one of its tools, so a walk that asked the item
+/// question would stop there and price the research in something the engine
+/// refuses ("Invalid research unit (...). Research unit(s) can only be tool
+/// type items at the moment."). The rung after it is a real tool, and that is
+/// the one that must come out.
+#[test]
+fn a_pack_ladder_takes_the_first_rung_the_game_has() {
+    let mut lib = Lib::new();
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            unit: Some(UnitSpec {
+                count: 75,
+                seconds: 30.0,
+                packs: vec![Pack::named(
+                    2,
+                    "military-science-pack",
+                    &["chemical-science-pack", "logistic-science-pack"],
+                )],
+            }),
+            ..Default::default()
+        },
+    );
+
+    let ops = lib.plan_data(&base_world()).expect("plan refused");
+
+    // No log line: a ladder that finds a rung degrades nothing and says
+    // nothing, exactly as an ingredient ladder does.
+    assert_lines(
+        &transcript(&ops),
+        &[
+            r#"extend {type="technology", name="steelworks-steel-axes", unit={count=75, time=30, ingredients=[["logistic-science-pack", 2]]}}"#,
+        ],
+    );
+}
+
+/// A PACK WHOSE RUNGS ARE ALL ABSENT IS DROPPED, with the ingredient drop's
+/// own sentence and one word changed, and the research goes out cheaper. A
+/// unit left with NO pack at all is the one thing this refuses, because that
+/// research cannot be paid for at any price.
+///
+/// This is the pair the review turned over: untouched packs used to refuse
+/// where untouched ingredients dropped, which made a modpack that renamed the
+/// science packs a hard load failure with the consumer's name on it.
+#[test]
+fn a_pack_ladder_drops_and_a_unit_with_nothing_left_is_refused() {
+    let mut lib = Lib::new();
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            unit: Some(UnitSpec {
+                count: 75,
+                seconds: 30.0,
+                packs: vec![
+                    Pack::new("automation-science-pack", 1),
+                    Pack::named(3, "military-science-pack", &["space-science-pack"]),
+                ],
+            }),
+            ..Default::default()
+        },
+    );
+
+    let ops = lib.plan_data(&base_world()).expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: steel-axes: none of military-science-pack, space-science-pack is present, so the science pack is dropped",
+            r#"extend {type="technology", name="steelworks-steel-axes", unit={count=75, time=30, ingredients=[["automation-science-pack", 1]]}}"#,
+        ],
+    );
+
+    // The same plan with nothing left standing. Both packs drop, and what
+    // would have been emitted is a technology nobody can research.
+    let mut nothing = Lib::new();
+    nothing.technology(
+        "steel-axes",
+        TechSpec {
+            unit: Some(UnitSpec {
+                count: 75,
+                seconds: 30.0,
+                packs: vec![
+                    Pack::new("military-science-pack", 1),
+                    Pack::named(3, "space-science-pack", &["metallurgic-science-pack"]),
+                ],
+            }),
+            ..Default::default()
+        },
+    );
+    match nothing.plan_data(&base_world()) {
+        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
+        Err(got) => assert_eq!(
+            got,
+            "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one"
+        ),
+    }
 }
 
 #[test]
@@ -553,6 +851,119 @@ fn every_emitted_name_is_prefixed() {
     }
 }
 
+/// THE THREE POST-RESOLUTION CHECKS HAVE ONE ORDER, and a plan carrying all
+/// of their problems at once is what pins it: the resolved crafting times,
+/// then the science packs the game actually has, then the cycle walk.
+///
+/// Each of these is defensible in another order, so only a witness makes one
+/// of them the language. Both halves report the same sentence about the same
+/// plan or they are two libraries.
+#[test]
+fn the_post_resolution_checks_report_in_their_fixed_order() {
+    // Somebody's overhaul rang two of the game's own technologies together,
+    // which the cycle walk finds whether or not the plan touches them.
+    let ringed = || base_world().with_prereqs("logistics-2", &["logistics", "logistics-3"]);
+    // A pack the game does not have, so the ladder drops it and the unit is
+    // left with nothing.
+    let unpayable = || TechSpec {
+        unit: Some(UnitSpec {
+            count: 50,
+            seconds: 15.0,
+            packs: vec![Pack::new("military-science-pack", 1)],
+        }),
+        ..Default::default()
+    };
+
+    // ALL THREE AT ONCE: the crafting time is what is reported.
+    let mut all_three = Lib::new();
+    let axe = all_three.item("steel-axe", ItemSpec::default());
+    let from = all_three.double_setting("axe-craft-time", 2.5, NumericSpec::default());
+    all_three.recipe(
+        axe,
+        RecipeSpec {
+            craft_time_from: from,
+            ..Default::default()
+        },
+    );
+    all_three.technology("steel-axes", unpayable());
+    let world = ringed().with_setting("steelworks-axe-craft-time", Value::Num(0.001));
+    match all_three.plan_data(&world) {
+        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
+        Err(got) => assert_eq!(
+            got,
+            "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers at or below the engine floor (energy_required can't be <= 0.001)"
+        ),
+    }
+
+    // The same plan with the crafting time taken out of the argument: the
+    // packs beat the ring.
+    let mut two = Lib::new();
+    let axe = two.item("steel-axe", ItemSpec::default());
+    two.recipe(
+        axe,
+        RecipeSpec {
+            craft_time: 2.5,
+            ..Default::default()
+        },
+    );
+    two.technology("steel-axes", unpayable());
+    match two.plan_data(&ringed()) {
+        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
+        Err(got) => assert_eq!(
+            got,
+            "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one"
+        ),
+    }
+
+    // And the ring on its own is still found, so the two rows above are an
+    // ordering and not a walk that never ran.
+    let mut ring_only = Lib::new();
+    ring_only.technology(
+        "steel-axes",
+        TechSpec {
+            unit: Some(UnitSpec {
+                count: 50,
+                seconds: 15.0,
+                packs: vec![Pack::new("automation-science-pack", 1)],
+            }),
+            ..Default::default()
+        },
+    );
+    match ring_only.plan_data(&ringed()) {
+        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
+        Err(got) => assert_eq!(
+            got,
+            "fkrecipes: a prerequisite cycle: logistics-2 -> logistics-3 -> logistics-2"
+        ),
+    }
+}
+
+/// DECLARATION ORDER, not name order: two technologies that both lose every
+/// pack are reported as the FIRST one declared, so the author reads about the
+/// one they wrote first rather than about whichever name sorts earlier.
+#[test]
+fn the_all_dropped_refusal_names_the_first_technology_declared() {
+    let unpayable = || TechSpec {
+        unit: Some(UnitSpec {
+            count: 50,
+            seconds: 15.0,
+            packs: vec![Pack::new("military-science-pack", 1)],
+        }),
+        ..Default::default()
+    };
+    let mut lib = Lib::new();
+    lib.technology("bbb-second", unpayable());
+    lib.technology("aaa-first", unpayable());
+
+    match lib.plan_data(&base_world()) {
+        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
+        Err(got) => assert_eq!(
+            got,
+            "fkrecipes: the technology bbb-second has no science pack the game has; research takes at least one"
+        ),
+    }
+}
+
 #[test]
 fn plan_data_refusals() {
     struct Case {
@@ -670,10 +1081,7 @@ fn plan_data_refusals() {
                         unit: Some(UnitSpec {
                             count: 50,
                             seconds: 15.0,
-                            packs: vec![Pack {
-                                name: "automation-science-pack".into(),
-                                amount: 1,
-                            }],
+                            packs: vec![Pack::new("automation-science-pack", 1)],
                         }),
                         ..Default::default()
                     },
@@ -706,10 +1114,7 @@ fn plan_data_refusals() {
                         unit: Some(UnitSpec {
                             count: 0,
                             seconds: 15.0,
-                            packs: vec![Pack {
-                                name: "automation-science-pack".into(),
-                                amount: 1,
-                            }],
+                            packs: vec![Pack::new("automation-science-pack", 1)],
                         }),
                         ..Default::default()
                     },
@@ -718,7 +1123,11 @@ fn plan_data_refusals() {
             want: "fkrecipes: the technology steel-axes has a unit count below 1, which the engine refuses",
         },
         Case {
-            name: "a science pack the game does not have",
+            // A pack the game does not have is DROPPED, like an ingredient;
+            // it is the unit left with nothing at all that is refused, and
+            // this unit had one pack to lose. The drop line itself is
+            // asserted in a_pack_ladder_drops_and_a_unit_with_nothing_left_is_refused.
+            name: "a unit whose only science pack the game does not have",
             world: |w: FixtureWorld| w,
             build: |l: &mut Lib| {
                 l.technology(
@@ -727,16 +1136,13 @@ fn plan_data_refusals() {
                         unit: Some(UnitSpec {
                             count: 50,
                             seconds: 15.0,
-                            packs: vec![Pack {
-                                name: "military-science-pack".into(),
-                                amount: 1,
-                            }],
+                            packs: vec![Pack::new("military-science-pack", 1)],
                         }),
                         ..Default::default()
                     },
                 );
             },
-            want: "fkrecipes: the technology steel-axes prices itself in military-science-pack, which does not exist",
+            want: "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one",
         },
         Case {
             name: "cost_of names a technology that is not there",
@@ -918,10 +1324,7 @@ fn plan_data_refusals() {
                         unit: Some(UnitSpec {
                             count: 50,
                             seconds: f64::NAN,
-                            packs: vec![Pack {
-                                name: "automation-science-pack".into(),
-                                amount: 1,
-                            }],
+                            packs: vec![Pack::new("automation-science-pack", 1)],
                         }),
                         ..Default::default()
                     },
@@ -988,10 +1391,7 @@ fn plan_data_refusals() {
                         unit: Some(UnitSpec {
                             count: 50,
                             seconds: 15.0,
-                            packs: vec![Pack {
-                                name: String::new(),
-                                amount: 1,
-                            }],
+                            packs: vec![Pack::new("", 1)],
                         }),
                         ..Default::default()
                     },
@@ -1260,10 +1660,7 @@ fn plan_data_refusals() {
                         unit: Some(UnitSpec {
                             count: 50,
                             seconds: 15.0,
-                            packs: vec![Pack {
-                                name: "automation-science-pack".into(),
-                                amount: 0,
-                            }],
+                            packs: vec![Pack::new("automation-science-pack", 0)],
                         }),
                         ..Default::default()
                     },
@@ -1281,10 +1678,7 @@ fn plan_data_refusals() {
                         unit: Some(UnitSpec {
                             count: 50,
                             seconds: 0.0,
-                            packs: vec![Pack {
-                                name: "automation-science-pack".into(),
-                                amount: 1,
-                            }],
+                            packs: vec![Pack::new("automation-science-pack", 1)],
                         }),
                         ..Default::default()
                     },
@@ -1331,16 +1725,113 @@ fn plan_data_refusals() {
                         unit: Some(UnitSpec {
                             count: 9007199254740993,
                             seconds: 15.0,
-                            packs: vec![Pack {
-                                name: "automation-science-pack".into(),
-                                amount: 1,
-                            }],
+                            packs: vec![Pack::new("automation-science-pack", 1)],
                         }),
                         ..Default::default()
                     },
                 );
             },
             want: "fkrecipes: the technology steel-axes declares a unit count a Lua double cannot hold exactly: 9007199254740993",
+        },
+        Case {
+            // ITEM AND FLUID ALIKE, and a FALLBACK rung as well as a first
+            // choice: a rung that can never resolve silently shortens the
+            // ladder the author wrote, exactly as an empty pack rung does.
+            name: "an ingredient with an empty name",
+            world: |w: FixtureWorld| w,
+            build: |l: &mut Lib| {
+                let axe = l.item("steel-axe", ItemSpec::default());
+                l.recipe(
+                    axe,
+                    RecipeSpec {
+                        ingredients: vec![Ingredient::named(2, "", &[])],
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: the recipe steel-axe names an ingredient with an empty name",
+        },
+        Case {
+            name: "an ingredient with an empty fallback rung",
+            world: |w: FixtureWorld| w,
+            build: |l: &mut Lib| {
+                let axe = l.item("steel-axe", ItemSpec::default());
+                l.recipe(
+                    axe,
+                    RecipeSpec {
+                        ingredients: vec![Ingredient::named(2, "steel-plate", &["", "iron-plate"])],
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: the recipe steel-axe names an ingredient with an empty name",
+        },
+        Case {
+            // A UNIT THAT NAMED NO PACK AT ALL, refused before any world
+            // question. The sentence about packs the game does not have is
+            // reserved for a list that named some and lost them all, which is
+            // the row above this one.
+            name: "a unit declared with no science pack",
+            world: |w: FixtureWorld| w,
+            build: |l: &mut Lib| {
+                l.technology(
+                    "steel-axes",
+                    TechSpec {
+                        unit: Some(UnitSpec {
+                            count: 50,
+                            seconds: 15.0,
+                            packs: Vec::new(),
+                        }),
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: the technology steel-axes declares no science pack; research takes at least one",
+        },
+        Case {
+            // The placement of that check, pinned: the count is asked first,
+            // so a unit with both problems hears about the count. The
+            // fallback fixture in the migration suite rests on this order.
+            name: "a unit with no packs and a count below one",
+            world: |w: FixtureWorld| w,
+            build: |l: &mut Lib| {
+                l.technology(
+                    "steel-axes",
+                    TechSpec {
+                        unit: Some(UnitSpec {
+                            count: 0,
+                            seconds: 15.0,
+                            packs: Vec::new(),
+                        }),
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: the technology steel-axes has a unit count below 1, which the engine refuses",
+        },
+        Case {
+            // The empty rung INSIDE a ladder, which the first-choice row
+            // above does not reach.
+            name: "a science pack with an empty fallback rung",
+            world: |w: FixtureWorld| w,
+            build: |l: &mut Lib| {
+                l.technology(
+                    "steel-axes",
+                    TechSpec {
+                        unit: Some(UnitSpec {
+                            count: 50,
+                            seconds: 15.0,
+                            packs: vec![Pack::named(
+                                1,
+                                "automation-science-pack",
+                                &["", "logistic-science-pack"],
+                            )],
+                        }),
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: the technology steel-axes prices itself in a pack with an empty name",
         },
         Case {
             name: "a CostOf source whose unit is not a dictionary",
@@ -1610,10 +2101,7 @@ fn wide_amounts_survive_the_emit() {
             unit: Some(UnitSpec {
                 count: 5_000_000_000,
                 seconds: 15.0,
-                packs: vec![Pack {
-                    name: "automation-science-pack".into(),
-                    amount: 3_000_000_000,
-                }],
+                packs: vec![Pack::new("automation-science-pack", 3_000_000_000)],
             }),
             ..Default::default()
         },

@@ -209,7 +209,7 @@ lib.technology(
             fallback: UnitSpec {
                 count: 200,
                 seconds: 30.0,
-                packs: vec![Pack { name: "automation-science-pack".into(), amount: 1 }],
+                packs: vec![Pack::new("automation-science-pack", 1)],
             },
         }),
         ..Default::default()

@@ -236,6 +236,24 @@ func (w *dataWorld) ItemExists(name string) bool {
 	return present
 }
 
+// FluidExists and ToolExists are ONE probe each and carry no memo, which is
+// the whole difference from ItemExists above. data.raw.fluid and data.raw.tool
+// are concrete types with no derived family to walk (defines.prototypes.item
+// lists tool as one of its 21 types, and a fluid is not in that family at
+// all), so the answer costs a single Get and the memo would cost more code
+// than the probes it saves.
+func (w *dataWorld) FluidExists(name string) bool {
+	_, ok := fkdata.Get("fluid", name, "name")
+	return ok
+}
+
+// ToolExists is the science-pack question: a research unit takes tool-type
+// items and nothing else (measured), so this asks the one type that answers it.
+func (w *dataWorld) ToolExists(name string) bool {
+	_, ok := fkdata.Get("tool", name, "name")
+	return ok
+}
+
 // EntityExists is ItemExists over the entity family: the same memo, the same
 // named-type-first-then-derived walk, because "entity" is an abstract base and
 // a simple-entity-with-force is not in data.raw.entity.

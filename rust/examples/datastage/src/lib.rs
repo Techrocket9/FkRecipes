@@ -158,6 +158,7 @@ mod guest {
                             ],
                         },
                     ],
+                    ..Default::default()
                 }),
                 name: String::from("hardened-steel-plate-quenching"),
                 category: String::from("smelting"),
@@ -205,10 +206,7 @@ mod guest {
                 unit: Some(UnitSpec {
                     count: 45,
                     seconds: 20.0,
-                    packs: vec![Pack {
-                        name: String::from("automation-science-pack"),
-                        amount: 1,
-                    }],
+                    packs: vec![Pack::new("automation-science-pack", 1)],
                 }),
                 after_tech: hardened_steel,
                 display_name: String::from("Steel riveting"),
@@ -251,11 +249,9 @@ mod guest {
                     fallback: UnitSpec {
                         count: 200,
                         seconds: 30.0,
-                        packs: vec![Pack {
-                            name: String::from("automation-science-pack"),
-                            amount: 1,
-                        }],
+                        packs: vec![Pack::new("automation-science-pack", 1)],
                     },
+                    ..Default::default()
                 }),
                 enabled_by: bonuses,
                 display_name: String::from("Hardened tool tips"),

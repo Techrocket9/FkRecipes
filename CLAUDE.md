@@ -54,21 +54,27 @@ This list is what exists. A path named here that is absent, or present and empty
 
 ```
 go/                     the Go half: module github.com/Techrocket9/fkrecipes/go, requiring
-                        github.com/Techrocket9/fklua/guest/go v0.1.0 (the real channel; no replace).
+                        github.com/Techrocket9/fklua/guest/go v0.2.0 (the real channel; no replace).
                         Pure files host-testable; everything touching fkdata sits behind
-                        //go:build tinygo.wasm
+                        //go:build tinygo.wasm. ingredientlist.go is the player-typed language
 rust/                   the Rust half: crate fkrecipes, workspace root. fkdata arrives as a git
                         dependency on https://github.com/Techrocket9/fklua, wasm-gated so the host
-                        cargo test needs no wasm target; the [patch] one-source note is in Cargo.toml
+                        cargo test needs no wasm target; the [patch] one-source note is in Cargo.toml.
+                        src/ingredient_list.rs is the language's mirror
 go/examples/datastage   the Go example guest, its own module (a consumer-shaped project; fkrecipes by
-                        replace, the FkLua substrate by the real v0.1.0 require)
+                        replace, the FkLua substrate by the real v0.2.0 require)
 rust/examples/datastage the Rust example guest (workspace member), the mirror harness's Rust arm
 scripts/                gate scripts; run-mirror.sh is the cross-language mirror
 testdata/mirror/        the strict engine-shaped stand-in and the committed transcript golden
 testdata/locale/        the locale checker's committed fixture cfg and findings golden, the
                         cross-language pin that needs no toolchain (both suites reproduce it)
+testdata/ingredient-list/ the ingredient-list language's corpus: every case an input and the exact
+                        rendering or refusal, run by both suites byte for byte. It is the language's
+                        CONTRACT: a message changes in the corpus first, then in both halves, never
+                        in one half alone. Its header documents the fixture and the escape syntax
 testdata/ingame/        the engine gate's per-engine golden: two dump hashes and the mod set
-docs/                   human-facing docs (usage.md; docs-style.md governs, run its grep before commit)
+docs/                   human-facing docs (usage.md, migration.md, ingredient-list.md; docs-style.md
+                        governs, run its grep before commit)
 agents/                 working notes; index below
 LICENSE                 MIT
 ```
@@ -79,3 +85,4 @@ LICENSE                 MIT
 |---|---|
 | [`agents/docs-style.md`](agents/docs-style.md) | **Read before creating or editing any human-facing document.** The public voice, the formatting bans, the pre-commit grep check. |
 | [`agents/implementation-notes.md`](agents/implementation-notes.md) | **The build report.** Design deviations with evidence, ecosystem friction found while dogfooding the FkLua distribution channel, cross-language mirror gaps, gate results, what v1 leaves open. |
+| [`agents/customizer-design.md`](agents/customizer-design.md) | **The customizer round's design record.** Why a player-typed ingredient list, the engine facts it rests on (each with its probe), the surface, the semantics both halves share, the adversarial design review and what it changed, the harness. Read before touching the language, its corpus, or a text setting. |
