@@ -45,21 +45,31 @@ scripts/run-ingame.sh         # the engine gate: both packaged examples under a 
                               # --dump-data, three runs per language: two on the declared defaults
                               # (which must agree, the determinism check) and one FLIPPED, with a
                               # mod-settings.dat written into the packaged mod by
-                              # go run ./internal/modsettings/cmd/writesettings from
+                              # `fklua modsettings write` (the fklua this script already builds) from
                               # testdata/ingame/flipped.json (edited ingredient texts, a custom arm
-                              # on, a custom research cost). Hashes of BOTH normalised dumps are
-                              # pinned per engine in testdata/ingame/dump-sha256.txt as two tagged
+                              # on, a custom research cost), and cmp'd against
+                              # testdata/ingame/flipped.golden.dat before any engine runs, so an
+                              # upstream codec change refuses here by name. Hashes of BOTH
+                              # normalised dumps are pinned per engine in
+                              # testdata/ingame/dump-sha256.txt as two tagged
                               # rows, <version> default|flipped <data> <settings> <mod set>; the
                               # settings hash is the same on both rows because the settings dump
-                              # holds prototypes, not values. Re-asks the binary its version first;
-                              # FACTORIO_USERDIR=/tmp/fkrecipes so a running game's lock cannot
-                              # kill it; needs FACTORIO_BIN (or the Steam default) and jq. About 38
-                              # seconds. The mirror flips the settings the in-game row leaves on a
-                              # preset and vice versa, so each dropdown is on custom in one gate and
-                              # on a preset in the other. A mod-set mismatch reports SKIPPED and
-                              # exits 0 (an environmental difference, the FkLua convention);
-                              # --strict or FKRECIPES_STRICT=1 makes it exit 1 for a CI job that
-                              # only reads exit codes
+                              # holds prototypes, not values. The flipped row also keeps the
+                              # mod-settings.dat the ENGINE rewrote and reads it back with
+                              # `fklua modsettings read`, so what the engine kept is asserted
+                              # rather than assumed; a dump says what the data stage did, only
+                              # that file says which values survived. Re-asks the binary its
+                              # version first; FACTORIO_USERDIR=/tmp/fkrecipes so a running game's
+                              # lock cannot kill it; needs FACTORIO_BIN (or the Steam default),
+                              # jq, and an FkLua checkout at c21ff07 or later via FKLUA_CHECKOUT
+                              # (default ../FkLua) for the writer and the reader: an older one has
+                              # no modsettings subcommand and the gate reports NOT RUN naming it.
+                              # About 35 seconds. The mirror flips the settings the in-game row
+                              # leaves on a preset and vice versa, so each dropdown is on custom in
+                              # one gate and on a preset in the other. A mod-set mismatch reports
+                              # SKIPPED and exits 0 (an environmental difference, the FkLua
+                              # convention); --strict or FKRECIPES_STRICT=1 makes it exit 1 for a CI
+                              # job that only reads exit codes
 ```
 
 The mirror harness (both example guests packaged with `fklua mod`, run under lua52f against the strict stand-in, transcripts byte-compared) and the in-game `--dump-data` gate land with their own commits and get their rows here then.
@@ -101,12 +111,10 @@ testdata/ingredient-list/ the ingredient-list language's corpus: every case an i
                         in one half alone. Its header documents the fixture and the escape syntax
 testdata/ingame/        the engine gate's per-engine golden (two tagged rows, default and flipped,
                         each two dump hashes and the mod set), flipped.json (the stored values the
-                        flipped row installs) and flipped.golden.dat (the bytes the codec must
-                        produce for it; a layout change is a red test)
-go/internal/modsettings the host-only mod-settings.dat codec (Encode, Decode, an order-preserving
-                        JSON reader) and cmd/writesettings, inside the library module so go run
-                        reaches it with no second module and no wasm toolchain; nothing the library
-                        ships imports it, so pin transparency is untouched
+                        flipped row installs) and flipped.golden.dat (the bytes
+                        `fklua modsettings write` must produce for it, cmp'd on every run before
+                        the engine is touched, so a codec change upstream fails here loudly and by
+                        name; the same --update re-records it and the hash rows)
 docs/                   human-facing docs (usage.md, migration.md, ingredient-list.md; docs-style.md
                         governs, run its grep before commit)
 agents/                 working notes; index below

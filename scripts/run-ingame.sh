@@ -23,7 +23,7 @@
 # every setting left where the mod declared it, which is the load a player who
 # never opens the settings screen gets. The FLIPPED row is that same mod with
 # testdata/ingame/flipped.json written into the mod directory as
-# mod-settings.dat by go/internal/modsettings: a dropdown on custom with a
+# mod-settings.dat by `fklua modsettings write`: a dropdown on custom with a
 # player-typed ingredient list carrying a FLUID, a research priced out of three
 # settings and placed by its own ladder, a whole ingredient list typed into a
 # setting with no dropdown in front of it, and one text left untouched behind a
@@ -49,15 +49,33 @@
 #      second row identical to the first and every check above would pass.
 #   5. Cause-naming assertions a hash cannot make. A hash says "different"; jq
 #      over the dump says WHICH decision moved.
+#   6. The settings file this run writes is byte for byte
+#      testdata/ingame/flipped.golden.dat. The writer belongs to the toolchain
+#      now, so what this repository can still say about it is exactly that: for
+#      THIS JSON it produces THESE bytes. Without the pin an upstream layout
+#      change would arrive as a moved dump hash, which names the engine run and
+#      not the file that fed it.
+#   7. The mod-settings.dat the ENGINE REWROTE carries the values the flipped
+#      file installed. The engine resets a number out of its range and a
+#      dropdown value off its list to the default (measured, in FkLua), so a
+#      row it discarded that way is still sitting in the file this script
+#      wrote: only the file the engine wrote says what actually ran.
 #
 # FLAGS:
-#   --update   capture the golden line for this engine, deliberately.
+#   --update   capture the golden lines for this engine, deliberately, and
+#              re-record testdata/ingame/flipped.golden.dat from what the
+#              writer produces now. That file is a function of flipped.json and
+#              of the writer and of nothing the engine does, so it is recorded
+#              before the first run rather than after the last.
 #   --strict   make an environmental SKIP a FAILURE (exit 1), and refuse to
-#              RECORD a golden whose mod set differs from the one the golden
-#              already carries. Also set by FKRECIPES_STRICT=1, which is the
-#              form CI wants and the reason the capture needs its own guard:
-#              a job that sets it once covers every run in the job, --update
-#              included.
+#              RECORD the hash rows when their mod set differs from the one the
+#              golden already carries. It says nothing about
+#              flipped.golden.dat: those bytes are a function of flipped.json
+#              and of the writer alone, so they are not keyed by a mod set and
+#              strict has nothing there to guard. Also set by
+#              FKRECIPES_STRICT=1, which is the form CI wants and the reason
+#              the capture needs its own guard: a job that sets it once covers
+#              every run in the job, --update included.
 #
 # WHY --strict IS OPT-IN RATHER THAN THE DEFAULT. A mod-set mismatch means the
 # machine owns different DLC from the machine that captured the golden, so the
@@ -191,21 +209,88 @@ echo "== building the Rust guest"
   { cat "$TMP/build-rust.log" >&2; refuse "the Rust guest did not build"; }
 cp "$TMP/cargo/wasm32-unknown-unknown/release/datastage.wasm" "$TMP/datastage-rust.wasm"
 
-# THE FLIPPED ROW'S SETTINGS FILE, written by this repository's own encoder.
-# There is no CLI for a mod-settings.dat: the engine writes it and reads it
-# back, and a headless gate that wants a player's typed text in front of the
-# settings stage has to write those bytes itself. go/internal/modsettings is
-# host-only Go inside the library module, so this needs the Go the fklua build
-# above already needed and nothing else. Its own suite round trips the file and
-# pins it against a committed byte golden; the refusal here is for the case
-# where the JSON was edited into something that does not encode.
+# THE FLIPPED ROW'S SETTINGS FILE, written by the fklua this script just built.
+# There is no CLI for a mod-settings.dat outside that one: the engine writes it
+# and reads it back, and a headless gate that wants a player's typed text in
+# front of the settings stage has to write those bytes itself. This repository
+# carried an encoder of its own until the toolchain grew one; keeping it would
+# have meant a second thing to hold in step with the format and a second answer
+# on the day the two disagreed, so the gate uses the writer it already builds.
+# `write` decodes what it encoded before writing, so a JSON edited into
+# something that does not round trip is a sentence naming the byte here rather
+# than a Factorio that refuses to start twenty seconds later.
 FLIPPED_DAT="$TMP/mod-settings.dat"
+FLIPPED_GOLDEN_DAT="$ROOT/testdata/ingame/flipped.golden.dat"
 echo "== writing the flipped row's mod-settings.dat"
 [ -f "$FLIPPED_JSON" ] || refuse "no flipped settings at $FLIPPED_JSON"
-( cd "$ROOT/go" && go run ./internal/modsettings/cmd/writesettings \
-    -in "$FLIPPED_JSON" -out "$FLIPPED_DAT" ) >"$TMP/writesettings.log" 2>&1 ||
-  { cat "$TMP/writesettings.log" >&2; refuse "the flipped settings file did not encode"; }
-cat "$TMP/writesettings.log"
+
+# AN fklua WITHOUT THE SUBCOMMAND IS AN ENVIRONMENT, NOT A FAILING WRITE, and
+# the two are told apart BEFORE the write runs, because otherwise the remedy
+# arrives buried in a page of usage text. fklua prints `unknown command
+# "modsettings"` and exits 2 when its dispatch has no such case, and that
+# string is the one thing that means the checkout is older than the subcommand.
+# Every other way the write can fail is reported below, as the write's own
+# failure, with its log.
+"$FKLUA" modsettings >"$TMP/modsettings-probe.log" 2>&1 || true
+if grep -q 'unknown command "modsettings"' "$TMP/modsettings-probe.log"; then
+  refuse "NOT RUN: FKLUA_CHECKOUT points at
+    $FKLUA_CHECKOUT
+  and the fklua built from it has no modsettings subcommand, so the flipped
+  row's mod-settings.dat cannot be written and this gate would cover only the
+  settings the mod itself declares.
+  Point FKLUA_CHECKOUT at an FkLua checkout at c21ff07 or later."
+fi
+
+"$FKLUA" modsettings write --from "$FLIPPED_JSON" --out "$FLIPPED_DAT" \
+  >"$TMP/modsettings-write.log" 2>&1 ||
+  { cat "$TMP/modsettings-write.log" >&2; refuse "the flipped settings file did not encode"; }
+cat "$TMP/modsettings-write.log"
+
+# AND THE BYTES ARE PINNED, because the writer belongs to somebody else now.
+# What this repository can still say about it is exactly this: for THIS JSON it
+# produces THESE bytes. Without the pin an upstream layout change would arrive
+# as a moved dump hash, which names the engine run and not the file that fed it.
+#
+# THE CHECK IS BEHIND THE FLAG, because --update is the remedy this refusal
+# names: run unconditionally it would refuse the very command it tells the
+# reader to run, and a golden that went missing could never be recorded again.
+# The capture below needs no file to be there: `cmp -s` against a missing
+# operand exits non-zero without a word, so the else arm records it.
+if [ "$UPDATE" != 1 ] && [ ! -f "$FLIPPED_GOLDEN_DAT" ]; then
+  refuse "no byte golden at $FLIPPED_GOLDEN_DAT
+  Record it deliberately with: scripts/run-ingame.sh --update"
+fi
+if [ "$UPDATE" = 1 ]; then
+  # RECORDED HERE rather than beside the hash rows at the end, because this
+  # file is a function of flipped.json and of the writer and of nothing the
+  # engine does. A run that later fails on a hash has still written the right
+  # bytes, and holding the capture back would make re-recording them wait on a
+  # green engine they have nothing to do with.
+  if cmp -s "$FLIPPED_DAT" "$FLIPPED_GOLDEN_DAT"; then
+    echo "== byte golden unchanged: $FLIPPED_GOLDEN_DAT"
+  else
+    cp "$FLIPPED_DAT" "$FLIPPED_GOLDEN_DAT" ||
+      refuse "could not record the byte golden at $FLIPPED_GOLDEN_DAT"
+    echo "== byte golden recorded: $FLIPPED_GOLDEN_DAT ($(wc -c <"$FLIPPED_GOLDEN_DAT" | tr -d ' ') bytes)"
+  fi
+elif ! cmp -s "$FLIPPED_DAT" "$FLIPPED_GOLDEN_DAT"; then
+  # A REFUSAL RATHER THAN A fail(), and that is the split this script already
+  # draws: fail() is for an assertion about the library, and this is the run's
+  # own INPUT. Every flipped assertion below, and the flipped hash row itself,
+  # would be speaking about a settings file nobody pinned, so six engine runs
+  # would buy a page of failures naming everything except the cause.
+  echo "run-ingame: the flipped settings file is not the bytes the golden pins" >&2
+  echo "    written: $FLIPPED_DAT ($(wc -c <"$FLIPPED_DAT" | tr -d ' ') bytes)" >&2
+  echo "    golden:  $FLIPPED_GOLDEN_DAT ($(wc -c <"$FLIPPED_GOLDEN_DAT" | tr -d ' ') bytes)" >&2
+  echo "  Either the writer in $FKLUA_CHECKOUT changed what it produces for this" >&2
+  echo "  JSON, or testdata/ingame/flipped.json was edited without re-recording" >&2
+  echo "  the golden, or the golden in the tree was itself edited or corrupted." >&2
+  echo "  The first two also move the flipped row's dump hashes, so re-record" >&2
+  echo "  both together and read the hash diff as the real report; the third" >&2
+  echo "  changes nothing the engine reads, so that diff comes back empty." >&2
+  refuse "re-record deliberately with: scripts/run-ingame.sh --update"
+fi
+echo "  ok: the settings file is byte for byte $FLIPPED_GOLDEN_DAT"
 
 DUMP="$USERDIR/script-output/data-raw-dump.json"
 SDUMP="$USERDIR/script-output/mod-settings-dump.json"
@@ -270,6 +355,16 @@ dump_once() {
 
   cp "$DUMP"  "$TMP/raw-data-$lang-$run.json"     || refuse "$lang: could not keep the data dump"
   cp "$SDUMP" "$TMP/raw-settings-$lang-$run.json" || refuse "$lang: could not keep the settings dump"
+
+  # AND THE FILE THE ENGINE REWROTE, kept for the same reason and named by the
+  # same row. It is what the engine SETTLED ON rather than what this script
+  # asked for, and the two are not the same file: a number out of its range and
+  # a dropdown value off its list are both reset to the default (measured, in
+  # FkLua), and a row discarded that way is still sitting in the input.
+  if [ -n "$settings" ]; then
+    cp "$moddir/mod-settings.dat" "$TMP/settled-$lang-$run.dat" ||
+      refuse "$lang: the engine left no mod-settings.dat in $moddir to read back"
+  fi
 
   jq -S . "$DUMP" > "$ndata" ||
     refuse "$lang: the data dump is not readable JSON: $DUMP"
@@ -505,6 +600,47 @@ if grep -q "takes its ingredients from fkrecipes-example-chain-ingredients" "$FL
   fail "an untouched text was logged as an edit"
 fi
 
+# WHAT THE ENGINE SETTLED ON, read back rather than assumed. Everything above
+# reads a dump, which says what the data stage DID; this reads the
+# mod-settings.dat the engine REWROTE after the run, which says what it kept.
+# The engine resets a number out of its range and a dropdown value off its list
+# to the default (measured, in FkLua), so a row discarded that way is still in
+# the file this script wrote and only the file the engine wrote can say so.
+# Every value in flipped.json is in range and on its list, so the answer here is
+# "all of them" and a drift is a finding either way: the engine changed what it
+# accepts, or the mod stopped declaring a setting the file names.
+echo "== reading back what the engine settled on"
+SETTLED_DAT="$TMP/settled-rust-flipped.dat"
+SETTLED_JSON="$TMP/settled-rust-flipped.json"
+if ! "$FKLUA" modsettings read "$SETTLED_DAT" >"$SETTLED_JSON" 2>"$TMP/settled-rust-flipped.err"; then
+  fail "the mod-settings.dat the engine rewrote does not read back"
+  sed 's/^/        /' "$TMP/settled-rust-flipped.err" >&2
+elif [ ! -s "$SETTLED_JSON" ]; then
+  # AN EMPTY DOCUMENT WOULD PASS THE QUERY BELOW WITHOUT SAYING A WORD: jq
+  # over zero input runs its program zero times, so DRIFT comes back empty and
+  # the ok line prints over a read that produced nothing. The check is what
+  # makes that ok line mean the engine kept the values rather than mean the
+  # reader had nothing to compare.
+  fail "the engine's rewrite read back as an empty document"
+else
+  # ONE LINE NAMING EVERY KEY THAT MOVED, rather than a bare true/false: the
+  # rewrite carries every setting the mod declares and this compares only the
+  # ones the flipped file installed, so the interesting output is which of them
+  # the engine did not keep.
+  DRIFT="$(jq -r --slurpfile want "$FLIPPED_JSON" '
+      .startup as $got
+      | [ $want[0].startup | to_entries[] | . as $e
+          | select(($got | has($e.key) | not) or ($got[$e.key] != $e.value))
+          | "\($e.key): installed \($e.value | tojson), settled \($got[$e.key] | tojson)" ]
+      | join("; ")' "$SETTLED_JSON")" ||
+    DRIFT="the query over $SETTLED_JSON failed"
+  if [ -z "$DRIFT" ]; then
+    echo "  ok: the engine's own rewrite still carries every value the flipped file installed"
+  else
+    fail "the engine did not keep every value the flipped file installed: $DRIFT"
+  fi
+fi
+
 # ---------------------------------------------------------------------------
 # The golden. TWO ROWS PER ENGINE, tagged, because one file now describes two
 # loads of the same mod: the settings as the mod declares them, and the
@@ -530,12 +666,16 @@ if [ "$UPDATE" = 1 ]; then
     strict_mods="$(grep "^$ENGINE default " "$GOLDEN" | cut -d' ' -f5- || true)"
   fi
   if [ -n "$strict_mods" ] && [ "$strict_mods" != "$MODSET" ]; then
-    echo "  refusing to record a golden from a mod set the golden does not carry; drop --strict to re-record after an environment change" >&2
+    echo "  refusing to record the hash rows from a mod set those rows do not carry; drop --strict to re-record after an environment change" >&2
     echo "    golden: $strict_mods" >&2
     echo "    here:   $MODSET" >&2
     FAIL=1
   elif [ "$FAIL" != 0 ]; then
-    echo "  refusing to record a golden from a failing run" >&2
+    # THE HASH ROWS ONLY. flipped.golden.dat has already been re-recorded
+    # above and deliberately so: it is a function of flipped.json and of the
+    # writer, and a run that fails on an engine hash has still written the
+    # right bytes.
+    echo "  refusing to record the hash rows from a failing run" >&2
   else
     if [ -f "$GOLDEN" ]; then
       grep -v "^$ENGINE " "$GOLDEN" > "$GOLDEN.tmp" || true
@@ -553,9 +693,15 @@ if [ "$UPDATE" = 1 ]; then
 # THE ROW, default or flipped, because the dump is also a function of the
 # settings the engine read. The default row is every setting where the mod
 # declared it; the flipped row is testdata/ingame/flipped.json written into the
-# mod directory as mod-settings.dat, which is a player who opened the settings
-# screen and typed. Only the engine can run that path, so only this file can
-# pin it.
+# mod directory as mod-settings.dat by `fklua modsettings write`, which is a
+# player who opened the settings screen and typed. Only the engine can run that
+# path, so only this file can pin it.
+#
+# THE BYTES OF THAT FILE ARE PINNED TOO, beside this one as flipped.golden.dat.
+# The writer belongs to the toolchain now, so the gate compares what it
+# produces for flipped.json against those bytes on every run and a codec change
+# upstream fails on the file rather than only on a hash of a dump. Both goldens
+# are re-recorded by the same --update.
 #
 # TWO HASHES, because setting prototypes never reach the data dump: a golden
 # over the data dump alone stays green for a guest whose settings stage did

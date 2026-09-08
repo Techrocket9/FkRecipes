@@ -10,12 +10,18 @@
 # settings the engine read. The default row is every setting where the mod
 # declared it, which is the load a player who never opens the settings screen
 # gets. The flipped row is testdata/ingame/flipped.json written into the mod
-# directory as mod-settings.dat by go/internal/modsettings: a dropdown on
+# directory as mod-settings.dat by `fklua modsettings write`: a dropdown on
 # custom with a player-typed ingredient list carrying a fluid, a research
 # priced out of three settings and placed by its own ladder, a whole list typed
 # into a setting with no dropdown in front of it, and one text left untouched
 # behind a preset. Only the engine can walk those paths, because the settings
 # stage stores a value and no stand-in has one to read back.
+#
+# THE BYTES OF THAT FILE ARE PINNED TOO, beside this one as flipped.golden.dat.
+# The writer belongs to the toolchain now, so the gate compares what it
+# produces for flipped.json against those bytes on every run and a codec change
+# upstream fails on the file rather than only on a hash of a dump. Both goldens
+# are re-recorded by the same --update.
 #
 # THE TWO ROWS SHARE A SETTINGS HASH, and that is correct rather than
 # suspicious: setting PROTOTYPES are what mod-settings-dump.json holds, and a
