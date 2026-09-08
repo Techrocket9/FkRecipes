@@ -155,7 +155,7 @@ Both guests above declare the same mod. Package either with `fklua mod --data-mo
 
 ## What it does
 
-- **Generates the settings.** Bool, int, double, dropdown and ingredient-list text startup settings, named after your mod, ordered as you declared them. A double setting bound as a crafting time is given a minimum of 0.002 unless you set one yourself.
+- **Generates the settings.** Bool, int, double, dropdown and ingredient-list text startup settings, named after your mod, ordered as you declared them or placed under a legacy order you name. A double setting bound as a crafting time is given a minimum of 0.002 unless you set one yourself.
 - **Prefixes everything.** The prefix comes from the mod name FkLua packaged, read at emit time. There is no prefix parameter, so a generated name cannot drift from the mod it ships in.
 - **Resolves ingredient names, or drops them.** `IngredientNamed` takes a list of candidates and uses the first one the game actually has. If none is present the ingredient is dropped and a line is written to the log, because a name the game does not have is a hard load failure that names your mod, and a guess is worse than an omission.
 - **Copies a research cost from a technology you name.** `CostOf` takes the source's whole `unit` unchanged, so a `count_formula` and a multi-level technology's `max_level` come across without this library needing to understand either.

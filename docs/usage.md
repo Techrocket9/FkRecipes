@@ -80,7 +80,37 @@ A text setting must be bound to exactly one recipe or technology (below); one th
 
 `NumericSpec` bounds an int or double setting and both bounds are optional: a zero value in Go, `None` in Rust, means unbounded rather than pinned to zero. `Between` and `NumericSpec::between` are shorthand for the common case of setting both.
 
-Settings are emitted in declaration order and given `order` strings from that order, so the settings screen shows them the way you wrote them.
+Settings are emitted in declaration order. A generated setting's `order` string is two letters from its declaration index (`aa`, `ab`, ... `az`, `ba`, ...), so a plan of generated settings alone shows in the settings screen in the order you wrote it. A plan that mixes legacy and generated settings does not: the screen sorts by the order strings themselves, a legacy order is whatever you passed, and a generated one lands among the legacy orders by the alphabet rather than by where you declared it (the two letters count declaration slots, legacy declarations included: beside legacy orders `a` and `b`, a generated setting in any of the first twenty-six slots sorts between them and the twenty-seventh declaration carries `ba` and sorts after `b`). `OrderAfter` (`order_after`) is how a mixed plan places its generated settings: every generated setting declared after the call carries the given order followed by its two letters, so it sorts after the legacy setting with that order and before every legacy order that sorts after that one, and it keeps its generated name. Call it again to move on. Orders that sort before the named one are unaffected, so placing settings after `b` says nothing about where they stand relative to `a`.
+
+```go
+recipeCost := lib.LegacyDropdownSettingNeedingLocale("bbb-recipe-cost", "vanilla", recipeValues, "a")
+lib.OrderAfter("a")
+custom := lib.IngredientsSetting("recipe-ingredients", vanilla) // order aab: after a, before b
+techCost := lib.LegacyDropdownSettingNeedingLocale("bbb-tech-cost", "logistics", techValues, "b")
+lib.OrderAfter("b")
+packs := lib.PacksSetting("tech-packs", defaultPacks)          // bad
+count := lib.IntSetting("tech-count", 20, fkrecipes.Between(1, 1000000)) // bae
+seconds := lib.DoubleSetting("tech-seconds", 15, fkrecipes.Between(1, 3600)) // baf
+```
+
+```rust
+let recipe_cost = lib.legacy_dropdown_setting_needing_locale("bbb-recipe-cost", "vanilla", &recipe_values, "a");
+lib.order_after("a");
+let custom = lib.ingredients_setting("recipe-ingredients", vanilla); // order aab: after a, before b
+let tech_cost = lib.legacy_dropdown_setting_needing_locale("bbb-tech-cost", "logistics", &tech_values, "b");
+lib.order_after("b");
+let packs = lib.packs_setting("tech-packs", default_packs);          // bad
+let count = lib.int_setting("tech-count", 20, NumericSpec::between(1.0, 1000000.0)); // bae
+let seconds = lib.double_setting("tech-seconds", 15.0, NumericSpec::between(1.0, 3600.0)); // baf
+```
+
+Three things are refused at the settings stage: an empty order; a generated setting whose order string equals a legacy setting's, whether or not `OrderAfter` was called (a plan that tied a generated `aa` with a legacy `aa` by accident loaded before with the two in the engine's hands, and is refused now); and a placed setting that would sort past a legacy order extending the one it was placed after, which is the misplacement `OrderAfter` exists to remove (with legacy `a` and `ab`, twenty-four generated settings fit under `a` before the twenty-fifth reaches `aba`; with legacy `b` and `ba`, nothing fits under `b`, so name `ba`):
+
+```
+fkrecipes: OrderAfter was given an empty order; name the order string the generated settings should follow
+fkrecipes: the setting tech-packs would carry the order bad, which the legacy setting bbb-tech-detail already carries; give one of them an order of its own
+fkrecipes: the setting tech-packs would carry the order bad and sort past the legacy setting bbb-tech-detail at ba, which extends b; OrderAfter(b) places settings before every legacy order that extends b
+```
 
 The dropdown constructor is named the way it is because it is the one shape with a locale obligation the library cannot meet for you. A bool, int or double setting renders from its own name, but a string setting renders each of its **values** from a separate `[string-mod-setting]` entry, keyed `<prefixed-setting>-<value>`, and there is no fallback: a value with no entry shows the player a raw key. Prefer another setting type when the choice fits one, and ship the locale entries when it does not. `CheckLocale` below is how you keep them honest.
 

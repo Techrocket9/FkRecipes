@@ -262,7 +262,7 @@ lib.legacy_recipe(part, "bbb-balancer-part", RecipeSpec {
 });
 ```
 
-Every value a player has stored is still one of the dropdown's values, so every preference survives the update untouched; the only players who see anything new are the ones who open the settings screen. The text setting is a new name, so it carries the generated prefix and the mod's default as its text.
+Every value a player has stored is still one of the dropdown's values, so every preference survives the update untouched; the only players who see anything new are the ones who open the settings screen. The text setting is a new name, so it carries the generated prefix and the word `default` as its text. Where it lands in the settings screen is a separate decision: a generated setting's order string comes from its declaration index, and next to legacy orders such as `a` and `b` that puts it between the two whatever you meant. `OrderAfter("a")` (`order_after("a")`) before the declaration places it behind the dropdown it belongs to, under the order `aab`; see [Using FkRecipes](usage.md) for the rule.
 
 What the engine does not allow is filling that text from the player's old choice. The settings stage, where defaults are declared, cannot see any stored value (measured on Factorio 2.0.77: `data.raw` is empty there), and nothing at the data stage or at runtime can write a startup setting. A default is therefore one text for every player. What the library does instead is compose the dropdown's description: your own `[mod-setting-description]` entry, then one line per preset rendered as an ingredient list, so a player on `cheap` who picks `custom` can see what `cheap` was and start from it.
 
@@ -282,7 +282,7 @@ better-belt-balancer-balancer-part-ingredients=Used when the recipe above is set
 
 This is the step whose settings hash is expected to move, because the dropdown's `allowed_values` grows and its description becomes a composed value, while the data hash stays where it was for every preset: the presets are the same plans as before, and the custom path is only taken by a player who chose it.
 
-One rule that reaches a migrated `CostBy` whether or not it takes a `Custom` arm: a `Fallback` unit must name at least one science pack, because a unit declared with none is refused at plan time even when no ladder ever reaches it. The pack is a ladder, so a fallback that names `automation-science-pack` with a rung behind it survives a modpack that renames the pack. A `CostBy` dropdown takes a `Custom` arm the same way, with a `PacksSetting`, an int setting for the count, a double setting for the seconds and a `Position` ladder for the prerequisite.
+One rule that reaches a migrated `CostBy` whether or not it takes a `Custom` arm: a `Fallback` unit must name at least one science pack, because a unit declared with none is refused at plan time even when no ladder ever reaches it. The pack is a ladder, so a fallback that names `automation-science-pack` with a rung behind it survives a modpack that renames the pack. A `CostBy` dropdown takes a `Custom` arm the same way, with a `PacksSetting`, an int setting for the count, a double setting for the seconds and a `Position` ladder for the prerequisite. Those three settings want to sit under their dropdown, and with a legacy order `b` on the dropdown they would not: their generated orders would sort between `a` and `b`, above it. `OrderAfter("b")` before the three declarations gives them `bad`, `bae` and `baf`, under `b` and before `c`.
 
 ## A worked example: BetterBeltBalancer
 
@@ -317,6 +317,36 @@ Given the hand-rolled list, the checker knows every setting name the mod has and
 
 The two startup dropdowns are what `IngredientsBy` and `CostBy` are for. `bbb-recipe-cost` selects the ingredients of the balancer recipes, which is an ingredient plan per value. `bbb-tech-cost` selects which vanilla logistics technology the balancer research is priced from, which is a one-rung ladder per value, and under `CostBy` it also makes that technology the prerequisite, so the research lands where its price says it should.
 
+The customizer arrived in the mod's third round on this library, and its four settings are where the ordering rule bites. `bbb-recipe-cost` gained a seventh value, `custom`, and a text setting beside it; `bbb-tech-cost` gained a fourth, with a pack text, a count and a seconds setting beside it, a `Position` ladder of `logistics-3`, `logistics-2`, `logistics`, and the three fields defaulting to the fallback unit so an untouched `custom` is the base game's Logistics cost. The mod shipped those four as `Legacy` settings under hand-written `bbb-` names and orders (`aa`, `ba`, `bb`, `bc`), because at the time a generated setting's order came only from its declaration index and no ordering of the declarations could put the three research fields under their dropdown. With `OrderAfter` the same layout is reached with generated names:
+
+```go
+recipeCost := lib.LegacyDropdownSettingNeedingLocale("bbb-recipe-cost", "vanilla",
+	[]string{"vanilla", "cheap", "belt-fast", "belt-express", "splitter", "splitter-express", "custom"}, "a")
+lib.OrderAfter("a")
+recipeIngredients := lib.IngredientsSetting("recipe-ingredients", vanillaIngredients) // aab
+techCost := lib.LegacyDropdownSettingNeedingLocale("bbb-tech-cost", "logistics",
+	[]string{"logistics", "logistics-2", "logistics-3", "custom"}, "b")
+lib.OrderAfter("b")
+techPacks := lib.PacksSetting("tech-packs", []fkrecipes.Pack{{Name: "automation-science-pack", Amount: 1}}) // bad
+techCount := lib.IntSetting("tech-count", 20, fkrecipes.Between(1, 1000000))                                  // bae
+techSeconds := lib.DoubleSetting("tech-seconds", 15, fkrecipes.Between(1, 3600))                              // baf
+```
+
+```rust
+let recipe_cost = lib.legacy_dropdown_setting_needing_locale("bbb-recipe-cost", "vanilla",
+    &["vanilla", "cheap", "belt-fast", "belt-express", "splitter", "splitter-express", "custom"], "a");
+lib.order_after("a");
+let recipe_ingredients = lib.ingredients_setting("recipe-ingredients", vanilla_ingredients); // aab
+let tech_cost = lib.legacy_dropdown_setting_needing_locale("bbb-tech-cost", "logistics",
+    &["logistics", "logistics-2", "logistics-3", "custom"], "b");
+lib.order_after("b");
+let tech_packs = lib.packs_setting("tech-packs", vec![Pack::new("automation-science-pack", 1)]); // bad
+let tech_count = lib.int_setting("tech-count", 20, NumericSpec::between(1.0, 1000000.0));        // bae
+let tech_seconds = lib.double_setting("tech-seconds", 15.0, NumericSpec::between(1.0, 3600.0));  // baf
+```
+
+The screen then reads `a`, `aab`, `b`, `bad`, `bae`, `baf`: the recipe dropdown, its text, the research dropdown, its three fields. The names are `better-belt-balancer-recipe-ingredients` and so on, prefixed from the packaged mod name, and the locale entries follow those names. The `Legacy` text and numeric constructors remain the way to keep both a name and an order a mod already ships; for a setting no player has stored yet, the generated name with `OrderAfter` costs nothing to rename later. One rule reaches a mixed plan whether or not it calls `OrderAfter`: a generated order equal to a legacy one is refused by name, so a mod whose legacy orders happen to be two letters (`aa` beside a first declaration, or `ba` beside a twenty-seventh) meets that refusal on updating and gives one side an order of its own.
+
 ## Migrating incrementally
 
 Nothing forces an all-at-once move. A plan may mix legacy and generated settings, and a mod may keep declaring some settings by hand. The order that has caused the least churn is:
@@ -325,7 +355,7 @@ Nothing forces an all-at-once move. A plan may mix legacy and generated settings
 2. Move the prototypes across with `LegacyItem`, `LegacyRecipe` and `LegacyTechnology`, keeping every name and every field. `Order`, `PlaceResult` and `Extra` are how the fields this library has no slot of its own for still reach the prototype. Check the data dump hash the way you checked the settings one: for a faithful migration it should not move either.
 3. Use `IngredientsBy` and `CostBy` where a setting was driving a hand-rolled branch. This is the step that changes something, so it is the step whose hash is expected to move.
 4. Run `CheckLocaleWith` from your own test suite against the `.cfg` you already ship, passing the settings you still declare by hand. It should be clean, because the names have not moved, and anything it does report is a leftover the migration created. `LocaleEntries` reads the same file for assertions of your own, such as the entity name entry this library knows nothing about.
-5. Add new settings and prototypes with the generated constructors. Those get the prefix and a derived order, and they cost nothing to rename later because no save has ever seen them.
+5. Add new settings and prototypes with the generated constructors. Those get the prefix and a derived order, and they cost nothing to rename later because no save has ever seen them. Call `OrderAfter` first when the new settings must sit under a legacy one, because a derived order sorts among legacy orders by the alphabet, not by the declaration.
 6. Give a dropdown of presets a `custom` arm, as described above, when the mod is ready to let the player write the recipe. Stored preferences survive because the dropdown keeps its name and every value it had.
 
 Steps 1 and 2 are meant to be hash-neutral, which is what makes them safe to ship on their own. Steps 3 and 6 are where behaviour changes, and separating them is what lets a bisect say which one did it.

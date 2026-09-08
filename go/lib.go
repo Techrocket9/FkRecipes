@@ -79,6 +79,17 @@ type Lib struct {
 	// alone installs it: a CustomCost names a PacksSettingRef, so a plan that
 	// never called that constructor can never reach a custom cost.
 	customCost func(l *Lib, w, text World, res *resolution, prefix string, t techDecl, c *CustomCost) Value
+
+	// orderPrefix is the order string OrderAfter last named, and it is the
+	// one every GENERATED setting declared from here on extends. It is
+	// COPIED ONTO EACH DECLARATION as that declaration arrives, never read
+	// at plan time: see OrderAfter.
+	orderPrefix string
+	// orderAfterEmpty records that OrderAfter was called with an empty
+	// string, so the settings stage can refuse it. A declaration method has
+	// no error to return, and the call is a mistake whether or not a setting
+	// follows it.
+	orderAfterEmpty bool
 }
 
 // New starts an empty plan. It is the ONLY way to get a usable one: a zero
@@ -213,10 +224,17 @@ type settingDecl struct {
 	// legacy marks a setting whose name predates this library. See the
 	// Legacy constructors: the name crosses verbatim and the order string is
 	// the consumer's rather than one derived from declaration order.
-	legacy  bool
-	order   string
-	defBool bool
-	defNum  float64
+	legacy bool
+	order  string
+	// orderPrefix is the order string OrderAfter had in force when this
+	// setting was declared, and a GENERATED setting's own two letters extend
+	// it. EVERY DECLARATION CAPTURES IT, legacy or not: emittedOrder answers
+	// with a legacy setting's own order before it reads this field at all, so
+	// a legacy declaration carries a value nothing reads, which is cheaper
+	// than a branch in every constructor to keep it empty. See emittedOrder.
+	orderPrefix string
+	defBool     bool
+	defNum      float64
 	// The int setting's default as it was DECLARED. defNum has already been
 	// through float64 by the time validation runs, so the one number that
 	// could have rounded on the way in is no longer there to check.
@@ -243,22 +261,86 @@ func (s settingDecl) emittedName(prefix string) string {
 	return prefix + s.name
 }
 
+// emittedOrder is the order string a setting prototype actually carries: the
+// consumer's own for a legacy setting, and for a generated one the prefix in
+// force at its declaration followed by the two letters its declaration index
+// gives it. The planner and the validator both ask this rather than deciding
+// it twice and disagreeing about what a refusal is talking about.
+func (s settingDecl) emittedOrder(i int) string {
+	if s.legacy {
+		return s.order
+	}
+	return s.orderPrefix + orderString(i)
+}
+
+// OrderAfter places every generated setting declared after this call behind
+// the setting whose order string is given: from here on a generated setting's
+// order is that string followed by the two letters it already gets from its
+// declaration index.
+//
+// WHAT THAT PLACES, EXACTLY. The setting sorts after the legacy setting
+// carrying the named order, and before every legacy order that sorts after
+// that one. It says nothing about the orders that sort BEFORE it: with a
+// legacy "a" and a legacy "b", OrderAfter("b") puts what follows at "b"
+// followed by its own two letters, which is after "a" as well as after "b",
+// because that is where "b" itself already was. The one placement the two
+// letters cannot honour is a legacy order that EXTENDS the named one, such
+// as "ab" under OrderAfter("a"): a generated setting far enough along the
+// alphabet sorts past it, and the settings stage refuses that plan by name
+// rather than shipping the silent misplacement.
+//
+// Legacy settings keep the orders they were declared with. Call it again to
+// move on; a plan that never calls it keeps the bare two letters.
+//
+// WHAT IT IS FOR. A migrated mod keeps the order strings it already shipped,
+// and a generated setting's two letters are arithmetic rather than a choice:
+// they count DECLARATION SLOTS, the legacy declarations among them, running
+// "aa" through "az" and then "ba". Against legacy orders "a" and "b" that
+// puts a generated setting in any of the first twenty-six slots between the
+// two dropdowns, and the twenty-seventh declaration carries "ba" and lands
+// past "b". Naming "a" here puts what follows under the legacy "a" instead,
+// with the generated name and therefore the stored value untouched, which is
+// the placement a plan used to have to reach for a Legacy constructor and a
+// hand-written prefixed name to get.
+//
+// THE TWO LETTERS STAY on the end rather than being replaced by the given
+// string, because they are what keeps declaration order visible: the settings
+// under one prefix still sort the way the consumer wrote them, and two
+// settings sharing a prefix do not collapse onto one order string, which
+// would be the engine placing them rather than the consumer.
+//
+// THE PREFIX IS CAPTURED AT DECLARATION rather than read when the plan is
+// emitted, because it is a property of WHERE THE CALL SITE SITS in the
+// declaration sequence. A planner reading the last value set would hand every
+// generated setting in the plan the same prefix, and a second call would
+// silently move the settings that the first call already placed.
+//
+// An empty order is refused at the settings stage rather than here: a
+// declaration method has no error to return, so the plan carries the mistake
+// to the validator that can name it.
+func (l *Lib) OrderAfter(order string) {
+	if order == "" {
+		l.orderAfterEmpty = true
+	}
+	l.orderPrefix = order
+}
+
 // BoolSetting declares a startup bool setting. The name is prefixed on the
 // way out; what is passed here is the bare name.
 func (l *Lib) BoolSetting(name string, def bool) BoolSettingRef {
-	l.settings = append(l.settings, settingDecl{kind: settingBool, name: name, defBool: def})
+	l.settings = append(l.settings, settingDecl{kind: settingBool, name: name, orderPrefix: l.orderPrefix, defBool: def})
 	return BoolSettingRef{lib: l.id, index: len(l.settings)}
 }
 
 // IntSetting declares a startup int setting.
 func (l *Lib) IntSetting(name string, def int64, spec NumericSpec) IntSettingRef {
-	l.settings = append(l.settings, settingDecl{kind: settingInt, name: name, defNum: float64(def), defInt: def, spec: spec})
+	l.settings = append(l.settings, settingDecl{kind: settingInt, name: name, orderPrefix: l.orderPrefix, defNum: float64(def), defInt: def, spec: spec})
 	return IntSettingRef{lib: l.id, index: len(l.settings)}
 }
 
 // DoubleSetting declares a startup double setting.
 func (l *Lib) DoubleSetting(name string, def float64, spec NumericSpec) DoubleSettingRef {
-	l.settings = append(l.settings, settingDecl{kind: settingDouble, name: name, defNum: def, spec: spec})
+	l.settings = append(l.settings, settingDecl{kind: settingDouble, name: name, orderPrefix: l.orderPrefix, defNum: def, spec: spec})
 	return DoubleSettingRef{lib: l.id, index: len(l.settings)}
 }
 
@@ -272,7 +354,7 @@ func (l *Lib) DoubleSetting(name string, def float64, spec NumericSpec) DoubleSe
 // can supply them. Prefer a bool, int or double setting when the choice fits
 // one; reach for this when it does not, and ship the locale entries.
 func (l *Lib) DropdownSettingNeedingLocale(name string, def string, values []string) DropdownSettingRef {
-	l.settings = append(l.settings, settingDecl{kind: settingDropdown, name: name, defStr: def, values: copyStrings(values)})
+	l.settings = append(l.settings, settingDecl{kind: settingDropdown, name: name, orderPrefix: l.orderPrefix, defStr: def, values: copyStrings(values)})
 	return DropdownSettingRef{lib: l.id, index: len(l.settings)}
 }
 
@@ -316,6 +398,7 @@ func (l *Lib) ingredientsSetting(name string, legacy bool, def []Ingredient, ord
 	}
 	l.settings = append(l.settings, settingDecl{
 		kind: settingIngredients, name: name, legacy: legacy, order: order,
+		orderPrefix:    l.orderPrefix,
 		defIngredients: copyIngredients(def),
 	})
 	return IngredientsSettingRef{lib: l.id, index: len(l.settings)}
@@ -355,7 +438,8 @@ func (l *Lib) packsSetting(name string, legacy bool, def []Pack, order string) P
 	}
 	l.settings = append(l.settings, settingDecl{
 		kind: settingPacks, name: name, legacy: legacy, order: order,
-		defPacks: copyPacks(def),
+		orderPrefix: l.orderPrefix,
+		defPacks:    copyPacks(def),
 	})
 	return PacksSettingRef{lib: l.id, index: len(l.settings)}
 }
@@ -1015,7 +1099,7 @@ func copyPacks(in []Pack) []Pack {
 // ships. See the note above the Legacy constructors.
 func (l *Lib) LegacyBoolSetting(fullName string, def bool, order string) BoolSettingRef {
 	l.settings = append(l.settings, settingDecl{
-		kind: settingBool, name: fullName, legacy: true, order: order, defBool: def,
+		kind: settingBool, name: fullName, legacy: true, order: order, orderPrefix: l.orderPrefix, defBool: def,
 	})
 	return BoolSettingRef{lib: l.id, index: len(l.settings)}
 }
@@ -1024,7 +1108,7 @@ func (l *Lib) LegacyBoolSetting(fullName string, def bool, order string) BoolSet
 // ships. See the note above the Legacy constructors.
 func (l *Lib) LegacyIntSetting(fullName string, def int64, spec NumericSpec, order string) IntSettingRef {
 	l.settings = append(l.settings, settingDecl{
-		kind: settingInt, name: fullName, legacy: true, order: order,
+		kind: settingInt, name: fullName, legacy: true, order: order, orderPrefix: l.orderPrefix,
 		defNum: float64(def), defInt: def, spec: spec,
 	})
 	return IntSettingRef{lib: l.id, index: len(l.settings)}
@@ -1034,7 +1118,7 @@ func (l *Lib) LegacyIntSetting(fullName string, def int64, spec NumericSpec, ord
 // ships. See the note above the Legacy constructors.
 func (l *Lib) LegacyDoubleSetting(fullName string, def float64, spec NumericSpec, order string) DoubleSettingRef {
 	l.settings = append(l.settings, settingDecl{
-		kind: settingDouble, name: fullName, legacy: true, order: order,
+		kind: settingDouble, name: fullName, legacy: true, order: order, orderPrefix: l.orderPrefix,
 		defNum: def, spec: spec,
 	})
 	return DoubleSettingRef{lib: l.id, index: len(l.settings)}
@@ -1046,7 +1130,7 @@ func (l *Lib) LegacyDoubleSetting(fullName string, def float64, spec NumericSpec
 // and a migrated mod already has them under exactly these keys.
 func (l *Lib) LegacyDropdownSettingNeedingLocale(fullName string, def string, values []string, order string) DropdownSettingRef {
 	l.settings = append(l.settings, settingDecl{
-		kind: settingDropdown, name: fullName, legacy: true, order: order,
+		kind: settingDropdown, name: fullName, legacy: true, order: order, orderPrefix: l.orderPrefix,
 		defStr: def, values: copyStrings(values),
 	})
 	return DropdownSettingRef{lib: l.id, index: len(l.settings)}

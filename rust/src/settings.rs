@@ -50,13 +50,10 @@ impl Lib {
 
         let mut ops = Vec::with_capacity(self.settings.len());
         for (i, s) in self.settings.iter().enumerate() {
-            // A legacy setting carries the name and the order the mod already
-            // ships; everything else is prefixed and ordered by declaration.
-            let order = if s.legacy {
-                s.order.clone()
-            } else {
-                order_string(i)
-            };
+            // A legacy setting carries the name and the order the mod
+            // already ships; everything else is prefixed, and ordered by
+            // declaration behind whatever `order_after` last named.
+            let order = self.emitted_order(i);
             let full = s.emitted_name(&prefix);
             let mut pairs = alloc::vec![
                 kv("type", Value::string(setting_type_name(s.kind))),
@@ -106,10 +103,33 @@ impl Lib {
         Ok(ops)
     }
 
+    /// The order string a setting is emitted with, which is also the string
+    /// the order scan below compares: a legacy setting's is the one the mod
+    /// already ships, and a generated setting's is the order prefix that was
+    /// in force where it was declared followed by the two letters its
+    /// declaration index gives it.
+    ///
+    /// ONE READER, TWO CALLERS. The planner writes this into the prototype
+    /// and the validator refuses on it, so a change to either would have to
+    /// be written twice to go unnoticed.
+    fn emitted_order(&self, i: usize) -> String {
+        let s = &self.settings[i];
+        if s.legacy {
+            return s.order.clone();
+        }
+        format!("{}{}", s.order_prefix, order_string(i))
+    }
+
     /// Returns the FIRST refusal, scanning in declaration order. The engine's
     /// own answers are why each one exists: two settings of the same type
     /// sharing a name is silent last-writer-wins, and a default outside the
     /// allowed values or the bounds is refused at load with no mod named.
+    ///
+    /// IN THREE PARTS, IN THIS ORDER: an empty `order_after`, which is the
+    /// PLAN's mistake and not any setting's; then every setting's own checks
+    /// in declaration order; then the order scan, which is the only one that
+    /// quotes a setting other than the one it is checking and so may not run
+    /// before the others have cleared.
     ///
     /// No refusal here prints a number. A float rendered by two languages is
     /// two different strings sooner or later, and these messages are compared
@@ -117,6 +137,17 @@ impl Lib {
     /// instead.
     fn validate_settings(&self, prefix: &str, bound: &[bool]) -> Result<(), String> {
         let at = "fkrecipes: ";
+        // BEFORE THE LOOP, AND NOT INSIDE IT. `order_after` records the
+        // mistake rather than refusing on the spot, and the plan it spoils is
+        // the whole plan: a call with nothing declared after it is still a
+        // consumer who meant to place something, and a loop-bound check would
+        // let that one through with no settings to trip it.
+        if self.empty_order_after {
+            return Err(format!(
+                "{}OrderAfter was given an empty order; name the order string the generated settings should follow",
+                at
+            ));
+        }
         for (i, s) in self.settings.iter().enumerate() {
             if s.name.is_empty() {
                 return Err(format!("{}a setting was declared with an empty name", at));
@@ -245,6 +276,77 @@ impl Lib {
                 // the data stage reads the same declared list and must refuse
                 // the same declarations.
                 SettingKind::Bool | SettingKind::Ingredients | SettingKind::Packs => {}
+            }
+        }
+        // THE ORDER SCAN, A SECOND PASS AND NOT PART OF THE LOOP ABOVE. It
+        // quotes a setting other than the one it is checking, so it may not
+        // run until every setting has passed its own checks: inside the loop
+        // it reads declarations the loop has not reached, which puts an empty
+        // name into its own sentence and answers, at the first setting, plans
+        // whose real mistake is a later setting's default, name or order.
+        //
+        // Generated settings are scanned in declaration order and the legacy
+        // settings each is held against are too, so a plan with two of these
+        // gets the earlier one both times.
+        //
+        // A TIE WAS ACCEPTED BEFORE THIS CHECK EXISTED. A plan whose legacy
+        // "aa" sat beside a generated first setting loaded, with the settings
+        // screen breaking the tie by name; it is refused now, deliberately.
+        //
+        // TWO GENERATED ORDERS ARE NEVER COMPARED. Each is a prefix followed
+        // by EXACTLY TWO letters, so two equal strings force equal prefixes,
+        // and a tie under one prefix needs the declaration indices to differ
+        // by the 676 the two letters count to, which `order_string` documents
+        // as cosmetic.
+        for (i, s) in self.settings.iter().enumerate() {
+            if s.legacy {
+                continue;
+            }
+            let order = self.emitted_order(i);
+            for (j, other) in self.settings.iter().enumerate() {
+                if !other.legacy {
+                    continue;
+                }
+                let legacy_order = self.emitted_order(j);
+                // THE TIE FIRST, for this legacy setting: the engine sorts
+                // two settings sharing an order by name, so the screen shows
+                // a placement neither the consumer nor this library chose.
+                // Only one of the two rules can hold for one pair.
+                if legacy_order == order {
+                    return Err(format!(
+                        "{}the setting {} would carry the order {}, which the legacy setting {} already carries; give one of them an order of its own",
+                        at, s.name, order, other.name
+                    ));
+                }
+                // THE PLACEMENT `order_after` EXISTS TO PREVENT, which a tie
+                // check alone misses: a legacy order that EXTENDS the named
+                // one sorts inside the neighbourhood the placed settings are
+                // aimed at, and the two letters walk past it when they roll
+                // over from "az" to "ba" ("aba" is past a legacy "ab"). The
+                // consumer asked for a placement this plan cannot keep.
+                //
+                // AN EMPTY PREFIX PLACES NOTHING, and is skipped rather than
+                // compared: every order extends the empty string, so a plan
+                // that never called `order_after` would have its ordinary
+                // legacy orders refused by a rule about a neighbourhood it
+                // never asked for.
+                if !s.order_prefix.is_empty()
+                    && legacy_order.starts_with(&s.order_prefix)
+                    && legacy_order != s.order_prefix
+                    && legacy_order < order
+                {
+                    return Err(format!(
+                        "{}the setting {} would carry the order {} and sort past the legacy setting {} at {}, which extends {}; OrderAfter({}) places settings before every legacy order that extends {}",
+                        at,
+                        s.name,
+                        order,
+                        other.name,
+                        legacy_order,
+                        s.order_prefix,
+                        s.order_prefix,
+                        s.order_prefix
+                    ));
+                }
             }
         }
         Ok(())

@@ -2,16 +2,17 @@
 //! this library: names it can keep, ingredients a dropdown chooses, and a
 //! research cost a dropdown chooses.
 
+use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::plan::{
-    CostChoice, CostChoices, Ingredient, IngredientChoice, IngredientChoices, ItemRef, ItemSpec,
-    Lib, NumericSpec, Pack, RecipeSpec, TechSpec, UnitSpec,
+    CostChoice, CostChoices, CustomCost, Ingredient, IngredientChoice, IngredientChoices, ItemRef,
+    ItemSpec, Lib, NumericSpec, Pack, RecipeSpec, TechSpec, UnitSpec,
 };
 use crate::tests::data::{LOGISTICS_2_UNIT, STEEL_PROCESSING_UNIT};
-use crate::tests::{assert_lines, base_world, settings_world, transcript};
+use crate::tests::{assert_composed, assert_lines, base_world, settings_world, transcript};
 use crate::value::Value;
 
 #[test]
@@ -186,6 +187,370 @@ fn check_locale_covers_legacy_names() {
             "the [string-mod-setting] entry bbb-recipe-cost-belt-express matches no dropdown value this plan declares",
         ],
     );
+}
+
+// ---------------------------------------------------------------------------
+// Where a generated setting lands.
+// ---------------------------------------------------------------------------
+
+/// The pilot's plan, built once because several tests below hold it to the
+/// same orders: two legacy dropdowns under the orders the mod already ships,
+/// and six generated settings placed behind them, ONE FROM EVERY CONSTRUCTOR
+/// that captures the placement. A constructor that stopped capturing would
+/// move its own setting's order and only its own, which is what makes the
+/// transcript below a witness for each of the six separately.
+fn pilot_order_plan(lib: &mut Lib) {
+    lib.legacy_dropdown_setting_needing_locale(
+        "bbb-recipe-cost",
+        "vanilla",
+        &["vanilla", "cheap", "custom"],
+        "a",
+    );
+    lib.order_after("a");
+    let list = lib.ingredients_setting(
+        "recipe-ingredients",
+        vec![Ingredient::named(2, "steel-plate", &[])],
+    );
+    lib.bool_setting("recipe-hint", true);
+    lib.legacy_dropdown_setting_needing_locale(
+        "bbb-tech-cost",
+        "logistics",
+        &["logistics", "custom"],
+        "b",
+    );
+    lib.order_after("b");
+    let packs = lib.packs_setting("tech-packs", vec![Pack::new("automation-science-pack", 1)]);
+    let count = lib.int_setting("tech-count", 20, NumericSpec::between(1.0, 1000000.0));
+    let seconds = lib.double_setting("tech-seconds", 15.0, NumericSpec::between(1.0, 3600.0));
+    lib.dropdown_setting_needing_locale("tech-style", "plain", &["plain", "fancy"]);
+    let rivet = lib.item("steel-rivet", ItemSpec::default());
+    lib.recipe(
+        rivet,
+        RecipeSpec {
+            ingredients_from: Some(list),
+            ..Default::default()
+        },
+    );
+    lib.technology(
+        "hardened-tips",
+        TechSpec {
+            cost_from: Some(CustomCost {
+                packs,
+                count,
+                seconds,
+                position: Vec::new(),
+            }),
+            ..Default::default()
+        },
+    );
+}
+
+/// A GENERATED SETTING THE CONSUMER PLACES, which is what the two letters
+/// alone cannot do. They count DECLARATION SLOTS, the legacy declarations
+/// among them, running "aa" to "az" and then "ba": beside the orders "a" and
+/// "b", a generated setting in any of the first twenty-six slots lands
+/// BETWEEN the two dropdowns and the twenty-seventh declaration lands past
+/// the second. For the pilot's research customizer that put the packs, the
+/// count and the seconds above the dropdown that switches them on, by
+/// arithmetic rather than by choice. The pilot's answer was to declare all
+/// four as legacy purely to place them, hand-writing four prefixed names;
+/// `order_after` places them and keeps the names.
+#[test]
+fn order_after_places_generated_settings_behind_a_named_order() {
+    let mut lib = Lib::new();
+    pilot_order_plan(&mut lib);
+
+    let ops = lib.plan_settings(&settings_world()).expect("plan refused");
+
+    assert_composed(
+        &transcript(&ops),
+        &[
+            r#"extend {type="string-setting", name="bbb-recipe-cost", setting_type="startup", default_value="vanilla", order="a", allowed_values=["vanilla", "cheap", "custom"]}"#,
+            r#"extend {type="string-setting", name="steelworks-recipe-ingredients", setting_type="startup", default_value="default", order="aab", auto_trim=true, localised_description=["", ["mod-setting-description.steelworks-recipe-ingredients"], "\ndefault: 2 steel-plate"]}"#,
+            r#"extend {type="bool-setting", name="steelworks-recipe-hint", setting_type="startup", default_value=true, order="aac"}"#,
+            r#"extend {type="string-setting", name="bbb-tech-cost", setting_type="startup", default_value="logistics", order="b", allowed_values=["logistics", "custom"]}"#,
+            r#"extend {type="string-setting", name="steelworks-tech-packs", setting_type="startup", default_value="default", order="bae", auto_trim=true, localised_description=["", ["mod-setting-description.steelworks-tech-packs"], "\ndefault: 1 automation-science-pack"]}"#,
+            r#"extend {type="int-setting", name="steelworks-tech-count", setting_type="startup", default_value=20, order="baf", minimum_value=1, maximum_value=1000000}"#,
+            r#"extend {type="double-setting", name="steelworks-tech-seconds", setting_type="startup", default_value=15, order="bag", minimum_value=1, maximum_value=3600}"#,
+            r#"extend {type="string-setting", name="steelworks-tech-style", setting_type="startup", default_value="plain", order="bah", allowed_values=["plain", "fancy"]}"#,
+        ],
+    );
+}
+
+/// THE LINE THE PAST RULE DRAWS, from the side it does not refuse. Twenty-four
+/// settings placed under "a" carry "aac" through "aaz", every one of them
+/// still before a legacy "ab": the plan is accepted whole, and the last of
+/// them is pinned because it is the boundary the next declaration crosses.
+#[test]
+fn order_after_accepts_placed_settings_that_stay_under_the_named_order() {
+    let mut lib = Lib::new();
+    lib.legacy_bool_setting("bbb-cost", false, "a");
+    lib.legacy_bool_setting("bbb-cost-detail", false, "ab");
+    lib.order_after("a");
+    for i in 0..24 {
+        lib.bool_setting(&format!("hardened-tools-{}", i), true);
+    }
+
+    let ops = lib.plan_settings(&settings_world()).expect("plan refused");
+
+    let lines = transcript(&ops);
+    assert_eq!(lines.len(), 26, "the plan lost a setting");
+    assert_eq!(
+        lines[lines.len() - 1],
+        r#"extend {type="bool-setting", name="steelworks-hardened-tools-23", setting_type="startup", default_value=true, order="aaz"}"#
+    );
+}
+
+/// A PLAN THAT NEVER PLACES ANYTHING KEEPS ITS LEGACY ORDERS. Every order
+/// extends the empty string, and a legacy "a" sorts before the first generated
+/// setting's "aa", so a past rule that ran without a prefix would refuse the
+/// ordinary migration this library emitted before `order_after` existed. The
+/// tie rule still applies here, which the refusals below say.
+#[test]
+fn a_plan_that_places_nothing_keeps_a_legacy_order_it_sorts_after() {
+    let mut lib = Lib::new();
+    lib.bool_setting("hardened-tools", true);
+    lib.legacy_bool_setting("bbb-enabled", false, "a");
+
+    let ops = lib.plan_settings(&settings_world()).expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            r#"extend {type="bool-setting", name="steelworks-hardened-tools", setting_type="startup", default_value=true, order="aa"}"#,
+            r#"extend {type="bool-setting", name="bbb-enabled", setting_type="startup", default_value=false, order="a"}"#,
+        ],
+    );
+}
+
+/// A LEGACY SETTING KEEPS ITS OWN ORDER WHATEVER PLACEMENT IS IN FORCE. What
+/// this holds is `emitted_order`'s first line, which answers with the
+/// declared order before it reads the captured prefix at all; it says nothing
+/// about what the constructor stored, because every declaration captures the
+/// placement in force and a legacy one's is read by nothing. The text
+/// constructor is the one worth saying it about: its body is shared with the
+/// generated surface, so a captured placement passes through it.
+#[test]
+fn a_legacy_setting_declared_under_a_placement_keeps_its_own_order() {
+    let mut lib = Lib::new();
+    lib.order_after("a");
+    let list = lib.legacy_ingredients_setting(
+        "bbb-recipe-parts",
+        vec![Ingredient::named(2, "steel-plate", &[])],
+        "c",
+    );
+    let rivet = lib.item("steel-rivet", ItemSpec::default());
+    lib.recipe(
+        rivet,
+        RecipeSpec {
+            ingredients_from: Some(list),
+            ..Default::default()
+        },
+    );
+
+    let ops = lib.plan_settings(&settings_world()).expect("plan refused");
+
+    assert_composed(
+        &transcript(&ops),
+        &[
+            r#"extend {type="string-setting", name="bbb-recipe-parts", setting_type="startup", default_value="default", order="c", auto_trim=true, localised_description=["", ["mod-setting-description.bbb-recipe-parts"], "\ndefault: 2 steel-plate"]}"#,
+        ],
+    );
+}
+
+/// The refusals `order_after` brings, and the ones that say WHICH refusal a
+/// plan carrying more than one mistake gets.
+///
+/// ALL OF THEM ARE THE SETTINGS STAGE'S. `validate_settings` is run by
+/// `plan_settings` and by nothing else: the data stage reads a setting's
+/// VALUE and never writes its prototype, so an order it cannot see is not its
+/// to refuse. The block after the cases holds that up to the light.
+#[test]
+fn order_after_refusals() {
+    struct Case {
+        name: &'static str,
+        build: fn(&mut Lib),
+        want: &'static str,
+    }
+
+    const EMPTY_ORDER: &str = "fkrecipes: OrderAfter was given an empty order; name the order string the generated settings should follow";
+
+    let cases = [
+        Case {
+            // NOTHING IS DECLARED AT ALL, and it is refused anyway: a consumer
+            // who named no order meant to place something. A check inside the
+            // per-setting loop has not one setting to reach here.
+            name: "an empty order with nothing declared at all",
+            build: |l| {
+                l.order_after("");
+            },
+            want: EMPTY_ORDER,
+        },
+        Case {
+            name: "an empty order with a setting declared after it",
+            build: |l| {
+                l.legacy_bool_setting("bbb-enabled", true, "a");
+                l.order_after("");
+                l.bool_setting("hardened-tools", true);
+            },
+            want: EMPTY_ORDER,
+        },
+        Case {
+            // A LATER, VALID CALL DOES NOT CLEAR IT. The empty call was a
+            // mistake where it was written, and the settings placed under
+            // some other order afterwards do not make it one the consumer
+            // meant; the flag is sticky and the plan says so.
+            name: "an empty order a later call moves on from",
+            build: |l| {
+                l.order_after("");
+                l.order_after("a");
+                l.bool_setting("hardened-tools", true);
+            },
+            want: EMPTY_ORDER,
+        },
+        Case {
+            // The placed setting lands exactly where the consumer aimed it,
+            // and a legacy setting is already there.
+            name: "a placed order landing on a legacy one",
+            build: |l| {
+                pilot_order_plan(l);
+                l.legacy_bool_setting("bbb-multi-edge-parts", false, "aab");
+            },
+            want: "fkrecipes: the setting recipe-ingredients would carry the order aab, which the legacy setting bbb-multi-edge-parts already carries; give one of them an order of its own",
+        },
+        Case {
+            // NO CALL AT ALL, and the tie is likelier here than under one:
+            // "aa" is what the first generated setting carries, and a
+            // migrating mod that hand-wrote its first order wrote "a" or
+            // "aa". A plan like this one LOADED before this check existed.
+            name: "a generated order landing on a legacy one with no call",
+            build: |l| {
+                l.bool_setting("hardened-tools", true);
+                l.legacy_bool_setting("bbb-multi-edge-parts", false, "aa");
+            },
+            want: "fkrecipes: the setting hardened-tools would carry the order aa, which the legacy setting bbb-multi-edge-parts already carries; give one of them an order of its own",
+        },
+        Case {
+            // THE PLACEMENT A TIE CHECK MISSES. Twenty-four settings fit
+            // between "a" and a legacy "ab" ("aac" through "aaz"); the
+            // twenty-fifth rolls the two letters over to "ba" and lands at
+            // "aba", which sorts past "ab" rather than under "a". The
+            // acceptance test above pins the other side of the same line.
+            name: "a placed order that walks past a legacy order extending the named one",
+            build: |l| {
+                l.legacy_bool_setting("bbb-cost", false, "a");
+                l.legacy_bool_setting("bbb-cost-detail", false, "ab");
+                l.order_after("a");
+                for i in 0..25 {
+                    l.bool_setting(&format!("hardened-tools-{}", i), true);
+                }
+            },
+            want: "fkrecipes: the setting hardened-tools-24 would carry the order aba and sort past the legacy setting bbb-cost-detail at ab, which extends a; OrderAfter(a) places settings before every legacy order that extends a",
+        },
+        Case {
+            // THE VERY FIRST PLACED SETTING, past it already: a legacy "ba"
+            // sits directly under "b", and nothing placed behind "b" can sort
+            // before it. There is no count to reach here, so the plan is
+            // wrong from its first declaration.
+            name: "a placed order past a legacy order that sits directly under the named one",
+            build: |l| {
+                l.legacy_bool_setting("bbb-cost", false, "b");
+                l.legacy_bool_setting("bbb-cost-detail", false, "ba");
+                l.order_after("b");
+                l.bool_setting("hardened-tools", true);
+            },
+            want: "fkrecipes: the setting hardened-tools would carry the order bac and sort past the legacy setting bbb-cost-detail at ba, which extends b; OrderAfter(b) places settings before every legacy order that extends b",
+        },
+        Case {
+            // THE FIRST ORDERING WITNESS. The empty order is refused before
+            // the per-setting loop, so it wins over a tie the order scan
+            // would find afterwards.
+            name: "an empty order beside a tie",
+            build: |l| {
+                l.bool_setting("hardened-tools", true);
+                l.legacy_bool_setting("bbb-multi-edge-parts", false, "aa");
+                l.order_after("");
+            },
+            want: EMPTY_ORDER,
+        },
+        Case {
+            // THE SECOND ORDERING WITNESS, on one setting: the second
+            // declaration both shares a name with the first and lands on the
+            // legacy order, and the name is the sentence. A shared name is
+            // silent last-writer-wins, so the plan the consumer gets back is
+            // missing a setting entirely; where it would have sorted is the
+            // smaller problem.
+            name: "a tie beside a duplicate name",
+            build: |l| {
+                l.bool_setting("hardened-tools", true);
+                l.bool_setting("hardened-tools", false);
+                l.legacy_bool_setting("bbb-multi-edge-parts", false, "ab");
+            },
+            want: "fkrecipes: two settings share the name steelworks-hardened-tools; the engine keeps the last one silently",
+        },
+        Case {
+            // THE THIRD ORDERING WITNESS, and the one the scan's own shape
+            // rests on: the tie is at the FIRST setting and the empty name is
+            // at the second, so a scan running inside the per-setting loop
+            // answers a plan whose real mistake it has not reached, quoting a
+            // setting with no name in its own sentence.
+            name: "a tie beside a later setting with an empty name",
+            build: |l| {
+                l.bool_setting("hardened-tools", true);
+                l.legacy_bool_setting("", false, "aa");
+            },
+            want: "fkrecipes: a setting was declared with an empty name",
+        },
+        Case {
+            // The same shape with the legacy order left empty, which is the
+            // other declaration the loop refuses on a setting's own terms.
+            name: "a tie beside a later legacy setting with an empty order",
+            build: |l| {
+                l.bool_setting("hardened-tools", true);
+                l.legacy_bool_setting("bbb-multi-edge-parts", false, "aa");
+                l.legacy_bool_setting("bbb-detail", false, "");
+            },
+            want: "fkrecipes: the legacy setting bbb-detail was declared with an empty order",
+        },
+        Case {
+            // And with a default the engine would refuse at load: a plan the
+            // player cannot start is answered before a placement they can
+            // still see.
+            name: "a tie beside a later dropdown's default",
+            build: |l| {
+                l.bool_setting("hardened-tools", true);
+                l.legacy_bool_setting("bbb-multi-edge-parts", false, "aa");
+                l.dropdown_setting_needing_locale("finish", "gilded", &["plain", "fancy"]);
+            },
+            want: "fkrecipes: the dropdown setting finish defaults to gilded, which is not one of its allowed values",
+        },
+    ];
+
+    for c in cases {
+        let mut lib = Lib::new();
+        (c.build)(&mut lib);
+        // A REFUSED PLAN CARRIES NO OPS, which this half gets from the type
+        // rather than from an assertion: the error arm of a Result holds no
+        // Vec for one to hide in. The Go mirror checks the returned slice.
+        match lib.plan_settings(&settings_world()) {
+            Ok(ops) => panic!(
+                "{}: the plan was accepted with {} ops, want refusal {}",
+                c.name,
+                ops.len(),
+                c.want
+            ),
+            Err(got) => assert_eq!(got, c.want, "{}", c.name),
+        }
+    }
+
+    // THE STAGE SPLIT, AS A FACT RATHER THAN AS THE COMMENT ABOVE. The data
+    // stage runs the binding and text-setting validators and never this one,
+    // so a plan the settings stage refuses for its orders is one it accepts.
+    let mut lib = Lib::new();
+    lib.order_after("");
+    lib.bool_setting("hardened-tools", true);
+    lib.plan_data(&base_world())
+        .expect("the data stage refused a settings-stage mistake");
 }
 
 // ---------------------------------------------------------------------------

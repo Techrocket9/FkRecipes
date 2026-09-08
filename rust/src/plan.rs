@@ -35,6 +35,16 @@ pub struct Lib {
     /// else. A [`CustomCost`] names a [`PacksSettingRef`], so a plan that
     /// never declared a packs setting can never reach one.
     pub(crate) custom_cost: Option<CustomCostFn>,
+    /// The order prefix in force, set by [`Lib::order_after`] and copied into
+    /// every setting declared after it. Empty in a plan that never calls it,
+    /// which is what keeps such a plan emitting the bare two letters.
+    pub(crate) order_prefix: String,
+    /// Whether [`Lib::order_after`] was ever given an empty order. It is
+    /// recorded rather than refused on the spot because a declaration method
+    /// returns a handle and has nowhere to put a refusal: the settings
+    /// validator raises it, before it looks at any setting, so a plan that
+    /// declares nothing after the call is refused too.
+    pub(crate) empty_order_after: bool,
 }
 
 // The handles. Each carries the id of the plan that issued it and a 1-BASED
@@ -140,6 +150,15 @@ pub(crate) struct SettingDecl {
     /// consumer's rather than one derived from declaration order.
     pub(crate) legacy: bool,
     pub(crate) order: String,
+    /// The order prefix that was in force when this setting was declared. A
+    /// GENERATED setting's emitted order is this followed by the two letters
+    /// its declaration index gives it, and EVERY DECLARATION CAPTURES IT,
+    /// legacy or not: `emitted_order` answers with a legacy setting's own
+    /// declared order before it reads this field at all, so a legacy
+    /// declaration carries a value nothing reads, which is cheaper than a
+    /// branch in every constructor to keep it empty. See
+    /// [`Lib::order_after`].
+    pub(crate) order_prefix: String,
     pub(crate) def_bool: bool,
     pub(crate) def_num: f64,
     /// The int setting's default as it was DECLARED. `def_num` has already
@@ -644,6 +663,47 @@ impl Lib {
             techs: Vec::new(),
             language: None,
             custom_cost: None,
+            order_prefix: String::new(),
+            empty_order_after: false,
+        }
+    }
+
+    /// Places every generated setting declared after this call behind the
+    /// setting whose order string is given: from here on a generated
+    /// setting's order is that string followed by the two letters it already
+    /// gets from its declaration index, so it sorts AFTER the legacy setting
+    /// carrying that order and before every legacy order that sorts after
+    /// that one. It is not placed before every order that fails to extend the
+    /// named one, which is the wider claim and a false one: beside a legacy
+    /// "a", `order_after("b")` places a setting at "bab", which is past "a"
+    /// and meant to be. Legacy settings keep the orders they were declared
+    /// with. Call it again to move on; a plan that never calls it keeps the
+    /// bare two letters.
+    ///
+    /// THIS IS FOR A MOD THAT ALREADY SHIPPED ORDERS. The two letters count
+    /// DECLARATION SLOTS, the legacy declarations among them, and run "aa"
+    /// to "az" and then "ba": beside legacy orders "a" and "b", a generated
+    /// setting in any of the first twenty-six slots lands BETWEEN the two,
+    /// and the twenty-seventh declaration carries "ba" and lands past the
+    /// second, by arithmetic rather than by choice. A consumer who wants a
+    /// generated setting under a particular legacy one names that one's
+    /// order here and keeps the generated name.
+    ///
+    /// A LEGACY ORDER THAT EXTENDS THE NAMED ONE IS THE ONE THING THIS
+    /// CANNOT PLACE AROUND, and the settings stage refuses the plan rather
+    /// than sorting a setting past it: beside legacy orders "a" and "ab",
+    /// `order_after("a")` reaches "aba" as soon as the two letters roll over
+    /// from "az" to "ba", and "aba" sorts after "ab" instead of under "a"
+    /// with the settings declared before it.
+    ///
+    /// AN EMPTY ORDER IS REFUSED, at the settings stage rather than here: a
+    /// declaration method returns a handle and has nowhere to put a refusal.
+    /// It is not the way back to the bare two letters either, because a plan
+    /// that wants those never calls this at all.
+    pub fn order_after(&mut self, order: &str) {
+        self.order_prefix = String::from(order);
+        if order.is_empty() {
+            self.empty_order_after = true;
         }
     }
 
@@ -655,6 +715,7 @@ impl Lib {
             name: String::from(name),
             legacy: false,
             order: String::new(),
+            order_prefix: self.order_prefix.clone(),
             def_bool: def,
             def_num: 0.0,
             def_int: 0,
@@ -677,6 +738,7 @@ impl Lib {
             name: String::from(name),
             legacy: false,
             order: String::new(),
+            order_prefix: self.order_prefix.clone(),
             def_bool: false,
             def_num: def as f64,
             def_int: def,
@@ -699,6 +761,7 @@ impl Lib {
             name: String::from(name),
             legacy: false,
             order: String::new(),
+            order_prefix: self.order_prefix.clone(),
             def_bool: false,
             def_num: def,
             def_int: 0,
@@ -738,6 +801,7 @@ impl Lib {
             name: String::from(name),
             legacy: false,
             order: String::new(),
+            order_prefix: self.order_prefix.clone(),
             def_bool: false,
             def_num: 0.0,
             def_int: 0,
@@ -824,6 +888,7 @@ impl Lib {
             name: String::from(name),
             legacy,
             order: String::from(order),
+            order_prefix: self.order_prefix.clone(),
             def_bool: false,
             def_num: 0.0,
             def_int: 0,
@@ -857,6 +922,7 @@ impl Lib {
             name: String::from(name),
             legacy,
             order: String::from(order),
+            order_prefix: self.order_prefix.clone(),
             def_bool: false,
             def_num: 0.0,
             def_int: 0,
@@ -1063,6 +1129,7 @@ impl Lib {
             name: String::from(full_name),
             legacy: true,
             order: String::from(order),
+            order_prefix: self.order_prefix.clone(),
             def_bool: def,
             def_num: 0.0,
             def_int: 0,
@@ -1091,6 +1158,7 @@ impl Lib {
             name: String::from(full_name),
             legacy: true,
             order: String::from(order),
+            order_prefix: self.order_prefix.clone(),
             def_bool: false,
             def_num: def as f64,
             def_int: def,
@@ -1119,6 +1187,7 @@ impl Lib {
             name: String::from(full_name),
             legacy: true,
             order: String::from(order),
+            order_prefix: self.order_prefix.clone(),
             def_bool: false,
             def_num: def,
             def_int: 0,
@@ -1153,6 +1222,7 @@ impl Lib {
             name: String::from(full_name),
             legacy: true,
             order: String::from(order),
+            order_prefix: self.order_prefix.clone(),
             def_bool: false,
             def_num: 0.0,
             def_int: 0,

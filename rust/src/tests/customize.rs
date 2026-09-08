@@ -15,15 +15,6 @@ use crate::plan::{
 use crate::tests::*;
 use crate::value::Value;
 
-/// A composed description carries REAL newlines, which a raw string literal
-/// cannot hold and a quoted one would drown in backslashes: the expectations
-/// below write `\n` and this puts the character back before comparing.
-fn assert_composed(got: &[String], want: &[&str]) {
-    let want: Vec<String> = want.iter().map(|w| w.replace("\\n", "\n")).collect();
-    let refs: Vec<&str> = want.iter().map(|s| s.as_str()).collect();
-    assert_lines(got, &refs);
-}
-
 // ---------------------------------------------------------------------------
 // The settings stage.
 // ---------------------------------------------------------------------------
@@ -1340,6 +1331,7 @@ fn forge_text_setting(lib: &mut Lib, kind: SettingKind, name: &str) -> usize {
         name: String::from(name),
         legacy: false,
         order: String::new(),
+        order_prefix: String::new(),
         def_bool: false,
         def_num: 0.0,
         def_int: 0,

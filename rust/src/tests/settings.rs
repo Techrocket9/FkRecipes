@@ -1,4 +1,5 @@
 use alloc::format;
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::op::Op;
@@ -254,6 +255,8 @@ fn planning_refuses_a_lib_built_without_new() {
         techs: Vec::new(),
         language: None,
         custom_cost: None,
+        order_prefix: String::new(),
+        empty_order_after: false,
     };
 
     match settings_plan.plan_settings(&settings_world()) {
@@ -272,6 +275,8 @@ fn planning_refuses_a_lib_built_without_new() {
         techs: Vec::new(),
         language: None,
         custom_cost: None,
+        order_prefix: String::new(),
+        empty_order_after: false,
     };
 
     match data_plan.plan_data(&base_world()) {

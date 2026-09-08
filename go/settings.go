@@ -52,11 +52,9 @@ func (l *Lib) PlanSettings(w Named) ([]Op, error) {
 	ops := make([]Op, 0, len(l.settings))
 	for i, s := range l.settings {
 		// A legacy setting carries the name and the order the mod already
-		// ships; everything else is prefixed and ordered by declaration.
-		order := orderString(i)
-		if s.legacy {
-			order = s.order
-		}
+		// ships; everything else is prefixed and ordered by declaration,
+		// under whatever prefix OrderAfter had in force when it was declared.
+		order := s.emittedOrder(i)
 		pairs := []KV{
 			kv("type", Str(settingTypeName(s.kind))),
 			kv("name", Str(s.emittedName(prefix))),
@@ -109,6 +107,15 @@ func (l *Lib) PlanSettings(w Named) ([]Op, error) {
 // byte, so each one names the setting and the relationship instead.
 func (l *Lib) validateSettings(prefix string, bound []bool) error {
 	at := "fkrecipes: "
+	// BEFORE THE LOOP, because an empty OrderAfter is a mistake in the plan
+	// rather than in any one setting: the call is wrong whether or not a
+	// setting was declared after it, and a plan that declared none would
+	// otherwise carry it silently until somebody added one. The message names
+	// the GO NAME in both halves, as the language guard's does: the surface
+	// is one surface and the sentence is compared byte for byte.
+	if l.orderAfterEmpty {
+		return errors.New(at + "OrderAfter was given an empty order; name the order string the generated settings should follow")
+	}
 	for i, s := range l.settings {
 		if s.name == "" {
 			return errors.New(at + "a setting was declared with an empty name")
@@ -181,6 +188,64 @@ func (l *Lib) validateSettings(prefix string, bound []bool) error {
 				if (spec.HasMin && s.defNum < spec.Min) || (spec.HasMax && s.defNum > spec.Max) {
 					return errors.New(at + "the numeric setting " + s.name + " declares a default outside its own minimum and maximum")
 				}
+			}
+		}
+	}
+	// THE ORDER PASS RUNS AFTER THE LOOP ABOVE RATHER THAN INSIDE IT, because
+	// every refusal it can give QUOTES A SECOND SETTING. Inside the loop it
+	// reached settings the loop had not validated yet, so a plan whose real
+	// mistake was an empty name got a sentence with a blank where a name
+	// belongs, and five refusals a consumer needs (an empty legacy order, a
+	// later empty name, a dropdown default outside its values, a craft-time
+	// minimum at the floor, an int default past what a double holds) were
+	// pre-empted by a placement remark. Every setting named below has passed
+	// its own checks.
+	//
+	// GENERATED SETTINGS IN DECLARATION ORDER, and inside each of them the
+	// legacy settings in declaration order, so a plan with two order problems
+	// always answers with the same one.
+	//
+	// TWO GENERATED SETTINGS ARE NEVER COMPARED. The two letters are always
+	// two letters, so two equal emitted orders force equal prefixes, and a
+	// tie under one prefix takes the 676 the letters count to, which
+	// orderString documents as cosmetic.
+	//
+	// THIS REFUSES PLANS THAT LOADED BEFORE, deliberately: a legacy order of
+	// "aa" beside a generated first setting has always tied, silently, and is
+	// a refusal from here on. The migration notes say so.
+	for i, s := range l.settings {
+		if s.legacy {
+			continue
+		}
+		order := s.emittedOrder(i)
+		for j := range l.settings {
+			other := l.settings[j]
+			if !other.legacy {
+				continue
+			}
+			legacyOrder := other.emittedOrder(j)
+			// THE TIE FIRST for this legacy setting and the placement second.
+			// Only one of the two can hold: a legacy order equal to the
+			// generated one does not sort before it.
+			if legacyOrder == order {
+				return errors.New(at + "the setting " + s.name + " would carry the order " + order +
+					", which the legacy setting " + other.name + " already carries; give one of them an order of its own")
+			}
+			// THE PLACEMENT OrderAfter PROMISES, which equality alone does not
+			// keep: a legacy order that EXTENDS the named one sits inside the
+			// range the two letters walk, so a generated setting far enough
+			// along the alphabet sorts past it. Under OrderAfter("a") beside
+			// a legacy "ab", the generated setting whose two letters are "ba"
+			// carries "aba" and lands past it with nothing said.
+			//
+			// A PLAN WITH NO OrderAfter MADE NO SUCH PROMISE, which is why an
+			// empty prefix is excluded rather than treated as one every
+			// legacy order extends: a legacy "a" beside the generated "aa" is
+			// the two letters' arithmetic working as documented.
+			if p := s.orderPrefix; p != "" && len(legacyOrder) > len(p) && legacyOrder[:len(p)] == p && legacyOrder < order {
+				return errors.New(at + "the setting " + s.name + " would carry the order " + order +
+					" and sort past the legacy setting " + other.name + " at " + legacyOrder +
+					", which extends " + p + "; OrderAfter(" + p + ") places settings before every legacy order that extends " + p)
 			}
 		}
 	}

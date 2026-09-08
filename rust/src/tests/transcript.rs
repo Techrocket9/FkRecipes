@@ -101,6 +101,16 @@ pub(crate) fn field(v: &Value, key: &str) -> Option<Value> {
     None
 }
 
+/// A composed description carries REAL newlines, which a raw string literal
+/// cannot hold and a quoted one would drown in backslashes: the expectations
+/// written against it use `\n` and this puts the character back before
+/// comparing.
+pub(crate) fn assert_composed(got: &[String], want: &[&str]) {
+    let want: Vec<String> = want.iter().map(|w| w.replace("\\n", "\n")).collect();
+    let refs: Vec<&str> = want.iter().map(|s| s.as_str()).collect();
+    assert_lines(got, &refs);
+}
+
 pub(crate) fn assert_lines(got: &[String], want: &[&str]) {
     let mut bad = false;
     let shared = got.len().min(want.len());
