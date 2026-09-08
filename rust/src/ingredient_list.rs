@@ -109,6 +109,68 @@ pub(crate) struct ListEntry {
     pub(crate) amount: Amount,
 }
 
+/// THE LANGUAGE AS A TABLE OF POINTERS, and the reason this module has one.
+///
+/// A PLAN THAT DECLARES NO TEXT SETTING MUST NOT SHIP THE LANGUAGE. This crate
+/// is compiled into the CONSUMER's wasm and packaged into Lua the player
+/// downloads, so every function that survives link-time elimination is weight
+/// in somebody's mod, and a direct call is a reference elimination has to keep
+/// whether or not any declaration in the plan could ever reach it.
+///
+/// MEASURED, on `rust/examples/notext`, the fixture kept for exactly this
+/// question: a plan shaped like the pilot's before its customizer round, two
+/// dropdowns driving `ingredients_by` and `cost_by` over legacy prototypes and
+/// no text setting anywhere, built for wasm32-unknown-unknown at
+/// `opt-level = "s"` with LTO and packaged by `fklua mod`. With the planners
+/// naming these functions it packaged 84,959 lines of fk_data_module.lua;
+/// with this table in front of them, 59,491, the language's own functions
+/// gone from the packaged module's headers. LINES rather than bytes, because
+/// rustc writes a source path into the wasm's panic locations and the
+/// packaged module's byte total moves by a few hundred bytes with wherever the
+/// checkout sits; the follow-up subsection of `agents/implementation-notes.md`
+/// carries the commands and the byte totals with the path they were taken
+/// under.
+///
+/// The guest that DOES declare text settings pays for the indirection, and
+/// the whole bill is 0.6%: `rust/examples/datastage` goes from 3,656,235
+/// bytes of fk_data_module.lua to 3,679,378, and from 89,943 lines to 90,520.
+/// The question came from the pilot, which measured its own packaged data
+/// module at 4,904,124 bytes at its round-three head, WITH its text settings
+/// declared; that is a different plan from the fixture above and not the same
+/// measurement.
+///
+/// So the planners reach the language through this table and never by name.
+/// It is installed by the two constructors that declare a text setting,
+/// `Lib::ingredients_decl` and `Lib::packs_decl`, which name `LANGUAGE` and
+/// are the only places in the crate outside this module that name anything
+/// here at all; a plan that calls neither carries `None`, refers to nothing
+/// here, and links none of it. `Lib::validate_text_settings` is the
+/// guard: a text setting that arrived without its table is refused rather than
+/// dereferenced, and `tests::source` holds the naming rule over the source
+/// itself, because one direct call put back next year would ship all of this
+/// again with every other test still green.
+pub(crate) struct Language {
+    pub(crate) parse: ParseFn,
+    pub(crate) is_edited: fn(&str, ListKind, &str, &str, &dyn World) -> bool,
+    pub(crate) render: fn(&ListText) -> String,
+    pub(crate) render_list: fn(&IngredientList) -> String,
+    pub(crate) format_amount: fn(f64) -> String,
+}
+
+/// The parser's own signature, named rather than spelled in the field above
+/// because it is the one signature here long enough that clippy calls it
+/// complex.
+pub(crate) type ParseFn = fn(&str, ListKind, &str, &str, &dyn World) -> Result<ListText, String>;
+
+/// The one table there is. See [`Language`] for why it is reached by pointer.
+pub(crate) static LANGUAGE: Language = Language {
+    parse,
+    is_edited,
+    render,
+    render_list,
+    format_amount,
+};
+
 /// Which tag, if any, the player wrote around a name. The game's own rich
 /// text is the form that disambiguates an item from a fluid of the same name
 /// and the form that reaches a name which would otherwise lex as an amount.

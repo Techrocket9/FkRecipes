@@ -1632,6 +1632,213 @@ steelworks-style-custom=Custom
 	assertFindings(t, lib.CheckLocale("steelworks", cfg), nil)
 }
 
+// ---------------------------------------------------------------------------
+// The language seam.
+// ---------------------------------------------------------------------------
+
+// THE GUARD OVER A SEAM THE PUBLIC SURFACE CANNOT BREAK, and the reason it is
+// tested from inside the package: IngredientsSetting and PacksSetting are the
+// only way a consumer declares a text setting and both install the language,
+// so a text setting without one arrives only by appending the declaration by
+// hand, exactly as these two do. The seam itself is a size decision (see
+// Lib.lang: the notext fixture shipped the whole language because the planners
+// named it), and a guard nobody has watched fire is a guard nobody has tested.
+//
+// BOTH PLANNERS ANSWER, because both run validateTextSettings in front of
+// their loops and neither may reach a text path with nothing behind it.
+func TestTextSettingWithoutTheLanguageIsRefused(t *testing.T) {
+	// An ingredients setting with no language at all.
+	ingredients := func() *Lib {
+		lib := New()
+		axe := lib.Item("steel-axe", ItemSpec{})
+		lib.settings = append(lib.settings, settingDecl{
+			kind:           settingIngredients,
+			name:           "axe-ingredients",
+			defIngredients: []Ingredient{IngredientNamed(1, "steel-plate")},
+		})
+		parts := IngredientsSettingRef{lib: lib.id, index: len(lib.settings)}
+		lib.Recipe(axe, RecipeSpec{Name: "steel-axe-forging", IngredientsFrom: parts})
+		return lib
+	}
+	// A packs setting WITH the language and without the custom-cost resolver,
+	// which is the half packsSetting installs on its own: the two are separate
+	// values and a plan holding one of them is still a plan that would call
+	// nothing.
+	packs := func() *Lib {
+		lib := New()
+		lib.lang = &language{parse: parseIngredientList, render: renderIngredientList, amount: formatListAmount}
+		lib.settings = append(lib.settings, settingDecl{
+			kind:     settingPacks,
+			name:     "axe-packs",
+			defPacks: []Pack{{Name: "automation-science-pack", Amount: 1}},
+		})
+		list := PacksSettingRef{lib: lib.id, index: len(lib.settings)}
+		count := lib.IntSetting("axe-count", 20, Between(1, 100000))
+		seconds := lib.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
+		lib.Technology("steel-axes", TechSpec{
+			CostFrom: &CustomCost{Packs: list, Count: count, Seconds: seconds},
+		})
+		return lib
+	}
+
+	cases := []struct {
+		name string
+		plan func() *Lib
+		want string
+	}{
+		{
+			name: "an ingredients setting with no language",
+			plan: ingredients,
+			want: "fkrecipes: the text setting axe-ingredients was declared without the ingredient language;" +
+				" declare it through IngredientsSetting or PacksSetting",
+		},
+		{
+			name: "a packs setting with no custom-cost resolver",
+			plan: packs,
+			want: "fkrecipes: the text setting axe-packs was declared without the ingredient language;" +
+				" declare it through IngredientsSetting or PacksSetting",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := c.plan().PlanSettings(settingsWorld())
+			assertRefusal(t, err, c.want)
+			_, err = c.plan().PlanData(customWorld())
+			assertRefusal(t, err, c.want)
+		})
+	}
+}
+
+// A TEXT HANDLE THAT POINTS AT A SETTING OF ANOTHER KIND IS REFUSED, and this
+// is what makes the two text validators the only ones that ask the kind. The
+// plan id and the index range say the handle came from this plan and lands
+// inside its settings; they say nothing about WHAT it lands on, and following
+// a handle into a dropdown is what reaches the ingredient language for a plan
+// the language guard stepped past. With the language held as function values
+// that reach is a call into nothing.
+//
+// THE SENTENCE IS THE ONE THE BINDING VALIDATOR ALREADY HAS. A handle this
+// plan cannot honour is an undeclared setting from the author's side, whatever
+// index it carries, and inventing a second sentence for it would give the same
+// defect two shapes.
+//
+// Hand-built, like the guard's own witness above: the constructors issue a
+// handle of the right kind, so a crossed one arrives only by writing the
+// struct literal, exactly as these two do.
+//
+// THE DROPDOWN CARRIES A STORED VALUE for the data half, and the two halves
+// are separate subtests, because the reach this guard prevents is in the data
+// planner and nowhere else: resolveTextList reads the setting first and hands
+// back the default when the World has no value for it, so a World without one
+// stops short of the language. One shared subtest hid that too, since
+// assertRefusal fatals on an accepted plan and the data half never ran.
+func TestATextHandleIntoAnotherKindIsRefused(t *testing.T) {
+	// A recipe reading its ingredients from a dropdown.
+	ingredients := func() *Lib {
+		lib := New()
+		axe := lib.Item("steel-axe", ItemSpec{})
+		style := lib.DropdownSettingNeedingLocale("axe-style", "vanilla", []string{"vanilla", "steel"})
+		parts := IngredientsSettingRef{lib: style.lib, index: style.index}
+		lib.Recipe(axe, RecipeSpec{Name: "steel-axe-forging", IngredientsFrom: parts})
+		return lib
+	}
+	// A custom research cost reading its packs from the same dropdown.
+	packs := func() *Lib {
+		lib := New()
+		style := lib.DropdownSettingNeedingLocale("axe-style", "vanilla", []string{"vanilla", "steel"})
+		count := lib.IntSetting("axe-count", 20, Between(1, 100000))
+		seconds := lib.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
+		list := PacksSettingRef{lib: style.lib, index: style.index}
+		lib.Technology("steel-axes", TechSpec{
+			CostFrom: &CustomCost{Packs: list, Count: count, Seconds: seconds},
+		})
+		return lib
+	}
+
+	cases := []struct {
+		name string
+		plan func() *Lib
+		want string
+	}{
+		{
+			name: "a recipe whose IngredientsFrom names a dropdown",
+			plan: ingredients,
+			want: "fkrecipes: the recipe steel-axe-forging reads its ingredients from a setting that this plan never declared",
+		},
+		{
+			name: "a custom cost whose Packs names a dropdown",
+			plan: packs,
+			want: "fkrecipes: the technology steel-axes reads its science packs from a setting that this plan never declared",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Run("the settings plan", func(t *testing.T) {
+				_, err := c.plan().PlanSettings(settingsWorld())
+				assertRefusal(t, err, c.want)
+			})
+			t.Run("the data plan", func(t *testing.T) {
+				w := customWorld().withSetting("steelworks-axe-style", Str("vanilla"))
+				_, err := c.plan().PlanData(w)
+				assertRefusal(t, err, c.want)
+			})
+		})
+	}
+}
+
+// AND THE ORDINARY PLAN INSTALLS BOTH HALVES, which is what makes the guard
+// above a guard rather than a wall: a plan that declares its text settings
+// through the constructors passes it, and one pack setting is enough for the
+// custom-cost resolver.
+func TestTheConstructorsInstallTheLanguage(t *testing.T) {
+	// A PLAN WITH NO TEXT SETTING CARRIES NEITHER HALF, which is the state the
+	// whole seam exists to produce: no field here names the parser, the
+	// renderer, the amount formatter or the custom-cost resolver, so nothing
+	// in a consumer built this way keeps them alive.
+	plain := New()
+	plainAxe := plain.Item("steel-axe", ItemSpec{})
+	plain.Recipe(plainAxe, RecipeSpec{Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")}})
+	plain.DropdownSettingNeedingLocale("axe-style", "vanilla", []string{"vanilla", "steel"})
+	if plain.lang != nil {
+		t.Error("a plan with no text setting installed the language")
+	}
+	if plain.customCost != nil {
+		t.Error("a plan with no text setting installed a custom-cost resolver")
+	}
+
+	lib := New()
+	axe := lib.Item("steel-axe", ItemSpec{})
+	parts := lib.IngredientsSetting("axe-ingredients", []Ingredient{IngredientNamed(1, "steel-plate")})
+	lib.Recipe(axe, RecipeSpec{IngredientsFrom: parts})
+	if lib.lang == nil {
+		t.Fatal("IngredientsSetting installed no language")
+	}
+	if lib.customCost != nil {
+		t.Error("IngredientsSetting installed a custom-cost resolver, which no plan without a pack setting can reach")
+	}
+
+	// A SECOND text setting must not reinstall it: the install is idempotent
+	// because the language belongs to the plan and not to the declaration.
+	first := lib.lang
+	list := lib.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+	if lib.lang != first {
+		t.Error("PacksSetting replaced the language a previous constructor installed")
+	}
+	if lib.customCost == nil {
+		t.Fatal("PacksSetting installed no custom-cost resolver")
+	}
+	count := lib.IntSetting("axe-count", 20, Between(1, 100000))
+	seconds := lib.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
+	lib.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{Packs: list, Count: count, Seconds: seconds}})
+
+	if _, err := lib.PlanSettings(settingsWorld()); err != nil {
+		t.Errorf("the settings plan refused a plan built through the constructors: %v", err)
+	}
+	if _, err := lib.PlanData(customWorld()); err != nil {
+		t.Errorf("the data plan refused a plan built through the constructors: %v", err)
+	}
+}
+
 func assertRefusal(t *testing.T, err error, want string) {
 	t.Helper()
 	if err == nil {

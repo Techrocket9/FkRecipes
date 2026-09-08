@@ -8,8 +8,9 @@
 //! player wrote.
 
 use crate::plan::{
-    CustomCost, Ingredient, IngredientChoice, IngredientChoices, ItemSpec, Lib, NumericSpec, Pack,
-    RecipeSpec, TechSpec, UnitSpec,
+    CustomCost, Ingredient, IngredientChoice, IngredientChoices, IngredientsSettingRef, ItemSpec,
+    Lib, NumericSpec, Pack, PacksSettingRef, RecipeSpec, SettingDecl, SettingKind, TechSpec,
+    UnitSpec,
 };
 use crate::tests::*;
 use crate::value::Value;
@@ -1322,6 +1323,241 @@ fn a_stepped_past_recipe_composes_no_description() {
         Some(
             "fkrecipes: the recipe steel-rivet names both Ingredients and IngredientsBy; pick one"
         )
+    );
+}
+
+/// A text setting pushed straight into a plan, which is the only way to build
+/// one whose constructor never ran.
+///
+/// THE PUBLIC SURFACE HAS NO SUCH DOOR: every text setting a consumer can
+/// declare goes through `ingredients_setting` or `packs_setting`, and those
+/// install the language table the planners read it with. The guard below would
+/// therefore be a branch with no witness, which this repository does not ship,
+/// so the witness reaches it from inside the crate.
+fn forge_text_setting(lib: &mut Lib, kind: SettingKind, name: &str) -> usize {
+    lib.settings.push(SettingDecl {
+        kind,
+        name: String::from(name),
+        legacy: false,
+        order: String::new(),
+        def_bool: false,
+        def_num: 0.0,
+        def_int: 0,
+        def_str: String::new(),
+        def_ings: vec![Ingredient::named(2, "iron-plate", &[])],
+        def_packs: vec![Pack::new("automation-science-pack", 1)],
+        spec: NumericSpec::default(),
+        values: Vec::new(),
+    });
+    lib.settings.len()
+}
+
+/// THE SEAM'S GUARD. The parser and the renderer are reached through a table
+/// the text-setting constructors install, so that a plan which declares no
+/// text setting links none of the language; a text setting that arrived
+/// without the table has nothing to read it with, and both planners say so
+/// rather than dereferencing what is not there.
+///
+/// The sentence names the GO constructors in both halves, because there is one
+/// corpus of messages and it is compared byte for byte.
+#[test]
+fn a_text_setting_without_the_language_is_refused() {
+    let mut lib = Lib::new();
+    let rivet = lib.item("steel-rivet", ItemSpec::default());
+    let index = forge_text_setting(&mut lib, SettingKind::Ingredients, "rivet-ingredients");
+    // Bound to a recipe, so the binding rules pass and the guard is what
+    // answers rather than "nothing reads it".
+    let handle = IngredientsSettingRef { lib: lib.id, index };
+    lib.recipe(
+        rivet,
+        RecipeSpec {
+            ingredients_from: Some(handle),
+            ..Default::default()
+        },
+    );
+
+    let want = "fkrecipes: the text setting rivet-ingredients was declared without the ingredient language; declare it through IngredientsSetting or PacksSetting";
+    assert_eq!(
+        lib.plan_settings(&settings_world()).err().as_deref(),
+        Some(want)
+    );
+    assert_eq!(lib.plan_data(&base_world()).err().as_deref(), Some(want));
+}
+
+/// The same guard, one table further on: a PACKS setting needs the custom-cost
+/// resolver as well, and only the packs constructor installs it. The plan here
+/// declares a real ingredients setting first, so the language IS installed and
+/// what is missing is the resolver alone.
+#[test]
+fn a_packs_setting_without_the_custom_cost_resolver_is_refused() {
+    let mut lib = Lib::new();
+    let rivet = lib.item("steel-rivet", ItemSpec::default());
+    let list = lib.ingredients_setting(
+        "rivet-ingredients",
+        vec![Ingredient::named(2, "steel-plate", &[])],
+    );
+    lib.recipe(
+        rivet,
+        RecipeSpec {
+            ingredients_from: Some(list),
+            ..Default::default()
+        },
+    );
+    let index = forge_text_setting(&mut lib, SettingKind::Packs, "tips-packs");
+    let packs = PacksSettingRef { lib: lib.id, index };
+    let count = lib.int_setting("tips-count", 30, NumericSpec::between(1.0, 100000.0));
+    let seconds = lib.double_setting("tips-seconds", 15.0, NumericSpec::between(0.5, 600.0));
+    lib.technology(
+        "hardened-tips",
+        TechSpec {
+            cost_from: Some(CustomCost {
+                packs,
+                count,
+                seconds,
+                position: Vec::new(),
+            }),
+            ..Default::default()
+        },
+    );
+
+    let want = "fkrecipes: the text setting tips-packs was declared without the ingredient language; declare it through IngredientsSetting or PacksSetting";
+    assert_eq!(
+        lib.plan_settings(&settings_world()).err().as_deref(),
+        Some(want)
+    );
+    assert_eq!(lib.plan_data(&base_world()).err().as_deref(), Some(want));
+}
+
+/// A TEXT HANDLE THAT NAMES ANOTHER KIND OF SETTING IS REFUSED, not followed.
+///
+/// The id and the index alone would say this handle is an ingredients setting,
+/// and following it would reach the language for a plan the guard read as
+/// having no text setting at all: the guard decides on the setting's KIND, so
+/// the validator has to decide on the same thing. The two conditions are one
+/// condition, which is what the customizer's own design review asked for the
+/// first time this class was found.
+#[test]
+fn an_ingredients_handle_naming_another_kind_is_refused() {
+    let mut lib = Lib::new();
+    let rivet = lib.item("steel-rivet", ItemSpec::default());
+    lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "oil"]);
+    let handle = IngredientsSettingRef {
+        lib: lib.id,
+        index: 1,
+    };
+    lib.recipe(
+        rivet,
+        RecipeSpec {
+            ingredients_from: Some(handle),
+            ..Default::default()
+        },
+    );
+
+    let want = "fkrecipes: the recipe steel-rivet reads its ingredients from a setting that this plan never declared";
+    assert_eq!(
+        lib.plan_settings(&settings_world()).err().as_deref(),
+        Some(want)
+    );
+    assert_eq!(lib.plan_data(&base_world()).err().as_deref(), Some(want));
+}
+
+/// The packs twin of [`an_ingredients_handle_naming_another_kind_is_refused`],
+/// and the same one condition: following this handle would reach the
+/// custom-cost resolver a plan with no packs setting never installed.
+#[test]
+fn a_packs_handle_naming_another_kind_is_refused() {
+    let mut lib = Lib::new();
+    lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "oil"]);
+    let count = lib.int_setting("tips-count", 30, NumericSpec::between(1.0, 100000.0));
+    let seconds = lib.double_setting("tips-seconds", 15.0, NumericSpec::between(0.5, 600.0));
+    let packs = PacksSettingRef {
+        lib: lib.id,
+        index: 1,
+    };
+    lib.technology(
+        "hardened-tips",
+        TechSpec {
+            cost_from: Some(CustomCost {
+                packs,
+                count,
+                seconds,
+                position: Vec::new(),
+            }),
+            ..Default::default()
+        },
+    );
+
+    let want = "fkrecipes: the technology hardened-tips reads its science packs from a setting that this plan never declared";
+    assert_eq!(
+        lib.plan_settings(&settings_world()).err().as_deref(),
+        Some(want)
+    );
+    assert_eq!(lib.plan_data(&base_world()).err().as_deref(), Some(want));
+}
+
+/// WHAT THE SEAM IS FOR, asserted on the plan itself: a plan that declares no
+/// text setting carries neither table, so nothing it can do reaches the
+/// language and a link-time elimination pass has nothing to keep. The two
+/// constructors install what their own readers need and no more.
+#[test]
+fn a_plan_installs_only_the_tables_its_settings_need() {
+    let mut lib = Lib::new();
+    let part = lib.legacy_item("bbb-balancer-part", ItemSpec::default());
+    let cost = lib.legacy_dropdown_setting_needing_locale(
+        "bbb-recipe-cost",
+        "vanilla",
+        &["vanilla", "cheap"],
+        "a",
+    );
+    lib.legacy_recipe(
+        part,
+        "bbb-balancer-part",
+        RecipeSpec {
+            ingredients_by: Some(IngredientChoices {
+                setting: cost,
+                choices: vec![IngredientChoice {
+                    value: "vanilla".into(),
+                    ingredients: vec![Ingredient::named(4, "iron-plate", &[])],
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    );
+    lib.plan_settings(&settings_world())
+        .expect("the dropdown-only plan refused");
+    assert!(
+        lib.language.is_none(),
+        "a plan with no text setting installed the language"
+    );
+    assert!(
+        lib.custom_cost.is_none(),
+        "a plan with no packs setting installed the custom-cost resolver"
+    );
+
+    let mut ings = Lib::new();
+    ings.ingredients_setting(
+        "rivet-ingredients",
+        vec![Ingredient::named(2, "iron-plate", &[])],
+    );
+    assert!(
+        ings.language.is_some(),
+        "an ingredients setting installed no language"
+    );
+    assert!(
+        ings.custom_cost.is_none(),
+        "an ingredients setting installed the custom-cost resolver it cannot reach"
+    );
+
+    let mut packs = Lib::new();
+    packs.packs_setting("tips-packs", vec![Pack::new("automation-science-pack", 1)]);
+    assert!(
+        packs.language.is_some(),
+        "a packs setting installed no language"
+    );
+    assert!(
+        packs.custom_cost.is_some(),
+        "a packs setting installed no custom-cost resolver"
     );
 }
 

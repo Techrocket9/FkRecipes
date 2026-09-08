@@ -73,6 +73,13 @@ rust/                   the Rust half: crate fkrecipes, workspace root. fkdata a
 go/examples/datastage   the Go example guest, its own module (a consumer-shaped project; fkrecipes by
                         replace, the FkLua substrate by the real v0.2.0 require)
 rust/examples/datastage the Rust example guest (workspace member), the mirror harness's Rust arm
+go/examples/notext      the size-measurement fixtures: a BetterBeltBalancer-shaped guest (two legacy
+rust/examples/notext    dropdowns over IngredientsBy and CostBy, no text setting) written twice, so "a
+                        plan with no text setting links no ingredient language" is a number somebody
+                        can re-take with the commands in agents/implementation-notes.md. The Go one is
+                        its own module and only `go vet .` in its directory keeps it compiling; the
+                        Rust one is a workspace member, so the wasm workspace build does. Nothing runs
+                        either under an engine or the stand-in
 scripts/                gate scripts; run-mirror.sh is the cross-language mirror
 testdata/mirror/        the strict engine-shaped stand-in and the committed transcript golden
 testdata/locale/        the locale checker's committed fixture cfg and findings golden, the

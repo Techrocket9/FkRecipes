@@ -379,12 +379,29 @@ func (l *Lib) validateCustomCost(at, who string, c *CustomCost) error {
 // text this library reads. A declared list that renders into something the
 // language refuses is a field nobody can edit, so it is refused here rather
 // than shipped.
+//
+// IT IS ALSO WHERE THE LANGUAGE SEAM IS GUARDED, first thing and before every
+// rule below, because both planners run this in front of their loops and
+// nothing past it may dereference a language that is not there. See Lib.lang:
+// the parser, the renderer, the amount formatter and the custom-cost resolver
+// are reached as function values so a plan that declares no text setting never
+// names them, and a declaration that arrived without them is a plan whose
+// every text path would call nothing.
 func (l *Lib) validateTextSettings(prefix string) error {
 	at := "fkrecipes: "
 	bindings := l.textSettingBindings()
 	for i, s := range l.settings {
 		if !s.kind.isText() {
 			continue
+		}
+		// UNREACHABLE THROUGH THE PUBLIC SURFACE, and it has a witness anyway:
+		// IngredientsSetting and PacksSetting are the only way a consumer
+		// declares a text setting and both install what they need, so this
+		// fires only for a declaration appended inside the package. A guard
+		// with no witness is a guard nobody has seen work.
+		if l.lang == nil || (s.kind == settingPacks && l.customCost == nil) {
+			return errors.New(at + "the text setting " + s.name +
+				" was declared without the ingredient language; declare it through IngredientsSetting or PacksSetting")
 		}
 		who := "the ingredients setting " + s.name
 		if s.kind == settingPacks {
@@ -423,7 +440,7 @@ func (l *Lib) validateTextSettings(prefix string) error {
 		// that arm was unreachable: the renderer writes the canonical form of
 		// every entry, so a text this parse accepts renders back to itself, and
 		// a text it does not accept is answered by the sentence above.
-		if _, problem := parseIngredientList(renderIngredientList(entries), listKindOf(s.kind),
+		if _, problem := l.lang.parse(l.lang.render(entries), listKindOf(s.kind),
 			bindings[i].category, who, allExistsWorld{}); problem != "" {
 			return errors.New(problem)
 		}
@@ -501,10 +518,13 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		} else {
 			entries = declaredPackEntries(s.defPacks)
 		}
+		// THE LANGUAGE IS THERE BECAUSE THIS SETTING IS. Both planners run
+		// validateTextSettings in front of this walk, and it refuses a text
+		// setting whose language is missing before anything renders.
 		out[i] = Arr(
 			Str(""),
 			localeRef("mod-setting-description", s.emittedName(prefix)),
-			Str("\ndefault: "+renderIngredientList(entries)),
+			Str("\ndefault: "+l.lang.render(entries)),
 		)
 	}
 	// Recipes then technologies, in declaration order, which is the order a
@@ -529,9 +549,13 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		full := l.settings[i].emittedName(prefix)
 		params := make([]Value, 0, len(by.Choices)+1)
 		params = append(params, localeRef("mod-setting-description", full))
+		// THE ARM IS WHAT GUARANTEES THE LANGUAGE. A Custom arm holds an
+		// IngredientsSettingRef, which only IngredientsSetting issues, and
+		// that constructor installs the renderer. A dropdown with no arm was
+		// stepped past above and renders nothing.
 		for _, c := range by.Choices {
 			params = append(params, presetLine(full, c.Value,
-				renderIngredientList(l.declaredIngredientEntries(prefix, c.Ingredients))))
+				l.lang.render(l.declaredIngredientEntries(prefix, c.Ingredients))))
 		}
 		out[i] = localisedGroup(params)
 	}
@@ -673,7 +697,7 @@ func (l *Lib) resolveTextList(w World, res *resolution, s settingDecl, prefix, c
 		res.refuse("fkrecipes: " + full + " is not text")
 		return parsedList{}, false
 	}
-	parsed, problem := parseIngredientList(v.Str, kind, category, full, w)
+	parsed, problem := l.lang.parse(v.Str, kind, category, full, w)
 	if problem != "" {
 		// VERBATIM. The language already composed the whole sentence, naming
 		// the setting, the entry and the problem, and it is the same sentence
@@ -712,7 +736,7 @@ func (l *Lib) resolveIngredientsFrom(w, text World, res *resolution, prefix stri
 	// typed: a player who wrote "iron-plate x2" reads back "2 iron-plate" and
 	// learns the form the library would have written.
 	res.logs = append(res.logs, "fkrecipes: "+r.emittedName(prefix)+" takes its ingredients from "+
-		s.emittedName(prefix)+": "+renderIngredientList(parsed.entries))
+		s.emittedName(prefix)+": "+l.lang.render(parsed.entries))
 	return list
 }
 
@@ -738,7 +762,7 @@ func (l *Lib) noteIgnoredText(text World, res *resolution, s settingDecl, prefix
 	if !ok || v.Kind != KindStr {
 		return
 	}
-	parsed, problem := parseIngredientList(v.Str, listKindOf(s.kind), category, full, text)
+	parsed, problem := l.lang.parse(v.Str, listKindOf(s.kind), category, full, text)
 	if problem == "" && parsed.isDefault {
 		return
 	}
@@ -755,6 +779,11 @@ func (l *Lib) noteIgnoredText(text World, res *resolution, s settingDecl, prefix
 //
 // The pack ladders are walked against the real World and the pack TEXT against
 // the overlay, for the reason resolveIngredientsFrom carries two of them.
+//
+// THE DATA PLANNER REACHES IT THROUGH Lib.customCost AND NEVER BY NAME, which
+// is what keeps a plan that declares no pack setting from shipping it. See
+// language: packsSetting is the only place this function's name appears
+// outside this line.
 func (l *Lib) resolveCustomCost(w, text World, res *resolution, prefix string, t techDecl, c *CustomCost) Value {
 	countSetting := l.settings[c.Count.index-1]
 	secondsSetting := l.settings[c.Seconds.index-1]
@@ -795,8 +824,8 @@ func (l *Lib) resolveCustomCost(w, text World, res *resolution, prefix string, t
 		res.packless = t.name
 	}
 	res.logs = append(res.logs, "fkrecipes: "+t.emittedName(prefix)+" takes its research cost from "+
-		packsSetting.emittedName(prefix)+": count "+formatListAmount(count)+
-		", time "+formatListAmount(seconds)+", packs "+renderIngredientList(entries))
+		packsSetting.emittedName(prefix)+": count "+l.lang.amount(count)+
+		", time "+l.lang.amount(seconds)+", packs "+l.lang.render(entries))
 	return Obj(
 		kv("count", Num(count)),
 		kv("time", Num(seconds)),

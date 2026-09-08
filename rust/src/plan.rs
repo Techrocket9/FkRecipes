@@ -2,6 +2,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 
+use crate::data::CustomCostFn;
+use crate::ingredient_list::{Language, LANGUAGE};
 use crate::value::Value;
 
 /// Stamps each plan with an identity so a handle carries which plan it came
@@ -24,6 +26,15 @@ pub struct Lib {
     pub(crate) items: Vec<ItemDecl>,
     pub(crate) recipes: Vec<RecipeDecl>,
     pub(crate) techs: Vec<TechDecl>,
+    /// The ingredient language, installed by the two text-setting
+    /// constructors and `None` in a plan that declares no text setting. See
+    /// [`Language`]: a plan that never offered the player a list to type must
+    /// not ship the code that would have read one.
+    pub(crate) language: Option<&'static Language>,
+    /// The custom-cost resolver, installed by `packs_decl` and by nothing
+    /// else. A [`CustomCost`] names a [`PacksSettingRef`], so a plan that
+    /// never declared a packs setting can never reach one.
+    pub(crate) custom_cost: Option<CustomCostFn>,
 }
 
 // The handles. Each carries the id of the plan that issued it and a 1-BASED
@@ -631,6 +642,8 @@ impl Lib {
             items: Vec::new(),
             recipes: Vec::new(),
             techs: Vec::new(),
+            language: None,
+            custom_cost: None,
         }
     }
 
@@ -793,6 +806,11 @@ impl Lib {
         self.packs_decl(full_name, true, order, def)
     }
 
+    /// ONE OF THE TWO PLACES THE LANGUAGE IS NAMED, and the whole reason the
+    /// installation sits in a constructor rather than in a planner: a plan
+    /// reaches the parser and the renderer only through the table this line
+    /// puts in it, so a consumer who never declares a text setting links none
+    /// of the language at all. See [`Language`].
     fn ingredients_decl(
         &mut self,
         name: &str,
@@ -800,6 +818,7 @@ impl Lib {
         order: &str,
         def: Vec<Ingredient>,
     ) -> IngredientsSettingRef {
+        self.language = Some(&LANGUAGE);
         self.settings.push(SettingDecl {
             kind: SettingKind::Ingredients,
             name: String::from(name),
@@ -820,6 +839,10 @@ impl Lib {
         }
     }
 
+    /// THE OTHER PLACE THE LANGUAGE IS NAMED, and the only place the
+    /// custom-cost resolver is: a research cost the player writes needs the
+    /// pack text this constructor declares, so a plan without one can never
+    /// reach it. See [`Lib::ingredients_decl`] and [`Language`].
     fn packs_decl(
         &mut self,
         name: &str,
@@ -827,6 +850,8 @@ impl Lib {
         order: &str,
         def: Vec<Pack>,
     ) -> PacksSettingRef {
+        self.language = Some(&LANGUAGE);
+        self.custom_cost = Some(crate::data::CUSTOM_COST);
         self.settings.push(SettingDecl {
             kind: SettingKind::Packs,
             name: String::from(name),
@@ -961,6 +986,27 @@ impl Lib {
             lib: self.id,
             index: self.techs.len(),
         }
+    }
+
+    /// The installed language, for a caller the validators have already let
+    /// through.
+    ///
+    /// EVERY CALLER SITS BEHIND `validate_text_settings`, which both planners
+    /// run before they touch a text setting and which refuses a plan whose
+    /// text setting arrived without the table. A `None` here is that guard
+    /// having been removed, not a plan a consumer can build, and it says so
+    /// rather than rendering something nobody declared.
+    pub(crate) fn installed_language(&self) -> &'static Language {
+        self.language
+            .expect("a text setting reaches the language only through validate_text_settings")
+    }
+
+    /// The installed custom-cost resolver. See [`Lib::installed_language`]:
+    /// the same guard covers it, and a `CustomCost` reaches this only behind a
+    /// packs setting.
+    pub(crate) fn installed_custom_cost(&self) -> CustomCostFn {
+        self.custom_cost
+            .expect("a custom cost reaches its resolver only through validate_text_settings")
     }
 
     // A handle is valid only for the plan that issued it: the id keeps an
@@ -1138,12 +1184,28 @@ impl Lib {
         r.lib == self.id && r.index >= 1 && r.index <= self.settings.len()
     }
 
+    // THE TWO TEXT VALIDATORS ASK THE KIND AS WELL, and they are the only ones
+    // that do. Following one of these handles is what reaches the ingredient
+    // language, and the guard in `validate_text_settings` decides on the
+    // setting's KIND; a handle that pointed at a setting of another kind would
+    // be followed by a reach the guard never looked at, which is the
+    // unvalidated dereference the customizer's own design review already
+    // caught once. So the composition and the validator share one condition
+    // here too: a followed handle names a text setting, and a text setting has
+    // been past the guard.
+
     pub(crate) fn valid_ingredients_setting(&self, r: IngredientsSettingRef) -> bool {
-        r.lib == self.id && r.index >= 1 && r.index <= self.settings.len()
+        r.lib == self.id
+            && r.index >= 1
+            && r.index <= self.settings.len()
+            && self.settings[r.index - 1].kind == SettingKind::Ingredients
     }
 
     pub(crate) fn valid_packs_setting(&self, r: PacksSettingRef) -> bool {
-        r.lib == self.id && r.index >= 1 && r.index <= self.settings.len()
+        r.lib == self.id
+            && r.index >= 1
+            && r.index <= self.settings.len()
+            && self.settings[r.index - 1].kind == SettingKind::Packs
     }
 
     /// Who reads each text setting, and under which recipe's category.

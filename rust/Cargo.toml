@@ -37,7 +37,7 @@ fkdata = { git = "https://github.com/Techrocket9/fklua" }
 
 [workspace]
 resolver = "2"
-members = ["examples/datastage"]
+members = ["examples/datastage", "examples/notext"]
 
 # The profile is not a preference: FkLua's guest workspace carries exactly
 # this block, and the example guest built from this workspace root ships

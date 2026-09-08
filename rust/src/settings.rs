@@ -2,7 +2,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::ingredient_list::{render, IngredientList, ListEntry, ListKind, ListText, DEFAULT};
+use crate::ingredient_list::{IngredientList, ListEntry, ListKind, ListText, DEFAULT};
 use crate::op::Op;
 use crate::plan::{
     custom_value, Amount, CostChoice, CostChoices, Ingredient, IngredientChoice, IngredientChoices,
@@ -553,6 +553,10 @@ impl Lib {
     /// must get a text this library reads. A declared list that renders into
     /// something the language refuses is a field nobody can edit, so it is
     /// refused here rather than shipped.
+    ///
+    /// IT ALSO GUARDS THE SEAM, which is why every later reach through the
+    /// language table is behind this call: see the comment on the first check
+    /// in the loop.
     pub(crate) fn validate_text_settings(&self, prefix: &str) -> Result<(), String> {
         let at = "fkrecipes: ";
         let bindings = self.text_setting_bindings();
@@ -565,6 +569,24 @@ impl Lib {
                 SettingKind::Packs => (ListKind::Packs, format!("the packs setting {}", s.name)),
                 _ => continue,
             };
+            // THE SEAM'S GUARD, and the reason this validator is the one that
+            // carries it: both planners run it before any loop that could
+            // reach the language, and a text setting is the only declaration
+            // that reaches it at all. A setting whose constructor did not
+            // install the table has nothing to parse or render it with, so it
+            // is refused by name rather than dereferenced. A packs setting
+            // needs the custom-cost resolver as well, which only the packs
+            // constructor installs. See
+            // [`crate::ingredient_list::Language`].
+            if self.language.is_none()
+                || (s.kind == SettingKind::Packs && self.custom_cost.is_none())
+            {
+                return Err(format!(
+                    "{}the text setting {} was declared without the ingredient language; declare it through IngredientsSetting or PacksSetting",
+                    at, s.name
+                ));
+            }
+            let lang = self.installed_language();
             let category = bindings[i].category.as_str();
             let entries = if s.kind == SettingKind::Ingredients {
                 // The ordinary declared-ingredient rules, naming the SETTING:
@@ -587,7 +609,7 @@ impl Lib {
                 validate_declared_packs(at, &who, &s.def_packs)?;
                 declared_pack_list(&s.def_packs)
             };
-            let rendered = render(&ListText::List(entries));
+            let rendered = (lang.render)(&ListText::List(entries));
             // THE PARSE IS THE WHOLE CHECK. Whatever it reads back is the
             // rendering again: the renderer writes one canonical form and the
             // parser reads that form to the same list, which is the identity
@@ -601,14 +623,16 @@ impl Lib {
             // author's to fix and not the player's: they read "the ingredients
             // setting rivet-ingredients, entry 2 (...)" rather than a bare
             // prefixed name.
-            crate::ingredient_list::parse(&rendered, kind, category, &who, &AllPresent)?;
+            (lang.parse)(&rendered, kind, category, &who, &AllPresent)?;
         }
         Ok(())
     }
 
-    /// The declared list as the description shows it.
+    /// The declared list as the description shows it. Reached only from the
+    /// text-setting arm of `plan_settings`, which `validate_text_settings` has
+    /// already accepted.
     fn rendered_default(&self, prefix: &str, s: &SettingDecl) -> String {
-        render(&ListText::List(match s.kind {
+        (self.installed_language().render)(&ListText::List(match s.kind {
             SettingKind::Packs => declared_pack_list(&s.def_packs),
             _ => self.declared_list(prefix, &s.def_ings),
         }))
@@ -689,7 +713,7 @@ impl Lib {
                     params.push(preset_element(
                         full,
                         &c.value,
-                        &render(&ListText::List(list)),
+                        &(self.installed_language().render)(&ListText::List(list)),
                     ));
                 }
             }

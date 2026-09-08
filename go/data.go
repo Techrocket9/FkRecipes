@@ -549,7 +549,12 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 					// every other technology is resolved in and the order a
 					// reader of the transcript expects: what it costs, then
 					// where it hangs.
-					rt.unit = l.resolveCustomCost(w, text, &res, prefix, t, by.Custom)
+					//
+					// THROUGH THE VALUE, NEVER BY NAME. A Custom arm holds a
+					// PacksSettingRef, so packsSetting installed this and
+					// validateTextSettings refused the plan if it had not.
+					// See Lib.lang for the measurement this seam exists for.
+					rt.unit = l.customCost(l, w, text, &res, prefix, t, by.Custom)
 					rt.hasUnit = true
 					rt.prereqs = customPrereqs(w, &res, t.name, by.Custom.Position)
 					res.techs = append(res.techs, rt)
@@ -624,7 +629,8 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 		// of its own: nothing moves with this unit, because no source
 		// technology was named.
 		if t.spec.CostFrom != nil {
-			rt.unit = l.resolveCustomCost(w, text, &res, prefix, t, t.spec.CostFrom)
+			// Through the value, for the reason the CostBy arm above is.
+			rt.unit = l.customCost(l, w, text, &res, prefix, t, t.spec.CostFrom)
 			rt.hasUnit = true
 		}
 

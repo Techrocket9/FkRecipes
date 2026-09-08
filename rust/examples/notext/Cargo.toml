@@ -1,0 +1,21 @@
+[package]
+name = "notext"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "notext"
+crate-type = ["cdylib"]
+
+# The size-measurement fixture, the twin of go/examples/notext: a plan shaped
+# like BetterBeltBalancer's before its customizer round, with no text setting,
+# so a packaging of it says whether a consumer who never calls
+# ingredients_setting or packs_setting ships the ingredient language. It is a
+# workspace member so the wasm workspace build keeps it compiling; nothing
+# runs it under an engine or the stand-in. The same consumer arrangement as the
+# datastage example: fkrecipes by path, the FkLua substrate through the real
+# git channel, both wasm-gated so a host cargo test never needs a wasm target.
+[target.'cfg(target_family = "wasm")'.dependencies]
+fkrecipes = { path = "../.." }
+fkdata = { git = "https://github.com/Techrocket9/fklua" }
+fk = { git = "https://github.com/Techrocket9/fklua" }

@@ -30,3 +30,12 @@ version = "0.1.0"
 dependencies = [
  "fkdata",
 ]
+
+[[package]]
+name = "notext"
+version = "0.1.0"
+dependencies = [
+ "fk",
+ "fkdata",
+ "fkrecipes",
+]

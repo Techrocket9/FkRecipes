@@ -252,6 +252,8 @@ fn planning_refuses_a_lib_built_without_new() {
         items: Vec::new(),
         recipes: Vec::new(),
         techs: Vec::new(),
+        language: None,
+        custom_cost: None,
     };
 
     match settings_plan.plan_settings(&settings_world()) {
@@ -268,6 +270,8 @@ fn planning_refuses_a_lib_built_without_new() {
         items: Vec::new(),
         recipes: Vec::new(),
         techs: Vec::new(),
+        language: None,
+        custom_cost: None,
     };
 
     match data_plan.plan_data(&base_world()) {

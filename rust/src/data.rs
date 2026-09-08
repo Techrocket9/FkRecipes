@@ -3,10 +3,7 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::ingredient_list::{
-    format_amount, is_edited, parse, render_list, IngredientList, ListEntry, ListKind, ListText,
-    DEFAULT,
-};
+use crate::ingredient_list::{IngredientList, Language, ListEntry, ListKind, ListText, DEFAULT};
 use crate::op::{path_key, Op};
 use crate::plan::{
     custom_value, Amount, CostChoice, CustomCost, Ingredient, IngredientChoice,
@@ -17,6 +14,25 @@ use crate::value::{
     MAX_ITEM_AMOUNT,
 };
 use crate::world::World;
+
+/// The custom-cost resolver's type, so the plan can hold one without spelling
+/// seven parameters. See [`CUSTOM_COST`].
+pub(crate) type CustomCostFn = fn(
+    &Lib,
+    &dyn World,
+    &dyn World,
+    &mut Resolution,
+    &str,
+    &TechDecl,
+    &CustomCost,
+) -> (Value, bool);
+
+/// THE RESOLVER AS A POINTER, for the same reason the ingredient language is
+/// one: a plan that declares no packs setting can never reach a custom cost,
+/// and a direct call from the resolution pass would be a reference link-time
+/// elimination has to keep. `Lib::packs_decl` installs this and nothing else
+/// names it. See [`crate::ingredient_list::Language`].
+pub(crate) const CUSTOM_COST: CustomCostFn = Lib::resolve_custom_cost;
 
 impl Lib {
     /// Turns the declared items, recipes and technologies into an `Op`
@@ -658,6 +674,7 @@ impl Lib {
                         // a preset is a preference nothing reads, and silence
                         // there is the report "my ingredients did nothing".
                         note_ignored_text(
+                            self.installed_language(),
                             &own,
                             &mut res,
                             &self.settings[h.index - 1].emitted_name(prefix),
@@ -736,7 +753,8 @@ impl Lib {
             // THE PLAYER'S OWN UNIT, in the same place a hand-rolled one is
             // resolved: what the technology COSTS before where it sits.
             if let Some(cc) = &t.spec.cost_from {
-                let (unit, no_packs) = self.resolve_custom_cost(w, &own, &mut res, prefix, t, cc);
+                let (unit, no_packs) =
+                    (self.installed_custom_cost())(self, w, &own, &mut res, prefix, t, cc);
                 rt.unit = Some(unit);
                 rt.no_packs = no_packs;
             }
@@ -748,7 +766,7 @@ impl Lib {
                 if let Some(cc) = &by.custom {
                     if chosen == cv {
                         let (unit, no_packs) =
-                            self.resolve_custom_cost(w, &own, &mut res, prefix, t, cc);
+                            (self.installed_custom_cost())(self, w, &own, &mut res, prefix, t, cc);
                         rt.unit = Some(unit);
                         rt.no_packs = no_packs;
                         // THE PREREQUISITE STILL MOVES WITH THE UNIT, and the
@@ -762,6 +780,7 @@ impl Lib {
                         continue;
                     }
                     note_ignored_text(
+                        self.installed_language(),
                         &own,
                         &mut res,
                         &self.settings[cc.packs.index - 1].emitted_name(prefix),
@@ -1098,7 +1117,13 @@ impl Resolution {
 /// rather than from the setting, because each caller knows both: a recipe's
 /// dropdown hands over an ingredient list in that recipe's category, and a
 /// technology's hands over science packs, which have no category at all.
+// EIGHT PARAMETERS. Seven are facts only the call site has: which list the
+// dropdown hands over, in which recipe's category, under which value. The
+// first is the language table, which this function reaches the way everything
+// outside its module does.
+#[allow(clippy::too_many_arguments)]
 fn note_ignored_text(
+    lang: &Language,
     own: &dyn World,
     res: &mut Resolution,
     full: &str,
@@ -1108,7 +1133,7 @@ fn note_ignored_text(
     cv: &str,
 ) {
     if let Some(Value::Str(text)) = own.startup_setting(full) {
-        if is_edited(&text, kind, category, full, own) {
+        if (lang.is_edited)(&text, kind, category, full, own) {
             res.logs.push(format!(
                 "fkrecipes: {} is edited, but {} is not on {}, so the text is ignored",
                 full, dropdown, cv
@@ -1849,7 +1874,8 @@ impl Lib {
             Some(text) => text,
             None => return Vec::new(),
         };
-        match parse(&text, ListKind::Recipe, &r.spec.category, &full, own) {
+        let lang = self.installed_language();
+        match (lang.parse)(&text, ListKind::Recipe, &r.spec.category, &full, own) {
             // THE MESSAGE IS THE WHOLE REFUSAL, verbatim: the language wrote
             // it for the player, naming the setting, the entry and the
             // problem, and there is nothing this layer can add to it.
@@ -1871,7 +1897,7 @@ impl Lib {
                     "fkrecipes: {} takes its ingredients from {}: {}",
                     r.emitted_name(prefix),
                     full,
-                    render_list(&list)
+                    (lang.render_list)(&list)
                 ));
                 out
             }
@@ -1900,6 +1926,7 @@ impl Lib {
         t: &TechDecl,
         cc: &CustomCost,
     ) -> (Value, bool) {
+        let lang = self.installed_language();
         let (count, count_setting) = self.read_num_setting(w, res, prefix, cc.count.index);
         let (seconds, seconds_setting) = self.read_num_setting(w, res, prefix, cc.seconds.index);
         if !finite(count) {
@@ -1922,7 +1949,7 @@ impl Lib {
         let full = s.emitted_name(prefix);
         let packs = match self.read_text_setting(w, res, &full) {
             None => Vec::new(),
-            Some(text) => match parse(&text, ListKind::Packs, "", &full, own) {
+            Some(text) => match (lang.parse)(&text, ListKind::Packs, "", &full, own) {
                 Err(message) => {
                     res.refuse(message);
                     Vec::new()
@@ -1961,9 +1988,9 @@ impl Lib {
             "fkrecipes: {} takes its research cost from {}: count {}, time {}, packs {}",
             t.emitted_name(prefix),
             full,
-            format_amount(count),
-            format_amount(seconds),
-            render_list(&resolved_pack_list(&packs))
+            (lang.format_amount)(count),
+            (lang.format_amount)(seconds),
+            (lang.render_list)(&resolved_pack_list(&packs))
         ));
         // The count is emitted as the NUMBER the setting answered with, not as
         // an integer this library rounded: the engine's own field is a double

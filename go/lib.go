@@ -20,6 +20,42 @@ type noCopy struct{}
 func (*noCopy) Lock()   {}
 func (*noCopy) Unlock() {}
 
+// language is the ingredient list reached as VALUES rather than by name, and
+// it is a size seam rather than an abstraction: whole-program elimination
+// keeps whatever a reachable path NAMES, so a planner that called the parser
+// directly made every consumer ship it.
+//
+// MEASURED ON A FIXTURE, AND NOT ON THE PILOT. go/examples/notext is a plan
+// SHAPED like BetterBeltBalancer's before its customizer round (two legacy
+// dropdowns driving IngredientsBy and CostBy, no text setting anywhere), and
+// it exists so this number can be re-taken. Packaged with fklua it produced a
+// 95,227 line, 3,658,810 byte fk_data_module.lua before this seam and a 67,023
+// line, 2,716,663 byte one after, because both planners used to call the
+// parser, the renderer and the custom-cost resolver by name and TinyGo
+// therefore had to keep all three. The pilot's own module is neither figure:
+// 39,056 lines and 1,763,788 bytes at its pre-customizer release, 122,031
+// lines and 4,904,124 bytes at its round-three head, where it declares text
+// settings and links the language on purpose.
+//
+// THE LINE AND BYTE COUNTS ARE THE ORACLE, and a grep is not. TinyGo inlines a
+// single-caller function and its header leaves the module while its code
+// stays, so a leak of tens of kilobytes can sit behind a grep for
+// parseIngredientList, classifyPiece and resolveCustomCost that answers zero
+// on all three. Compare the counts against the pinned figures; the commands
+// and the numbers are in agents/implementation-notes.md, in the follow-up
+// subsection.
+//
+// A PLAN THAT DECLARES NO TEXT SETTING CARRIES A NIL HERE, and that state
+// cannot be reached through the public surface: the two text-setting
+// constructors are the only way to declare one and they install this.
+// validateTextSettings is what says so out loud rather than dereferencing
+// nothing, because a package-internal caller can append a declaration by hand.
+type language struct {
+	parse  func(text string, kind listKind, category, setting string, w World) (parsedList, string)
+	render func(list ingredientList) string
+	amount func(v float64) string
+}
+
 // Lib is one mod's plan. Everything the declaration methods record is an
 // ordinary value in declaration order; nothing is validated, resolved or
 // emitted until PlanSettings or PlanData runs.
@@ -30,6 +66,19 @@ type Lib struct {
 	items    []itemDecl
 	recipes  []recipeDecl
 	techs    []techDecl
+
+	// The ingredient language, installed by the text-setting constructors and
+	// nil in a plan that declares no text setting. See language. It is a FIELD
+	// AND NOT A PACKAGE-LEVEL VALUE for two reasons: a package-level one
+	// initialised at load would name the three functions unconditionally and
+	// defeat the whole seam, and a package-level one written by a constructor
+	// would be a data race the moment a consumer builds two plans in parallel
+	// tests, which `go test -race` is a gate against.
+	lang *language
+	// customCost is resolveCustomCost held the same way, and packsSetting
+	// alone installs it: a CustomCost names a PacksSettingRef, so a plan that
+	// never called that constructor can never reach a custom cost.
+	customCost func(l *Lib, w, text World, res *resolution, prefix string, t techDecl, c *CustomCost) Value
 }
 
 // New starts an empty plan. It is the ONLY way to get a usable one: a zero
@@ -256,6 +305,15 @@ func (l *Lib) LegacyIngredientsSetting(fullName string, def []Ingredient, order 
 }
 
 func (l *Lib) ingredientsSetting(name string, legacy bool, def []Ingredient, order string) IngredientsSettingRef {
+	// ONE OF THE TWO PLACES THE LANGUAGE IS NAMED, packsSetting being the
+	// other. Everything else in the library reaches the parser, the renderer
+	// and the amount formatter through these values, so a plan that calls
+	// neither constructor names none of them and TinyGo drops all three. See
+	// language for the measurement. Idempotent: a plan may declare many text
+	// settings, and the language is one for the whole plan.
+	if l.lang == nil {
+		l.lang = &language{parse: parseIngredientList, render: renderIngredientList, amount: formatListAmount}
+	}
 	l.settings = append(l.settings, settingDecl{
 		kind: settingIngredients, name: name, legacy: legacy, order: order,
 		defIngredients: copyIngredients(def),
@@ -284,6 +342,17 @@ func (l *Lib) LegacyPacksSetting(fullName string, def []Pack, order string) Pack
 }
 
 func (l *Lib) packsSetting(name string, legacy bool, def []Pack, order string) PacksSettingRef {
+	// THE OTHER PLACE THE LANGUAGE IS NAMED, and the ONLY place the
+	// custom-cost resolver is: a CustomCost holds a PacksSettingRef, which
+	// only this constructor issues, so a plan that never reaches here can
+	// never reach resolveCustomCost either. See ingredientsSetting and
+	// language. Both installs are idempotent for the same reason.
+	if l.lang == nil {
+		l.lang = &language{parse: parseIngredientList, render: renderIngredientList, amount: formatListAmount}
+	}
+	if l.customCost == nil {
+		l.customCost = (*Lib).resolveCustomCost
+	}
 	l.settings = append(l.settings, settingDecl{
 		kind: settingPacks, name: name, legacy: legacy, order: order,
 		defPacks: copyPacks(def),
@@ -1031,12 +1100,23 @@ func (l *Lib) validIntSetting(r IntSettingRef) bool {
 	return r.lib == l.id && r.index >= 1 && r.index <= len(l.settings)
 }
 
+// THE TWO TEXT VALIDATORS ASK THE KIND AS WELL, and they are the only ones
+// that do. Following one of these handles is what reaches the ingredient
+// language, and the guard in validateTextSettings decides on the setting's
+// KIND; a handle that pointed at a setting of another kind would be followed
+// by a reach the guard never looked at, which with the language held as
+// function values is a call into nothing. So the composition and the validator
+// share one condition here too: a followed handle names a text setting, and a
+// text setting has been past the guard.
+
 func (l *Lib) validIngredientsSetting(r IngredientsSettingRef) bool {
-	return r.lib == l.id && r.index >= 1 && r.index <= len(l.settings)
+	return r.lib == l.id && r.index >= 1 && r.index <= len(l.settings) &&
+		l.settings[r.index-1].kind == settingIngredients
 }
 
 func (l *Lib) validPacksSetting(r PacksSettingRef) bool {
-	return r.lib == l.id && r.index >= 1 && r.index <= len(l.settings)
+	return r.lib == l.id && r.index >= 1 && r.index <= len(l.settings) &&
+		l.settings[r.index-1].kind == settingPacks
 }
 
 // customValue is the dropdown value a Custom arm answers to. Empty means the
