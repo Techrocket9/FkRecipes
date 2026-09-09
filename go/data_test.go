@@ -82,6 +82,352 @@ func TestIngredientLadderFallsBackAndDrops(t *testing.T) {
 	})
 }
 
+// TWO LADDERS CAN LAND ON ONE RUNG, and what comes out names it once.
+//
+// MEASURED, on the pilot's own recipe: an ingredient list that names one item
+// twice refuses the WHOLE load with "Error while running setup for recipe
+// prototype "bbb-balancer-part" (recipe): Duplicate item ingredients are not
+// allowed (iron-plate exists 2 or more times)", exit 1, no dump, and no line
+// naming a setting or a missing item. Its ladders all end on iron-plate, so a
+// mod set without transport-belt is a player who never opened the settings and
+// cannot load the game.
+//
+// THE MERGED ENTRY KEEPS THE FIRST OCCURRENCE'S POSITION, which is why
+// iron-gear-wheel is still second here: a merge that moved the line would be
+// the declaration order changing under a mod set, and order is host-visible.
+func TestIngredientLaddersThatLandOnOneNameMerge(t *testing.T) {
+	lib := New()
+	part := lib.Item("balancer-part", ItemSpec{})
+	lib.Recipe(part, RecipeSpec{
+		Ingredients: []Ingredient{
+			IngredientNamed(4, "iron-plate"),
+			IngredientNamed(2, "iron-gear-wheel"),
+			IngredientNamed(2, "transport-belt", "iron-plate"),
+		},
+	})
+
+	// The world has no transport-belt, so the third ladder takes a rung the
+	// list already carries.
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, so the amounts are added: 4 plus 2 is 6`,
+		`extend {type="item", name="steelworks-balancer-part", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-balancer-part", enabled=true, ingredients=[{type="item", name="iron-plate", amount=6}, {type="item", name="iron-gear-wheel", amount=2}], results=[{type="item", name="steelworks-balancer-part", amount=1}]}`,
+	})
+}
+
+// A FLUID LADDER MERGES THE SAME WAY, and an item and a fluid of one name do
+// NOT: the kind is part of the identity. MEASURED: an item and a fluid of the
+// same name in one recipe load (base carries parameter-0 to parameter-9 as
+// both), so merging them would be adding two different things.
+//
+// THE FLUID LINE NAMES THE RUNG WHERE THE ITEM LINE NAMES THE NUMBERS, because
+// rendering a fluid amount is the language's job and this path may not link
+// it. Without the rung a three-way collapse writes one line twice and names
+// nothing the author can go and change.
+//
+// BOTH ORDERS OF THE MISMATCHED PAIR, item then fluid and fluid then item: the
+// guard is a comparison over two kinds, and a test that only ever puts them
+// one way round leaves the other arm free to answer.
+func TestFluidLaddersMergeAndDoNotMergeWithAnItem(t *testing.T) {
+	lib := New()
+	mix := lib.Item("sulfuric-mix", ItemSpec{})
+	lib.Recipe(mix, RecipeSpec{
+		Category: "chemistry",
+		Ingredients: []Ingredient{
+			FluidIngredient(0.5, "water"),
+			IngredientNamed(2, "iron-plate"),
+			FluidIngredient(1.5, "steam", "water"),
+		},
+	})
+
+	ops, err := lib.PlanData(baseWorld().withoutFluid("steam"))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, so the amounts are added; the ladder from steam resolved onto it`,
+		`extend {type="item", name="steelworks-sulfuric-mix", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-sulfuric-mix", category="chemistry", enabled=true, ingredients=[{type="fluid", name="water", amount=2}, {type="item", name="iron-plate", amount=2}], results=[{type="item", name="steelworks-sulfuric-mix", amount=1}]}`,
+	})
+
+	// THREE LADDERS ONTO ONE FLUID, and the two lines it writes are different
+	// lines: each names the ladder that collapsed, which is the declaration
+	// the author edits.
+	three := New()
+	mix3 := three.Item("sulfuric-mix", ItemSpec{})
+	three.Recipe(mix3, RecipeSpec{
+		Category: "chemistry",
+		Ingredients: []Ingredient{
+			FluidIngredient(0.5, "water"),
+			FluidIngredient(1.5, "steam", "water"),
+			FluidIngredient(2, "lubricant", "water"),
+		},
+	})
+
+	// steam is taken away and the fixture has no lubricant at all, so both
+	// ladders fall through to water.
+	ops, err = three.PlanData(baseWorld().withoutFluid("steam"))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, so the amounts are added; the ladder from steam resolved onto it`,
+		`log fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, so the amounts are added; the ladder from lubricant resolved onto it`,
+		`extend {type="item", name="steelworks-sulfuric-mix", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-sulfuric-mix", category="chemistry", enabled=true, ingredients=[{type="fluid", name="water", amount=4}], results=[{type="item", name="steelworks-sulfuric-mix", amount=1}]}`,
+	})
+
+	// The same name twice, once in each namespace. Two entries come out, and
+	// no line says anything was added.
+	both := New()
+	mix2 := both.Item("sulfuric-mix", ItemSpec{})
+	both.Recipe(mix2, RecipeSpec{
+		Category: "chemistry",
+		Ingredients: []Ingredient{
+			IngredientNamed(2, "water"),
+			FluidIngredient(0.5, "water"),
+		},
+	})
+
+	ops, err = both.PlanData(baseWorld().withItem("water"))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="item", name="steelworks-sulfuric-mix", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-sulfuric-mix", category="chemistry", enabled=true, ingredients=[{type="item", name="water", amount=2}, {type="fluid", name="water", amount=5.0000000000000000e-1}], results=[{type="item", name="steelworks-sulfuric-mix", amount=1}]}`,
+	})
+
+	// AND THE OTHER ORDER, fluid first. The kind guard is a comparison, not a
+	// preference: an item arriving at a fluid of the same name has to fall
+	// through exactly as a fluid arriving at an item does.
+	rev := New()
+	mix4 := rev.Item("sulfuric-mix", ItemSpec{})
+	rev.Recipe(mix4, RecipeSpec{
+		Category: "chemistry",
+		Ingredients: []Ingredient{
+			FluidIngredient(0.5, "water"),
+			IngredientNamed(2, "water"),
+		},
+	})
+
+	ops, err = rev.PlanData(baseWorld().withItem("water"))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="item", name="steelworks-sulfuric-mix", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-sulfuric-mix", category="chemistry", enabled=true, ingredients=[{type="fluid", name="water", amount=5.0000000000000000e-1}, {type="item", name="water", amount=2}], results=[{type="item", name="steelworks-sulfuric-mix", amount=1}]}`,
+	})
+}
+
+// THE MERGE IS THE ONE PLACE A CEILING IS RE-ASKED AFTER RESOLUTION. Both
+// declarations are legal apart, the plan validates, and the sum is a number no
+// author wrote: 40000 and 30000 are each under the engine's 65535 and 70000 is
+// not.
+func TestMergedItemAmountAboveTheCeilingIsRefused(t *testing.T) {
+	lib := New()
+	part := lib.Item("balancer-part", ItemSpec{})
+	lib.Recipe(part, RecipeSpec{
+		Ingredients: []Ingredient{
+			IngredientNamed(40000, "iron-plate"),
+			IngredientNamed(30000, "transport-belt", "iron-plate"),
+		},
+	})
+
+	_, err := lib.PlanData(baseWorld())
+	if err == nil {
+		t.Fatal("the plan was accepted with a merged amount above the ceiling")
+	}
+	want := "fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, " +
+		"and 40000 plus 30000 is above the item ceiling of 65535"
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+}
+
+// The fluid twin. Above its ceiling the engine does not refuse, it ABORTS
+// inside FixedPointNumber and hands the player the crash handler, which is why
+// a merged fluid amount is refused here rather than emitted.
+func TestMergedFluidAmountAboveTheCeilingIsRefused(t *testing.T) {
+	lib := New()
+	mix := lib.Item("sulfuric-mix", ItemSpec{})
+	lib.Recipe(mix, RecipeSpec{
+		Category: "chemistry",
+		Ingredients: []Ingredient{
+			FluidIngredient(5e300, "water"),
+			FluidIngredient(6e300, "steam", "water"),
+		},
+	})
+
+	_, err := lib.PlanData(baseWorld().withoutFluid("steam"))
+	if err == nil {
+		t.Fatal("the plan was accepted with a merged fluid amount above the ceiling")
+	}
+	want := "fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, " +
+		"and the added amount is above the fluid ceiling of 1e301; the ladder from steam resolved onto it"
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+}
+
+// THE BOUNDARY, THREE TIMES, because a ceiling written with the wrong
+// comparison refuses a legal plan and fails the whole load: an item merge, a
+// pack merge and a fluid merge landing EXACTLY on their ceilings are accepted
+// and emitted with the number they landed on.
+func TestAMergeLandingExactlyOnItsCeilingIsAccepted(t *testing.T) {
+	lib := New()
+	part := lib.Item("balancer-part", ItemSpec{})
+	lib.Recipe(part, RecipeSpec{
+		Ingredients: []Ingredient{
+			IngredientNamed(65534, "iron-plate"),
+			IngredientNamed(1, "transport-belt", "iron-plate"),
+		},
+	})
+	lib.Technology("steel-axes", TechSpec{Unit: &UnitSpec{
+		Count:   50,
+		Seconds: 15,
+		Packs: []Pack{
+			{Name: "automation-science-pack", Amount: 65000},
+			{Name: "military-science-pack", Amount: 535, Fallbacks: []string{"automation-science-pack"}},
+		},
+	}})
+
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, so the amounts are added: 65534 plus 1 is 65535`,
+		`log fkrecipes: steel-axes: automation-science-pack is in the list twice after the fallbacks, so the amounts are added: 65000 plus 535 is 65535`,
+		`extend {type="item", name="steelworks-balancer-part", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-balancer-part", enabled=true, ingredients=[{type="item", name="iron-plate", amount=65535}], results=[{type="item", name="steelworks-balancer-part", amount=1}]}`,
+		`extend {type="technology", name="steelworks-steel-axes", unit={count=50, time=15, ingredients=[["automation-science-pack", 65535]]}}`,
+	})
+
+	// The fluid twin, landing on maxFluidAmount exactly. Its halves are chosen
+	// so the double addition is exact: 1e301 = 5e300 + 5e300.
+	mixLib := New()
+	mix := mixLib.Item("sulfuric-mix", ItemSpec{})
+	mixLib.Recipe(mix, RecipeSpec{
+		Category: "chemistry",
+		Ingredients: []Ingredient{
+			FluidIngredient(5e300, "water"),
+			FluidIngredient(5e300, "steam", "water"),
+		},
+	})
+
+	ops, err = mixLib.PlanData(baseWorld().withoutFluid("steam"))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, so the amounts are added; the ladder from steam resolved onto it`,
+		`extend {type="item", name="steelworks-sulfuric-mix", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-sulfuric-mix", category="chemistry", enabled=true, ingredients=[{type="fluid", name="water", amount=1.0000000000000001e301}], results=[{type="item", name="steelworks-sulfuric-mix", amount=1}]}`,
+	})
+}
+
+// A DUPLICATE THE AUTHOR WROTE OUT IS A DIFFERENT PROBLEM FROM A LADDER THAT
+// COLLAPSED, and it is refused rather than added up. MEASURED, and it is why:
+// a dropdown preset declared `4 iron-plate, 2 iron-plate` composed a
+// description reading ": 4 iron-plate, 2 iron-plate", which the player's own
+// custom field refuses with "entries 1 and 2 both name iron-plate", while the
+// recipe that reached the game quietly said 6.
+//
+// THE PLAIN LIST AND THE PRESET BOTH, because a preset is validated in two
+// places (the binding validator, which both planners run, and the data
+// planner's own loop) and a plain list in one.
+func TestADeclaredListNamingOneThingTwiceIsRefused(t *testing.T) {
+	plain := New()
+	part := plain.Item("balancer-part", ItemSpec{})
+	plain.Recipe(part, RecipeSpec{
+		Ingredients: []Ingredient{
+			IngredientNamed(4, "iron-plate"),
+			IngredientNamed(2, "iron-plate"),
+		},
+	})
+
+	_, err := plain.PlanData(baseWorld())
+	if err == nil {
+		t.Fatal("a plain list naming one item twice was accepted")
+	}
+	want := "fkrecipes: the recipe balancer-part names iron-plate twice; each ingredient is taken once"
+	if err.Error() != want {
+		t.Errorf("plain list\n got: %s\nwant: %s", err.Error(), want)
+	}
+
+	// A FLUID IS ITS OWN NAMESPACE HERE TOO: the same two entries as items and
+	// as fluids are two refusals, and one of each is none.
+	fluids := New()
+	mix := fluids.Item("sulfuric-mix", ItemSpec{})
+	fluids.Recipe(mix, RecipeSpec{
+		Category: "chemistry",
+		Ingredients: []Ingredient{
+			FluidIngredient(0.5, "water"),
+			FluidIngredient(1.5, "water"),
+		},
+	})
+
+	_, err = fluids.PlanData(baseWorld())
+	if err == nil {
+		t.Fatal("a plain list naming one fluid twice was accepted")
+	}
+	want = "fkrecipes: the recipe sulfuric-mix names water twice; each ingredient is taken once"
+	if err.Error() != want {
+		t.Errorf("fluid list\n got: %s\nwant: %s", err.Error(), want)
+	}
+
+	// A PRESET, AT BOTH OF ITS CHECKS. The data planner's own recipe loop owns
+	// a dropdown with no Custom arm; the binding validator, which BOTH
+	// planners run, owns one that has an arm, because the settings stage
+	// renders those presets into the dropdown's description.
+	dup := []Ingredient{IngredientNamed(4, "iron-plate"), IngredientNamed(2, "iron-plate")}
+	want = "fkrecipes: the recipe balancer-part names iron-plate twice; each ingredient is taken once"
+
+	bare := New()
+	bp := bare.Item("balancer-part", ItemSpec{})
+	bareStyle := bare.DropdownSettingNeedingLocale("style", "vanilla", []string{"vanilla"})
+	bare.Recipe(bp, RecipeSpec{IngredientsBy: &IngredientChoices{
+		Setting: bareStyle,
+		Choices: []IngredientChoice{{Value: "vanilla", Ingredients: dup}},
+	}})
+
+	_, err = bare.PlanData(baseWorld())
+	if err == nil {
+		t.Fatal("a preset naming one item twice was accepted by the data planner")
+	}
+	if err.Error() != want {
+		t.Errorf("preset, data plan\n got: %s\nwant: %s", err.Error(), want)
+	}
+
+	armed := func() *Lib {
+		l := New()
+		p := l.Item("balancer-part", ItemSpec{})
+		style := l.DropdownSettingNeedingLocale("style", "vanilla", []string{"vanilla", "custom"})
+		parts := l.IngredientsSetting("part-ingredients", []Ingredient{IngredientNamed(1, "iron-plate")})
+		l.Recipe(p, RecipeSpec{IngredientsBy: &IngredientChoices{
+			Setting: style,
+			Choices: []IngredientChoice{{Value: "vanilla", Ingredients: dup}},
+			Custom:  parts,
+		}})
+		return l
+	}
+
+	_, err = armed().PlanData(baseWorld())
+	if err == nil {
+		t.Fatal("an armed preset naming one item twice was accepted by the data planner")
+	}
+	if err.Error() != want {
+		t.Errorf("armed preset, data plan\n got: %s\nwant: %s", err.Error(), want)
+	}
+
+	_, err = armed().PlanSettings(settingsWorld())
+	if err == nil {
+		t.Fatal("an armed preset naming one item twice was accepted by the settings planner")
+	}
+	if err.Error() != want {
+		t.Errorf("armed preset, settings plan\n got: %s\nwant: %s", err.Error(), want)
+	}
+}
+
 // CostOf copies the named technology's whole unit VERBATIM: a count_formula
 // is a string, so an infinite technology's cost comes along with no evaluator
 // and no key of it rewritten or reordered.
@@ -1058,16 +1404,18 @@ func TestWideAmountsSurviveTheEmit(t *testing.T) {
 	axe := lib.Item("steel-axe", ItemSpec{StackSize: 9007199254740992})
 	lib.Recipe(axe, RecipeSpec{
 		// An INGREDIENT carries the engine's own ceiling of 65535 and so
-		// cannot be a wide number at all; the result count, the unit count and
-		// the pack amount below have no such ceiling and are what pin the
-		// width.
+		// cannot be a wide number at all, and neither can a SCIENCE PACK: a
+		// unit ingredient is held in the same 16 bits (measured on 2.0.77,
+		// where 65536 refuses the load with "The data type allows values from
+		// 0 to 65535"). The stack size, the result count and the unit count
+		// have no such ceiling and are what pin the width.
 		Ingredients: []Ingredient{IngredientNamed(65535, "steel-plate")},
 		ResultCount: 2500000000,
 	})
 	lib.Technology("steel-axes", TechSpec{Unit: &UnitSpec{
 		Count:   5000000000,
 		Seconds: 15,
-		Packs:   []Pack{{Name: "automation-science-pack", Amount: 3000000000}},
+		Packs:   []Pack{{Name: "automation-science-pack", Amount: 65535}},
 	}})
 
 	ops, err := lib.PlanData(baseWorld())
@@ -1076,7 +1424,7 @@ func TestWideAmountsSurviveTheEmit(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		`extend {type="item", name="steelworks-steel-axe", stack_size=9007199254740992}`,
 		`extend {type="recipe", name="steelworks-steel-axe", enabled=true, ingredients=[{type="item", name="steel-plate", amount=65535}], results=[{type="item", name="steelworks-steel-axe", amount=2500000000}]}`,
-		`extend {type="technology", name="steelworks-steel-axes", unit={count=5000000000, time=15, ingredients=[["automation-science-pack", 3000000000]]}}`,
+		`extend {type="technology", name="steelworks-steel-axes", unit={count=5000000000, time=15, ingredients=[["automation-science-pack", 65535]]}}`,
 	})
 }
 

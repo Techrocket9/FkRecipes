@@ -121,6 +121,149 @@ func TestPackWithNoFallbacksDropsWithItsOneName(t *testing.T) {
 	})
 }
 
+// TWO PACK LADDERS CAN LAND ON ONE TOOL, and a unit that named it twice is
+// the same duplicate-ingredient load failure a recipe gets. The amounts add,
+// in the position of the first occurrence, and the emitted form is the SHORT
+// TUPLE rather than the recipe's dict.
+func TestPackLaddersThatLandOnOnePackMerge(t *testing.T) {
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{Unit: &UnitSpec{
+		Count:   50,
+		Seconds: 15,
+		Packs: []Pack{
+			{Name: "automation-science-pack", Amount: 1},
+			{Name: "logistic-science-pack", Amount: 4},
+			{Name: "military-science-pack", Amount: 2, Fallbacks: []string{"automation-science-pack"}},
+		},
+	}})
+
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: steel-axes: automation-science-pack is in the list twice after the fallbacks, so the amounts are added: 1 plus 2 is 3`,
+		`extend {type="technology", name="steelworks-steel-axes", unit={count=50, time=15, ingredients=[["automation-science-pack", 3], ["logistic-science-pack", 4]]}}`,
+	})
+
+	// A MERGED PACK IS HELD TO THE ITEM CEILING, and that is the engine's own
+	// rule for a unit ingredient rather than an analogy drawn from a recipe.
+	// Each of these is legal on its own; their sum is the one pack amount no
+	// author wrote.
+	over := New()
+	over.Technology("steel-axes", TechSpec{Unit: &UnitSpec{
+		Count:   50,
+		Seconds: 15,
+		Packs: []Pack{
+			{Name: "automation-science-pack", Amount: 40000},
+			{Name: "military-science-pack", Amount: 30000, Fallbacks: []string{"automation-science-pack"}},
+		},
+	}})
+
+	_, err = over.PlanData(baseWorld())
+	if err == nil {
+		t.Fatal("the plan was accepted with a merged pack amount above the ceiling")
+	}
+	want := "fkrecipes: steel-axes: automation-science-pack is in the list twice after the fallbacks, " +
+		"and 40000 plus 30000 is above the item ceiling of 65535"
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+}
+
+// A DECLARED PACK CARRIES THE SAME 16 BITS AS AN ITEM INGREDIENT, and that is
+// MEASURED rather than argued. Factorio 2.0.77, build 84539, mac-arm64, steam,
+// on a technology whose unit ingredients carry one pack:
+//
+//	65535           loads, and dumps as written
+//	65536           Error while loading technology prototype "..." (technology):
+//	2147483648      Value (<n>) outside of range. The data type allows values
+//	9007199254740992  from 0 to 65535 in property tree at
+//	                ROOT.technology.<name>.unit.ingredients[0][1]
+//
+// each of the three exit 1 with no dump. A declared pack above the ceiling used
+// to be emitted and fail the whole load in the player's game, naming the
+// consumer's mod for a number its author wrote, which is exactly the defect the
+// ingredient ceiling closed on a recipe.
+func TestADeclaredPackAboveTheEnginesCeilingIsRefused(t *testing.T) {
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{Unit: &UnitSpec{
+		Count:   50,
+		Seconds: 15,
+		Packs:   []Pack{{Name: "automation-science-pack", Amount: 70000}},
+	}})
+
+	_, err := lib.PlanData(baseWorld())
+	if err == nil {
+		t.Fatal("a declared pack above the engine's ceiling was accepted")
+	}
+	want := "fkrecipes: the technology steel-axes takes 70000 of automation-science-pack, " +
+		"and a science pack amount goes up to 65535"
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+
+	// The boundary itself is legal, and it is the number a merge is allowed to
+	// land on.
+	at := New()
+	at.Technology("steel-axes", TechSpec{Unit: &UnitSpec{
+		Count:   50,
+		Seconds: 15,
+		Packs:   []Pack{{Name: "automation-science-pack", Amount: 65535}},
+	}})
+	ops, err := at.PlanData(baseWorld())
+	assertNoError(t, err)
+	assertLines(t, transcript(ops), []string{
+		`extend {type="technology", name="steelworks-steel-axes", unit={count=50, time=15, ingredients=[["automation-science-pack", 65535]]}}`,
+	})
+}
+
+// A UNIT THAT NAMES ONE PACK TWICE IS THE AUTHOR'S BUG, not a mod set's, and
+// it is refused rather than added up: the merge exists for a ladder that
+// collapsed onto a name the list already carries, and a list that named it
+// twice in the declaration never had a fallback in it.
+func TestAUnitNamingOnePackTwiceIsRefused(t *testing.T) {
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{Unit: &UnitSpec{
+		Count:   50,
+		Seconds: 15,
+		Packs: []Pack{
+			{Name: "automation-science-pack", Amount: 1},
+			{Name: "logistic-science-pack", Amount: 4},
+			{Name: "automation-science-pack", Amount: 2},
+		},
+	}})
+
+	_, err := lib.PlanData(baseWorld())
+	if err == nil {
+		t.Fatal("a unit naming one pack twice was accepted")
+	}
+	want := "fkrecipes: the technology steel-axes names automation-science-pack twice; each science pack is taken once"
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+
+	// THE SAME RULE ON A COSTBY FALLBACK, because a fallback the engine would
+	// refuse is not a fallback: one validateUnit answers for both.
+	fb := New()
+	tier := fb.DropdownSettingNeedingLocale("tier", "cheap", []string{"cheap"})
+	fb.Technology("steel-axes", TechSpec{CostBy: &CostChoices{
+		Setting: tier,
+		Choices: []CostChoice{{Value: "cheap", Sources: []string{"logistics-2"}}},
+		Fallback: UnitSpec{Count: 1, Seconds: 1, Packs: []Pack{
+			{Name: "automation-science-pack", Amount: 1},
+			{Name: "automation-science-pack", Amount: 2},
+		}},
+	}})
+
+	_, err = fb.PlanData(baseWorld())
+	if err == nil {
+		t.Fatal("a CostBy fallback naming one pack twice was accepted")
+	}
+	if err.Error() != want {
+		t.Errorf("fallback\n got: %s\nwant: %s", err.Error(), want)
+	}
+}
+
 // A UNIT THAT LOSES EVERY PACK IS REFUSED, and this is the other side of the
 // drop: the engine LOADS a unit with an empty ingredient list (measured), so
 // nothing downstream would complain and the player would get a research that

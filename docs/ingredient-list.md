@@ -21,7 +21,7 @@ Write the amount, then the name, and separate ingredients with commas:
 | `default` | the mod's own list, exactly as the mod would have made the recipe |
 | `none` | no ingredients at all: a recipe that is free to craft |
 
-The setting starts out as the word `default`. Leave it there and the mod's own list applies, including any fallbacks the mod declared for a modpack that lacks an ingredient. The setting's description shows that list written out, so you can copy it and change it.
+The setting starts out as the word `default`. Leave it there and the mod's own list applies, including any fallbacks the mod declared for a modpack that lacks an ingredient. Where two of those fallbacks land on the same thing, the recipe names it once with the amounts added, and the mod's log says so. The setting's description shows that list written out, so you can copy it and change it.
 
 Names are the game's internal prototype names, the ones that appear in the game's data and in rich text, such as `iron-plate`, `advanced-circuit` or `water`. They are not the translated names shown on screen. Names use letters, digits, `-` and `_`, and are case sensitive. The mod's own items count, under the names the setting's description shows for them.
 
@@ -54,6 +54,8 @@ The research count and its seconds per unit are separate numeric settings beside
 ## Leaving the text on default
 
 The word `default` means the mod's own declared list, with every fallback the mod declared, and it keeps meaning that when the mod changes its list in a later release. Anything else is taken as written: every name must exist in the game as loaded, and nothing is substituted. A typo is refused rather than guessed at, and the refusal names the setting, the entry and the problem.
+
+A fallback can land on something the list already carries, and the recipe that reaches the game never names one ingredient twice: the amounts are added into the earlier entry, keeping its place in the list, and a line in the log says so. For an item that line names the ingredient and both amounts; for a fluid it names the ingredient and the fallback that landed on it, so two lines about one fluid say which declaration each came from. The game refuses to load a recipe that names one ingredient twice, so this is what keeps a modpack missing one name loading at all. An item and a fluid of the same name are two ingredients and are not added together. In a list you type yourself none of this applies, because the same ingredient written twice is refused as you wrote it.
 
 When a recipe also has a dropdown of preset ingredient lists, the text applies only while the dropdown says `custom`; on any other value the preset applies and the text is ignored. The dropdown's description lists each preset written out, so the player can start a custom list from the preset they were using.
 

@@ -105,6 +105,600 @@ fn ingredient_ladder_falls_back_and_drops() {
     );
 }
 
+/// TWO LADDERS CAN LAND ON ONE RUNG, and what comes out names it once.
+///
+/// MEASURED, on the pilot's own recipe: an ingredient list that names one item
+/// twice refuses the WHOLE load with "Error while running setup for recipe
+/// prototype \"bbb-balancer-part\" (recipe): Duplicate item ingredients are not
+/// allowed (iron-plate exists 2 or more times)", exit 1, no dump, and no line
+/// naming a setting or a missing item. Its ladders all end on iron-plate, so a
+/// mod set without transport-belt is a player who never opened the settings and
+/// cannot load the game.
+///
+/// THE MERGED ENTRY KEEPS THE FIRST OCCURRENCE'S POSITION, which is why
+/// iron-gear-wheel is still second here: a merge that moved the line would be
+/// the declaration order changing under a mod set, and order is host-visible.
+#[test]
+fn ingredient_ladders_that_land_on_one_name_merge() {
+    let mut lib = Lib::new();
+    let part = lib.item("balancer-part", ItemSpec::default());
+    lib.recipe(
+        part,
+        RecipeSpec {
+            ingredients: vec![
+                Ingredient::named(4, "iron-plate", &[]),
+                Ingredient::named(2, "iron-gear-wheel", &[]),
+                Ingredient::named(2, "transport-belt", &["iron-plate"]),
+            ],
+            ..Default::default()
+        },
+    );
+
+    // The world has no transport-belt, so the third ladder takes a rung the
+    // list already carries.
+    let ops = lib.plan_data(&base_world()).expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, so the amounts are added: 4 plus 2 is 6",
+            r#"extend {type="item", name="steelworks-balancer-part", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-balancer-part", enabled=true, ingredients=[{type="item", name="iron-plate", amount=6}, {type="item", name="iron-gear-wheel", amount=2}], results=[{type="item", name="steelworks-balancer-part", amount=1}]}"#,
+        ],
+    );
+}
+
+/// A FLUID LADDER MERGES THE SAME WAY, and an item and a fluid of one name do
+/// NOT: the kind is part of the identity. MEASURED: an item and a fluid of the
+/// same name in one recipe load (base carries parameter-0 to parameter-9 as
+/// both), so merging them would be adding two different things.
+///
+/// THE FLUID LINE NAMES THE RUNG WHERE THE ITEM LINE NAMES THE NUMBERS,
+/// because rendering a fluid amount is the language's job and this path may not
+/// link it. Without the rung a three-way collapse writes the same line twice
+/// and names nothing the author can go and change.
+///
+/// BOTH ORDERS OF THE MISMATCHED PAIR, item then fluid and fluid then item:
+/// the guard is one match arm over two kinds, and a test that only ever puts
+/// them one way round leaves the other free to answer.
+#[test]
+fn fluid_ladders_merge_and_do_not_merge_with_an_item() {
+    let mut lib = Lib::new();
+    let mix = lib.item("sulfuric-mix", ItemSpec::default());
+    lib.recipe(
+        mix,
+        RecipeSpec {
+            category: "chemistry".into(),
+            ingredients: vec![
+                Ingredient::fluid(0.5, "water", &[]),
+                Ingredient::named(2, "iron-plate", &[]),
+                Ingredient::fluid(1.5, "steam", &["water"]),
+            ],
+            ..Default::default()
+        },
+    );
+
+    let ops = lib
+        .plan_data(&base_world().without_fluid("steam"))
+        .expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, so the amounts are added; the ladder from steam resolved onto it",
+            r#"extend {type="item", name="steelworks-sulfuric-mix", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-sulfuric-mix", category="chemistry", enabled=true, ingredients=[{type="fluid", name="water", amount=2}, {type="item", name="iron-plate", amount=2}], results=[{type="item", name="steelworks-sulfuric-mix", amount=1}]}"#,
+        ],
+    );
+
+    // THREE LADDERS ONTO ONE FLUID, and the two lines it writes are different
+    // lines: each names the ladder that collapsed, which is the declaration the
+    // author edits. steam is taken away and the fixture has no lubricant at
+    // all, so both fall through to water.
+    let mut three = Lib::new();
+    let mix3 = three.item("sulfuric-mix", ItemSpec::default());
+    three.recipe(
+        mix3,
+        RecipeSpec {
+            category: "chemistry".into(),
+            ingredients: vec![
+                Ingredient::fluid(0.5, "water", &[]),
+                Ingredient::fluid(1.5, "steam", &["water"]),
+                Ingredient::fluid(2.0, "lubricant", &["water"]),
+            ],
+            ..Default::default()
+        },
+    );
+
+    let ops = three
+        .plan_data(&base_world().without_fluid("steam"))
+        .expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, so the amounts are added; the ladder from steam resolved onto it",
+            "log fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, so the amounts are added; the ladder from lubricant resolved onto it",
+            r#"extend {type="item", name="steelworks-sulfuric-mix", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-sulfuric-mix", category="chemistry", enabled=true, ingredients=[{type="fluid", name="water", amount=4}], results=[{type="item", name="steelworks-sulfuric-mix", amount=1}]}"#,
+        ],
+    );
+
+    // The same name twice, once in each namespace. Two entries come out, and
+    // no line says anything was added.
+    let mut both = Lib::new();
+    let mix2 = both.item("sulfuric-mix", ItemSpec::default());
+    both.recipe(
+        mix2,
+        RecipeSpec {
+            category: "chemistry".into(),
+            ingredients: vec![
+                Ingredient::named(2, "water", &[]),
+                Ingredient::fluid(0.5, "water", &[]),
+            ],
+            ..Default::default()
+        },
+    );
+
+    let ops = both
+        .plan_data(&base_world().with_item("water"))
+        .expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            r#"extend {type="item", name="steelworks-sulfuric-mix", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-sulfuric-mix", category="chemistry", enabled=true, ingredients=[{type="item", name="water", amount=2}, {type="fluid", name="water", amount=5.0000000000000000e-1}], results=[{type="item", name="steelworks-sulfuric-mix", amount=1}]}"#,
+        ],
+    );
+
+    // AND THE OTHER ORDER, fluid first. The kind guard is a comparison, not a
+    // preference: an item arriving at a fluid of the same name has to fall
+    // through exactly as a fluid arriving at an item does.
+    let mut rev = Lib::new();
+    let mix4 = rev.item("sulfuric-mix", ItemSpec::default());
+    rev.recipe(
+        mix4,
+        RecipeSpec {
+            category: "chemistry".into(),
+            ingredients: vec![
+                Ingredient::fluid(0.5, "water", &[]),
+                Ingredient::named(2, "water", &[]),
+            ],
+            ..Default::default()
+        },
+    );
+
+    let ops = rev
+        .plan_data(&base_world().with_item("water"))
+        .expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            r#"extend {type="item", name="steelworks-sulfuric-mix", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-sulfuric-mix", category="chemistry", enabled=true, ingredients=[{type="fluid", name="water", amount=5.0000000000000000e-1}, {type="item", name="water", amount=2}], results=[{type="item", name="steelworks-sulfuric-mix", amount=1}]}"#,
+        ],
+    );
+}
+
+/// THE MERGE IS THE ONE PLACE A CEILING IS RE-ASKED AFTER RESOLUTION. Both
+/// declarations are legal apart, the plan validates, and the sum is a number no
+/// author wrote: 40000 and 30000 are each under the engine's 65535 and 70000 is
+/// not.
+#[test]
+fn merged_item_amount_above_the_ceiling_is_refused() {
+    let mut lib = Lib::new();
+    let part = lib.item("balancer-part", ItemSpec::default());
+    lib.recipe(
+        part,
+        RecipeSpec {
+            ingredients: vec![
+                Ingredient::named(40000, "iron-plate", &[]),
+                Ingredient::named(30000, "transport-belt", &["iron-plate"]),
+            ],
+            ..Default::default()
+        },
+    );
+
+    match lib.plan_data(&base_world()) {
+        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
+        Err(got) => assert_eq!(
+            got,
+            "fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, and 40000 plus 30000 is above the item ceiling of 65535"
+        ),
+    }
+}
+
+/// The fluid twin. Above its ceiling the engine does not refuse, it ABORTS
+/// inside FixedPointNumber and hands the player the crash handler, which is why
+/// a merged fluid amount is refused here rather than emitted.
+#[test]
+fn merged_fluid_amount_above_the_ceiling_is_refused() {
+    let mut lib = Lib::new();
+    let mix = lib.item("sulfuric-mix", ItemSpec::default());
+    lib.recipe(
+        mix,
+        RecipeSpec {
+            category: "chemistry".into(),
+            ingredients: vec![
+                Ingredient::fluid(5e300, "water", &[]),
+                Ingredient::fluid(6e300, "steam", &["water"]),
+            ],
+            ..Default::default()
+        },
+    );
+
+    match lib.plan_data(&base_world().without_fluid("steam")) {
+        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
+        Err(got) => assert_eq!(
+            got,
+            "fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, and the added amount is above the fluid ceiling of 1e301; the ladder from steam resolved onto it"
+        ),
+    }
+}
+
+/// THE BOUNDARY, THREE TIMES, because a ceiling written with the wrong
+/// comparison refuses a legal plan and fails the whole load: an item merge, a
+/// pack merge and a fluid merge landing EXACTLY on their ceilings are accepted
+/// and emitted with the number they landed on.
+#[test]
+fn a_merge_landing_exactly_on_its_ceiling_is_accepted() {
+    let mut lib = Lib::new();
+    let part = lib.item("balancer-part", ItemSpec::default());
+    lib.recipe(
+        part,
+        RecipeSpec {
+            ingredients: vec![
+                Ingredient::named(65534, "iron-plate", &[]),
+                Ingredient::named(1, "transport-belt", &["iron-plate"]),
+            ],
+            ..Default::default()
+        },
+    );
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            unit: Some(UnitSpec {
+                count: 50,
+                seconds: 15.0,
+                packs: vec![
+                    Pack::new("automation-science-pack", 65000),
+                    Pack::named(535, "military-science-pack", &["automation-science-pack"]),
+                ],
+            }),
+            ..Default::default()
+        },
+    );
+
+    let ops = lib.plan_data(&base_world()).expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, so the amounts are added: 65534 plus 1 is 65535",
+            "log fkrecipes: steel-axes: automation-science-pack is in the list twice after the fallbacks, so the amounts are added: 65000 plus 535 is 65535",
+            r#"extend {type="item", name="steelworks-balancer-part", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-balancer-part", enabled=true, ingredients=[{type="item", name="iron-plate", amount=65535}], results=[{type="item", name="steelworks-balancer-part", amount=1}]}"#,
+            r#"extend {type="technology", name="steelworks-steel-axes", unit={count=50, time=15, ingredients=[["automation-science-pack", 65535]]}}"#,
+        ],
+    );
+
+    // The fluid twin, landing on MAX_FLUID_AMOUNT exactly. Its halves are
+    // chosen so the double addition is exact: 1e301 = 5e300 + 5e300.
+    let mut mix_lib = Lib::new();
+    let mix = mix_lib.item("sulfuric-mix", ItemSpec::default());
+    mix_lib.recipe(
+        mix,
+        RecipeSpec {
+            category: "chemistry".into(),
+            ingredients: vec![
+                Ingredient::fluid(5e300, "water", &[]),
+                Ingredient::fluid(5e300, "steam", &["water"]),
+            ],
+            ..Default::default()
+        },
+    );
+
+    let ops = mix_lib
+        .plan_data(&base_world().without_fluid("steam"))
+        .expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, so the amounts are added; the ladder from steam resolved onto it",
+            r#"extend {type="item", name="steelworks-sulfuric-mix", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-sulfuric-mix", category="chemistry", enabled=true, ingredients=[{type="fluid", name="water", amount=1.0000000000000001e301}], results=[{type="item", name="steelworks-sulfuric-mix", amount=1}]}"#,
+        ],
+    );
+}
+
+/// A DUPLICATE THE AUTHOR WROTE OUT IS A DIFFERENT PROBLEM FROM A LADDER THAT
+/// COLLAPSED, and it is refused rather than added up. MEASURED, and it is why:
+/// a dropdown preset declared `4 iron-plate, 2 iron-plate` composed a
+/// description reading ": 4 iron-plate, 2 iron-plate", which the player's own
+/// custom field refuses with "entries 1 and 2 both name iron-plate", while the
+/// recipe that reached the game quietly said 6.
+///
+/// THE PLAIN LIST AND THE PRESET BOTH, because a preset is validated in two
+/// places (the binding validator, which both planners run, and the data
+/// planner's own loop) and a plain list in one.
+#[test]
+fn a_declared_list_naming_one_thing_twice_is_refused() {
+    let mut plain = Lib::new();
+    let part = plain.item("balancer-part", ItemSpec::default());
+    plain.recipe(
+        part,
+        RecipeSpec {
+            ingredients: vec![
+                Ingredient::named(4, "iron-plate", &[]),
+                Ingredient::named(2, "iron-plate", &[]),
+            ],
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        plain.plan_data(&base_world()).err().as_deref(),
+        Some("fkrecipes: the recipe balancer-part names iron-plate twice; each ingredient is taken once")
+    );
+
+    // A FLUID IS ITS OWN NAMESPACE HERE TOO: the same two entries as fluids are
+    // a refusal, and one of each is none.
+    let mut fluids = Lib::new();
+    let mix = fluids.item("sulfuric-mix", ItemSpec::default());
+    fluids.recipe(
+        mix,
+        RecipeSpec {
+            category: "chemistry".into(),
+            ingredients: vec![
+                Ingredient::fluid(0.5, "water", &[]),
+                Ingredient::fluid(1.5, "water", &[]),
+            ],
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        fluids.plan_data(&base_world()).err().as_deref(),
+        Some("fkrecipes: the recipe sulfuric-mix names water twice; each ingredient is taken once")
+    );
+
+    // A PRESET, AT BOTH OF ITS CHECKS. The data planner's own recipe loop owns
+    // a dropdown with no Custom arm; the binding validator, which BOTH planners
+    // run, owns one that has an arm, because the settings stage renders those
+    // presets into the dropdown's description.
+    let dup = || {
+        vec![
+            Ingredient::named(4, "iron-plate", &[]),
+            Ingredient::named(2, "iron-plate", &[]),
+        ]
+    };
+    let want =
+        "fkrecipes: the recipe balancer-part names iron-plate twice; each ingredient is taken once";
+
+    let mut bare = Lib::new();
+    let bp = bare.item("balancer-part", ItemSpec::default());
+    let bare_style = bare.dropdown_setting_needing_locale("style", "vanilla", &["vanilla"]);
+    bare.recipe(
+        bp,
+        RecipeSpec {
+            ingredients_by: Some(IngredientChoices {
+                setting: bare_style,
+                choices: vec![IngredientChoice {
+                    value: "vanilla".into(),
+                    ingredients: dup(),
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    );
+    assert_eq!(bare.plan_data(&base_world()).err().as_deref(), Some(want));
+
+    let armed = || {
+        let mut l = Lib::new();
+        let p = l.item("balancer-part", ItemSpec::default());
+        let style = l.dropdown_setting_needing_locale("style", "vanilla", &["vanilla", "custom"]);
+        let parts = l.ingredients_setting(
+            "part-ingredients",
+            vec![Ingredient::named(1, "iron-plate", &[])],
+        );
+        l.recipe(
+            p,
+            RecipeSpec {
+                ingredients_by: Some(IngredientChoices {
+                    setting: style,
+                    choices: vec![IngredientChoice {
+                        value: "vanilla".into(),
+                        ingredients: dup(),
+                    }],
+                    custom: Some(parts),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+        l
+    };
+    assert_eq!(
+        armed().plan_data(&base_world()).err().as_deref(),
+        Some(want)
+    );
+    assert_eq!(
+        armed().plan_settings(&settings_world()).err().as_deref(),
+        Some(want)
+    );
+}
+
+/// TWO PACK LADDERS CAN LAND ON ONE TOOL, and a unit that named it twice is
+/// the same duplicate-ingredient load failure a recipe gets. The amounts add,
+/// in the position of the first occurrence, and the emitted form is the SHORT
+/// TUPLE rather than the recipe's dict.
+#[test]
+fn pack_ladders_that_land_on_one_pack_merge() {
+    let mut lib = Lib::new();
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            unit: Some(UnitSpec {
+                count: 50,
+                seconds: 15.0,
+                packs: vec![
+                    Pack::new("automation-science-pack", 1),
+                    Pack::new("logistic-science-pack", 4),
+                    Pack::named(2, "military-science-pack", &["automation-science-pack"]),
+                ],
+            }),
+            ..Default::default()
+        },
+    );
+
+    let ops = lib.plan_data(&base_world()).expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: steel-axes: automation-science-pack is in the list twice after the fallbacks, so the amounts are added: 1 plus 2 is 3",
+            r#"extend {type="technology", name="steelworks-steel-axes", unit={count=50, time=15, ingredients=[["automation-science-pack", 3], ["logistic-science-pack", 4]]}}"#,
+        ],
+    );
+
+    // A MERGED PACK IS HELD TO THE ITEM CEILING, and that is the engine's own
+    // rule for a unit ingredient rather than an analogy drawn from a recipe.
+    // Each of these is legal on its own; their sum is the one pack amount no
+    // author wrote.
+    let mut over = Lib::new();
+    over.technology(
+        "steel-axes",
+        TechSpec {
+            unit: Some(UnitSpec {
+                count: 50,
+                seconds: 15.0,
+                packs: vec![
+                    Pack::new("automation-science-pack", 40000),
+                    Pack::named(30000, "military-science-pack", &["automation-science-pack"]),
+                ],
+            }),
+            ..Default::default()
+        },
+    );
+
+    match over.plan_data(&base_world()) {
+        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
+        Err(got) => assert_eq!(
+            got,
+            "fkrecipes: steel-axes: automation-science-pack is in the list twice after the fallbacks, and 40000 plus 30000 is above the item ceiling of 65535"
+        ),
+    }
+}
+
+/// A DECLARED PACK CARRIES THE SAME 16 BITS AS AN ITEM INGREDIENT, and that is
+/// MEASURED rather than argued. Factorio 2.0.77, build 84539, mac-arm64, steam,
+/// on a technology whose unit ingredients carry one pack: 65535 loads and dumps
+/// as written, while 65536, 2147483648 and 9007199254740992 each refuse with
+/// "Error while loading technology prototype \"...\" (technology): Value (<n>)
+/// outside of range. The data type allows values from 0 to 65535 in property
+/// tree at ROOT.technology.<name>.unit.ingredients[0][1]", exit 1 and no dump.
+/// A declared pack above the ceiling used to be emitted and fail the whole load
+/// in the player's game, naming the consumer's mod for a number its author
+/// wrote, which is exactly the defect the ingredient ceiling closed on a recipe.
+#[test]
+fn a_declared_pack_above_the_engines_ceiling_is_refused() {
+    let mut lib = Lib::new();
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            unit: Some(UnitSpec {
+                count: 50,
+                seconds: 15.0,
+                packs: vec![Pack::new("automation-science-pack", 70000)],
+            }),
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        lib.plan_data(&base_world()).err().as_deref(),
+        Some("fkrecipes: the technology steel-axes takes 70000 of automation-science-pack, and a science pack amount goes up to 65535")
+    );
+
+    // The boundary itself is legal, and it is the number a merge is allowed to
+    // land on.
+    let mut at = Lib::new();
+    at.technology(
+        "steel-axes",
+        TechSpec {
+            unit: Some(UnitSpec {
+                count: 50,
+                seconds: 15.0,
+                packs: vec![Pack::new("automation-science-pack", 65535)],
+            }),
+            ..Default::default()
+        },
+    );
+    let ops = at.plan_data(&base_world()).expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            r#"extend {type="technology", name="steelworks-steel-axes", unit={count=50, time=15, ingredients=[["automation-science-pack", 65535]]}}"#,
+        ],
+    );
+}
+
+/// A UNIT THAT NAMES ONE PACK TWICE IS THE AUTHOR'S BUG, not a mod set's, and
+/// it is refused rather than added up: the merge exists for a ladder that
+/// collapsed onto a name the list already carries, and a list that named it
+/// twice in the declaration never had a fallback in it.
+#[test]
+fn a_unit_naming_one_pack_twice_is_refused() {
+    let want = "fkrecipes: the technology steel-axes names automation-science-pack twice; each science pack is taken once";
+
+    let mut lib = Lib::new();
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            unit: Some(UnitSpec {
+                count: 50,
+                seconds: 15.0,
+                packs: vec![
+                    Pack::new("automation-science-pack", 1),
+                    Pack::new("logistic-science-pack", 4),
+                    Pack::new("automation-science-pack", 2),
+                ],
+            }),
+            ..Default::default()
+        },
+    );
+    assert_eq!(lib.plan_data(&base_world()).err().as_deref(), Some(want));
+
+    // THE SAME RULE ON A COSTBY FALLBACK, because a fallback the engine would
+    // refuse is not a fallback: one validate_unit answers for both.
+    let mut fb = Lib::new();
+    let tier = fb.dropdown_setting_needing_locale("tier", "cheap", &["cheap"]);
+    fb.technology(
+        "steel-axes",
+        TechSpec {
+            cost_by: Some(crate::plan::CostChoices {
+                setting: tier,
+                choices: vec![crate::plan::CostChoice {
+                    value: "cheap".into(),
+                    sources: strings(&["logistics-2"]),
+                }],
+                fallback: UnitSpec {
+                    count: 1,
+                    seconds: 1.0,
+                    packs: vec![
+                        Pack::new("automation-science-pack", 1),
+                        Pack::new("automation-science-pack", 2),
+                    ],
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    );
+    assert_eq!(fb.plan_data(&base_world()).err().as_deref(), Some(want));
+}
+
 /// A FLUID IS ITS OWN NAMESPACE AND ITS OWN FIELD. The ladder asks
 /// `fluid_exists`, so a rung that names an item is skipped even though the
 /// game has that item, and what reaches the prototype carries type="fluid"
@@ -2117,9 +2711,11 @@ fn wide_amounts_survive_the_emit() {
         RecipeSpec {
             // The INGREDIENT rides its own ceiling rather than a wide number:
             // an item amount goes up to 65535 (the engine's u16, measured) and
-            // a declared list is held to that exactly as a typed one is. The
-            // wide number in this recipe is the result count, which has no
-            // such ceiling.
+            // a declared list is held to that exactly as a typed one is. A
+            // SCIENCE PACK carries the same ceiling, for the same measured
+            // reason (a unit ingredient above 65535 refuses the load with "The
+            // data type allows values from 0 to 65535"), so the wide numbers
+            // here are the stack size, the result count and the unit count.
             ingredients: vec![Ingredient::named(65_535, "steel-plate", &[])],
             result_count: 2_500_000_000,
             ..Default::default()
@@ -2131,7 +2727,7 @@ fn wide_amounts_survive_the_emit() {
             unit: Some(UnitSpec {
                 count: 5_000_000_000,
                 seconds: 15.0,
-                packs: vec![Pack::new("automation-science-pack", 3_000_000_000)],
+                packs: vec![Pack::new("automation-science-pack", 65_535)],
             }),
             ..Default::default()
         },
@@ -2144,7 +2740,7 @@ fn wide_amounts_survive_the_emit() {
         &[
             r#"extend {type="item", name="steelworks-steel-axe", stack_size=9007199254740992}"#,
             r#"extend {type="recipe", name="steelworks-steel-axe", enabled=true, ingredients=[{type="item", name="steel-plate", amount=65535}], results=[{type="item", name="steelworks-steel-axe", amount=2500000000}]}"#,
-            r#"extend {type="technology", name="steelworks-steel-axes", unit={count=5000000000, time=15, ingredients=[["automation-science-pack", 3000000000]]}}"#,
+            r#"extend {type="technology", name="steelworks-steel-axes", unit={count=5000000000, time=15, ingredients=[["automation-science-pack", 65535]]}}"#,
         ],
     );
 }

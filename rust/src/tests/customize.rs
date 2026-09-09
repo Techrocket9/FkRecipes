@@ -580,6 +580,26 @@ fn a_cost_dropdown_description_nests_past_nineteen_presets() {
 /// Everything a binding has to be true of, in both planners: the settings
 /// stage renders the same declared list the data stage emits, so a
 /// declaration neither can serve is refused by both.
+/// The declaration both rows of the duplicate case build, so the two planners
+/// are asked about ONE plan rather than about two that happen to look alike.
+fn duplicate_default(l: &mut Lib) {
+    let plate = l.item("hardened-steel-plate", ItemSpec::default());
+    let list = l.ingredients_setting(
+        "parts",
+        vec![
+            Ingredient::named(1, "steel-plate", &[]),
+            Ingredient::named(2, "steel-plate", &[]),
+        ],
+    );
+    l.recipe(
+        plate,
+        RecipeSpec {
+            ingredients_from: Some(list),
+            ..Default::default()
+        },
+    );
+}
+
 #[test]
 fn customizer_refusals() {
     struct Case {
@@ -1378,6 +1398,30 @@ fn customizer_refusals() {
                 );
             },
             want: "fkrecipes: the ingredients setting parts takes the fluid water, and a recipe in the crafting category takes items only",
+        },
+        Case {
+            // The round trip is what makes the description a text the player
+            // can copy back into the field, and it is what answers a TEXT
+            // SETTING's declared duplicate: the declaration checks do not see
+            // one and the language does. A plain list and a dropdown preset
+            // have no round trip, so those are refused by
+            // `validate_no_duplicates` with a sentence of their own
+            // (`tests::data`); either way the resolver's merge never meets a
+            // duplicate that was in the declaration.
+            //
+            // BOTH PLANNERS, because both run the text-setting rules. The two
+            // rows are one case asked twice, which is the shape this table has
+            // for a refusal neither stage may miss.
+            name: "a declared default naming one thing twice",
+            data: false,
+            build: duplicate_default,
+            want: "fkrecipes: the ingredients setting parts: entries 1 and 2 both name steel-plate",
+        },
+        Case {
+            name: "a declared default naming one thing twice, at the data stage",
+            data: true,
+            build: duplicate_default,
+            want: "fkrecipes: the ingredients setting parts: entries 1 and 2 both name steel-plate",
         },
         Case {
             // ONE DROPDOWN COMPOSES ONE DESCRIPTION, so a second recipe's arm

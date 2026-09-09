@@ -64,13 +64,23 @@ impl Lib {
         self.validate(w, &prefix)?;
         let res = self.resolve(w, &prefix);
         // WHAT THE PLAYER WROTE, FIRST. Resolution asks the World questions
-        // and mostly degrades; three answers it cannot degrade are a stored
+        // and mostly degrades; the answers it cannot degrade are a stored
         // value that is not one of a dropdown's values, a text setting holding
-        // something that is not text, and an ingredient list the language
-        // refuses. Each is carried out of the pass rather than raised inside
-        // it, because resolution answers questions and this is where a plan is
-        // refused; the FIRST one found wins, and it wins over every refusal
-        // below because it is the earliest thing the pass met.
+        // something that is not text, an ingredient list the language refuses,
+        // and the three `refuse_cost_numbers` sentences (a research number
+        // that is not finite, a count below 1, a time at or below zero). Each
+        // is carried out of the pass rather than raised inside it, because
+        // resolution answers questions and this is where a plan is refused;
+        // the FIRST one found wins, and it wins over every refusal below
+        // because it is the earliest thing the pass met.
+        //
+        // A MERGED AMOUNT OVER ITS CEILING IS CARRIED IN THE SAME SLOT, the
+        // seventh sentence to reach this line, and shares that rule. It is an
+        // author bug rather than a player one, so it could have taken a check
+        // of its own; it does not, because it is a fact about the SAME
+        // resolved list a language refusal is about, found in the same walk,
+        // and a second carried field with a second check would only have
+        // restated the walk order it already has.
         if let Some(message) = &res.refusal {
             return Err(message.clone());
         }
@@ -361,6 +371,12 @@ impl Lib {
                         Some(&r.spec.category),
                         &c.ingredients,
                     )?;
+                    self.validate_no_duplicates(
+                        at,
+                        &format!("the recipe {}", r.name),
+                        prefix,
+                        &c.ingredients,
+                    )?;
                 }
             }
             if r.spec.craft_time_from.index != 0
@@ -413,6 +429,12 @@ impl Lib {
                 at,
                 &format!("the recipe {}", r.name),
                 Some(&r.spec.category),
+                &r.spec.ingredients,
+            )?;
+            self.validate_no_duplicates(
+                at,
+                &format!("the recipe {}", r.name),
+                prefix,
                 &r.spec.ingredients,
             )?;
         }
@@ -1095,10 +1117,14 @@ pub(crate) struct Resolution {
     pub(crate) recipes: Vec<Vec<ResolvedIngredient>>,
     pub(crate) techs: Vec<ResolvedTech>,
     pub(crate) rewrites: Vec<RewriteRec>,
-    /// The FIRST answer resolution could not degrade. Carried rather than
-    /// returned so the pass stays one shape: it keeps resolving, with an empty
-    /// list where the refused answer would have gone, and `plan_data` raises
-    /// this before it reads any of it.
+    /// The FIRST answer resolution could not degrade. Seven producers write
+    /// it: a language refusal, a setting that is not text, a stored dropdown
+    /// value the setting does not offer, a merged amount above its ceiling,
+    /// and the three `refuse_cost_numbers` answers (a research number that is
+    /// not finite, a research count below 1, a research time at or below
+    /// zero). Carried rather than returned so the pass stays one shape: it
+    /// keeps resolving, with an empty list where the refused answer would have
+    /// gone, and `plan_data` raises this before it reads any of it.
     pub(crate) refusal: Option<String>,
 }
 
@@ -1580,6 +1606,64 @@ impl Lib {
         Ok(())
     }
 
+    /// Refuses a DECLARED list that names one thing twice.
+    ///
+    /// IT IS THE OTHER HALF OF THE MERGE, and the two are not the same
+    /// problem. A ladder that COLLAPSES onto a name the list already carries
+    /// is a mod set taking an ingredient away, and the amounts are added so
+    /// the recipe still loads for a player who never opened the settings. A
+    /// duplicate the AUTHOR WROTE OUT is a bug in the declaration, and adding
+    /// it up silently would emit a recipe nobody designed and say nothing:
+    /// `4 iron-plate, 2 iron-plate` composed a dropdown description the
+    /// player's own custom field refuses, while the recipe quietly said 6.
+    /// Refused here, because an author's bug is caught in development and a
+    /// player is not locked out of a game.
+    ///
+    /// AFTER THIS, THE MERGE IS REACHABLE ONLY FROM A LADDER COLLAPSE, which
+    /// is what makes the merge line's phrase "after the fallbacks" true
+    /// wherever it appears.
+    ///
+    /// THE HEADS ARE COMPARED AS RESOLUTION WILL SEE THEM, through
+    /// `declared_head`: a ladder by its first rung, this plan's own item by
+    /// the name it is EMITTED under, which is the pair a description already
+    /// shows. Any looser comparison would leave a collision that is plain in
+    /// the declaration to be found later by the merge, and the sentence about
+    /// fallbacks would be false about it.
+    ///
+    /// KIND IS PART OF THE IDENTITY. An item and a fluid of one name are two
+    /// ingredients, and the engine takes both in one recipe (measured: base
+    /// carries parameter-0 to parameter-9 as an item AND a fluid).
+    ///
+    /// LAST, AND ACROSS THE WHOLE LIST, exactly where the language checks it:
+    /// it is the one problem no single entry can see. Every caller runs
+    /// `validate_ingredients` first, which is what proves a handle before
+    /// `declared_head` reads it.
+    pub(crate) fn validate_no_duplicates(
+        &self,
+        at: &str,
+        who: &str,
+        prefix: &str,
+        ings: &[Ingredient],
+    ) -> Result<(), String> {
+        let names: Vec<String> = ings
+            .iter()
+            .map(|ing| self.declared_head(prefix, ing))
+            .collect();
+        // The SECOND occurrence is what the walk reports, with the earliest
+        // partner, which is the order the language's own duplicate rule uses.
+        for j in 1..ings.len() {
+            for i in 0..j {
+                if ings[i].amount.is_fluid() == ings[j].amount.is_fluid() && names[i] == names[j] {
+                    return Err(format!(
+                        "{}{} names {} twice; each ingredient is taken once",
+                        at, who, names[j]
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// The name a refusal about a declared ingredient quotes: the ladder's
     /// first choice, or the DECLARED name of this plan's own item. Asked only
     /// after the handle has been proved, which is what makes the index safe.
@@ -1701,13 +1785,55 @@ impl Lib {
                     at, name
                 ));
             }
+            // THE SAME 16 BITS AN ITEM INGREDIENT IS HELD IN, and it is the
+            // engine's own rule rather than an analogy. MEASURED (Factorio
+            // 2.0.77, build 84539, mac-arm64, steam), on a technology whose
+            // unit ingredients carry one pack: 65535 loads and dumps as
+            // written; 65536, 2^31 and 2^53 each refuse the load with "Value
+            // (<n>) outside of range. The data type allows values from 0 to
+            // 65535 in property tree at
+            // ROOT.technology.<name>.unit.ingredients[0][1]", exit 1, no dump.
+            // A declared pack above it used to reach the engine and fail the
+            // whole load, blaming the consumer's mod for a number its author
+            // wrote, which is the same defect the ingredient ceiling closed.
+            //
+            // AFTER THE NAME CHECKS, so the sentence has a name to quote.
+            if p.amount > MAX_ITEM_AMOUNT {
+                return Err(format!(
+                    "{}the technology {} takes {} of {}, and a science pack amount goes up to {}",
+                    at, name, p.amount, p.name, MAX_ITEM_AMOUNT
+                ));
+            }
             // WHETHER THE GAME HAS THE PACK IS NOT ASKED HERE. It is a ladder
             // now, and a ladder is walked at resolution, where a pack the
             // game does not have is dropped with a log line the way an
             // ingredient is.
         }
-        Ok(())
+        validate_no_duplicate_packs(at, &format!("the technology {}", name), &u.packs)
     }
+}
+
+/// [`Lib::validate_no_duplicates`] for a declared pack list.
+///
+/// NO KIND AND NO PREFIX. A science pack is asked for with `tool_exists`, a
+/// tool is an item, and this library declares no tools, so a pack list has one
+/// namespace and the declared names alone decide identity.
+pub(crate) fn validate_no_duplicate_packs(
+    at: &str,
+    who: &str,
+    packs: &[Pack],
+) -> Result<(), String> {
+    for j in 1..packs.len() {
+        for i in 0..j {
+            if packs[i].name == packs[j].name {
+                return Err(format!(
+                    "{}{} names {} twice; each science pack is taken once",
+                    at, who, packs[j].name
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The dropdown values a Choices list has to cover: all of them, minus the one
@@ -2160,10 +2286,14 @@ impl Lib {
         let mut list = Vec::with_capacity(ings.len());
         for ing in ings {
             if ing.candidates.is_empty() {
-                list.push(ResolvedIngredient {
-                    name: self.items[ing.item.index - 1].emitted_name(prefix),
-                    amount: ing.amount,
-                });
+                // A HANDLE IS ITS OWN HEAD: no ladder, so the rung the fluid
+                // sentences name is the name itself. The clone buys the Go
+                // mirror's exact argument on a path only a plan's own item
+                // takes, and only the fluid arms ever read it, which a handle
+                // cannot reach (this library declares items, never fluids).
+                let name = self.items[ing.item.index - 1].emitted_name(prefix);
+                let from = name.clone();
+                merge_ingredient(res, &mut list, recipe, name, &from, ing.amount);
                 continue;
             }
             let mut picked: Option<String> = None;
@@ -2182,10 +2312,9 @@ impl Lib {
                 }
             }
             match picked {
-                Some(name) => list.push(ResolvedIngredient {
-                    name,
-                    amount: ing.amount,
-                }),
+                Some(name) => {
+                    merge_ingredient(res, &mut list, recipe, name, &ing.candidates[0], ing.amount)
+                }
                 None => res.logs.push(format!(
                     "fkrecipes: {}: none of {} is present, so the ingredient is dropped",
                     recipe,
@@ -2195,6 +2324,205 @@ impl Lib {
         }
         list
     }
+}
+
+/// Adds one resolved ingredient to a list that may already carry its name, and
+/// is the reason nothing this library emits can name the same item, or the
+/// same fluid, twice.
+///
+/// MEASURED, and it is what this exists for: a recipe whose ingredient list
+/// names one item twice refuses the WHOLE LOAD with "Error while running setup
+/// for recipe prototype \"bbb-balancer-part\" (recipe): Duplicate item
+/// ingredients are not allowed (iron-plate exists 2 or more times)", exit 1, no
+/// dump, no line naming a setting or a missing item. A ladder is exactly what
+/// produces one: the pilot's ladders all end on iron-plate, so a mod set
+/// without transport-belt resolves a third rung onto a name the list already
+/// carries and a player who never opened the settings cannot load the game.
+///
+/// THE AMOUNTS ARE ADDED, IN THE POSITION OF THE FIRST OCCURRENCE, so
+/// declaration order survives the merge: the entry is written back where it
+/// already sat and nothing is moved.
+///
+/// AN ITEM AND A FLUID OF ONE NAME DO NOT MERGE, because the kind is part of
+/// the identity: the engine takes both in one recipe (measured: base carries
+/// parameter-0 to parameter-9 as an item AND a fluid), and adding a count to
+/// an amount would be adding two different things. The mismatched pair falls
+/// through to the next entry rather than answering, IN EITHER ORDER, which is
+/// what lets a list hold one of each whichever the author declared first.
+///
+/// ONLY A LADDER COLLAPSE REACHES HERE. A list that named one thing twice in
+/// the declaration is refused by
+/// [`Lib::validate_no_duplicates`](crate::Lib) before any of this runs, which
+/// is what makes "after the fallbacks" true in every sentence below.
+///
+/// `from` is the FIRST RUNG of the ladder being added, and it is what the
+/// fluid sentences carry in place of the numbers they cannot print: without it
+/// a three-way collapse writes the same line twice and names no declaration
+/// the author could go and change.
+fn merge_ingredient(
+    res: &mut Resolution,
+    list: &mut Vec<ResolvedIngredient>,
+    subject: &str,
+    name: String,
+    from: &str,
+    amount: Amount,
+) {
+    for e in list.iter_mut() {
+        if e.name != name {
+            continue;
+        }
+        match (e.amount, amount) {
+            (Amount::Item(a), Amount::Item(b)) => {
+                res.logs.push(merged_item_line(subject, &name, a, b));
+                let sum = a.saturating_add(b);
+                if sum > MAX_ITEM_AMOUNT {
+                    res.refuse(merged_item_refusal(subject, &name, a, b));
+                }
+                e.amount = Amount::Item(sum);
+                return;
+            }
+            (Amount::Fluid(a), Amount::Fluid(b)) => {
+                res.logs.push(merged_fluid_line(subject, &name, from));
+                let sum = a + b;
+                // THE CEILING IS RE-ASKED HERE AND NOWHERE ELSE. Both amounts
+                // crossed validate_ingredients on their own and both were
+                // legal; their sum is a number no author wrote, and above the
+                // engine's wall it does not refuse, it ABORTS (see
+                // MAX_FLUID_AMOUNT).
+                if sum > MAX_FLUID_AMOUNT {
+                    res.refuse(merged_fluid_refusal(subject, &name, from));
+                }
+                e.amount = Amount::Fluid(sum);
+                return;
+            }
+            // THE MISMATCHED PAIR, IN BOTH ORDERS. An item arriving at a fluid
+            // of the same name and a fluid arriving at an item are one rule,
+            // and this arm is the whole of it: adding a count to an amount
+            // would be adding two different things, so the walk carries on to
+            // the next entry and the list keeps one of each.
+            (Amount::Item(_), Amount::Fluid(_)) | (Amount::Fluid(_), Amount::Item(_)) => continue,
+        }
+    }
+    list.push(ResolvedIngredient { name, amount });
+}
+
+/// `merge_ingredient` for a science pack, whose subject is the technology and
+/// whose kind is never in question: the ladder asks `tool_exists`, a tool is an
+/// item, so a pack list has one namespace and the names alone decide identity.
+fn merge_pack(res: &mut Resolution, list: &mut Vec<ResolvedPack>, subject: &str, p: ResolvedPack) {
+    for e in list.iter_mut() {
+        if e.name != p.name {
+            continue;
+        }
+        res.logs
+            .push(merged_item_line(subject, &p.name, e.amount, p.amount));
+        // THE ITEM CEILING, ON A NUMBER NO AUTHOR DECLARED, and it is the
+        // engine's own rule for a unit ingredient too. MEASURED on 2.0.77: a
+        // technology whose unit ingredients carry 65535 loads and dumps, and
+        // 65536, 2^31 and 2^53 each refuse with "The data type allows values
+        // from 0 to 65535" at ROOT.technology.<name>.unit.ingredients[0][1].
+        // `validate_unit` holds a DECLARED pack to the same number, so this is
+        // the only pack amount left that no author wrote.
+        let sum = e.amount.saturating_add(p.amount);
+        if sum > MAX_ITEM_AMOUNT {
+            res.refuse(merged_item_refusal(subject, &p.name, e.amount, p.amount));
+        }
+        e.amount = sum;
+        return;
+    }
+    list.push(p);
+}
+
+/// The clause every merge sentence opens with, so an author who meets the log
+/// line and the refusal recognises the pair.
+fn merged_opening(subject: &str, name: &str) -> String {
+    format!(
+        "fkrecipes: {}: {} is in the list twice after the fallbacks",
+        subject, name
+    )
+}
+
+/// AN ITEM PRINTS ITS NUMBERS AND A FLUID NAMES THE RUNG INSTEAD. Rendering a
+/// fluid amount is the ingredient language's job (`format_amount`), and the
+/// language is reached only through the two text-setting constructors so that a
+/// plan declaring no text setting links none of it; a call from here would link
+/// it into every consumer, which `tests::source` refuses by name. So the fluid
+/// sentences carry the first rung of the ladder that landed on the name: it
+/// costs no formatter, it is what an author goes and edits, and it is what
+/// makes two lines of a three-way collapse different lines.
+///
+/// AND DO NOT REACH FOR THE STANDARD LIBRARY HERE. MEASURED on this machine:
+/// `format!("{}", 5e300f64)` is a 5 with 300 zeros after it and
+/// `format!("{:e}", 5e300f64)` is "5e300", while Go's
+/// `strconv.FormatFloat(5e300, 'g', -1, 64)` is "5e+300". No two of those are
+/// the same string, so a fluid amount printed the convenient way in each half
+/// splits the mirror on a line that is compared byte for byte. `format_amount`
+/// exists because of exactly this, and it is the one thing this file may not
+/// call.
+///
+/// THE SUM SATURATES RATHER THAN WRAPPING, and the reason is THIS half rather
+/// than the answer. Nothing about the answer needs it: every declared amount is
+/// validated at 1 or more, the running sum only ever grows, and
+/// `Resolution::refuse` keeps the FIRST sentence it was handed, so the first sum
+/// over the ceiling is what the plan is refused with (measured in the Go mirror,
+/// where replacing its saturating helper with `a + b` changes no output at all).
+/// What it is for is that resolution keeps merging AFTER a refusal is recorded,
+/// and an unbounded sum here is a DEBUG PANIC rather than a wrap. MEASURED, with
+/// this round's declared-pack ceiling taken back out: 1025 rungs of 2^53 landing
+/// on one pack panic with "attempt to add with overflow".
+///
+/// AND THAT CASE IS NOW UNREACHABLE, which is why this stays rather than growing
+/// a test. Every amount that reaches a merge is at most 65535, held there by
+/// `validate_ingredients`, by `validate_unit` and, for a packs setting's
+/// declared default, by the language's own round trip; overflowing an i64 at
+/// that size takes about 1.4e14 rungs in one list. The saturation is the guard
+/// that keeps the two halves computing the same number, and the one that keeps a
+/// debug build standing if a declared amount is ever admitted above the ceiling
+/// again.
+fn merged_item_line(subject: &str, name: &str, a: i64, b: i64) -> String {
+    format!(
+        "{}, so the amounts are added: {} plus {} is {}",
+        merged_opening(subject, name),
+        a,
+        b,
+        a.saturating_add(b)
+    )
+}
+
+/// See the note above: the rung is here in place of the two amounts, and
+/// printing them instead is what may not be done.
+fn merged_fluid_line(subject: &str, name: &str, from: &str) -> String {
+    format!(
+        "{}, so the amounts are added{}",
+        merged_opening(subject, name),
+        merged_from(from)
+    )
+}
+
+fn merged_item_refusal(subject: &str, name: &str, a: i64, b: i64) -> String {
+    format!(
+        "{}, and {} plus {} is above the item ceiling of {}",
+        merged_opening(subject, name),
+        a,
+        b,
+        MAX_ITEM_AMOUNT
+    )
+}
+
+/// The same, for the same reason: the ceiling is a constant this file may
+/// spell, and the amount that crossed it is not.
+fn merged_fluid_refusal(subject: &str, name: &str, from: &str) -> String {
+    format!(
+        "{}, and the added amount is above the fluid ceiling of 1e301{}",
+        merged_opening(subject, name),
+        merged_from(from)
+    )
+}
+
+/// The clause both fluid sentences end with, naming the ladder whose collapse
+/// produced the second occurrence.
+fn merged_from(from: &str) -> String {
+    format!("; the ladder from {} resolved onto it", from)
 }
 
 /// Walks every pack's ladder and reports what the game actually has.
@@ -2229,10 +2557,18 @@ fn resolve_packs(
             }
         }
         match picked {
-            Some(name) => list.push(ResolvedPack {
-                name,
-                amount: p.amount,
-            }),
+            // TWO LADDERS CAN LAND ON ONE PACK, exactly as two ingredient
+            // ladders can, and the emitted form here is the SHORT TUPLE rather
+            // than the recipe's dict. See merge_pack.
+            Some(name) => merge_pack(
+                res,
+                &mut list,
+                tech,
+                ResolvedPack {
+                    name,
+                    amount: p.amount,
+                },
+            ),
             None => res.logs.push(format!(
                 "fkrecipes: {}: none of {} is present, so the science pack is dropped",
                 tech,

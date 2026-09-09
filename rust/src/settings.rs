@@ -529,6 +529,7 @@ impl Lib {
             // needs it.
             for c in &by.choices {
                 self.validate_ingredients(at, &who, Some(&r.spec.category), &c.ingredients)?;
+                self.validate_no_duplicates(at, &who, prefix, &c.ingredients)?;
             }
         }
 
@@ -818,16 +819,28 @@ impl Lib {
     pub(crate) fn declared_list(&self, prefix: &str, ings: &[Ingredient]) -> IngredientList {
         let mut entries = Vec::with_capacity(ings.len());
         for ing in ings {
-            let name = match ing.candidates.first() {
-                Some(first) => first.clone(),
-                None => self.items[ing.item.index - 1].emitted_name(prefix),
-            };
             entries.push(ListEntry {
-                name,
+                name: self.declared_head(prefix, ing),
                 amount: ing.amount,
             });
         }
         IngredientList { entries }
+    }
+
+    /// The name a declared ingredient WILL RESOLVE TO if nothing is missing:
+    /// a ladder's first rung, or this plan's own item under its emitted name.
+    ///
+    /// ONE ANSWER FOR TWO CALLERS, which is the point of writing it out. The
+    /// description above shows these names and
+    /// [`Lib::validate_no_duplicates`](crate::Lib) compares them; the two
+    /// spelling the same rule apart from each other is how a list could be
+    /// described as one thing and refused as another. Its precondition is a
+    /// validated list, so the index is safe.
+    pub(crate) fn declared_head(&self, prefix: &str, ing: &Ingredient) -> String {
+        match ing.candidates.first() {
+            Some(first) => first.clone(),
+            None => self.items[ing.item.index - 1].emitted_name(prefix),
+        }
     }
 
     /// The Custom arm a dropdown setting carries, if any, decided by the same

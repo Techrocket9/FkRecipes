@@ -76,17 +76,29 @@ func (allExistsWorld) ToolExists(name string) bool  { return true }
 func (l *Lib) declaredIngredientEntries(prefix string, ings []Ingredient) ingredientList {
 	out := make(ingredientList, 0, len(ings))
 	for _, ing := range ings {
-		if len(ing.candidates) == 0 {
-			out = append(out, listEntry{name: l.items[ing.item.index-1].emittedName(prefix), amount: ing.amount})
-			continue
-		}
 		if ing.kind == kindFluid {
-			out = append(out, listEntry{kind: kindFluid, name: ing.candidates[0], fluid: ing.fluidAmount})
+			out = append(out, listEntry{kind: kindFluid, name: l.declaredHead(prefix, ing), fluid: ing.fluidAmount})
 			continue
 		}
-		out = append(out, listEntry{name: ing.candidates[0], amount: ing.amount})
+		out = append(out, listEntry{name: l.declaredHead(prefix, ing), amount: ing.amount})
 	}
 	return out
+}
+
+// declaredHead is the name a declared ingredient WILL RESOLVE TO if nothing is
+// missing: this plan's own item under its emitted name, or a ladder's first
+// rung.
+//
+// ONE ANSWER FOR TWO CALLERS, and that is the point of writing it out. The
+// description shows these names, and validateNoDuplicates compares them; the
+// two spelling the same rule apart from each other is how a list could be
+// described as one thing and refused as another. Its precondition is the one
+// above: a validated list, so both dereferences are safe.
+func (l *Lib) declaredHead(prefix string, ing Ingredient) string {
+	if len(ing.candidates) == 0 {
+		return l.items[ing.item.index-1].emittedName(prefix)
+	}
+	return ing.candidates[0]
 }
 
 // declaredPackEntries is the same for a pack list. A science pack is always an
@@ -304,6 +316,9 @@ func (l *Lib) validateBindings(prefix string) error {
 		// needs it.
 		for _, c := range by.Choices {
 			if err := l.validateIngredients(at, who, r.spec.Category, c.Ingredients); err != nil {
+				return err
+			}
+			if err := l.validateNoDuplicates(at, who, prefix, c.Ingredients); err != nil {
 				return err
 			}
 		}

@@ -217,6 +217,31 @@ fkrecipes: hardened-steel-plate-quenching: none of tungsten-carbide, titanium-pl
 
 Dropping rather than guessing is deliberate. An ingredient the game does not have is a hard load failure that names your mod, inside whatever overhaul pack the player has installed, and a substituted guess is a recipe you did not design. Use the ladder for anything optional, and put a staple last when the ingredient is required.
 
+Two ladders can land on the same name, and what the library emits never carries it twice. The amounts are added, in the position of the first occurrence, so the order you declared survives, and a line records it. An item line names both amounts; a fluid line names the fallback that landed on the name instead, so that two lines about one fluid tell you which declaration each came from:
+
+```
+fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, so the amounts are added: 4 plus 2 is 6
+fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, so the amounts are added; the ladder from steam resolved onto it
+```
+
+This is what makes a staple at the end of every ladder safe. The engine refuses the entire load for a recipe that names one ingredient twice, with `Duplicate item ingredients are not allowed (iron-plate exists 2 or more times)` and no mention of a setting or of the missing item, and the player it hits is the one who never opened the settings, because the mod's own default is what resolved that way. An item and a fluid of the same name are two different ingredients and are not added together.
+
+Adding up applies only to a list a ladder collapsed. A list you declared that names the same item, or the same fluid, twice is a mistake in the mod rather than a missing ingredient, and it is refused at plan time in every place one can be written: a plain `Ingredients` list, a dropdown preset, a hand-rolled `Unit`'s science packs and a `CostBy` fallback's:
+
+```
+fkrecipes: the recipe balancer-part names iron-plate twice; each ingredient is taken once
+fkrecipes: the technology steel-axes names automation-science-pack twice; each science pack is taken once
+```
+
+A text setting's declared default is refused the same way, in the words the setting's own language uses (`fkrecipes: the ingredients setting axe-ingredients: entries 1 and 2 both name steel-plate`), because that list has to survive being written into the description and read back.
+
+An added amount is held to the engine's ceiling, which is 65535 for an item and 1e301 for a fluid. Two declarations that are legal apart can add up to one that is not, and that is refused at plan time rather than emitted:
+
+```
+fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, and 40000 plus 30000 is above the item ceiling of 65535
+fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, and the added amount is above the fluid ceiling of 1e301; the ladder from steam resolved onto it
+```
+
 `FluidIngredient` (`Ingredient::fluid`) is the same ladder over fluid names, with an amount that may be fractional: `fkrecipes.FluidIngredient(0.5, "water")`. A fluid is accepted only in a recipe whose category allows one. The default category, `crafting`, is the hand-crafting category and the engine refuses a fluid there (measured on Factorio 2.0.77), so a declared fluid in a recipe with no category or with `crafting` is refused at plan time with a sentence naming the recipe, the fluid and the category. Set `Category` to `crafting-with-fluid`, `chemistry` or whichever category your recipe belongs in.
 
 ### Ingredients a dropdown chooses
@@ -326,7 +351,9 @@ fkrecipes: CostOf(steam-power): steam-power is a research_trigger technology wit
 
 `CostBy` is `CostOf` with a ladder per dropdown value: the player picks a tier, and the ladder is walked to the first technology that exists and carries a unit. That unit is copied verbatim with its `max_level`, and the source becomes the technology's sole prerequisite, so it does not combine with any of the placement fields. A `Fallback` unit applies when no rung works out. See [Migrating a mod that already ships settings](migration.md).
 
-`Unit` is the escape hatch when no existing technology has the price you want. It takes a count, a time in seconds and a list of science packs. A pack is a presence ladder like an ingredient: `Pack{Name: "automation-science-pack", Amount: 1}` is a one-rung ladder, `Fallbacks` adds rungs, and a pack whose rungs are all absent is dropped with a log line. A unit whose packs all drop is refused, because a research with no packs is not something this library emits on your behalf, and a unit declared with no pack at all is refused for the same reason.
+`Unit` is the escape hatch when no existing technology has the price you want. It takes a count, a time in seconds and a list of science packs. A pack is a presence ladder like an ingredient: `Pack{Name: "automation-science-pack", Amount: 1}` is a one-rung ladder, `Fallbacks` adds rungs, and a pack whose rungs are all absent is dropped with a log line. A unit whose packs all drop is refused, because a research with no packs is not something this library emits on your behalf, and a unit declared with no pack at all is refused for the same reason. Two pack ladders that land on the same pack add their amounts exactly as two ingredient ladders do, with the technology as the subject of the line.
+
+A science pack amount goes up to 65535, declared or added, and that is the engine's own limit rather than this library's caution. Measured on Factorio 2.0.77 (build 84539, mac-arm64), on a technology whose `unit.ingredients` carries one pack: 65535 loads and is dumped as written, while 65536, 2147483648 and 9007199254740992 each fail the load with `Value (<n>) outside of range. The data type allows values from 0 to 65535 in property tree at ROOT.technology.<name>.unit.ingredients[0][1]`, exit code 1 and no dump. It is the same 16 bits an item ingredient's amount is held in, so this library refuses such a pack by name rather than letting the engine blame your mod for it.
 
 ```go
 Unit: &fkrecipes.UnitSpec{

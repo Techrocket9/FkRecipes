@@ -797,8 +797,13 @@ func TestCustomizerPlanRefusals(t *testing.T) {
 		},
 		{
 			// The round trip is what makes the description a text the player
-			// can copy back into the field. A duplicate is the one thing the
-			// declaration checks do not see and the language does.
+			// can copy back into the field, and it is what answers a TEXT
+			// SETTING's declared duplicate: the declaration checks do not see
+			// one and the language does. A plain list and a dropdown preset
+			// have no round trip, so those are refused by validateNoDuplicates
+			// with a sentence of their own (data_test.go); either way the
+			// resolver's merge never meets a duplicate that was in the
+			// declaration.
 			name: "a declared default naming one thing twice",
 			build: func(l *Lib) {
 				axe := l.Item("steel-axe", ItemSpec{})
