@@ -36,6 +36,7 @@ Anything these rules turn down is reported in the log and the mod's own list app
 - A name is looked up first among the game's items, then among its fluids. A name that is both an item and a fluid means the item; write `[fluid=name]` to mean the fluid, or `[item=name]` to insist on the item.
 - A comma inside `[` and `]` does not separate ingredients; a `[` with no closing `]` runs to the end of the text.
 - The same ingredient cannot appear twice.
+- Naming the very thing the recipe makes is allowed, and the game itself ships a recipe like that: `kovarex-enrichment-process` takes 40 `uranium-235` and gives back 41 (measured on Factorio 2.0.77). Your text is used as you typed it, and one line goes to the log naming the ingredient that is also the product, because nothing can craft the first one unless something else produces it.
 - A fluid is accepted only in a recipe whose category allows fluids. The default category, `crafting`, is the one the player crafts by hand and it takes items only; the game refuses to load a recipe with a fluid there, so this library turns it down first, with a sentence naming the category.
 - The words `default` and `none`, alone, are the mod's list and the empty list, in any capitalisation. Neither can be combined with other entries.
 - A name that could be read as an amount, as an `x`, or as one of those two words is written in its tag: `[item=42]`, `[item=2x4]`.

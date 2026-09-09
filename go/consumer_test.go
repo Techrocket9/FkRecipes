@@ -39,6 +39,12 @@ func TestLegacyPrototypesKeepTheirNames(t *testing.T) {
 // A LEGACY HANDLE IS AN ORDINARY HANDLE, which is what lets a mod migrate one
 // prototype at a time: the generated half references the legacy half and the
 // splices reach both.
+//
+// AND IT MAKES ITSELF, which is why the first line of this transcript is the
+// self-product line: the recipe's one ingredient is a handle to its own result
+// item. That is a legal shape the base game ships and it stays accepted; the
+// line is the signal, and it is asserted here rather than trimmed away because
+// this plan is the smallest one in the suite that reaches it by accident.
 func TestLegacyAndGeneratedPrototypesInterlock(t *testing.T) {
 	lib := New()
 	part := lib.LegacyItem("bbb-balancer-part", ItemSpec{})
@@ -57,6 +63,7 @@ func TestLegacyAndGeneratedPrototypesInterlock(t *testing.T) {
 	assertNoError(t, err)
 
 	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: bbb-balancer-part: bbb-balancer-part is in the list and is also what this recipe makes, so nothing can craft the first one unless something else produces it`,
 		`extend {type="item", name="bbb-balancer-part", stack_size=50}`,
 		`extend {type="recipe", name="bbb-balancer-part", enabled=false, ingredients=[{type="item", name="bbb-balancer-part", amount=1}], results=[{type="item", name="bbb-balancer-part", amount=1}]}`,
 		`extend {type="technology", name="bbb-balancer", prerequisites=["steel-processing"], unit=` + logistics2Unit + `, effects=[{type="unlock-recipe", recipe="bbb-balancer-part"}]}`,

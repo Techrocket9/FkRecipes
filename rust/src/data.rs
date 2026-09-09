@@ -717,6 +717,12 @@ impl Lib {
             }
             res.craft_times.push(ct);
 
+            // The product is read ONCE per recipe, out of the same helper the
+            // prototype builder reads it out of, and handed to every arm below:
+            // four of them add a resolved list and each would otherwise have to
+            // remember to compute it. See `Resolution::add_recipe`.
+            let product = recipe_product(prefix, self, r);
+
             match &r.spec.ingredients_by {
                 Some(by) => {
                     let setting = &self.settings[by.setting.index - 1];
@@ -726,7 +732,7 @@ impl Lib {
                         if chosen == cv {
                             let list =
                                 self.resolve_text_ingredients(w, &own, &mut res, prefix, r, h);
-                            res.recipes.push(list);
+                            res.add_recipe(&r.name, &product, list);
                             continue;
                         }
                         // THE PLAYER IS TOLD THEIR TEXT IS BEING IGNORED. A
@@ -763,12 +769,12 @@ impl Lib {
                             choice_for(&by.choices, &setting.def_str),
                         );
                     }
-                    res.recipes.push(list);
+                    res.add_recipe(&r.name, &product, list);
                 }
                 None => match r.spec.ingredients_from {
                     Some(h) => {
                         let list = self.resolve_text_ingredients(w, &own, &mut res, prefix, r, h);
-                        res.recipes.push(list);
+                        res.add_recipe(&r.name, &product, list);
                     }
                     None => {
                         let list = self.resolve_ingredients(
@@ -778,7 +784,7 @@ impl Lib {
                             &r.name,
                             &r.spec.ingredients,
                         );
-                        res.recipes.push(list);
+                        res.add_recipe(&r.name, &product, list);
                     }
                 },
             }
@@ -1195,6 +1201,77 @@ impl Resolution {
         }
     }
 
+    /// Records one recipe's resolved ingredient list, and it is the ONLY place
+    /// that writes `recipes`: a source property in `tests::source` refuses a
+    /// bare push anywhere else.
+    ///
+    /// FOUR ARMS REACH IT AND A FIFTH WOULD. `resolve` answers a recipe's
+    /// ingredients through a dropdown's Custom arm, through a dropdown on a
+    /// preset, through `ingredients_from` and through a plain declared list; a
+    /// check written into any one of them would be missing from the other
+    /// three, and from whichever arm is added next. So the check lives here,
+    /// where the list is handed over.
+    ///
+    /// THE COMPILER DOES NOT ENFORCE THAT AND A TEST DOES. A fifth arm that
+    /// pushed onto `recipes` itself compiles, plans, and is merely silent. The
+    /// only arm the language itself catches is one that pushes NOTHING, and it
+    /// catches it at run time rather than at compile time: `plan_data` indexes
+    /// `res.recipes[i]` against `self.recipes` and a short vector panics
+    /// there. So the guard against a fifth arm going round this hand-over is
+    /// `tests::source::only_the_hand_over_writes_the_resolved_recipes`.
+    ///
+    /// THE POSITION IN THE LOG STREAM IS WHAT THE HAND-OVER POINT BUYS. The
+    /// line is evaluated on the FINAL list, so it has to come after every merge
+    /// and drop line this recipe wrote, and it has to come before the next
+    /// recipe's first line. Pushing here is exactly that, in every arm, without
+    /// any arm knowing it.
+    ///
+    /// SUBJECT IS THE DECLARED NAME, product the EMITTED one. Every other line
+    /// about a recipe's list names the recipe as the author declared it (see
+    /// `merged_opening`), and the product is a prototype name the game will
+    /// hold, so it is compared against resolved ingredient names, which are
+    /// emitted too.
+    fn add_recipe(&mut self, subject: &str, product: &str, list: Vec<ResolvedIngredient>) {
+        // EMPTY IS A RECIPE THAT DECLARES NEITHER SHAPE, which `validate`
+        // refuses before resolution runs. The guard is here so this function
+        // answers for the whole domain of its argument rather than for the
+        // domain some caller upstream happens to hold to.
+        if !product.is_empty() {
+            for ing in &list {
+                // THE KIND IS PART OF THE IDENTITY, as it is in
+                // `merge_ingredient`, where an item and a fluid of one name
+                // fall through the exhaustive match and stay two entries. A
+                // product is always an item (`recipe_proto` writes type="item"
+                // and nothing chooses otherwise), and an item and a fluid of
+                // one name genuinely coexist: base carries parameter-0 to
+                // parameter-9 as both. A fluid ingredient sharing the name is
+                // a different thing with the same label and says nothing.
+                //
+                // POSITIVE, AND NOT `is_fluid`, so it reads as the Go twin's
+                // `ing.kind != kindItem` does and so a third `Amount` variant
+                // has to be visited here rather than quietly joining the
+                // items.
+                if !matches!(ing.amount, Amount::Item(_)) || ing.name != product {
+                    continue;
+                }
+                self.logs.push(self_product_line(subject, product));
+                // AND THERE IS NO EARLY EXIT, DELIBERATELY. At most one entry
+                // can match already, by two independent guards: a declared
+                // list that a ladder collapsed is kept unique by
+                // `merge_ingredient`, and a list the player typed by the
+                // language's own "entries N and M both name" refusal, which
+                // `resolve_text_ingredients` relies on because it collects its
+                // entries without merging them. Not stopping early is what
+                // gives the kind test above a WITNESS: a list holding an item
+                // and a fluid of one name writes two lines the moment the kind
+                // is dropped from the comparison, and a `break` would hide
+                // that. If both guards ever failed, this line appearing twice
+                // is a louder symptom than a quieter one.
+            }
+        }
+        self.recipes.push(list);
+    }
+
     /// Records one player-controlled setting falling back and logs the line,
     /// unless that setting already fell back in this walk.
     fn note_fallback(&mut self, setting: &str, line: String) {
@@ -1597,6 +1674,24 @@ fn item_proto(prefix: &str, it: &ItemDecl) -> Value {
     Value::Map(pairs)
 }
 
+/// The EMITTED name of what a recipe makes: an item this plan declares
+/// (prefixed or legacy by its own declaration) or one that already exists,
+/// named verbatim because it is somebody else's and validation has probed it.
+/// Empty only for a recipe that declares neither, which `validate` refuses
+/// before resolution runs.
+///
+/// ONE HELPER RATHER THAN TWO COPIES. The prototype builder writes this name
+/// into `results` and `resolve` compares it against the resolved ingredients;
+/// two spellings of one rule would let the log line and the prototype disagree
+/// about what the recipe makes.
+fn recipe_product(prefix: &str, l: &Lib, r: &RecipeDecl) -> String {
+    if r.result.index != 0 {
+        l.items[r.result.index - 1].emitted_name(prefix)
+    } else {
+        r.spec.result_named.clone()
+    }
+}
+
 fn recipe_proto(
     prefix: &str,
     l: &Lib,
@@ -1655,14 +1750,7 @@ fn recipe_proto(
     } else {
         r.spec.result_count
     };
-    // The result is either an item this plan declares (prefixed or legacy by
-    // its own declaration) or one that already exists, named verbatim because
-    // it is somebody else's and validation has probed it.
-    let result = if r.result.index != 0 {
-        l.items[r.result.index - 1].emitted_name(prefix)
-    } else {
-        r.spec.result_named.clone()
-    };
+    let result = recipe_product(prefix, l, r);
     pairs.push(kv(
         "results",
         Value::Arr(vec![Value::Map(vec![
@@ -2860,6 +2948,34 @@ fn merged_fluid_refusal(subject: &str, name: &str, from: &str) -> String {
         "{}, and the added amount is above the fluid ceiling of 1e301{}",
         merged_opening(subject, name),
         merged_from(from)
+    )
+}
+
+/// What a recipe whose resolved list names its own product says, and it is a
+/// LOG LINE rather than a refusal.
+///
+/// THE SHAPE IS LEGAL AND THE BASE GAME SHIPS IT. MEASURED on 2.0.77 (build
+/// 84539, mac-arm64, steam), base alone: kovarex-enrichment-process takes 40
+/// uranium-235 and 5 uranium-238 and gives back 41 uranium-235 and 2
+/// uranium-238, and coal-liquefaction takes 25 heavy-oil and gives back 90. A
+/// sweep of the same dump found exactly those two among base's 217 recipes, so
+/// a library that refused this would be refusing something the game itself
+/// does.
+///
+/// IT IS NOT AN `fkrecipes: ERROR: ` LINE EITHER. That prefix belongs to a
+/// stored value the library set aside; nothing is set aside here, and the plan
+/// emits exactly what it resolved.
+///
+/// WHAT IT IS FOR IS THE SIGNAL. A player's typed text and an author's declared
+/// ladder can both land on the product, because the text world overlays the
+/// plan's own items and a ladder's last rung is whatever the author wrote. The
+/// result loads and then does nothing anybody expects: an assembler fed the
+/// recipe consumes the product to make the product, and the first one has to
+/// come from somewhere else entirely.
+fn self_product_line(subject: &str, name: &str) -> String {
+    format!(
+        "fkrecipes: {}: {} is in the list and is also what this recipe makes, so nothing can craft the first one unless something else produces it",
+        subject, name
     )
 }
 

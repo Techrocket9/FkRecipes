@@ -499,6 +499,68 @@ type resolution struct {
 	fellBack []string
 }
 
+// addRecipe records one recipe's resolved ingredient list, and it is the ONLY
+// place that writes res.recipes: a source property in source_test.go refuses a
+// bare append anywhere else.
+//
+// FOUR ARMS REACH IT AND A FIFTH WOULD. resolve answers a recipe's ingredients
+// through IngredientsFrom, through a dropdown's Custom arm, through a dropdown
+// on a preset and through a plain declared list; a check written into any one
+// of them would be missing from the other three, and from whichever arm is
+// added next. So the check lives here, where the list is handed over.
+//
+// THE COMPILER DOES NOT ENFORCE THAT AND A TEST DOES. A fifth arm that
+// appended to res.recipes itself compiles, plans, and is merely silent. The
+// only arm the language itself catches is one that adds NO entry, and it
+// catches it at run time rather than at compile time: PlanData indexes
+// res.recipes[i] against l.recipes and a short slice panics there. So the
+// guard against a fifth arm going round this hand-over is
+// TestOnlyTheHandOverWritesTheResolvedRecipes in source_test.go.
+//
+// THE POSITION IN THE LOG STREAM IS WHAT THE HAND-OVER POINT BUYS. The line is
+// evaluated on the FINAL list, so it has to come after every merge and drop
+// line this recipe wrote, and it has to come before the next recipe's first
+// line. Appending here is exactly that, in every arm, without any arm knowing
+// it.
+//
+// SUBJECT IS THE DECLARED NAME, product the EMITTED one. Every other line about
+// a recipe's list names the recipe as the author declared it (see
+// mergedOpening), and the product is a prototype name the game will hold, so it
+// is compared against resolved ingredient names, which are emitted too.
+func (r *resolution) addRecipe(subject, product string, list []resolvedIngredient) {
+	// EMPTY IS A RECIPE THAT DECLARES NEITHER SHAPE, which validate refuses
+	// before resolution runs. The guard is here so this function answers for
+	// the whole domain of its argument rather than for the domain some caller
+	// upstream happens to hold to.
+	if product != "" {
+		for _, ing := range list {
+			// THE KIND IS PART OF THE IDENTITY, exactly as it is in
+			// mergeIngredient. A product is always an item (recipeProto
+			// writes type="item" and nothing chooses otherwise), and an item
+			// and a fluid of one name genuinely coexist: base carries
+			// parameter-0 to parameter-9 as both. A fluid ingredient sharing
+			// the name is a different thing with the same label and says
+			// nothing.
+			if ing.kind != kindItem || ing.name != product {
+				continue
+			}
+			r.logs = append(r.logs, selfProductLine(subject, product))
+			// AND THERE IS NO EARLY EXIT, DELIBERATELY. At most one entry can
+			// match already, by two independent guards: a declared list that a
+			// ladder collapsed is kept unique by mergeIngredient, and a list
+			// the player typed by the language's own "entries N and M both
+			// name" refusal, which resolveIngredientsFrom relies on because it
+			// collects its entries without merging them. Not stopping early is
+			// what gives the kind test above a WITNESS: a list holding an item
+			// and a fluid of one name writes two lines the moment the kind is
+			// dropped from the comparison, and a break would hide that. If
+			// both guards ever failed, this line appearing twice is a louder
+			// symptom than a quieter one.
+		}
+	}
+	r.recipes = append(r.recipes, list)
+}
+
 // noteFallback records one player-controlled setting falling back and logs the
 // line, unless that setting already fell back in this walk.
 func (r *resolution) noteFallback(setting, line string) {
@@ -568,11 +630,17 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 		}
 		res.craftTimes = append(res.craftTimes, ct)
 
+		// The product is read ONCE per recipe, out of the same helper the
+		// prototype builder reads it out of, and handed to every arm below:
+		// four of them add a resolved list and each would otherwise have to
+		// remember to compute it. See resolution.addRecipe.
+		product := recipeProduct(prefix, l, r)
+
 		declared := r.spec.Ingredients
 		if r.spec.IngredientsFrom.index != 0 {
 			// The whole list is the player's. There is no dropdown in front of
 			// it, so the text is live whatever it says.
-			res.recipes = append(res.recipes,
+			res.addRecipe(r.name, product,
 				l.resolveIngredientsFrom(w, text, &res, prefix, r, l.settings[r.spec.IngredientsFrom.index-1]))
 			continue
 		}
@@ -582,7 +650,7 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 			if by.Custom.index != 0 {
 				custom := l.settings[by.Custom.index-1]
 				if chosen == by.customValue() {
-					res.recipes = append(res.recipes, l.resolveIngredientsFrom(w, text, &res, prefix, r, custom))
+					res.addRecipe(r.name, product, l.resolveIngredientsFrom(w, text, &res, prefix, r, custom))
 					continue
 				}
 				// BEFORE THE PRESET APPLIES, so the line reads as the reason
@@ -599,9 +667,9 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 					" ingredients name nothing this game has, so the "+setting.defStr+" ingredients apply")
 				list = l.resolveIngredients(w, &res, prefix, r.name, choiceFor(by.Choices, setting.defStr))
 			}
-			res.recipes = append(res.recipes, list)
+			res.addRecipe(r.name, product, list)
 		} else {
-			res.recipes = append(res.recipes, l.resolveIngredients(w, &res, prefix, r.name, declared))
+			res.addRecipe(r.name, product, l.resolveIngredients(w, &res, prefix, r.name, declared))
 		}
 	}
 
@@ -920,6 +988,23 @@ func itemProto(prefix string, it itemDecl) Value {
 	return Obj(append(pairs, it.spec.Extra...)...)
 }
 
+// recipeProduct is the EMITTED name of what a recipe makes: an item this plan
+// declares (prefixed or legacy by its own declaration) or one that already
+// exists, named verbatim because it is somebody else's and validation has
+// probed it. Empty only for a recipe that declares neither, which validate
+// refuses before resolution runs.
+//
+// ONE HELPER RATHER THAN TWO COPIES. The prototype builder writes this name
+// into results and resolve compares it against the resolved ingredients; two
+// spellings of one rule would let the log line and the prototype disagree about
+// what the recipe makes.
+func recipeProduct(prefix string, l *Lib, r recipeDecl) string {
+	if r.result.index != 0 {
+		return l.items[r.result.index-1].emittedName(prefix)
+	}
+	return r.spec.ResultNamed
+}
+
 func recipeProto(prefix string, l *Lib, r recipeDecl, ings []resolvedIngredient, ct craftTime, unlocked bool) Value {
 	pairs := []KV{
 		kv("type", Str("recipe")),
@@ -980,13 +1065,7 @@ func recipeProto(prefix string, l *Lib, r recipeDecl, ings []resolvedIngredient,
 	if count == 0 {
 		count = 1
 	}
-	// The result is either an item this plan declares (prefixed or legacy by
-	// its own declaration) or one that already exists, named verbatim because
-	// it is somebody else's and validation has probed it.
-	result := r.spec.ResultNamed
-	if r.result.index != 0 {
-		result = l.items[r.result.index-1].emittedName(prefix)
-	}
+	result := recipeProduct(prefix, l, r)
 	pairs = append(pairs, kv("results", Arr(Obj(
 		kv("type", Str("item")),
 		kv("name", Str(result)),
@@ -1746,6 +1825,32 @@ func mergedFluidRefusal(subject, name, from string) string {
 // whose collapse produced the second occurrence.
 func mergedFrom(from string) string {
 	return "; the ladder from " + from + " resolved onto it"
+}
+
+// selfProductLine is what a recipe whose resolved list names its own product
+// says, and it is a LOG LINE rather than a refusal.
+//
+// THE SHAPE IS LEGAL AND THE BASE GAME SHIPS IT. MEASURED on 2.0.77 (build
+// 84539, mac-arm64, steam), base alone: kovarex-enrichment-process takes 40
+// uranium-235 and 5 uranium-238 and gives back 41 uranium-235 and 2
+// uranium-238, and coal-liquefaction takes 25 heavy-oil and gives back 90. A
+// sweep of the same dump found exactly those two among base's 217 recipes, so a
+// library that refused this would be refusing something the game itself does.
+//
+// IT IS NOT AN `fkrecipes: ERROR: ` LINE EITHER. That prefix belongs to a
+// stored value the library set aside; nothing is set aside here, and the plan
+// emits exactly what it resolved.
+//
+// WHAT IT IS FOR IS THE SIGNAL. A player's typed text and an author's declared
+// ladder can both land on the product, because the text world overlays the
+// plan's own items and a ladder's last rung is whatever the author wrote. The
+// result loads and then does nothing anybody expects: an assembler fed the
+// recipe consumes the product to make the product, and the first one has to
+// come from somewhere else entirely.
+func selfProductLine(subject, name string) string {
+	return "fkrecipes: " + subject + ": " + name +
+		" is in the list and is also what this recipe makes," +
+		" so nothing can craft the first one unless something else produces it"
 }
 
 // The field names each prototype builder writes itself. A key in Extra that

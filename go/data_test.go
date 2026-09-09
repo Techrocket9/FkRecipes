@@ -325,6 +325,307 @@ func TestAMergeLandingExactlyOnItsCeilingIsAccepted(t *testing.T) {
 	})
 }
 
+// ---------------------------------------------------------------------------
+// A recipe whose resolved list names its own product.
+// ---------------------------------------------------------------------------
+
+// selfProductWant is the line under test, built the way the tests below read
+// it: one string, so a wording change is one edit here and one in data.go
+// rather than a sweep over eight literals that could drift apart.
+func selfProductWant(subject, name string) string {
+	return "log fkrecipes: " + subject + ": " + name +
+		" is in the list and is also what this recipe makes," +
+		" so nothing can craft the first one unless something else produces it"
+}
+
+// A LIST THAT NAMES THE RECIPE'S OWN PRODUCT IS ACCEPTED AND SAID OUT LOUD.
+//
+// MEASURED on 2.0.77 (build 84539, mac-arm64, steam), base alone under a
+// private user directory: kovarex-enrichment-process takes 40 uranium-235 and
+// 5 uranium-238 and gives back 41 uranium-235 and 2 uranium-238, and
+// coal-liquefaction takes 25 heavy-oil and gives back 90. A sweep of the same
+// dump for recipes naming one type and name in both ingredients and results
+// returns exactly those two of base's 217 recipes. So the shape is legal, a
+// library that refused it would be wrong, and what was missing was the signal.
+//
+// FOUR ARMS ADD A RESOLVED LIST AND ALL FOUR ARE HERE. A player's text through
+// IngredientsFrom, a player's text through a dropdown's Custom arm, an author's
+// preset behind a dropdown, and a plain declared list: the check sits in
+// resolution.addRecipe, which every one of them hands its list to, and this is
+// the witness that none of them goes round it.
+//
+// THE SUBJECT IS THE DECLARED NAME, which the first arm shows twice over: the
+// same transcript carries the "takes its ingredients from" line, and that one
+// names the EMITTED recipe. Two lines about one recipe, two different names,
+// each the one its own sentence has always used.
+func TestARecipeWhoseListNamesItsOwnProductSaysSo(t *testing.T) {
+	// IngredientsFrom: the whole list is the player's, and they typed the
+	// product. The overlay is why they could: the text world knows the names
+	// this plan is about to emit.
+	from := New()
+	axe := from.Item("steel-axe", ItemSpec{})
+	parts := from.IngredientsSetting("axe-ingredients", []Ingredient{IngredientNamed(1, "steel-plate")})
+	from.Recipe(axe, RecipeSpec{IngredientsFrom: parts})
+
+	ops, err := from.PlanData(baseWorld().
+		withSetting("steelworks-axe-ingredients", Str("1 steelworks-steel-axe, 2 iron-plate")))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: steelworks-steel-axe takes its ingredients from steelworks-axe-ingredients: 1 steelworks-steel-axe, 2 iron-plate`,
+		selfProductWant("steel-axe", "steelworks-steel-axe"),
+		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-steel-axe", enabled=true, ingredients=[{type="item", name="steelworks-steel-axe", amount=1}, {type="item", name="iron-plate", amount=2}], results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
+	})
+
+	// The dropdown's Custom arm: the same text path, reached through a
+	// dropdown the player put on custom.
+	custom := New()
+	plate := custom.Item("hardened-steel-plate", ItemSpec{})
+	style := custom.DropdownSettingNeedingLocale("style", "plain", []string{"plain", "custom"})
+	quench := custom.IngredientsSetting("quench-ingredients", []Ingredient{IngredientNamed(2, "steel-plate")})
+	custom.Recipe(plate, RecipeSpec{IngredientsBy: &IngredientChoices{
+		Setting: style,
+		Choices: []IngredientChoice{{Value: "plain", Ingredients: []Ingredient{IngredientNamed(2, "steel-plate")}}},
+		Custom:  quench,
+	}})
+
+	ops, err = custom.PlanData(baseWorld().
+		withSetting("steelworks-style", Str("custom")).
+		withSetting("steelworks-quench-ingredients", Str("3 steelworks-hardened-steel-plate")))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: steelworks-hardened-steel-plate takes its ingredients from steelworks-quench-ingredients: 3 steelworks-hardened-steel-plate`,
+		selfProductWant("hardened-steel-plate", "steelworks-hardened-steel-plate"),
+		`extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-hardened-steel-plate", enabled=true, ingredients=[{type="item", name="steelworks-hardened-steel-plate", amount=3}], results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}`,
+	})
+
+	// The dropdown on a PRESET, which is the author's own declaration and not
+	// the player's typing: nobody typed anything here.
+	preset := New()
+	plate2 := preset.Item("hardened-steel-plate", ItemSpec{})
+	grade := preset.DropdownSettingNeedingLocale("grade", "plain", []string{"plain", "recycled"})
+	preset.Recipe(plate2, RecipeSpec{IngredientsBy: &IngredientChoices{
+		Setting: grade,
+		Choices: []IngredientChoice{
+			{Value: "plain", Ingredients: []Ingredient{IngredientNamed(2, "steel-plate")}},
+			{Value: "recycled", Ingredients: []Ingredient{IngredientOf(plate2, 1), IngredientNamed(1, "steel-plate")}},
+		},
+	}})
+
+	ops, err = preset.PlanData(baseWorld().withSetting("steelworks-grade", Str("recycled")))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		selfProductWant("hardened-steel-plate", "steelworks-hardened-steel-plate"),
+		`extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-hardened-steel-plate", enabled=true, ingredients=[{type="item", name="steelworks-hardened-steel-plate", amount=1}, {type="item", name="steel-plate", amount=1}], results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}`,
+	})
+
+	// The plain declared list, with no setting anywhere near it.
+	plain := New()
+	part := plain.Item("balancer-part", ItemSpec{})
+	plain.Recipe(part, RecipeSpec{Ingredients: []Ingredient{
+		IngredientNamed(2, "iron-plate"),
+		IngredientOf(part, 1),
+	}})
+
+	ops, err = plain.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		selfProductWant("balancer-part", "steelworks-balancer-part"),
+		`extend {type="item", name="steelworks-balancer-part", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-balancer-part", enabled=true, ingredients=[{type="item", name="iron-plate", amount=2}, {type="item", name="steelworks-balancer-part", amount=1}], results=[{type="item", name="steelworks-balancer-part", amount=1}]}`,
+	})
+}
+
+// THE PRODUCT HAS TWO DECLARATION SHAPES AND BOTH ARE COMPARED. A handle names
+// an item this plan emits, so the product is that item's EMITTED name; a
+// ResultNamed names somebody else's item verbatim. The arm above covers the
+// handle; this is the other one, and without it a check reading only the
+// handle would be green.
+func TestAResultNamedProductInTheListSaysSoToo(t *testing.T) {
+	lib := New()
+	lib.Recipe(ItemRef{}, RecipeSpec{
+		Name:        "steel-refining",
+		ResultCount: 2,
+		Ingredients: []Ingredient{
+			IngredientNamed(1, "steel-plate"),
+			IngredientNamed(3, "iron-plate"),
+		},
+		ResultNamed: "steel-plate",
+	})
+
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		selfProductWant("steel-refining", "steel-plate"),
+		`extend {type="recipe", name="steelworks-steel-refining", enabled=true, ingredients=[{type="item", name="steel-plate", amount=1}, {type="item", name="iron-plate", amount=3}], results=[{type="item", name="steel-plate", amount=2}]}`,
+	})
+}
+
+// THE KIND IS PART OF THE IDENTITY HERE EXACTLY AS IT IS IN A MERGE. A product
+// is always an item: recipeProto writes type="item" and nothing chooses
+// otherwise. An INGREDIENT can be a fluid, and an item and a fluid of one name
+// genuinely coexist (base carries parameter-0 to parameter-9 as both), so a
+// fluid sharing the product's name is a different thing with the same label
+// and says nothing.
+//
+// ONE RECIPE, BOTH KINDS, ONE LINE, and this sub-case is the WITNESS the kind
+// test has: with the kind dropped from the comparison both entries match by
+// name and the line comes out twice, which is exactly what addRecipe's missing
+// early exit lets it do. The fixture answers yes to `water` as an item and as a
+// fluid at once. Base does not ship a `water` item, it ships the fluid; the
+// coexistence shape base actually ships is parameter-0 to parameter-9, cited
+// two lines above, and `water` is only the convenient name to write it with.
+func TestAFluidNamedLikeTheProductSaysNothing(t *testing.T) {
+	// The fluid alone: no line at all.
+	fluid := New()
+	fluid.Recipe(ItemRef{}, RecipeSpec{
+		Name:        "quenching",
+		Category:    "chemistry",
+		ResultNamed: "water",
+		Ingredients: []Ingredient{FluidIngredient(10, "water")},
+	})
+
+	ops, err := fluid.PlanData(baseWorld().withItem("water"))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="recipe", name="steelworks-quenching", category="chemistry", enabled=true, ingredients=[{type="fluid", name="water", amount=10}], results=[{type="item", name="water", amount=1}]}`,
+	})
+
+	// Both kinds of water in one list. The ITEM fires and the FLUID does not,
+	// so exactly one line comes out.
+	both := New()
+	both.Recipe(ItemRef{}, RecipeSpec{
+		Name:        "quenching",
+		Category:    "chemistry",
+		ResultNamed: "water",
+		Ingredients: []Ingredient{
+			FluidIngredient(10, "water"),
+			IngredientNamed(2, "water"),
+		},
+	})
+
+	ops, err = both.PlanData(baseWorld().withItem("water"))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		selfProductWant("quenching", "water"),
+		`extend {type="recipe", name="steelworks-quenching", category="chemistry", enabled=true, ingredients=[{type="fluid", name="water", amount=10}, {type="item", name="water", amount=2}], results=[{type="item", name="water", amount=1}]}`,
+	})
+}
+
+// ANTI-VACUITY. A check that fires on every recipe would pass every test
+// above; this is the one that says an ordinary recipe is silent, and the plan
+// under it is deliberately the shape a mod actually ships: a product made of
+// things that are not it.
+func TestAnOrdinaryRecipeSaysNothingAboutItsProduct(t *testing.T) {
+	lib := New()
+	axe := lib.Item("steel-axe", ItemSpec{})
+	head := lib.Item("axe-head", ItemSpec{})
+	lib.Recipe(head, RecipeSpec{Ingredients: []Ingredient{IngredientNamed(2, "steel-plate")}})
+	lib.Recipe(axe, RecipeSpec{Ingredients: []Ingredient{
+		IngredientOf(head, 1),
+		IngredientNamed(4, "steel-plate"),
+	}})
+
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
+		`extend {type="item", name="steelworks-axe-head", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-axe-head", enabled=true, ingredients=[{type="item", name="steel-plate", amount=2}], results=[{type="item", name="steelworks-axe-head", amount=1}]}`,
+		`extend {type="recipe", name="steelworks-steel-axe", enabled=true, ingredients=[{type="item", name="steelworks-axe-head", amount=1}, {type="item", name="steel-plate", amount=4}], results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
+	})
+}
+
+// THE POSITION IN THE STREAM IS CONTRACTUAL, and it is a position on both
+// sides. The line is evaluated on the FINAL list, so it comes after every merge
+// and drop line its own recipe wrote; the stream is recipes in declaration
+// order, so it comes before the next recipe's first line.
+//
+// THE FIRST RECIPE WRITES BOTH KINDS OF LINE AND THE SECOND WRITES A DROP, so
+// a check placed one step too early or one recipe too late shows up as an order
+// failure rather than as a missing line.
+func TestTheSelfProductLineSitsAfterItsOwnRecipeAndBeforeTheNext(t *testing.T) {
+	lib := New()
+	axe := lib.Item("steel-axe", ItemSpec{})
+	// Two ladders land on the product, so this recipe writes a merge line AND
+	// the self-product line, in that order. The second rung is reached
+	// because the fixture has no transport-belt.
+	lib.Recipe(ItemRef{}, RecipeSpec{
+		Name:        "steel-refining",
+		ResultNamed: "steel-plate",
+		Ingredients: []Ingredient{
+			IngredientNamed(4, "steel-plate"),
+			IngredientNamed(2, "transport-belt", "steel-plate"),
+		},
+	})
+	// The second recipe drops an ingredient, which is the line that must come
+	// after both of the first recipe's.
+	lib.Recipe(axe, RecipeSpec{Ingredients: []Ingredient{
+		IngredientNamed(1, "tungsten-plate", "titanium-plate"),
+		IngredientNamed(3, "steel-plate"),
+	}})
+
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: steel-refining: steel-plate is in the list twice after the fallbacks, so the amounts are added: 4 plus 2 is 6`,
+		selfProductWant("steel-refining", "steel-plate"),
+		`log fkrecipes: steel-axe: none of tungsten-plate, titanium-plate is present, so the ingredient is dropped`,
+		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-steel-refining", enabled=true, ingredients=[{type="item", name="steel-plate", amount=6}], results=[{type="item", name="steel-plate", amount=1}]}`,
+		`extend {type="recipe", name="steelworks-steel-axe", enabled=true, ingredients=[{type="item", name="steel-plate", amount=3}], results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
+	})
+}
+
+// THE ONE ARM THAT RESOLVES A LIST TWICE, and the line has to land after BOTH
+// resolutions rather than after the first. A dropdown on a preset whose chosen
+// plan names nothing this game has falls back to the DEFAULT option's plan,
+// which is a second resolveIngredients over the same recipe; only the second
+// list is the one the recipe is emitted with, so only the second list is the
+// one the product is compared against.
+//
+// THREE LINES IN ONE ORDER, and the whole stream is compared rather than
+// searched: the chosen plan's drop line, then the fallback line, then the
+// self-product line the default plan earned. A check that ran on the chosen
+// plan would put its line first or would say nothing at all.
+func TestThePresetFallbackResolvesTwiceAndTheLineFollowsTheSecond(t *testing.T) {
+	lib := New()
+	part := lib.Item("balancer-part", ItemSpec{})
+	grade := lib.DropdownSettingNeedingLocale("grade", "plain", []string{"plain", "exotic"})
+	lib.Recipe(part, RecipeSpec{IngredientsBy: &IngredientChoices{
+		Setting: grade,
+		Choices: []IngredientChoice{
+			// The DEFAULT plan is the one that names the product.
+			{Value: "plain", Ingredients: []Ingredient{IngredientOf(part, 1), IngredientNamed(2, "iron-plate")}},
+			// The CHOSEN plan names nothing the fixture has, so it resolves
+			// to an empty list and the default applies instead.
+			{Value: "exotic", Ingredients: []Ingredient{IngredientNamed(1, "tungsten-plate")}},
+		},
+	}})
+
+	ops, err := lib.PlanData(baseWorld().withSetting("steelworks-grade", Str("exotic")))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: balancer-part: none of tungsten-plate is present, so the ingredient is dropped`,
+		`log fkrecipes: balancer-part: the exotic ingredients name nothing this game has, so the plain ingredients apply`,
+		selfProductWant("balancer-part", "steelworks-balancer-part"),
+		`extend {type="item", name="steelworks-balancer-part", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-balancer-part", enabled=true, ingredients=[{type="item", name="steelworks-balancer-part", amount=1}, {type="item", name="iron-plate", amount=2}], results=[{type="item", name="steelworks-balancer-part", amount=1}]}`,
+	})
+}
+
 // A DUPLICATE THE AUTHOR WROTE OUT IS A DIFFERENT PROBLEM FROM A LADDER THAT
 // COLLAPSED, and it is refused rather than added up. MEASURED, and it is why:
 // a dropdown preset declared `4 iron-plate, 2 iron-plate` composed a

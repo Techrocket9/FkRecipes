@@ -242,6 +242,14 @@ fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, a
 fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, and the added amount is above the fluid ceiling of 1e301; the ladder from steam resolved onto it
 ```
 
+A resolved list may name the very item the recipe makes, and that is accepted rather than refused, because the engine itself ships recipes that consume what they make. Base has exactly two (measured on Factorio 2.0.77, base alone): `kovarex-enrichment-process`, which takes 40 `uranium-235` and gives back 41 and is the item shape, and `coal-liquefaction`, which takes 25 `heavy-oil` and gives back 90 and is the fluid shape. What this library emits is always an item, so only the item shape can arise in a plan of yours, and only that shape gets the line. The recipe is emitted as it resolved and a line records it, because a recipe that consumes its own product cannot make the first one:
+
+```
+fkrecipes: balancer-part: bbb-balancer-part is in the list and is also what this recipe makes, so nothing can craft the first one unless something else produces it
+```
+
+The check sits where every resolved list is handed over, so all four ways of naming one reach it: `Ingredients`, a dropdown preset, a dropdown's custom arm and `IngredientsFrom`. Three shapes actually produce the line. An `IngredientOf` (`Ingredient::of`) handle to the recipe's own result item is one. A list the player typed is the second, because their text is read against a world that already knows the items this plan is about to emit. The third is a ladder landing on the existing item a `ResultNamed` recipe makes, which is somebody else's item rather than one of yours. A declared ladder cannot land on an item of your own: a ladder's rungs are probed against the game as loaded and your items are not in it yet, so such a rung is simply absent and the ingredient is dropped with the ordinary drop line. The line names the recipe as you declared it and the ingredient under the name the game will hold. An ingredient that is a fluid of the product's name is a different ingredient and says nothing, because a product is always an item and the two namespaces are separate.
+
 `FluidIngredient` (`Ingredient::fluid`) is the same ladder over fluid names, with an amount that may be fractional: `fkrecipes.FluidIngredient(0.5, "water")`. A fluid is accepted only in a recipe whose category allows one. The default category, `crafting`, is the hand-crafting category and the engine refuses a fluid there (measured on Factorio 2.0.77), so a declared fluid in a recipe with no category or with `crafting` is refused at plan time with a sentence naming the recipe, the fluid and the category. Set `Category` to `crafting-with-fluid`, `chemistry` or whichever category your recipe belongs in.
 
 ### Ingredients a dropdown chooses

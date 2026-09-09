@@ -436,3 +436,214 @@ func contains(list []string, want string) bool {
 	}
 	return false
 }
+
+// ---------------------------------------------------------------------------
+// The resolved-recipes hand-over, as a source property.
+// ---------------------------------------------------------------------------
+
+// ONE DOOR INTO res.recipes, AND THIS IS WHAT KEEPS IT ONE.
+//
+// resolve answers a recipe's ingredients through four arms: IngredientsFrom, a
+// dropdown's Custom arm, a dropdown on a preset, and a plain declared list. A
+// check written into one of them is missing from three, and from whichever arm
+// is added next; resolution.addRecipe exists so there is one place that sees
+// every resolved list, and the self-product line lives there.
+//
+// A FIFTH ARM THAT APPENDS DIRECTLY WOULD PASS EVERY BEHAVIOURAL TEST, because
+// a test can only assert about the arms it happens to build a plan through. The
+// defect is a property of the source, so it is asserted over the source, and it
+// costs no toolchain at all.
+//
+// A WRITE REFERENCE TO A FIELD NAMED recipes IS THE RULE, and it needs no type
+// information to do it. Two slices in the scanned files carry that name: the
+// resolution's, which only the hand-over may write, and the Lib's, which only
+// the declaration constructor may. A third, world_test.go's w.recipes, is out
+// of scope only because packageSources drops every _test.go file, so a fixture
+// is free to keep its own.
+//
+// FIVE SHAPES, BECAUSE ONE OF THEM IS NOT ENOUGH. A plain `res.recipes = ...`
+// is the obvious write and the other four are what a refactor reaches for:
+// `resolution{recipes: lists}` builds the whole struct at the end, `&res.recipes`
+// hands the slice to a helper that appends through the pointer,
+// `res.recipes[i] = list` rewrites one list AFTER the hand-over already
+// checked it, and `for _, res.recipes = range ...` assigns on every turn.
+// Parentheses are stripped first, because gofmt keeps `(res.recipes) = ...`.
+// Each of those five was injected and watched go red; a plain READ is
+// untouched, because reading one is what the prototype loop does on every
+// plan. What is NOT covered is a write that neither assigns nor takes an
+// address, `copy(res.recipes, ...)` being the example, and that one cannot
+// grow the slice so it cannot be how a fifth arm adds a recipe.
+type recipesWriter struct {
+	// file is the base name that may write it, fn the top-level declaration
+	// inside whose body it may appear.
+	file, fn string
+	// why is the phrase the refusal ends with.
+	why string
+}
+
+var recipesWriters = []recipesWriter{
+	{
+		file: "data.go", fn: "addRecipe",
+		why: "the one hand-over every resolved list goes through, so a check written there covers every arm",
+	},
+	{
+		file: "lib.go", fn: "recipe",
+		why: "the declaration constructor, which is the plan's own list and not the resolution's",
+	},
+}
+
+func TestOnlyTheHandOverWritesTheResolvedRecipes(t *testing.T) {
+	sources := packageSources(t)
+
+	fset := token.NewFileSet()
+	// Counted, so a writer that moved or was inlined away fails here rather
+	// than leaving a row nobody reaches: a rule with a stale allowance is a
+	// rule that has stopped guarding something.
+	used := make([]int, len(recipesWriters))
+	for _, path := range sources {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("the source is the thing under test and it is not readable: %v", err)
+		}
+		file, err := parser.ParseFile(fset, path, src, 0)
+		if err != nil {
+			t.Fatalf("%s does not parse: %v", path, err)
+		}
+		base := filepath.Base(path)
+		// Declaration by declaration, because WHERE the write is written is
+		// the whole rule: a write outside every function body carries the
+		// empty enclosing name and matches no row.
+		for _, decl := range file.Decls {
+			enclosing := ""
+			if fn, ok := decl.(*ast.FuncDecl); ok {
+				enclosing = fn.Name.Name
+			}
+			for _, w := range recipesWritesIn(decl) {
+				i := recipesWriterFor(base, enclosing)
+				if i < 0 {
+					t.Errorf("%s: %s .recipes inside %s; only %s may",
+						fset.Position(w.pos), w.how, enclosingName(enclosing),
+						recipesWritersPhrase())
+					continue
+				}
+				used[i]++
+			}
+		}
+	}
+	for i, wr := range recipesWriters {
+		if used[i] != 1 {
+			t.Errorf("%s writes .recipes %d times; it is meant to write it exactly once, being %s",
+				wr.file+" inside "+wr.fn, used[i], wr.why)
+		}
+	}
+}
+
+func recipesWriterFor(file, enclosing string) int {
+	for i, wr := range recipesWriters {
+		if wr.file == file && wr.fn == enclosing {
+			return i
+		}
+	}
+	return -1
+}
+
+// recipesWrite is one write reference to a recipes field: where it is, and
+// which of the five shapes it took, because the refusal reads very differently
+// for an assignment and for an address handed to a helper.
+type recipesWrite struct {
+	pos token.Pos
+	how string
+}
+
+// recipesWritesIn walks one top-level declaration and reports every write
+// reference to a field named recipes inside it.
+func recipesWritesIn(decl ast.Decl) []recipesWrite {
+	var found []recipesWrite
+	ast.Inspect(decl, func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.AssignStmt:
+			for _, lhs := range v.Lhs {
+				if sel, ok := recipesTarget(lhs); ok {
+					found = append(found, recipesWrite{sel.Pos(), "writes"})
+				}
+			}
+		case *ast.RangeStmt:
+			// `for _, res.recipes = range xs {}` assigns on every turn, and
+			// the assignment is written nowhere a statement walk would see it.
+			for _, e := range []ast.Expr{v.Key, v.Value} {
+				if e == nil {
+					continue
+				}
+				if sel, ok := recipesTarget(e); ok {
+					found = append(found, recipesWrite{sel.Pos(), "writes"})
+				}
+			}
+		case *ast.UnaryExpr:
+			// `&res.recipes` is a write the moment somebody appends through
+			// the pointer, and the append is then in another function
+			// entirely.
+			if v.Op != token.AND {
+				return true
+			}
+			if sel, ok := recipesTarget(v.X); ok {
+				found = append(found, recipesWrite{sel.Pos(), "takes the address of"})
+			}
+		case *ast.CompositeLit:
+			// `resolution{recipes: lists}` is the shape a build-it-at-the-end
+			// refactor produces, and it never assigns to a selector at all.
+			for _, elt := range v.Elts {
+				kve, ok := elt.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				key, ok := kve.Key.(*ast.Ident)
+				if !ok || key.Name != "recipes" {
+					continue
+				}
+				found = append(found, recipesWrite{key.Pos(), "fills in"})
+			}
+		}
+		return true
+	})
+	return found
+}
+
+// recipesTarget is the selector a write lands on, with the parentheses and the
+// indexes stripped: `(res.recipes)` and `res.recipes[i]` are both writes to the
+// resolution's slice, and gofmt keeps either as written.
+func recipesTarget(e ast.Expr) (*ast.SelectorExpr, bool) {
+	for {
+		switch v := e.(type) {
+		case *ast.ParenExpr:
+			e = v.X
+		case *ast.IndexExpr:
+			e = v.X
+		default:
+			sel, ok := e.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "recipes" {
+				return nil, false
+			}
+			return sel, true
+		}
+	}
+}
+
+// enclosingName is the top-level declaration a write sits in, as a phrase: a
+// write outside every function body has no name to report.
+func enclosingName(enclosing string) string {
+	if enclosing == "" {
+		return "no function body"
+	}
+	return enclosing
+}
+
+// recipesWritersPhrase names every row WITH ITS OWN REASON, so a refusal about
+// one row cannot be handed the other row's why and reordering the table cannot
+// silently make every message wrong.
+func recipesWritersPhrase() string {
+	places := make([]string, 0, len(recipesWriters))
+	for _, wr := range recipesWriters {
+		places = append(places, wr.file+"'s "+wr.fn+" ("+wr.why+")")
+	}
+	return strings.Join(places, " and ")
+}

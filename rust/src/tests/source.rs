@@ -907,3 +907,274 @@ fn the_walk_reads_outward_facing_code_only() {
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].line, 3);
 }
+
+// ---------------------------------------------------------------------------
+// The resolved-recipes hand-over, as a source property.
+// ---------------------------------------------------------------------------
+
+/// ONE DOOR INTO `Resolution::recipes`, AND THIS IS WHAT KEEPS IT ONE.
+///
+/// `resolve` answers a recipe's ingredients through four arms: a dropdown's
+/// Custom arm, a dropdown on a preset, `ingredients_from` and a plain declared
+/// list. A check written into one of them is missing from three, and from
+/// whichever arm is added next; `Resolution::add_recipe` exists so there is one
+/// place that sees every resolved list, and the self-product line lives there.
+///
+/// A FIFTH ARM THAT PUSHED DIRECTLY WOULD PASS EVERY BEHAVIOURAL TEST, because
+/// a test can only assert about the arms it happens to build a plan through.
+/// The defect is a property of the source, so it is asserted over the source,
+/// and it costs no toolchain at all.
+///
+/// A COUNT ALONE IS NOT THE RULE, BECAUSE A COUNT ALONE IS GREEN FOR TOO MUCH.
+/// `recipes.extend(`, `recipes.append(`, `recipes.insert(`, a `&mut
+/// res.recipes` bound to a local, `Vec::push(&mut res.recipes, list)` and an
+/// accessor returning `&mut Vec<..>` all reach the vector while leaving the
+/// count at one, and every one of them compiles, passes `cargo fmt --check`
+/// and passes clippy with warnings denied. Sharpest of all is the plausible
+/// refactor: lift the push out of the hand-over into a `push_resolved` helper
+/// and let a fifth arm call the helper, and the module still carries exactly
+/// one push while `add_recipe` no longer sees every list.
+///
+/// SO THE RULE IS THREE THINGS AT ONCE. The module carries exactly one
+/// `recipes.push(`; that push sits INSIDE the body of the one function named
+/// here, brace-matched over the blanked code so a brace in a comment or a
+/// string cannot move the span; and none of the other reaches appears outside
+/// that body. Reads are untouched, because reading one is what the prototype
+/// loop does on every plan.
+///
+/// ONE SHAPE STILL ESCAPES IT, RECORDED RATHER THAN PAPERED OVER:
+/// `res = Resolution { recipes: lists, ..Default::default() }`, a wholesale
+/// reconstruction, compiles, formats, lints and leaves this green. The Go twin
+/// catches its equivalent because a composite literal with a `recipes:` key is
+/// one of its five shapes. Closing it here needs a `Resolution {` or
+/// `recipes: ` needle, and both have honest occurrences today (the return type
+/// of `Lib::resolve`, three `impl Resolution` blocks, the field declaration,
+/// and `Lib::new`'s own `recipes: Vec::new()`), so it is a false-positive
+/// trade rather than an oversight.
+struct RecipesWriter {
+    /// The module's path under `src`, so a future `src/<dir>/data.rs` is a
+    /// different module from this one rather than the same row twice.
+    module: &'static str,
+    /// The item whose body is the ONLY place in that module a push may sit.
+    func: &'static str,
+    why: &'static str,
+}
+
+const RECIPES_WRITERS: &[RecipesWriter] = &[
+    RecipesWriter {
+        module: "data.rs",
+        func: "fn add_recipe(",
+        why: "the one hand-over every resolved list goes through, so a check written there covers every arm",
+    },
+    RecipesWriter {
+        module: "plan.rs",
+        // `recipe_decl` and not `recipe`: the public `recipe` and
+        // `legacy_recipe` both hand down to it, and it is the one that pushes.
+        // The Go twin's row is lib.go's private `recipe`, which is the same
+        // function under the name that half gave it.
+        func: "fn recipe_decl(",
+        why: "the declaration constructor, which is the plan's own list and not the resolution's",
+    },
+];
+
+/// The reaches that are refused outside an allowed body. Each was injected,
+/// each left the push count at one, and each is red here.
+const REFUSED_REACHES: &[&str] = &[
+    "recipes.extend(",
+    "recipes.append(",
+    "recipes.insert(",
+    "recipes.resize(",
+    "recipes = ",
+    "&mut self.recipes",
+    "&mut res.recipes",
+    "Vec::push(&mut",
+];
+
+const NO_ROW: &str =
+    "no module but the hand-over and the declaration constructor may write a recipes vector at all";
+
+#[test]
+fn only_the_hand_over_writes_the_resolved_recipes() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+    let sources = crate_modules(&root);
+    assert!(
+        sources.len() >= 5,
+        "only {} modules found under {}; the scan would prove nothing",
+        sources.len(),
+        root.display()
+    );
+
+    let mut problems: Vec<String> = Vec::new();
+    for path in &sources {
+        let text = fs::read_to_string(path).expect("a module is not readable");
+        let code: Vec<char> = scan(&text).code.chars().collect();
+        let module = path
+            .strip_prefix(&root)
+            .expect("a module outside the tree that produced it")
+            .to_string_lossy()
+            .to_string();
+        let row = RECIPES_WRITERS.iter().find(|wr| wr.module == module);
+        let want = if row.is_some() { 1 } else { 0 };
+        let why = row.map(|wr| wr.why).unwrap_or(NO_ROW);
+
+        let pushes = needle_hits(&code, "recipes.push(");
+        if pushes.len() != want {
+            problems.push(format!(
+                "{}: pushes onto .recipes {} times at lines {:?}; it is meant to do so {} times, being {}",
+                module,
+                pushes.len(),
+                lines_of(&code, &pushes),
+                want,
+                why
+            ));
+        }
+
+        // The one body a write may sit in. A row whose function has gone is a
+        // rule with a stale allowance, which is a rule that has stopped
+        // guarding something, so it is a problem in its own right.
+        let mut span = None;
+        if let Some(wr) = row {
+            match body_span(&code, wr.func) {
+                Some(s) => span = Some(s),
+                None => problems.push(format!(
+                    "{}: has no `{}` for the writes to sit in; it is meant to hold {}",
+                    module, wr.func, wr.why
+                )),
+            }
+        }
+        let inside = |i: usize| span.is_some_and(|(from, to)| i > from && i < to);
+
+        // A module with no row has already been reported by the count above,
+        // and "outside" means nothing there: every line of it is outside.
+        if let Some(wr) = row {
+            for i in &pushes {
+                if inside(*i) {
+                    continue;
+                }
+                problems.push(format!(
+                    "{}:{}: pushes onto .recipes outside `{}`; only that body may, being {}",
+                    module,
+                    line_of(&code, *i),
+                    wr.func,
+                    wr.why
+                ));
+            }
+        }
+        for needle in REFUSED_REACHES {
+            for i in needle_hits(&code, needle) {
+                if inside(i) {
+                    continue;
+                }
+                problems.push(format!(
+                    "{}:{}: reaches a recipes vector as `{}`, which {}",
+                    module,
+                    line_of(&code, i),
+                    needle,
+                    match row {
+                        Some(wr) => alloc::format!("is outside `{}`, the only body that may", wr.func),
+                        None => String::from("no module outside the hand-over and the declaration constructor may do at all"),
+                    }
+                ));
+            }
+        }
+    }
+    assert!(
+        problems.is_empty(),
+        "a resolved list reaches Resolution::recipes without going through Resolution::add_recipe, so a check written there would not see it:\n{}",
+        problems.join("\n")
+    );
+}
+
+/// Every module of the crate itself, walked INTO subdirectories so a writer in
+/// a module added under `src/<dir>/` is scanned on the day it is written
+/// rather than never.
+///
+/// `src/tests/` is left out, and that is the one exclusion: it is the crate's
+/// own scaffolding, and its fixture world keeps a `recipes` vector of its own
+/// that it pushes onto. The Go twin makes the same exclusion when
+/// packageSources drops every `_test.go`.
+fn crate_modules(root: &std::path::Path) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    let mut stack = alloc::vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let entries =
+            fs::read_dir(&dir).expect("the source is the thing under test and it is not there");
+        for entry in entries {
+            let path = entry.expect("unreadable directory entry").path();
+            if path.is_dir() {
+                if path.file_name().and_then(|n| n.to_str()) == Some("tests") {
+                    continue;
+                }
+                stack.push(path);
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                out.push(path);
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Every char index at which `needle` occurs as a whole token: an identifier
+/// character may not abut an end that is one itself, so `sub_recipes.push(` is
+/// not `recipes.push(` and `&mut res.recipes_by_name` is not `&mut
+/// res.recipes`.
+fn needle_hits(code: &[char], needle: &str) -> Vec<usize> {
+    let n: Vec<char> = needle.chars().collect();
+    let mut out = Vec::new();
+    if code.len() < n.len() {
+        return out;
+    }
+    for i in 0..=code.len() - n.len() {
+        if code[i..i + n.len()] != n[..] {
+            continue;
+        }
+        if is_name_char(n[0]) && i > 0 && is_name_char(code[i - 1]) {
+            continue;
+        }
+        let after = code.get(i + n.len()).copied().unwrap_or(' ');
+        if is_name_char(n[n.len() - 1]) && is_name_char(after) {
+            continue;
+        }
+        out.push(i);
+    }
+    out
+}
+
+/// The half-open char range of the body of the first item written as `needle`,
+/// brace-matched over the BLANKED code so a brace inside a comment or a string
+/// literal cannot move it. `None` when the item is not there at all.
+fn body_span(code: &[char], needle: &str) -> Option<(usize, usize)> {
+    let at = *needle_hits(code, needle).first()?;
+    let mut i = at;
+    while i < code.len() && code[i] != '{' {
+        i += 1;
+    }
+    let from = i;
+    let mut depth = 0usize;
+    while i < code.len() {
+        match code[i] {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((from, i));
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// The 1-based line a char index sits on.
+fn line_of(code: &[char], i: usize) -> usize {
+    code[..i].iter().filter(|c| **c == '\n').count() + 1
+}
+
+fn lines_of(code: &[char], at: &[usize]) -> Vec<usize> {
+    at.iter().map(|i| line_of(code, *i)).collect()
+}
