@@ -268,7 +268,7 @@ What the engine does not allow is filling that text from the player's old choice
 
 Two locale entries are new: `[string-mod-setting]` for the `custom` value under the dropdown's name, and `[mod-setting-name]` and `[mod-setting-description]` for the text setting, where the description is the place to tell the player the format. `CheckLocaleWith` reports all three when they are missing. If a preset of yours is already named `custom`, give the arm another value with `CustomValue` rather than renaming the preset.
 
-One thing to check in the labels you already ship: a dropdown label such as `Default: 4 iron plates, 2 gears, 2 transport belts` speaks display names, and a player who copies it into the text field gets a refusal, because the language takes internal names. The composed description under the dropdown shows each preset in the language, so the two vocabularies sit side by side in one setting; either rewrite the labels in internal names, or keep them as they are and rely on the description, but decide it rather than discover it from a player.
+One thing to check in the labels you already ship: a dropdown label such as `Default: 4 iron plates, 2 gears, 2 transport belts` speaks display names, and a player who copies it into the text field gets your own list back with an error line in the log, because the language takes internal names. The composed description under the dropdown shows each preset in the language, so the two vocabularies sit side by side in one setting; either rewrite the labels in internal names, or keep them as they are and rely on the description, but decide it rather than discover it from a player.
 
 ```
 [string-mod-setting]

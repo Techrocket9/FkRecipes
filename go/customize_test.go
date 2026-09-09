@@ -1049,26 +1049,75 @@ func TestTextSettingThatIsNotReadable(t *testing.T) {
 	})
 }
 
-// A readable value that is not a string is REFUSED rather than degraded. The
-// engine resets a wrong-typed stored value before any stage runs (measured), so
-// this is a hand-edited file and a silent default would hide it.
-func TestTextSettingThatIsNotText(t *testing.T) {
+// A readable value that is not a string takes the author's list with ONE line
+// saying so. The engine resets a wrong-typed stored value before any stage runs
+// (measured), so this is a hand-edited file; the line is what says so, and it
+// says it without stopping the game.
+func TestTextSettingThatIsNotTextFallsBack(t *testing.T) {
 	lib, _ := rivetPlan()
 	w := customWorld().withSetting("steelworks-rivet-ingredients", Num(3))
 
-	_, err := lib.PlanData(w)
-	assertRefusal(t, err, "fkrecipes: steelworks-rivet-ingredients is not text")
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: ERROR: steelworks-rivet-ingredients is not text.` +
+			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.`,
+		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-steel-rivet-forging", enabled=true,` +
+			` ingredients=[{type="item", name="steel-plate", amount=2}, {type="item", name="iron-stick", amount=1}],` +
+			` results=[{type="item", name="steelworks-steel-rivet", amount=1}]}`,
+	})
 }
 
-// The language's own refusal is raised VERBATIM: the sentence the corpus pins
-// is the sentence the player reads, with no stage and no second prefix.
-func TestTextSettingRaisesTheLanguageRefusalVerbatim(t *testing.T) {
+// A TEXT THE LANGUAGE REFUSES LOADS THE MOD, and this is the headline of the
+// round. The player gets the author's own list, and one ERROR line carrying the
+// language's sentence VERBATIM: the setting, the entry and the problem, exactly
+// as the corpus pins it, with the shared prefix trimmed off because the line it
+// sits in already opens with one.
+//
+// MEASURED (Factorio 2.0.77, build 84539): the refusal this replaces was
+// permanent. The engine rewrites mod-settings.dat on every successful load and
+// on no failed one, the client's error dialog cannot reach the Mod Settings
+// screen, and disabling the mod does not drop its stored settings. See
+// playerFallback.
+func TestTextSettingFallsBackOnTheLanguageRefusal(t *testing.T) {
 	lib, _ := rivetPlan()
 	w := customWorld().withSetting("steelworks-rivet-ingredients", Str("2 iron-plate, 1 unobtanium"))
 
-	_, err := lib.PlanData(w)
-	assertRefusal(t, err,
-		`fkrecipes: steelworks-rivet-ingredients, entry 2 ("1 unobtanium"): no item or fluid is named unobtanium`)
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: ERROR: steelworks-rivet-ingredients, entry 2 ("1 unobtanium"): no item or fluid is named unobtanium.` +
+			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.`,
+		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-steel-rivet-forging", enabled=true,` +
+			` ingredients=[{type="item", name="steel-plate", amount=2}, {type="item", name="iron-stick", amount=1}],` +
+			` results=[{type="item", name="steelworks-steel-rivet", amount=1}]}`,
+	})
+}
+
+// THE AUTHOR'S DECLARED LADDERS ARE WHAT THE FALLBACK LANDS ON, drops and all.
+// A refused text is not a text at all as far as the rest of the walk is
+// concerned: it takes the same path the reserved word takes, so the modpack
+// tolerance the author wrote still applies and its drop lines still print.
+func TestRefusedTextFallsBackOntoTheDeclaredLadders(t *testing.T) {
+	lib, _ := rivetPlan()
+	w := customWorld().withoutItem("iron-stick").
+		withSetting("steelworks-rivet-ingredients", Str("2 unobtanium"))
+
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: ERROR: steelworks-rivet-ingredients, entry 1 ("2 unobtanium"): no item or fluid is named unobtanium.` +
+			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.`,
+		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-steel-rivet-forging", enabled=true,` +
+			` ingredients=[{type="item", name="steel-plate", amount=2}, {type="item", name="iron-plate", amount=1}],` +
+			` results=[{type="item", name="steelworks-steel-rivet", amount=1}]}`,
+	})
 }
 
 // A TEXT MAY NAME THIS PLAN'S OWN ITEMS, and it has to: the setting's composed
@@ -1106,9 +1155,21 @@ func TestTextSettingSuggestsThePlansOwnItem(t *testing.T) {
 	lib, _ := ownItemPlan()
 	w := customWorld().withSetting("steelworks-axe-ingredients", Str("3 Steelworks_Steel_Rivet"))
 
-	_, err := lib.PlanData(w)
-	assertRefusal(t, err, `fkrecipes: steelworks-axe-ingredients, entry 1 ("3 Steelworks_Steel_Rivet"):`+
-		` no item or fluid is named Steelworks_Steel_Rivet; did you mean steelworks-steel-rivet`)
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	// THE SUGGESTION SURVIVES THE FALLBACK, which is the whole value of it: the
+	// line the player reads still names the name that is really there.
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: ERROR: steelworks-axe-ingredients, entry 1 ("3 Steelworks_Steel_Rivet"):` +
+			` no item or fluid is named Steelworks_Steel_Rivet; did you mean steelworks-steel-rivet.` +
+			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.`,
+		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
+		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-steel-axe-forging", enabled=true,` +
+			` ingredients=[{type="item", name="steelworks-steel-rivet", amount=2}, {type="item", name="iron-plate", amount=1}],` +
+			` results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
+	})
 }
 
 // A PACK LIST IS NOT WIDENED BY THE OVERLAY. This plan's own item is an item
@@ -1123,9 +1184,21 @@ func TestPackTextNamingAPlanItemIsToldItIsAnItem(t *testing.T) {
 	lib.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds}})
 	w := customWorld().withSetting("steelworks-axe-packs", Str("1 steelworks-steel-rivet"))
 
-	_, err := lib.PlanData(w)
-	assertRefusal(t, err, `fkrecipes: steelworks-axe-packs, entry 1 ("1 steelworks-steel-rivet"):`+
-		` steelworks-steel-rivet is an item, not a science pack`)
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: the setting steelworks-axe-count was not readable, so its default applies`,
+		`log fkrecipes: the setting steelworks-axe-seconds was not readable, so its default applies`,
+		`log fkrecipes: ERROR: steelworks-axe-packs, entry 1 ("1 steelworks-steel-rivet"):` +
+			` steelworks-steel-rivet is an item, not a science pack.` +
+			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.`,
+		`log fkrecipes: steelworks-steel-axes takes its research cost from steelworks-axe-packs:` +
+			` count 20, time 10, packs 1 automation-science-pack`,
+		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
+		`extend {type="technology", name="steelworks-steel-axes",` +
+			` unit={count=20, time=10, ingredients=[["automation-science-pack", 1]]}}`,
+	})
 }
 
 // THE DECLARED PATH IS UNCHANGED BY THE OVERLAY. The word default takes the
@@ -1215,6 +1288,30 @@ func TestCustomArmSaysWhenAnEditedTextIsIgnored(t *testing.T) {
 	w := customWorld().
 		withSetting("steelworks-quench-medium", Str("oil")).
 		withSetting("steelworks-quench-ingredients", Str("4 iron-plate"))
+
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: steelworks-quench-ingredients is edited, but steelworks-quench-medium is not on custom, so the text is ignored`,
+		`extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-plate-quenching", category="chemistry", enabled=true,` +
+			` ingredients=[{type="item", name="copper-plate", amount=1}],` +
+			` results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}`,
+	})
+}
+
+// A TEXT THE LANGUAGE REFUSES, BEHIND A PRESET, IS STILL ONLY AN EDIT. It gets
+// the ignored line and NOT the ERROR line, because nothing read it for real:
+// the dropdown beside it is on a preset, so the text is not the recipe's list
+// and there is no default for it to have fallen back to. Telling the player to
+// go and fix a field the mod is not using would send them after the wrong
+// thing.
+func TestARefusedTextBehindAPresetGetsTheIgnoredLineAndNotTheErrorLine(t *testing.T) {
+	lib := customArmPlan()
+	w := customWorld().
+		withSetting("steelworks-quench-medium", Str("oil")).
+		withSetting("steelworks-quench-ingredients", Str("4 unobtanium"))
 
 	ops, err := lib.PlanData(w)
 	assertNoError(t, err)
@@ -1508,11 +1605,17 @@ func TestCustomResearchCostRefusesWhenEveryDeclaredPackDrops(t *testing.T) {
 }
 
 // A NUMBER A World CAN ANSWER AND THE ENGINE CANNOT TAKE. The declared minima
-// and the engine's own reset rule keep a player from producing one of these,
-// and a World is an interface: a NaN used to reach the amount formatter and
-// trap, and an infinity used to be rendered into the unit. The sentence names
-// the SETTING, because that is the field somebody would go and fix.
-func TestCustomResearchCostRefusesANumberTheEngineWouldNotTake(t *testing.T) {
+// and the engine's own reset rule keep a player from producing one of these
+// through the settings screen, and a World is an interface: a NaN used to reach
+// the amount formatter and trap, and an infinity used to be rendered into the
+// unit.
+//
+// A NUMBER IS A FIELD THE PLAYER OWNS, so it falls back to the setting's
+// DECLARED DEFAULT with one line rather than stopping the load, exactly as the
+// pack text beside it does. The line names the SETTING, because that is the
+// field somebody would go and fix, and the unit that comes out is the declared
+// one: count 20, time 10.
+func TestCustomResearchCostFallsBackOnANumberTheEngineWouldNotTake(t *testing.T) {
 	cases := []struct {
 		name  string
 		count Value
@@ -1523,27 +1626,28 @@ func TestCustomResearchCostRefusesANumberTheEngineWouldNotTake(t *testing.T) {
 			name:  "a count that is not a finite number",
 			count: Num(nan()),
 			time:  Num(10),
-			want:  "fkrecipes: steelworks-chain-count holds a value that is not a finite number",
+			want:  "steelworks-chain-count holds a value that is not a finite number",
 		},
 		{
 			name:  "a time that is not a finite number",
 			count: Num(20),
 			time:  Num(math.Inf(1)),
-			want:  "fkrecipes: steelworks-chain-seconds holds a value that is not a finite number",
+			want:  "steelworks-chain-seconds holds a value that is not a finite number",
 		},
 		{
-			// Finiteness is asked first, so this arm is only ever reached by a
-			// real number: a NaN is not below 1 and would have gone through.
+			// Finiteness is asked first within each number, so this arm is
+			// only ever reached by a real number: a NaN is not below 1 and
+			// would have gone through.
 			name:  "a count below 1",
 			count: Num(0),
 			time:  Num(10),
-			want:  "fkrecipes: steelworks-chain-count holds a research count below 1",
+			want:  "steelworks-chain-count holds a research count below 1",
 		},
 		{
 			name:  "a time at or below zero",
 			count: Num(20),
 			time:  Num(0),
-			want:  "fkrecipes: steelworks-chain-seconds holds a research time at or below zero",
+			want:  "steelworks-chain-seconds holds a research time at or below zero",
 		},
 	}
 	for _, c := range cases {
@@ -1553,10 +1657,86 @@ func TestCustomResearchCostRefusesANumberTheEngineWouldNotTake(t *testing.T) {
 				withSetting("steelworks-chain-seconds", c.time).
 				withSetting("steelworks-chain-packs", Str("1 automation-science-pack"))
 
-			_, err := chainPlan().PlanData(w)
-			assertRefusal(t, err, c.want)
+			ops, err := chainPlan().PlanData(w)
+			assertNoError(t, err)
+
+			assertLines(t, transcript(ops), []string{
+				`log fkrecipes: ERROR: ` + c.want +
+					`. The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.`,
+				`log fkrecipes: steelworks-chain-forging takes its research cost from steelworks-chain-packs:` +
+					` count 20, time 10, packs 1 automation-science-pack`,
+				`extend {type="technology", name="steelworks-chain-forging", prerequisites=["steel-processing"],` +
+					` unit={count=20, time=10, ingredients=[["automation-science-pack", 1]]}}`,
+			})
 		})
 	}
+}
+
+// AND THE DECLARED DEFAULT THE FALLBACK LANDS ON IS STILL HELD TO THE ENGINE'S
+// RULE, which is the author's half of the same pair.
+//
+// validateSettings refuses a default outside its setting's own bounds at the
+// SETTINGS stage, and the engine runs that stage before the data stage, so this
+// world exists only for a host test that calls PlanData on its own. It is a
+// refusal because a declaration is not a typed value, and it is what keeps the
+// invariant that no unit this library emits carries a count the engine refuses.
+func TestCustomResearchCostRefusesADeclaredDefaultTheEngineWouldNotTake(t *testing.T) {
+	plan := func() *Lib {
+		lib := New()
+		packs := lib.PacksSetting("chain-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+		// A minimum of 1, which validateCustomCost demands, beside a declared
+		// default of 0, which validateSettings refuses at the settings stage.
+		count := lib.IntSetting("chain-count", 0, NumericSpec{HasMin: true, Min: 1})
+		seconds := lib.DoubleSetting("chain-seconds", 10, Between(0.5, 600))
+		lib.Technology("chain-forging", TechSpec{
+			CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
+		})
+		return lib
+	}
+	// The settings stage is where this belongs, and it says so.
+	_, err := plan().PlanSettings(settingsWorld())
+	assertRefusal(t, err, "fkrecipes: the numeric setting chain-count declares a default outside its own minimum and maximum")
+
+	// And the data stage, reached on its own, refuses rather than emitting a
+	// unit the engine would not take. The stored value falls back first, and
+	// the sentence is about the DECLARED default it fell back onto: the NaN the
+	// setting answered is gone, and the 0 the plan wrote is what is left. The
+	// note is the player's half of the same refusal, because a stored value WAS
+	// set aside on the way here.
+	w := customWorld().
+		withSetting("steelworks-chain-count", Num(nan())).
+		withSetting("steelworks-chain-seconds", Num(10)).
+		withSetting("steelworks-chain-packs", Str("1 automation-science-pack"))
+
+	_, err = plan().PlanData(w)
+	assertRefusal(t, err, "fkrecipes: steelworks-chain-count declares a default research count below 1"+
+		". The stored value of steelworks-chain-count could not be used, so the mod's own declaration applied;"+
+		" correcting it under Settings > Mod settings > Startup is what a player can change here.")
+}
+
+// TWO DECLARED DEFAULTS WRONG AT ONCE, AND THE COUNT IS THE ONE THAT ANSWERS.
+//
+// THIS IS THE ONLY WITNESS TO THAT ORDER. refuseCostNumbers walks the count and
+// then the seconds and keeps the first answer; every other test declares at
+// most one bad default, so swapping its two arms changed no sentence anywhere
+// and the order was free to drift between the halves. A world wrong in both
+// places is what pins it.
+//
+// NOTHING IS TYPED HERE, so the refusal carries no fallback note: both numbers
+// ARE the declared defaults rather than values something fell back onto.
+func TestRefusedCostNumbersAnswerTheCountBeforeTheSeconds(t *testing.T) {
+	lib := New()
+	packs := lib.PacksSetting("chain-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+	// Both outside what the engine takes, and both refused by validateSettings
+	// at the settings stage: PlanData reaches them only on its own.
+	count := lib.IntSetting("chain-count", 0, NumericSpec{HasMin: true, Min: 1})
+	seconds := lib.DoubleSetting("chain-seconds", 0, NumericSpec{HasMin: true, Min: 0.5})
+	lib.Technology("chain-forging", TechSpec{
+		CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
+	})
+
+	_, err := lib.PlanData(customWorld())
+	assertRefusal(t, err, "fkrecipes: steelworks-chain-count declares a default research count below 1")
 }
 
 // CostFrom is placed by the ORDINARY placement fields, and they degrade the
@@ -1808,13 +1988,15 @@ func TestCustomCostArmOnAPresetIsQuietWhenTheWorldAnswersBesideAbsent(t *testing
 	})
 }
 
-// A STORED NaN IS AN EDIT UNDER A PRESET AND A REFUSAL ON CUSTOM, and the two
+// A STORED NaN IS AN EDIT UNDER A PRESET AND A FALLBACK ON CUSTOM, and the two
 // halves are deliberate rather than an accident of NaN comparing false against
 // everything. A stored value that is not the default is something the player
-// did, so under a preset it draws the line naming the field they can go and
-// put back; on the custom value the same number is read for real, and it is
-// refused by the name of the setting holding it.
-func TestCustomCostArmNaNIsAnEditUnderAPresetAndARefusalOnCustom(t *testing.T) {
+// did, so under a preset it draws the ignored line naming the field they can go
+// and put back; on the custom value the same number is read for real, cannot be
+// used, and takes the declared default with the ERROR line naming the setting
+// that holds it. Two different lines, because the two say different things: one
+// is "your edit is not live", the other is "your edit is not usable".
+func TestCustomCostArmNaNIsAnEditUnderAPresetAndAFallbackOnCustom(t *testing.T) {
 	preset := customWorld().
 		withSetting("steelworks-tips-tier", Str("cheap")).
 		withSetting("steelworks-tips-count", Num(math.NaN()))
@@ -1834,42 +2016,58 @@ func TestCustomCostArmNaNIsAnEditUnderAPresetAndARefusalOnCustom(t *testing.T) {
 		withSetting("steelworks-tips-seconds", Num(20)).
 		withSetting("steelworks-tips-packs", Str("1 automation-science-pack"))
 
-	_, err = tipsPlan().PlanData(custom)
-	assertRefusal(t, err, "fkrecipes: steelworks-tips-count holds a value that is not a finite number")
+	ops, err = tipsPlan().PlanData(custom)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: ERROR: steelworks-tips-count holds a value that is not a finite number.` +
+			` The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.`,
+		`log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs:` +
+			` count 30, time 20, packs 1 automation-science-pack`,
+		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-3"],` +
+			` unit={count=30, time=20, ingredients=[["automation-science-pack", 1]]}}`,
+	})
 }
 
-// ON THE CUSTOM ARM THE PACK TEXT ANSWERS BEFORE THE TWO NUMBERS. The count
-// and the seconds here are both below what the engine takes and the text names
-// a pack no game has, and the text's refusal is the one raised: the numbers are
-// checked after the pack text resolves, so the player is answered about the
-// field they typed into rather than about two sliders they may never have
-// moved.
+// ALL THREE FIELDS WRONG AT ONCE, AND ALL THREE ANSWERED. The count and the
+// seconds are both below what the engine takes and the text names a pack no
+// game has, so a player who got everything wrong is told about everything:
+// three lines, then the cost the mod declared.
 //
-// AND BEHIND THE TEXT, FINITENESS ANSWERS BEFORE EITHER FLOOR, both numbers
-// before both floors. A count of 0 is merely too small and a seconds of NaN is
-// a value no arithmetic can use, so the seconds are what the player is told
-// about; the floors are the questions a finite number can be asked, and asking
-// one of them first would answer a world that holds a NaN by the field beside
-// it. The Rust half pins the same world in its own pack text test; this is that
-// world written here, so the sub ordering cannot drift between the halves.
-func TestCustomCostArmRefusesTheTextBeforeTheNumbers(t *testing.T) {
+// THE ORDER IS THE ORDER THE VALUES ARE READ, count then seconds then the pack
+// text, which is also the order the cost line names them. This used to be the
+// place the two halves fixed which SINGLE refusal came out of a world with more
+// than one problem; with a line per field there is nothing to choose between,
+// and the ordering that is left is the walk's own.
+//
+// THE STORED VALUES ARE THE RUST HALF'S, BYTE FOR BYTE: the same pack text, the
+// same count, the same seconds, so the three sentences are the same three
+// sentences. The two plans behind them are not identical (that one's dropdown
+// is named tips-research-tier and it declares two packs), which is why the cost
+// line and the unit differ; what a parity pin has to hold still is the input
+// and the wording, and those are what match.
+func TestCustomCostArmFallsBackOnTheTextAndBothNumbers(t *testing.T) {
 	w := customWorld().
 		withSetting("steelworks-tips-tier", Str("custom")).
 		withSetting("steelworks-tips-count", Num(0)).
-		withSetting("steelworks-tips-seconds", Num(0)).
+		withSetting("steelworks-tips-seconds", Num(math.NaN())).
 		withSetting("steelworks-tips-packs", Str("2 unobtainium"))
 
-	_, err := tipsPlan().PlanData(w)
-	assertRefusal(t, err, `fkrecipes: steelworks-tips-packs, entry 1 ("2 unobtainium"): no science pack is named unobtainium`)
+	ops, err := tipsPlan().PlanData(w)
+	assertNoError(t, err)
 
-	readable := customWorld().
-		withSetting("steelworks-tips-tier", Str("custom")).
-		withSetting("steelworks-tips-count", Num(0)).
-		withSetting("steelworks-tips-seconds", Num(math.NaN())).
-		withSetting("steelworks-tips-packs", Str("1 automation-science-pack"))
-
-	_, err = tipsPlan().PlanData(readable)
-	assertRefusal(t, err, "fkrecipes: steelworks-tips-seconds holds a value that is not a finite number")
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: ERROR: steelworks-tips-count holds a research count below 1.` +
+			` The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.`,
+		`log fkrecipes: ERROR: steelworks-tips-seconds holds a value that is not a finite number.` +
+			` The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.`,
+		`log fkrecipes: ERROR: steelworks-tips-packs, entry 1 ("2 unobtainium"): no science pack is named unobtainium.` +
+			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.`,
+		`log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs:` +
+			` count 30, time 15, packs 1 automation-science-pack`,
+		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-3"],` +
+			` unit={count=30, time=15, ingredients=[["automation-science-pack", 1]]}}`,
+	})
 }
 
 // A custom research cost is a price this plan wrote, so it carries no level cap
@@ -1998,14 +2196,23 @@ func TestSettingsPlanDoesNotRenderAnUnvalidatedChoice(t *testing.T) {
 	assertRefusal(t, err, "fkrecipes: the recipe steel-axe names both Ingredients and IngredientsBy; pick one")
 }
 
-// THE THREE REFUSAL CHANNELS IN ORDER, over one plan that has all three
-// problems at once. The language's own refusal is first, because a text the
-// player typed is the thing they can act on and it was found earliest in the
-// walk; then the crafting-time floor, which is about a number the mod is bound
-// to; then the science packs this game does not have, which is about the
-// modpack. Each case repairs the one above it, so the next channel is the one
-// that answers.
-func TestRefusalChannelOrder(t *testing.T) {
+// THE TWO SIDES, OVER ONE PLAN THAT IS WRONG ON BOTH AT ONCE. The player's text
+// names nothing the game has and the player's crafting time is at the engine
+// floor; the mod is priced in a science pack this game does not carry. Neither
+// player field stops the load: both fall back to what the author declared and
+// both say so, in the walk's own order (the crafting time is read before the
+// ingredients). What stops the load is the pack, which is the author's own
+// declaration against the modpack.
+//
+// THIS IS THE SEPARATION WRITTEN AS ONE TEST, and the claim it holds is the
+// narrow one: a value the player TYPED never introduces a refusal that a player
+// who never typed would not also have hit. It is not "a player can never be
+// refused". The same modpack refuses the same plan with the fields untouched,
+// which is the third world below, and the only difference the typing makes is
+// the added sentence: the log ops never reach the host on a refused load, so
+// the refusal itself is the only place left to say that a stored value was set
+// aside. See resolution.withFallbackNote.
+func TestPlayerFieldsFallBackWhileTheAuthorChannelStillRefuses(t *testing.T) {
 	plan := func() *Lib {
 		lib := New()
 		axe := lib.Item("steel-axe", ItemSpec{})
@@ -2024,39 +2231,98 @@ func TestRefusalChannelOrder(t *testing.T) {
 		return lib
 	}
 
+	w := customWorld().withoutTool("military-science-pack").
+		withSetting("steelworks-axe-ingredients", Str("2 unobtanium")).
+		withSetting("steelworks-forging-time", Num(0))
+
+	_, err := plan().PlanData(w)
+	assertRefusal(t, err, "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one"+
+		". The stored value of steelworks-forging-time could not be used, so the mod's own declaration applied;"+
+		" correcting it under Settings > Mod settings > Startup is what a player can change here.")
+
+	// AND THE SAME REFUSAL WITH NOTHING TYPED, which is what makes the note a
+	// fact about this player rather than boilerplate: a player who never opened
+	// the settings screen meets the identical modpack problem, and is told only
+	// about the mod. The note names the crafting time rather than the text
+	// because the crafting time is read first; the pair is the walk's order,
+	// which is the same every run.
+	_, err = plan().PlanData(customWorld().withoutTool("military-science-pack"))
+	assertRefusal(t, err, "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one")
+
+	// The same plan with the pack put back loads, and the two player fields are
+	// the whole log: the declared list, the declared crafting time, two lines.
+	ok := customWorld().
+		withSetting("steelworks-axe-ingredients", Str("2 unobtanium")).
+		withSetting("steelworks-forging-time", Num(0))
+
+	ops, err := plan().PlanData(ok)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: ERROR: the recipe steel-axe-forging reads its crafting time from steelworks-forging-time,` +
+			` which answers at or below the engine floor (energy_required can't be <= 0.001).` +
+			` The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.`,
+		`log fkrecipes: ERROR: steelworks-axe-ingredients, entry 1 ("2 unobtanium"): no item or fluid is named unobtanium.` +
+			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.`,
+		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-steel-axe-forging", energy_required=3, enabled=true,` +
+			` ingredients=[{type="item", name="steel-plate", amount=1}],` +
+			` results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
+		`extend {type="technology", name="steelworks-steel-axes",` +
+			` unit={count=1, time=1, ingredients=[["military-science-pack", 1]]}}`,
+	})
+}
+
+// AND THE CHANNELS THAT ARE LEFT KEEP THEIR ORDER. A dropdown holding a value
+// it does not offer is carried out of the walk and answered before the packs,
+// which is the same "carried refusal first" rule the merged-amount ceiling
+// rides on. Both are hand-edited files or author declarations, never a player's
+// typing.
+func TestRefusalChannelOrder(t *testing.T) {
+	plan := func() *Lib {
+		lib := New()
+		axe := lib.Item("steel-axe", ItemSpec{})
+		style := lib.DropdownSettingNeedingLocale("axe-style", "plain", []string{"plain", "fancy"})
+		lib.Recipe(axe, RecipeSpec{
+			Name: "steel-axe-forging",
+			IngredientsBy: &IngredientChoices{
+				Setting: style,
+				Choices: []IngredientChoice{
+					{Value: "plain", Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")}},
+					{Value: "fancy", Ingredients: []Ingredient{IngredientNamed(2, "steel-plate")}},
+				},
+			},
+		})
+		lib.Technology("steel-axes", TechSpec{Unit: &UnitSpec{
+			Count:   1,
+			Seconds: 1,
+			Packs:   []Pack{{Name: "military-science-pack", Amount: 1}},
+		}})
+		return lib
+	}
+
 	cases := []struct {
-		name string
-		text string
-		time float64
-		want string
+		name  string
+		style string
+		want  string
 	}{
 		{
-			name: "the language answers first",
-			text: "2 unobtanium",
-			time: 0,
-			want: `fkrecipes: steelworks-axe-ingredients, entry 1 ("2 unobtanium"): no item or fluid is named unobtanium`,
+			name:  "the carried refusal answers first",
+			style: "gilded",
+			want:  `fkrecipes: steelworks-axe-style holds "gilded", which is not one of its values`,
 		},
 		{
-			name: "then the crafting time",
-			text: "2 steel-plate",
-			time: 0,
-			want: "fkrecipes: the recipe steel-axe-forging reads its crafting time from steelworks-forging-time," +
-				" which answers at or below the engine floor (energy_required can't be <= 0.001)",
-		},
-		{
-			name: "then the packs the game does not have",
-			text: "2 steel-plate",
-			time: 2,
-			want: "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one",
+			name:  "then the packs the game does not have",
+			style: "fancy",
+			want:  "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one",
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			// The pack is absent in every case, so the third channel is armed
-			// throughout and only the two in front of it are repaired.
+			// The pack is absent in both cases, so the second channel is armed
+			// throughout and only the one in front of it is repaired.
 			w := customWorld().withoutTool("military-science-pack").
-				withSetting("steelworks-axe-ingredients", Str(c.text)).
-				withSetting("steelworks-forging-time", Num(c.time))
+				withSetting("steelworks-axe-style", Str(c.style))
 
 			_, err := plan().PlanData(w)
 			assertRefusal(t, err, c.want)
@@ -2300,6 +2566,78 @@ func TestTheConstructorsInstallTheLanguage(t *testing.T) {
 	}
 	if _, err := lib.PlanData(customWorld()); err != nil {
 		t.Errorf("the data plan refused a plan built through the constructors: %v", err)
+	}
+}
+
+// EVERY SENTENCE THIS LAYER BUILDS OPENS WITH THE SHARED PREFIX, EXACTLY ONCE,
+// and this is the half of that property which is not the corpus.
+//
+// WHAT EACH ASSERTION CATCHES, because the two are about different failures and
+// neither is "the line looks wrong". strings.TrimPrefix is unconditional, so a
+// sentence that forgot the prefix produces a perfectly well formed line; what
+// it breaks is the sentence's OTHER use, as a refusal raised on its own, where
+// a message with no library name on it is one nobody can trace. That is the
+// HasPrefix assertion. The second assertion is the opposite mistake: a sentence
+// that carries the prefix TWICE survives a single trim and reaches the player
+// as "fkrecipes: ERROR: fkrecipes: ...".
+//
+// EVERY PRODUCER IS HERE BECAUSE EVERY ONE IS A FUNCTION, and the faults are
+// taken from the fault functions rather than written down, so a rule a number
+// can fail with no sentence behind it comes out as an empty string and fails
+// the first assertion. A sentence spelled inline at a call site would be one
+// this test cannot see, and the reviews would have to catch it instead.
+func TestFallbackSentencesCarryThePrefix(t *testing.T) {
+	sentences := []struct {
+		name string
+		text string
+	}{
+		{"not text", notTextSentence("mymod-parts")},
+		{"a stored count that is not finite", storedNumberProblem("mymod-count", countFault(nan()))},
+		{"a stored count below 1", storedNumberProblem("mymod-count", countFault(0))},
+		{"a stored time that is not finite", storedNumberProblem("mymod-seconds", secondsFault(nan()))},
+		{"a stored time at or below zero", storedNumberProblem("mymod-seconds", secondsFault(0))},
+		{"a declared count that is not finite", declaredNumberProblem("mymod-count", countFault(nan()))},
+		{"a declared count below 1", declaredNumberProblem("mymod-count", countFault(0))},
+		{"a declared time that is not finite", declaredNumberProblem("mymod-seconds", secondsFault(nan()))},
+		{"a declared time at or below zero", declaredNumberProblem("mymod-seconds", secondsFault(0))},
+		{"a stored crafting time that is not finite", storedCraftTimeProblem("axe", "mymod-craft-time", craftTimeFault(nan()))},
+		{"a stored crafting time at the floor", storedCraftTimeProblem("axe", "mymod-craft-time", craftTimeFault(0))},
+		{"a declared crafting time that is not finite", declaredCraftTimeProblem("axe", "mymod-craft-time", craftTimeFault(nan()))},
+		{"a declared crafting time at the floor", declaredCraftTimeProblem("axe", "mymod-craft-time", craftTimeFault(0))},
+	}
+	for _, s := range sentences {
+		t.Run(s.name, func(t *testing.T) {
+			if !strings.HasPrefix(s.text, messagePrefix) {
+				t.Fatalf("a sentence the fallback composer quotes does not open with %q: %s", messagePrefix, s.text)
+			}
+			line := playerFallback(s.text, "text")
+			if strings.Contains(line, messagePrefix+"ERROR: "+messagePrefix) {
+				t.Errorf("the prefix was not stripped, so the line carries it twice: %s", line)
+			}
+		})
+	}
+}
+
+// AND THE TWO FIELD WORDS ARE THE WHOLE SHAPE OF A LINE, written out once so
+// the sentence itself is pinned here as well as inside every transcript that
+// carries one.
+func TestPlayerFallbackLineShape(t *testing.T) {
+	got := playerFallback("fkrecipes: mymod-parts is not text", "text")
+	want := "fkrecipes: ERROR: mymod-parts is not text." +
+		" The mod loaded with its own default instead;" +
+		" fix the text under Settings > Mod settings > Startup, then restart."
+	if got != want {
+		t.Errorf("\n got: %s\nwant: %s", got, want)
+	}
+	got = numberFallback("fkrecipes: mymod-count holds a research count below 1")
+	want = "fkrecipes: ERROR: mymod-count holds a research count below 1." +
+		" The mod loaded with its own default instead;" +
+		" fix the number under Settings > Mod settings > Startup, then restart."
+	if got != want {
+		t.Errorf("\n got: %s\nwant: %s", got, want)
+	}
+	if textFallback("fkrecipes: mymod-parts is not text") != playerFallback("fkrecipes: mymod-parts is not text", "text") {
+		t.Error("textFallback and playerFallback disagree about the field word")
 	}
 }
 

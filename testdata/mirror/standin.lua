@@ -356,7 +356,9 @@ print("--- DATA ---")
 -- EVERY TEXT HERE IS AN EDITED ONE, never the reserved word default: the
 -- in-game gate's default row already covers what default means, and a text
 -- equal to it takes the author's declared list and leaves no line behind. What
--- this table is for is the other side of every one of those branches.
+-- this table is for is the other side of every one of those branches, and one
+-- of them is a text the language REFUSES: that is a log line and the author's
+-- own list rather than a load failure, and the composed line is pinned here.
 settings = { startup = {
   ["fkrecipes-example-hardened-tools"] = { value = false },
   ["fkrecipes-example-forging-time"] = { value = 7.5 },
@@ -382,29 +384,45 @@ settings = { startup = {
   -- Above the declared minimum of 0.5, so it is the value the player chose
   -- that reaches the recipe rather than any bound.
   ["fkrecipes-example-tempering-hold"] = { value = 4 },
-  -- THE WHOLE LIST OF ONE RECIPE, written by the player into a setting with no
-  -- dropdown in front of it, in two of the forms the language accepts that a
-  -- mod author would never write: a glued sign and a rich-text tag. The
-  -- canonical rendering in the log line is what says both were understood.
-  ["fkrecipes-example-rivet-ingredients"] = { value = "3 steel-plate, [item=iron-stick] x2" },
+  -- A TEXT THE LANGUAGE REFUSES, in a setting with no dropdown in front of it,
+  -- and this is where the composed ERROR line is pinned byte for byte across
+  -- the two halves: the language's own sentence, the shared prefix trimmed off
+  -- it, and the instruction that names the screen the player fixes it on. The
+  -- list that reaches the recipe is the mod's OWN declared one, which is what
+  -- "loaded with its own default instead" means in the prototype rather than
+  -- only in the line.
+  --
+  -- THE OTHER SIDE OF THIS SETTING IS THE IN-GAME GATE'S, where the same field
+  -- carries a list the language accepts, so one gate covers the refusal and the
+  -- other the success on exactly the arm with no dropdown in front of it.
+  ["fkrecipes-example-rivet-ingredients"] = { value = "3 steel-plate, 2 iron-stik" },
   -- THE CUSTOM ARM OF A DROPDOWN, with a FLUID and a FRACTION in it. The chain
   -- recipe is crafting-with-fluid, which is what makes the fluid legal
   -- (measured: the crafting category refuses one), and the fraction is what
   -- says a fluid amount is a double all the way through rather than an item
   -- count wearing a decimal point.
   --
-  -- IT NAMES NO ITEM OF THIS MOD'S OWN, and that is not a preference. This
-  -- setting's own description offers the player "4 fkrecipes-example-steel-
-  -- rivet" to copy, and typing that back REFUSES the load with "no item or
-  -- fluid is named fkrecipes-example-steel-rivet": the text is resolved before
-  -- the plan's own items are extended, so ItemExists cannot see them. That is
-  -- a library defect rather than a harness one, and the mirror stays clear of
-  -- it so no golden freezes it in.
+  -- AND IT NAMES THIS MOD'S OWN ITEM, which is the name the setting's own
+  -- composed description offers the player to copy. That text used to refuse,
+  -- because a player's text was resolved against data.raw and the plan's own
+  -- items are not extended yet; the planner resolves one against an overlay
+  -- that knows this plan's item names now, so the name the description shows is
+  -- a name the field takes.
+  --
+  -- THE ITEM IS PASTED VERBATIM out of that description, "4 fkrecipes-example-
+  -- steel-rivet", and the FLUID beside it is written in two of the forms the
+  -- language accepts that a mod author would never write: a rich-text tag and a
+  -- trailing amount. The canonical rendering in the log line is what says the
+  -- pasted name and both forms were understood.
   ["fkrecipes-example-chain-links"] = { value = "custom" },
-  ["fkrecipes-example-chain-ingredients"] = { value = "2 steel-plate, 0.5 water" },
-  -- A RESEARCH COST THE PLAYER PRICED: two packs in the text, and the count
-  -- and the seconds from their own numeric settings, one of them fractional so
-  -- the seconds are not an integer that any formatter would agree on.
+  ["fkrecipes-example-chain-ingredients"] = { value = "4 fkrecipes-example-steel-rivet, [fluid=water] x0.5" },
+  -- A RESEARCH COST THE PLAYER PRICED AND THE LIBRARY TOOK: two packs in the
+  -- text, so the unit carries two short tuples that came out of a TYPED list
+  -- rather than out of a declaration, and the count and the seconds from their
+  -- own numeric settings, one of them fractional so the seconds are not an
+  -- integer that any formatter would agree on. The in-game gate puts a refused
+  -- text in a PACK list instead, so between the two gates both of the
+  -- language's list kinds are covered on both sides of the fallback.
   ["fkrecipes-example-chain-packs"] = { value = "2 automation-science-pack, 1 logistic-science-pack" },
   ["fkrecipes-example-chain-count"] = { value = 25 },
   ["fkrecipes-example-chain-seconds"] = { value = 12.5 },

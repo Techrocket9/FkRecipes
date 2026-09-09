@@ -12,10 +12,14 @@
 # gets. The flipped row is testdata/ingame/flipped.json written into the mod
 # directory as mod-settings.dat by `fklua modsettings write`: a dropdown on
 # custom with a player-typed ingredient list carrying a fluid, a research
-# priced out of three settings and placed by its own ladder, a whole list typed
-# into a setting with no dropdown in front of it, and one text left untouched
-# behind a preset. Only the engine can walk those paths, because the settings
-# stage stores a value and no stand-in has one to read back.
+# priced out of three settings and placed by its own ladder with a TYPO in its
+# pack text, a whole ingredient list typed into a setting with no dropdown in
+# front of it, and one text left untouched behind a preset. Only the engine can
+# walk those paths, because the settings stage stores a value and no stand-in
+# has one to read back. The typo is what says a refused player text LOADS: the
+# row exits 0, the research comes out priced on the packs the mod declared, and
+# the log carries exactly one ERROR line, which before that decision was a run
+# that exited 1 and produced no dump to hash at all.
 #
 # THE BYTES OF THAT FILE ARE PINNED TOO, beside this one as flipped.golden.dat.
 # The writer belongs to the toolchain now, so the gate compares what it
@@ -38,4 +42,4 @@
 #
 # Capture both rows with: scripts/run-ingame.sh --update
 2.0.77 default e824cd8302c00fd07c3c3416ad8d9a5eea5612bce5ee455f1cf9669eee1685cd 2b44da194aee4bcb3d62284abff09a26cc41c54661ba3d2b252d579ac6a0c286 base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
-2.0.77 flipped b5ce9d7e05021f9e5ad1a2d728ebe78467b335ec2556a99bb3f99f617f4c6efe 2b44da194aee4bcb3d62284abff09a26cc41c54661ba3d2b252d579ac6a0c286 base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
+2.0.77 flipped 868f6aedc91a92058ce56f93ee4c7723f34d2b855f768ce3c7d5db67be70da8f 2b44da194aee4bcb3d62284abff09a26cc41c54661ba3d2b252d579ac6a0c286 base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77

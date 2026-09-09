@@ -260,11 +260,21 @@ lib.Recipe(rivet, fkrecipes.RecipeSpec{IngredientsFrom: rivets, CraftTime: 1})
 lib.recipe(rivet, RecipeSpec { ingredients_from: Some(rivets), craft_time: 1.0, ..Default::default() });
 ```
 
-The text starts out as the word `default`, which means the list you declared with its ladders, exactly as if you had written `Ingredients`, and it keeps meaning that when you change the list in a later release. An edited text is taken as written: every name must exist in the game as loaded, nothing is substituted, and a mistake refuses the load with a sentence naming the setting, the entry and the problem, from the table on that page. One text setting serves one recipe; a mod with several customizable recipes declares one setting per recipe. When the text applies, one line records what was read:
+The text starts out as the word `default`, which means the list you declared with its ladders, exactly as if you had written `Ingredients`, and it keeps meaning that when you change the list in a later release. An edited text is taken as written: every name must exist in the game as loaded, and nothing is substituted. One text setting serves one recipe; a mod with several customizable recipes declares one setting per recipe. When the text applies, one line records what was read:
 
 ```
 fkrecipes: steelworks-steel-rivet takes its ingredients from steelworks-rivet-ingredients: 3 steel-plate, 2 iron-stick
 ```
+
+**A text the language cannot read is never the reason a load stops.** Your recipe comes out on the list you declared, ladders and all, exactly as though the field said `default`, and one line names the setting, quotes the problem in the words the reference gives, and tells the player where to fix it:
+
+```
+fkrecipes: ERROR: steelworks-rivet-ingredients, entry 1 ("2 iron-plat"): no item or fluid is named iron-plat. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.
+```
+
+That is a rule about every field the player controls: a typed list, a stored value that is not text, and the numeric fields of a research cost (whose line ends `fix the number` instead). It is the narrow claim and not "a player is never refused": your declared list is what the fallback lands on, and it is held to the rules it always was, so a modpack that leaves it with no science pack the game has, or with two ladder rungs collapsed onto one name above the item ceiling, still stops the load. That refusal is one a player who typed nothing meets too. When a stored value was set aside on the way to it, the refusal carries one more sentence naming the first such setting and saying that correcting it under Settings then Mod settings then Startup is what a player can change; the log lines never reach the game on a failed load, so the refusal is the only place left to say it. Measured behaviour of the client is what makes the fallback a rule rather than a preference. Factorio rewrites `mod-settings.dat` on every successful load and on no failed one, so a value that fails the load is a value nothing in the game will then edit; the `Error loading mods` dialog offers Disable listed mods, Disable all mods, Manage mods, Restart and Exit, and `Manage mods` reaches only the Mods screen, which has no Mod settings button and whose Back returns to the same dialog. Disabling and re-enabling the mod does not help, because the engine keeps a disabled mod's settings and does not show them on the Mod Settings screen. The one way out is `Reset mod settings` with `Disable listed mods`, which costs every startup preference in the file. Measured on Factorio 2.0.77 (build 84539, mac-arm64).
+
+Anything **you** declare still refuses at plan time, and should: your own default list, your presets, your ladders and your setting bounds are bugs to catch while you are building the mod, not choices a player made.
 
 A dropdown of presets can offer the same thing as one more value. Give the dropdown a value named `custom`, leave it out of `Choices`, and put the text setting in `Custom`:
 
@@ -305,7 +315,7 @@ A stored dropdown value that is none of the values you offer cannot come through
 
 `CraftTimeFrom` binds the recipe to a double setting you declared, and the player chooses the seconds. The two are mutually exclusive and naming both is refused.
 
-The engine will not load a recipe whose `energy_required` is at or below 0.001 (measured on Factorio 2.0.77, build 84539). The library holds that floor in three places: a declared `CraftTime` at or below it is refused, a setting that answers at or below it is refused with the setting named, and a double setting bound as a crafting time is given a `minimum_value` of 0.002 unless you declared a minimum of your own, so the settings screen cannot produce a value that kills the load. A declared minimum at or below the floor is refused too.
+The engine will not load a recipe whose `energy_required` is at or below 0.001 (measured on Factorio 2.0.77, build 84539). The library holds that floor in three places: a declared `CraftTime` at or below it is refused, a double setting bound as a crafting time is given a `minimum_value` of 0.002 unless you declared a minimum of your own, so the settings screen cannot produce a value that kills the load, and a declared minimum at or below the floor is refused too. Should the setting answer below the floor anyway, which takes another mod declaring a startup setting of the same name and type, the declared default applies and the log carries the fallback line described above under the text settings, ending `fix the number`.
 
 If the bound setting cannot be read, the declared default applies and a line goes to the log:
 
@@ -408,7 +418,7 @@ fkrecipes: a prerequisite cycle: logistics-2 -> steel-processing -> steelworks-s
 
 ### A research cost the player writes
 
-`CostFrom` is `Unit` with its three numbers in the player's hands: a `PacksSetting` for the science packs, written as an ingredient list, an int setting for the count and a double setting for the seconds. The int setting must declare a minimum of at least 1 and the double a minimum above 0, because the engine refuses a unit with a count of 0 or a time of 0 (measured on Factorio 2.0.77); a `CustomCost` whose settings do not is refused at plan time, and the engine's own rule that an out-of-range stored value resets to the default keeps every value the library reads legal. Placement is the ordinary placement fields, as for `Unit`.
+`CostFrom` is `Unit` with its three numbers in the player's hands: a `PacksSetting` for the science packs, written as an ingredient list, an int setting for the count and a double setting for the seconds. The int setting must declare a minimum of at least 1 and the double a minimum above 0, because the engine refuses a unit with a count of 0 or a time of 0 (measured on Factorio 2.0.77); a `CustomCost` whose settings do not is refused at plan time, and the engine's own rule that an out-of-range stored value resets to the default keeps every value the library reads legal. Should one of the two answer with something the engine would not take anyway, it takes the setting's declared default and logs the fallback line ending `fix the number`, exactly as a refused text takes yours. Placement is the ordinary placement fields, as for `Unit`.
 
 ```go
 count := lib.IntSetting("chain-count", 20, fkrecipes.Between(1, 100000))

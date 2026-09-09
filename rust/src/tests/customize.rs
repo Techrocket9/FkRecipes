@@ -2190,30 +2190,61 @@ fn an_edited_text_is_emitted_in_the_order_it_was_typed() {
     );
 }
 
-/// The language's refusal is raised VERBATIM: it names the setting, the entry
-/// and the problem, and there is nothing this layer can add to it. The stage
-/// is the host's to prefix, so nothing here carries one.
+/// A TEXT THE LANGUAGE REFUSES LOADS THE MOD, and this is the headline of the
+/// round. The player gets the author's own list WITH ITS LADDERS, drops and
+/// all, and one ERROR line carrying the language's sentence VERBATIM: the
+/// setting, the entry and the problem, exactly as the corpus pins it, with the
+/// shared prefix trimmed off because the line it sits in already opens with
+/// one. The stage is the host's to prefix, so nothing here carries one.
+///
+/// MEASURED (Factorio 2.0.77, build 84539): the refusal this replaces was
+/// permanent. The engine rewrites mod-settings.dat on every successful load and
+/// on no failed one, the client's error dialog cannot reach the Mod Settings
+/// screen, and disabling the mod does not drop its stored settings. See
+/// `player_fallback`.
 #[test]
-fn a_language_refusal_is_raised_as_it_was_written() {
+fn a_language_refusal_becomes_a_fallback_line() {
     let w = base_world().with_setting(
         "steelworks-rivet-ingredients",
         Value::string("2 iron-plate, 3 unobtainium"),
     );
-    assert_eq!(
-        rivet_plan().plan_data(&w).err().as_deref(),
-        Some("fkrecipes: steelworks-rivet-ingredients, entry 2 (\"3 unobtainium\"): no item or fluid is named unobtainium")
+    let ops = rivet_plan().plan_data(&w).expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: ERROR: steelworks-rivet-ingredients, entry 2 (\"3 unobtainium\"): no item or fluid is named unobtainium. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.",
+            "log fkrecipes: steel-rivet: none of tungsten-carbide, titanium-plate is present, so the ingredient is dropped",
+            r#"extend {type="item", name="steelworks-steel-rivet", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-steel-rivet", enabled=true, ingredients=[{type="item", name="iron-plate", amount=2}], results=[{type="item", name="steelworks-steel-rivet", amount=1}]}"#,
+        ],
     );
 }
 
-/// A stored value that is not a string. The engine resets a wrong-typed one to
-/// the default before any stage runs (measured: "Value must be a string" and
-/// exit 0), so this is a hand-edited file and guessing is not on the table.
+/// A stored value that is not a string takes the author's list with ONE line
+/// saying so. The engine resets a wrong-typed one to the default before any
+/// stage runs (measured: "Value must be a string" and exit 0), so this is a
+/// hand-edited file; the line is what says so, and it says it without stopping
+/// the game.
+///
+/// THE WHOLE TRANSCRIPT, not just the line. What the fallback LANDS ON is the
+/// claim: the recipe has to come out on the author's declared list with its
+/// ladders walked and its drop line printed, and a first-line assertion would
+/// stay green over a recipe with no ingredients at all. The Go half pins the
+/// same shape.
 #[test]
-fn a_text_setting_holding_something_else_is_refused() {
+fn a_text_setting_holding_something_else_falls_back() {
     let w = base_world().with_setting("steelworks-rivet-ingredients", Value::Num(3.0));
-    assert_eq!(
-        rivet_plan().plan_data(&w).err().as_deref(),
-        Some("fkrecipes: steelworks-rivet-ingredients is not text")
+    let ops = rivet_plan().plan_data(&w).expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: ERROR: steelworks-rivet-ingredients is not text. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.",
+            "log fkrecipes: steel-rivet: none of tungsten-carbide, titanium-plate is present, so the ingredient is dropped",
+            r#"extend {type="item", name="steelworks-steel-rivet", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-steel-rivet", enabled=true, ingredients=[{type="item", name="iron-plate", amount=2}], results=[{type="item", name="steelworks-steel-rivet", amount=1}]}"#,
+        ],
     );
 }
 
@@ -2276,8 +2307,14 @@ fn the_custom_value_selects_the_text() {
 /// A TEXT NOBODY IS READING SAYS SO. The player typed a list and left the
 /// dropdown on a preset; silence there is the field report "my ingredients did
 /// nothing". The line is written before the preset applies, and the text is
-/// LOOKED at rather than parsed, so a list that would have been refused is
-/// still only a line.
+/// LOOKED at rather than parsed.
+///
+/// A TEXT THE LANGUAGE REFUSES, BEHIND A PRESET, IS STILL ONLY AN EDIT: it gets
+/// the ignored line and NOT the ERROR line a live text gets, because nothing
+/// read it for real. The dropdown beside it is on a preset, so the text is not
+/// the recipe's list and there is no default for it to have fallen back to;
+/// telling the player to go and fix a field the mod is not using would send
+/// them after the wrong thing. The Go half pins the same pair.
 #[test]
 fn an_edited_text_under_a_preset_is_ignored_out_loud() {
     let w = base_world()
@@ -2619,17 +2656,19 @@ fn an_ignored_number_line_comes_before_the_presets_own() {
     );
 }
 
-/// A STORED NaN IS AN EDIT UNDER A PRESET AND A REFUSAL ON CUSTOM, and the two
-/// answers are DELIBERATE rather than an oversight in one of them.
+/// A STORED NaN IS AN EDIT UNDER A PRESET AND A FALLBACK ON CUSTOM, and the
+/// two answers are DELIBERATE rather than an oversight in one of them.
 ///
 /// Under a preset the question is only "did the player move this field", and a
 /// value that is not the declared default is a field that was moved: nothing
 /// does arithmetic with it, so nothing can object to it, and the line says the
-/// number is ignored because it is. On custom the same value is READ, and a
-/// research unit built out of it is a load failure naming nothing of this
-/// library's, so it is refused by the setting that holds it.
+/// number is ignored because it is. On custom the same value is READ, cannot be
+/// used, and takes the declared default of 30 with the ERROR line naming the
+/// setting that holds it. Two different lines, because the two say different
+/// things: one is "your edit is not live", the other is "your edit is not
+/// usable".
 #[test]
-fn a_stored_nan_is_an_edit_under_a_preset_and_a_refusal_on_custom() {
+fn a_stored_nan_is_an_edit_under_a_preset_and_a_fallback_on_custom() {
     assert_lines(
         &under_a_preset(&[("steelworks-tips-count", Value::Num(f64::NAN))]),
         &[
@@ -2641,10 +2680,19 @@ fn a_stored_nan_is_an_edit_under_a_preset_and_a_refusal_on_custom() {
     let w = base_world()
         .with_setting("steelworks-tips-research-tier", Value::string("custom"))
         .with_setting("steelworks-tips-packs", Value::string("default"))
-        .with_setting("steelworks-tips-count", Value::Num(f64::NAN));
-    assert_eq!(
-        tips_plan(&["logistics"]).plan_data(&w).err().as_deref(),
-        Some("fkrecipes: steelworks-tips-count holds a value that is not a finite number")
+        .with_setting("steelworks-tips-count", Value::Num(f64::NAN))
+        .with_setting("steelworks-tips-seconds", Value::Num(20.0));
+    let ops = tips_plan(&["logistics"])
+        .plan_data(&w)
+        .expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: ERROR: steelworks-tips-count holds a value that is not a finite number. The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.",
+            "log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs: count 30, time 20, packs 1 automation-science-pack, 1 logistic-science-pack",
+            r#"extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics"], unit={count=30, time=20, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]]}}"#,
+        ],
     );
 }
 
@@ -2717,41 +2765,45 @@ fn a_pack_text_that_resolves_to_nothing_is_refused() {
 /// The declared minima keep the ENGINE from producing one of these (measured:
 /// a stored value outside a setting's own bounds is reset to that setting's
 /// default rather than clamped), so every case below is a fixture World or a
-/// hand-edited file. Each is refused by the SETTING that answered, because the
-/// technology's own declaration is fine.
+/// hand-edited file. A NUMBER IS A FIELD THE PLAYER OWNS, so each takes the
+/// setting's DECLARED DEFAULT with one line naming the setting that answered,
+/// rather than stopping the load: the unit that comes out is count 30, time 15.
 #[test]
-fn a_research_number_the_world_cannot_answer_is_refused() {
+fn a_research_number_the_world_cannot_answer_falls_back() {
     struct Case {
         name: &'static str,
-        setting: &'static str,
-        held: f64,
+        // BOTH NUMBERS ARE STATED IN EVERY CASE, so the transcript is the one
+        // fallback line and nothing else: a setting left out would draw the
+        // unreadable line as well and the case under test would read as two.
+        count: f64,
+        seconds: f64,
         want: &'static str,
     }
 
     let cases = [
         Case {
             name: "a count that is not a number",
-            setting: "steelworks-tips-count",
-            held: f64::NAN,
-            want: "fkrecipes: steelworks-tips-count holds a value that is not a finite number",
+            count: f64::NAN,
+            seconds: 15.0,
+            want: "steelworks-tips-count holds a value that is not a finite number",
         },
         Case {
             name: "a count below one",
-            setting: "steelworks-tips-count",
-            held: 0.0,
-            want: "fkrecipes: steelworks-tips-count holds a research count below 1",
+            count: 0.0,
+            seconds: 15.0,
+            want: "steelworks-tips-count holds a research count below 1",
         },
         Case {
             name: "a time that is not a number",
-            setting: "steelworks-tips-seconds",
-            held: f64::INFINITY,
-            want: "fkrecipes: steelworks-tips-seconds holds a value that is not a finite number",
+            count: 30.0,
+            seconds: f64::INFINITY,
+            want: "steelworks-tips-seconds holds a value that is not a finite number",
         },
         Case {
             name: "a time at zero",
-            setting: "steelworks-tips-seconds",
-            held: 0.0,
-            want: "fkrecipes: steelworks-tips-seconds holds a research time at or below zero",
+            count: 30.0,
+            seconds: 0.0,
+            want: "steelworks-tips-seconds holds a research time at or below zero",
         },
     ];
 
@@ -2759,68 +2811,195 @@ fn a_research_number_the_world_cannot_answer_is_refused() {
         let w = base_world()
             .with_setting("steelworks-tips-research-tier", Value::string("custom"))
             .with_setting("steelworks-tips-packs", Value::string("default"))
-            .with_setting(c.setting, Value::Num(c.held));
-        assert_eq!(
-            tips_plan(&["logistics"]).plan_data(&w).err().as_deref(),
-            Some(c.want),
-            "{}",
-            c.name
+            .with_setting("steelworks-tips-count", Value::Num(c.count))
+            .with_setting("steelworks-tips-seconds", Value::Num(c.seconds));
+        let ops = tips_plan(&["logistics"])
+            .plan_data(&w)
+            .expect("plan refused");
+        assert_lines_named(
+            &transcript(&ops),
+            &[
+                &format!("log fkrecipes: ERROR: {}. The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.", c.want),
+                "log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs: count 30, time 15, packs 1 automation-science-pack, 1 logistic-science-pack",
+                r#"extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics"], unit={count=30, time=15, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]]}}"#,
+            ],
+            c.name,
         );
     }
 }
 
-/// THE ORDER THE FOUR FIELDS ANSWER IN, which is a PARITY pin before it is
-/// anything else: a custom cost reads three fields the player owns, a
-/// hand-edited file can leave two of them wrong at once, and the two halves
-/// used to pick different sentences out of such a world. The Go half reads
-/// the pack text first and checks the numbers behind it, and that order is
-/// the agreed one (agents/customizer-design.md); this half checked the
-/// numbers where it read them.
+/// TWO DECLARED DEFAULTS WRONG AT ONCE, AND THE COUNT IS THE ONE THAT ANSWERS.
 ///
-/// FINITENESS FIRST, BOTH NUMBERS, then the two floors, because a NaN is
-/// neither below 1 nor at or below zero and a floor arm reached first would
-/// wave it through.
+/// THIS IS THE ONLY WITNESS TO THAT ORDER. The post-condition walks the count
+/// and then the seconds and keeps the first answer; every other test declares
+/// at most one bad default, so swapping its two arms changed no sentence
+/// anywhere and the order was free to drift between the halves. A world wrong
+/// in both places is what pins it. The Go half pins the same plan.
+///
+/// NOTHING IS TYPED HERE, so the refusal carries no fallback note: both numbers
+/// ARE the declared defaults rather than values something fell back onto, and
+/// an unreadable setting is not a stored value a player can go and correct.
 #[test]
-fn a_bad_pack_text_answers_before_a_bad_number() {
-    let world = |packs: &str, count: f64, seconds: f64| {
-        base_world()
-            .with_setting("steelworks-tips-research-tier", Value::string("custom"))
-            .with_setting("steelworks-tips-packs", Value::string(packs))
-            .with_setting("steelworks-tips-count", Value::Num(count))
-            .with_setting("steelworks-tips-seconds", Value::Num(seconds))
-    };
-
-    // An empty pack list and a research time that is not a number: the text
-    // is what the player is likeliest to have typed, so the text answers.
-    assert_eq!(
-        tips_plan(&["logistics"])
-            .plan_data(&world("", 45.0, f64::NAN))
-            .err()
-            .as_deref(),
-        Some(
-            "fkrecipes: steelworks-tips-packs is empty; write the science packs as \"1 automation-science-pack, 1 logistic-science-pack\", or the word default for the mod's own list"
-        )
+fn refused_cost_numbers_answer_the_count_before_the_seconds() {
+    let mut lib = Lib::new();
+    let packs = lib.packs_setting("chain-packs", vec![Pack::new("automation-science-pack", 1)]);
+    // Both outside what the engine takes, and both refused by
+    // `validate_settings` at the settings stage: `plan_data` reaches them only
+    // on its own.
+    let count = lib.int_setting(
+        "chain-count",
+        0,
+        NumericSpec {
+            min: Some(1.0),
+            ..Default::default()
+        },
+    );
+    let seconds = lib.double_setting(
+        "chain-seconds",
+        0.0,
+        NumericSpec {
+            min: Some(0.5),
+            ..Default::default()
+        },
+    );
+    lib.technology(
+        "chain-forging",
+        TechSpec {
+            cost_from: Some(CustomCost {
+                packs,
+                count,
+                seconds,
+                position: Vec::new(),
+            }),
+            ..Default::default()
+        },
     );
 
-    // A readable text, and both numbers wrong: the finiteness question is
-    // asked of both before either floor is, so the NaN answers ahead of the
-    // count that is merely too small.
     assert_eq!(
-        tips_plan(&["logistics"])
-            .plan_data(&world("1 automation-science-pack", 0.0, f64::NAN))
-            .err()
-            .as_deref(),
-        Some("fkrecipes: steelworks-tips-seconds holds a value that is not a finite number")
+        lib.plan_data(&base_world()).err().as_deref(),
+        Some("fkrecipes: steelworks-chain-count declares a default research count below 1")
     );
 }
 
-/// THE REFUSAL CHANNELS IN THEIR FIXED ORDER. Resolution is where the PLAYER'S
-/// OWN TEXT is read, so a list this library cannot read is the earliest thing
-/// the pass met and it is reported ahead of every check behind it; the
-/// crafting-time floor comes next, and the unit with no pack left after that.
-/// One plan carries all three problems and loses them one at a time.
+/// AND THE DECLARED DEFAULT THE FALLBACK LANDS ON IS STILL HELD TO THE ENGINE'S
+/// RULE, which is the author's half of the same pair.
+///
+/// `validate_settings` refuses a default outside its setting's own bounds at the
+/// SETTINGS stage, and the engine runs that stage before the data stage, so this
+/// world exists only for a host test that calls `plan_data` on its own. It is a
+/// refusal because a declaration is not a typed value, and it is what keeps the
+/// invariant that no unit this library emits carries a count the engine refuses.
 #[test]
-fn a_resolution_refusal_is_reported_before_the_checks_behind_it() {
+fn a_declared_cost_default_the_engine_would_not_take_is_refused() {
+    let plan = || {
+        let mut lib = Lib::new();
+        let packs = lib.packs_setting("chain-packs", vec![Pack::new("automation-science-pack", 1)]);
+        // A minimum of 1, which `validate_custom_cost` demands, beside a
+        // declared default of 0, which `validate_settings` refuses.
+        let count = lib.int_setting(
+            "chain-count",
+            0,
+            NumericSpec {
+                min: Some(1.0),
+                max: None,
+            },
+        );
+        let seconds = lib.double_setting("chain-seconds", 10.0, NumericSpec::between(0.5, 600.0));
+        lib.technology(
+            "chain-forging",
+            TechSpec {
+                cost_from: Some(CustomCost {
+                    packs,
+                    count,
+                    seconds,
+                    position: Vec::new(),
+                }),
+                ..Default::default()
+            },
+        );
+        lib
+    };
+    // The settings stage is where this belongs, and it says so.
+    assert_eq!(
+        plan().plan_settings(&settings_world()).err().as_deref(),
+        Some("fkrecipes: the numeric setting chain-count declares a default outside its own minimum and maximum")
+    );
+
+    // And the data stage, reached on its own, refuses rather than emitting a
+    // unit the engine would not take. The stored value falls back first, and
+    // the sentence is about the DECLARED default it fell back onto: the NaN the
+    // setting answered is gone, and the 0 the plan wrote is what is left. The
+    // note is the player's half of the same refusal, because a stored value WAS
+    // set aside on the way here.
+    let w = base_world()
+        .with_setting("steelworks-chain-count", Value::Num(f64::NAN))
+        .with_setting("steelworks-chain-seconds", Value::Num(10.0))
+        .with_setting(
+            "steelworks-chain-packs",
+            Value::string("1 automation-science-pack"),
+        );
+    assert_eq!(
+        plan().plan_data(&w).err().as_deref(),
+        Some("fkrecipes: steelworks-chain-count declares a default research count below 1. The stored value of steelworks-chain-count could not be used, so the mod's own declaration applied; correcting it under Settings > Mod settings > Startup is what a player can change here.")
+    );
+}
+
+/// ALL THREE FIELDS WRONG AT ONCE, AND ALL THREE ANSWERED, which is a PARITY
+/// pin before it is anything else: a custom cost reads three fields the player
+/// owns and a hand-edited file can leave every one of them wrong. The two
+/// halves used to have to agree on which single sentence came out of such a
+/// world; with a line per field there is nothing to choose between, and the
+/// ordering that is left is the walk's own, count then seconds then the pack
+/// text, which is also the order the cost line names them.
+///
+/// THE STORED VALUES ARE THE GO HALF'S, BYTE FOR BYTE: the same pack text, the
+/// same count, the same seconds, so the three sentences are the same three
+/// sentences. The two plans behind them are not identical (this one's dropdown
+/// is named tips-research-tier and it declares two packs), which is why the
+/// cost line and the unit differ; what a parity pin has to hold still is the
+/// input and the wording, and those are what match.
+#[test]
+fn every_bad_field_of_a_custom_cost_answers() {
+    let w = base_world()
+        .with_setting("steelworks-tips-research-tier", Value::string("custom"))
+        .with_setting("steelworks-tips-packs", Value::string("2 unobtainium"))
+        .with_setting("steelworks-tips-count", Value::Num(0.0))
+        .with_setting("steelworks-tips-seconds", Value::Num(f64::NAN));
+    let ops = tips_plan(&["logistics"])
+        .plan_data(&w)
+        .expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: ERROR: steelworks-tips-count holds a research count below 1. The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.",
+            "log fkrecipes: ERROR: steelworks-tips-seconds holds a value that is not a finite number. The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.",
+            "log fkrecipes: ERROR: steelworks-tips-packs, entry 1 (\"2 unobtainium\"): no science pack is named unobtainium. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.",
+            "log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs: count 30, time 15, packs 1 automation-science-pack, 1 logistic-science-pack",
+            r#"extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics"], unit={count=30, time=15, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]]}}"#,
+        ],
+    );
+}
+
+/// THE TWO SIDES, OVER ONE PLAN THAT IS WRONG ON BOTH AT ONCE. The player's
+/// text names nothing the game has and the player's crafting time is at the
+/// engine floor; the mod is priced in a science pack this game does not carry.
+/// Neither player field stops the load: both fall back to what the author
+/// declared and both say so, in the walk's own order (the crafting time is read
+/// before the ingredients). What stops the load is the pack, which is the
+/// author's own declaration against the modpack.
+///
+/// THIS IS THE SEPARATION WRITTEN AS ONE TEST, and the claim it holds is the
+/// narrow one: a value the player TYPED never introduces a refusal that a
+/// player who never typed would not also have hit. It is not "a player can
+/// never be refused". The same modpack refuses the same plan with the fields
+/// untouched, which is the third world below, and the only difference the
+/// typing makes is the added sentence: the log ops never reach the host on a
+/// refused load, so the refusal itself is the only place left to say that a
+/// stored value was set aside. See `Resolution::with_fallback_note`. The Go
+/// half pins the same three worlds.
+#[test]
+fn player_fields_fall_back_while_the_author_channel_still_refuses() {
     let plan = || {
         let mut lib = Lib::new();
         let rivet = lib.item("steel-rivet", ItemSpec::default());
@@ -2858,20 +3037,112 @@ fn a_resolution_refusal_is_reported_before_the_checks_behind_it() {
             .with_setting("steelworks-forging-time", Value::Num(craft_time))
     };
 
-    // All three at once: the language's refusal is the one reported.
+    // All three at once: the packs are what stops the load, because the other
+    // two are the player's and neither one refuses any more.
     assert_eq!(
         plan().plan_data(&world("2 unobtainium", 0.001)).err().as_deref(),
-        Some("fkrecipes: steelworks-rivet-ingredients, entry 1 (\"2 unobtainium\"): no item or fluid is named unobtainium")
+        Some("fkrecipes: the technology steel-riveting has no science pack the game has; research takes at least one. The stored value of steelworks-forging-time could not be used, so the mod's own declaration applied; correcting it under Settings > Mod settings > Startup is what a player can change here.")
     );
-    // The text fixed: the crafting time is next.
+
+    // AND THE SAME REFUSAL WITH NOTHING TYPED, which is what makes the note a
+    // fact about this player rather than boilerplate: a player who never opened
+    // the settings screen meets the identical modpack problem, and is told only
+    // about the mod. The note names the crafting time rather than the text
+    // because the crafting time is read first; the pair is the walk's order,
+    // which is the same every run.
     assert_eq!(
-        plan().plan_data(&world("2 iron-plate", 0.001)).err().as_deref(),
-        Some("fkrecipes: the recipe steel-rivet reads its crafting time from steelworks-forging-time, which answers at or below the engine floor (energy_required can't be <= 0.001)")
-    );
-    // And the crafting time fixed: the packs, which is the last of the three.
-    assert_eq!(
-        plan().plan_data(&world("2 iron-plate", 2.5)).err().as_deref(),
+        plan().plan_data(&base_world()).err().as_deref(),
         Some("fkrecipes: the technology steel-riveting has no science pack the game has; research takes at least one")
+    );
+
+    // The same plan with the pack put back loads, and the two player fields are
+    // the whole log: the declared list, the declared crafting time, two lines.
+    let ok = FixtureWorld {
+        tools: strings(&["military-science-pack"]),
+        ..world("2 unobtainium", 0.001)
+    };
+    let ops = plan().plan_data(&ok).expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: ERROR: the recipe steel-rivet reads its crafting time from steelworks-forging-time, which answers at or below the engine floor (energy_required can't be <= 0.001). The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.",
+            "log fkrecipes: ERROR: steelworks-rivet-ingredients, entry 1 (\"2 unobtainium\"): no item or fluid is named unobtainium. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.",
+            r#"extend {type="item", name="steelworks-steel-rivet", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-steel-rivet", energy_required=3, enabled=true, ingredients=[{type="item", name="iron-plate", amount=1}], results=[{type="item", name="steelworks-steel-rivet", amount=1}]}"#,
+            r#"extend {type="technology", name="steelworks-steel-riveting", unit={count=50, time=15, ingredients=[["military-science-pack", 1]]}}"#,
+        ],
+    );
+}
+
+/// AND THE CHANNELS THAT ARE LEFT KEEP THEIR ORDER. A dropdown holding a value
+/// it does not offer is carried out of the walk and answered before the packs,
+/// which is the same "carried refusal first" rule the merged-amount ceiling
+/// rides on. Both are hand-edited files or author declarations, never a
+/// player's typing.
+///
+/// THIS IS WHAT THE OLD ORDERING WITNESS BECAME. The pair it used to hold apart
+/// were a language refusal and a check behind it; the language refusal is a
+/// fallback now, so the two channels left are these, and without a test over
+/// them the carried refusal could be moved below the three checks and the whole
+/// suite would stay green. The Go half pins the same two cases.
+#[test]
+fn a_carried_refusal_is_reported_before_the_checks_behind_it() {
+    let plan = || {
+        let mut lib = Lib::new();
+        let axe = lib.item("steel-axe", ItemSpec::default());
+        let style = lib.dropdown_setting_needing_locale("axe-style", "plain", &["plain", "fancy"]);
+        lib.recipe(
+            axe,
+            RecipeSpec {
+                name: "steel-axe-forging".into(),
+                ingredients_by: Some(IngredientChoices {
+                    setting: style,
+                    choices: vec![
+                        IngredientChoice {
+                            value: "plain".into(),
+                            ingredients: vec![Ingredient::named(1, "steel-plate", &[])],
+                        },
+                        IngredientChoice {
+                            value: "fancy".into(),
+                            ingredients: vec![Ingredient::named(2, "steel-plate", &[])],
+                        },
+                    ],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+        lib.technology(
+            "steel-axes",
+            TechSpec {
+                unit: Some(UnitSpec {
+                    count: 1,
+                    seconds: 1.0,
+                    packs: vec![Pack::new("military-science-pack", 1)],
+                }),
+                ..Default::default()
+            },
+        );
+        lib
+    };
+
+    // The pack is absent in both cases, so the second channel is armed
+    // throughout and only the one in front of it is repaired.
+    assert_eq!(
+        plan()
+            .plan_data(&base_world().with_setting("steelworks-axe-style", Value::string("gilded")))
+            .err()
+            .as_deref(),
+        Some("fkrecipes: steelworks-axe-style holds \"gilded\", which is not one of its values"),
+        "the carried refusal did not answer first"
+    );
+    assert_eq!(
+        plan()
+            .plan_data(&base_world().with_setting("steelworks-axe-style", Value::string("fancy")))
+            .err()
+            .as_deref(),
+        Some("fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one"),
+        "the packs did not answer once the carried refusal was repaired"
     );
 }
 
@@ -2965,9 +3236,13 @@ fn the_suggestion_fold_offers_a_plans_own_item() {
         "steelworks-plate-ingredients",
         Value::string("1 Steelworks-Steel-Rivet"),
     );
+    let ops = own_item_plan().plan_data(&w).expect("plan refused");
+
+    // THE SUGGESTION SURVIVES THE FALLBACK, which is the whole value of it: the
+    // line the player reads still names the name that is really there.
     assert_eq!(
-        own_item_plan().plan_data(&w).err().as_deref(),
-        Some("fkrecipes: steelworks-plate-ingredients, entry 1 (\"1 Steelworks-Steel-Rivet\"): no item or fluid is named Steelworks-Steel-Rivet; did you mean steelworks-steel-rivet")
+        transcript(&ops)[0],
+        "log fkrecipes: ERROR: steelworks-plate-ingredients, entry 1 (\"1 Steelworks-Steel-Rivet\"): no item or fluid is named Steelworks-Steel-Rivet; did you mean steelworks-steel-rivet. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart."
     );
 }
 
@@ -3013,9 +3288,11 @@ fn a_pack_text_naming_a_plan_item_is_told_it_is_an_item() {
         "steelworks-chain-packs",
         Value::string("1 steelworks-steel-rivet"),
     );
+    let ops = lib.plan_data(&w).expect("plan refused");
+
     assert_eq!(
-        lib.plan_data(&w).err().as_deref(),
-        Some("fkrecipes: steelworks-chain-packs, entry 1 (\"1 steelworks-steel-rivet\"): steelworks-steel-rivet is an item, not a science pack")
+        transcript(&ops)[2],
+        "log fkrecipes: ERROR: steelworks-chain-packs, entry 1 (\"1 steelworks-steel-rivet\"): steelworks-steel-rivet is an item, not a science pack. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart."
     );
 }
 
@@ -3078,14 +3355,16 @@ fn a_custom_arms_declared_fluid_is_legal_where_the_recipe_takes_one() {
 /// corpus holds the two to that one sentence. Deciding it here instead would
 /// be a second answer to one question, in one half only.
 #[test]
-fn a_text_setting_holding_bytes_that_are_not_text_is_refused_by_the_language() {
+fn a_text_setting_holding_bytes_that_are_not_text_is_answered_by_the_language() {
     let w = base_world().with_setting(
         "steelworks-rivet-ingredients",
         Value::bytes(b"2 iron-\xffplate"),
     );
+    let ops = rivet_plan().plan_data(&w).expect("plan refused");
+
     assert_eq!(
-        rivet_plan().plan_data(&w).err().as_deref(),
-        Some("fkrecipes: steelworks-rivet-ingredients contains characters that are not text; retype the list")
+        transcript(&ops)[0],
+        "log fkrecipes: ERROR: steelworks-rivet-ingredients contains characters that are not text; retype the list. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart."
     );
 }
 
@@ -3176,5 +3455,129 @@ fn an_edited_text_that_is_not_text_is_ignored_out_loud() {
             r#"extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}"#,
             r#"extend {type="recipe", name="steelworks-hardened-steel-plate", category="crafting-with-fluid", enabled=true, ingredients=[{type="item", name="steel-plate", amount=3}], results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}"#,
         ],
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The fallback line itself.
+// ---------------------------------------------------------------------------
+
+/// EVERY SENTENCE THIS LAYER BUILDS OPENS WITH THE SHARED PREFIX, EXACTLY ONCE,
+/// and this is the half of that property which is not the corpus.
+///
+/// WHAT EACH ASSERTION CATCHES, because the two are about different failures
+/// and neither is "the line looks wrong". `strip_prefix` is applied
+/// unconditionally, so a sentence that forgot the prefix produces a perfectly
+/// well formed line; what it breaks is the sentence's OTHER use, as a refusal
+/// raised on its own, where a message with no library name on it is one nobody
+/// can trace. That is the `starts_with` assertion. The second assertion is the
+/// opposite mistake: a sentence that carries the prefix TWICE survives a single
+/// strip and reaches the player as "fkrecipes: ERROR: fkrecipes: ...".
+///
+/// EVERY PRODUCER IS HERE BECAUSE EVERY ONE IS A FUNCTION, and the faults are
+/// taken from the fault functions rather than written down, so a rule a number
+/// can fail with no sentence behind it comes out as an empty string and fails
+/// the first assertion. A sentence spelled inline at a call site would be one
+/// this test cannot see, and the reviews would have to catch it instead.
+#[test]
+fn fallback_sentences_carry_the_prefix() {
+    use crate::data::{
+        count_fault, craft_time_fault, declared_craft_time_problem, declared_number_problem,
+        not_text_sentence, player_fallback, seconds_fault, stored_craft_time_problem,
+        stored_number_problem, MESSAGE_PREFIX,
+    };
+
+    let sentences = [
+        ("not text", not_text_sentence("mymod-parts")),
+        (
+            "a stored count that is not finite",
+            stored_number_problem("mymod-count", count_fault(f64::NAN)),
+        ),
+        (
+            "a stored count below 1",
+            stored_number_problem("mymod-count", count_fault(0.0)),
+        ),
+        (
+            "a stored time that is not finite",
+            stored_number_problem("mymod-seconds", seconds_fault(f64::NAN)),
+        ),
+        (
+            "a stored time at or below zero",
+            stored_number_problem("mymod-seconds", seconds_fault(0.0)),
+        ),
+        (
+            "a declared count that is not finite",
+            declared_number_problem("mymod-count", count_fault(f64::NAN)),
+        ),
+        (
+            "a declared count below 1",
+            declared_number_problem("mymod-count", count_fault(0.0)),
+        ),
+        (
+            "a declared time that is not finite",
+            declared_number_problem("mymod-seconds", seconds_fault(f64::NAN)),
+        ),
+        (
+            "a declared time at or below zero",
+            declared_number_problem("mymod-seconds", seconds_fault(0.0)),
+        ),
+        (
+            "a stored crafting time that is not finite",
+            stored_craft_time_problem("axe", "mymod-craft-time", craft_time_fault(f64::NAN)),
+        ),
+        (
+            "a stored crafting time at the floor",
+            stored_craft_time_problem("axe", "mymod-craft-time", craft_time_fault(0.0)),
+        ),
+        (
+            "a declared crafting time that is not finite",
+            declared_craft_time_problem("axe", "mymod-craft-time", craft_time_fault(f64::NAN)),
+        ),
+        (
+            "a declared crafting time at the floor",
+            declared_craft_time_problem("axe", "mymod-craft-time", craft_time_fault(0.0)),
+        ),
+    ];
+    for (name, text) in sentences {
+        assert!(
+            text.starts_with(MESSAGE_PREFIX),
+            "{}: a sentence the fallback composer quotes does not open with {:?}: {}",
+            name,
+            MESSAGE_PREFIX,
+            text
+        );
+        let line = player_fallback(&text, "text");
+        assert!(
+            !line.contains(&alloc::format!(
+                "{}ERROR: {}",
+                MESSAGE_PREFIX,
+                MESSAGE_PREFIX
+            )),
+            "{}: the prefix was not stripped, so the line carries it twice: {}",
+            name,
+            line
+        );
+    }
+}
+
+/// AND THE TWO FIELD WORDS ARE THE WHOLE SHAPE OF A LINE, written out once so
+/// the sentence itself is pinned here as well as inside every transcript that
+/// carries one. The Go half holds the same two strings.
+#[test]
+fn player_fallback_line_shape() {
+    use crate::data::{number_fallback, player_fallback, text_fallback};
+
+    assert_eq!(
+        player_fallback("fkrecipes: mymod-parts is not text", "text"),
+        "fkrecipes: ERROR: mymod-parts is not text. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart."
+    );
+    assert_eq!(
+        number_fallback("fkrecipes: mymod-count holds a research count below 1"),
+        "fkrecipes: ERROR: mymod-count holds a research count below 1. The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart."
+    );
+    assert_eq!(
+        text_fallback("fkrecipes: mymod-parts is not text"),
+        player_fallback("fkrecipes: mymod-parts is not text", "text"),
+        "text_fallback and player_fallback disagree about the field word"
     );
 }

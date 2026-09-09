@@ -44,11 +44,20 @@ import (
 //   - NOTHING IS GUESSED. A name the game does not have is a refusal, with the
 //     case-folded or dash-folded name offered when the game has THAT, because
 //     a silent substitute would hide the player's typo behind a recipe they
-//     did not ask for.
+//     did not ask for. That is a rule about THIS FILE and it is unchanged:
+//     nothing here substitutes a name, picks a nearest match or drops an entry
+//     it cannot resolve.
+//
+// WHAT THE CALLER DOES WITH THE REFUSAL IS NOT THIS FILE'S RULE. A refused text
+// no longer stops the load: customize.go logs the sentence written here inside
+// one ERROR line and takes the author's declared list instead, because a
+// refusal on a field the player types into locks them out of their save (the
+// client measurement is in playerFallback). Nothing above changes for it, and
+// the corpus that pins these sentences is untouched.
 //
 // The parser answers with a message rather than an error: the caller composes
-// it into the refusal the host raises, and a string keeps this half free of
-// any opinion about how the consumer's stage fails. An empty message is the
+// it into the line the player reads, and a string keeps this half free of any
+// opinion about how the consumer's stage fails. An empty message is the
 // success.
 
 // listWhitespace is the whole whitespace set this language knows, for trimming

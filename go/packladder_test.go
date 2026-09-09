@@ -327,20 +327,21 @@ func TestTheAllDroppedRefusalNamesTheFirstTechnologyDeclared(t *testing.T) {
 // ways the post-resolution checks answer for, so the order between them is the
 // only thing that decides which sentence comes out:
 //
-//   - its recipe reads a crafting time from a setting another mod can answer
+//   - its recipe reads a crafting time from a setting whose declared default is
 //     at or below the engine floor,
 //   - its technology is priced in a pack the game does not have, so every pack
 //     drops,
 //   - and the World it is planned against carries a prerequisite ring.
 //
-// The declaration is FIXED and the World is what changes between the two
-// witnesses below: the crafting-time problem is the setting's answer, so
-// dropping it changes nothing about the plan and leaves the other two exactly
-// as they were.
-func wrongThreeWaysAfterResolution() *Lib {
+// THE CRAFTING TIME IS THE PARAMETER, and it has to be a DECLARED default
+// rather than a setting's answer. A value the player's setting answers falls
+// back to the declared default with a log line, so the only world the
+// crafting-time check still answers for is a default the settings stage would
+// have refused; the other two problems are the plan's and stay fixed.
+func wrongThreeWaysAfterResolution(craftTimeDefault float64) *Lib {
 	lib := New()
 	axe := lib.Item("steel-axe", ItemSpec{})
-	from := lib.DoubleSetting("axe-craft-time", 2.5, NumericSpec{})
+	from := lib.DoubleSetting("axe-craft-time", craftTimeDefault, NumericSpec{})
 	lib.Recipe(axe, RecipeSpec{
 		CraftTimeFrom: from,
 		Ingredients:   []Ingredient{IngredientNamed(4, "steel-plate")},
@@ -368,15 +369,19 @@ func worldWithAPrerequisiteRing() *fixtureWorld {
 // them the pack check could be moved anywhere between resolution and emit and
 // every existing test would stay green.
 func TestTheCraftingTimeSentenceBeatsTheDroppedPacks(t *testing.T) {
-	// The setting another mod redeclared, answering below the floor.
-	w := worldWithAPrerequisiteRing().withSetting("steelworks-axe-craft-time", Num(0.001))
+	// A declared default at the floor, and a setting whose answer is worse
+	// still: the answer falls back onto the default and the default is what
+	// the check refuses.
+	w := worldWithAPrerequisiteRing().withSetting("steelworks-axe-craft-time", Num(0))
 
-	ops, err := wrongThreeWaysAfterResolution().PlanData(w)
+	ops, err := wrongThreeWaysAfterResolution(0.001).PlanData(w)
 	if err == nil {
 		t.Fatal("a plan wrong three ways over was accepted")
 	}
 	want := "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, " +
-		"which answers at or below the engine floor (energy_required can't be <= 0.001)"
+		"whose declared default is at or below the engine floor (energy_required can't be <= 0.001)" +
+		". The stored value of steelworks-axe-craft-time could not be used, so the mod's own declaration applied;" +
+		" correcting it under Settings > Mod settings > Startup is what a player can change here."
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}
@@ -388,9 +393,9 @@ func TestTheCraftingTimeSentenceBeatsTheDroppedPacks(t *testing.T) {
 // And the packs beat the ring, which is the other side of the same order and
 // the half a check moved one line further down would break.
 func TestTheDroppedPacksSentenceBeatsThePrerequisiteRing(t *testing.T) {
-	// The same plan, and the same ring, with the crafting-time setting left
-	// unanswered so the declared default of 2.5 stands.
-	ops, err := wrongThreeWaysAfterResolution().PlanData(worldWithAPrerequisiteRing())
+	// The same plan and the same ring, with a crafting-time default the engine
+	// takes and the setting left unanswered, so 2.5 stands.
+	ops, err := wrongThreeWaysAfterResolution(2.5).PlanData(worldWithAPrerequisiteRing())
 	if err == nil {
 		t.Fatal("a plan with an unpayable cost and a prerequisite ring was accepted")
 	}

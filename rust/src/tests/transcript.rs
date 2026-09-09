@@ -139,7 +139,21 @@ pub(crate) fn assert_composed(got: &[String], want: &[&str]) {
 }
 
 pub(crate) fn assert_lines(got: &[String], want: &[&str]) {
+    assert_lines_named(got, want, "");
+}
+
+/// `assert_lines` for a table-driven test: the case's own name is printed with
+/// the mismatch, because a table of six worlds reports six identical failures
+/// otherwise and none of them says which world produced it.
+pub(crate) fn assert_lines_named(got: &[String], want: &[&str], case: &str) {
     let mut bad = false;
+    if !case.is_empty() {
+        // Printed only on a failure, and before the lines, so the case name
+        // reads as a heading over its own diff rather than as another line.
+        if got.len() != want.len() || got.iter().zip(want).any(|(g, w)| g != w) {
+            println!("case: {}", case);
+        }
+    }
     let shared = got.len().min(want.len());
     for i in 0..shared {
         if got[i] != want[i] {

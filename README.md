@@ -180,15 +180,21 @@ Both guests above declare the same mod. Package either with `fklua mod --data-mo
 
 Numbers here carry the environment that produced them.
 
-**The crafting-time floor.** Factorio 2.0.77 (build 84539, mac-arm64, steam) refuses to load a recipe whose `energy_required` is at or below 0.001, with `energy_required can't be <= 0.001`. Values of 0.0011 and 0.002 load and survive to a data dump unchanged; an omitted `energy_required` stays absent and the engine applies its own default. The library refuses a declared crafting time at or below the floor, refuses a setting value that answers below it, and gives a generated craft-time setting a minimum of 0.002 so the settings screen cannot produce one.
+**The crafting-time floor.** Factorio 2.0.77 (build 84539, mac-arm64, steam) refuses to load a recipe whose `energy_required` is at or below 0.001, with `energy_required can't be <= 0.001`. Values of 0.0011 and 0.002 load and survive to a data dump unchanged; an omitted `energy_required` stays absent and the engine applies its own default. The library refuses a declared crafting time at or below the floor and gives a generated craft-time setting a minimum of 0.002 so the settings screen cannot produce one; a setting that answers below the floor anyway falls back to its declared default and logs a line, because a stored value is the player's.
 
-**What a refusal looks like in game.** The load stops with the sentence itself, through `fkdata.Raise`. FkLua's data-stage runtime prefixes the stage and reports it the way it reports its own failures, so the player reads one line naming the stage, this library and the declaration to fix:
+**What a refusal looks like in game.** A refusal is about something the MOD declares, and the load stops with the sentence itself, through `fkdata.Raise`. FkLua's data-stage runtime prefixes the stage and reports it the way it reports its own failures, so the player reads one line naming the stage, this library and the declaration to fix:
 
 ```
 fklua: at the data stage, fkrecipes: two technologies share the name hardened-tips; the second would overwrite the first
 ```
 
 The stage comes from the host, which is why nothing this library builds carries a stage of its own.
+
+**What the player types is never the reason a load stops.** A startup setting a player edits, an ingredient list or a research number, never refuses on its own: the value is set aside, the mod loads on the list or number it declared, and one line goes to the log naming the setting, quoting the problem and saying where to fix it. What the mod declared is then held to the same rules it always was, so a modpack in which that declaration cannot produce a legal result still stops the load, with the message a player who typed nothing would have read; when a stored value was set aside on the way there, the message carries one more sentence naming the setting to correct. Factorio rewrites `mod-settings.dat` on every successful load and on no failed one, and the `Error loading mods` dialog cannot reach the Mod Settings screen (`Manage mods` shows only the Mods list and its Back returns to the dialog), so a refusal over a typed value is a state the player cannot get out of without resetting every startup setting they have. Measured on Factorio 2.0.77 (build 84539, mac-arm64, steam).
+
+```
+fkrecipes: ERROR: mymod-parts, entry 1 ("2 iron-plat"): no item or fluid is named iron-plat. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.
+```
 
 **What it costs to adopt.** Two figures, because the wasm one understates what ships.
 

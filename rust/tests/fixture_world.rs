@@ -111,18 +111,49 @@ fn field(v: &Value, key: &str) -> Option<Value> {
     }
 }
 
-/// BYTES THAT ARE NOT TEXT TAKE THE LANGUAGE'S REFUSAL, reached from outside
+/// BYTES THAT ARE NOT TEXT TAKE THE LANGUAGE'S SENTENCE, reached from outside
 /// the crate. A fixture may answer `Value::Bytes` because the engine really
-/// can hold such a value, and the sentence a consumer sees in their own test
-/// is the sentence a player would see under the host's stage prefix.
+/// can hold such a value.
+///
+/// AND THE PLAN LOADS. A value the PLAYER controls never refuses ON ITS OWN:
+/// the mod comes out made of the author's own declared list and one ERROR line
+/// names the setting. That is the line a player reads in their log, and a
+/// consumer's own test is where they can see it. What the declared list itself
+/// resolves to is still checked, so a modpack that leaves it illegal refuses
+/// here as it would for a player who typed nothing.
 #[test]
 fn a_fixture_world_of_your_own_drives_a_plan() {
     let w = Fixture {
         stored: Some(Value::bytes(b"2 iron-\xffplate")),
     };
+    let ops = plan().plan_data(&w).expect("the plan was refused");
+    let logged: Vec<&str> = ops
+        .iter()
+        .filter_map(|op| match op {
+            Op::Log(line) => Some(line.as_str()),
+            _ => None,
+        })
+        .collect();
     assert_eq!(
-        plan().plan_data(&w).err().as_deref(),
-        Some("fkrecipes: mymod-parts contains characters that are not text; retype the list")
+        logged,
+        ["fkrecipes: ERROR: mymod-parts contains characters that are not text; retype the list. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart."]
+    );
+    // The recipe is the AUTHOR'S declared list, which is what "loaded with its
+    // own default instead" means in the prototype rather than only in the line.
+    let recipe = ops
+        .iter()
+        .find_map(|op| match op {
+            Op::Extend(v) if field(v, "type") == Some(Value::string("recipe")) => Some(v.clone()),
+            _ => None,
+        })
+        .expect("no recipe was emitted");
+    assert_eq!(
+        field(&recipe, "ingredients"),
+        Some(Value::Arr(vec![Value::Map(vec![
+            (String::from("type"), Value::string("item")),
+            (String::from("name"), Value::string("iron-plate")),
+            (String::from("amount"), Value::Num(1.0)),
+        ])]))
     );
 }
 

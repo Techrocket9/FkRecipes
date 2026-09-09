@@ -12,6 +12,7 @@ FkRecipes ("Factorio: konfigurierbare Recipes") is a guest library for mods buil
 - **Determinism is a correctness property.** Plans are slices in declaration order; no map iteration anywhere in either language; everything host-visible is sorted or in declared order. Lua `pairs` order over string keys is seeded per run, so nothing may depend on it, in the library or in the harness.
 - **Pin-transparency is the headline property.** The library imports fkdata and nothing else, in both languages: no fkapi under any feature, ever, and `fklua mod`'s data-module import check is the enforcement. The library never exports a stage hook (`fk_settings`, `fk_data`, ...): the consumer owns the exports and routes in.
 - **Unprefixed names are unrepresentable.** The prefix derives from `fkdata.ModName()` at Emit; there is no prefix parameter, and nothing the library emits can carry a setting or prototype name it did not prefix.
+- **A value the PLAYER types never introduces a refusal a player who typed nothing would not also have hit; an input the AUTHOR declares still refuses.** A stored setting value the library cannot use behaves exactly as if the player had left the field alone, and logs ONE `fkrecipes: ERROR: ...` line naming the setting and the screen it is fixed on. THE CLAIM IS THE NARROW ONE and not "a player is never refused": what the fallback lands on is the author's own declaration, and a modpack where that declaration cannot produce a legal result (every declared science pack absent, a ladder collapsing two ingredients onto one name over the item ceiling) still stops the load, with the sentence a player who never opened the settings screen would have read. Because the accumulated log ops never reach the host on a refused load, every refusal raised after resolution carries ONE added sentence when a stored value fell back, naming the first such setting in walk order: see `withFallbackNote` / `with_fallback_note`. Measured on 2.0.77: a refusal there is a lock-out, because the engine rewrites `mod-settings.dat` only on a SUCCESSFUL load and the client's error dialog cannot reach the Mod Settings screen. The reasoning and the whole client walk are in `playerFallback` / `player_fallback` and in `agents/customizer-design.md` decision 2. The language itself is unchanged: it names the problem rather than guessing a substitute, and `testdata/ingredient-list/cases.txt` still pins every sentence it builds.
 - **Never test Lua against the Homebrew lua** (5.5, integer subtype; Factorio is doubles-only 5.2.1). The harness uses `bin/lua52f` from an FkLua checkout, located via `FKLUA_CHECKOUT` (default `../FkLua`).
 - **No em-dashes or en-dashes anywhere in this repository**, working notes and error messages included. This deliberately extends docs-style.md's ban (the parents exempt working notes; this repo does not), so one grep covers everything.
 
@@ -52,7 +53,8 @@ scripts/run-ingame.sh         # the engine gate: both packaged examples under a 
                               # mod-settings.dat written into the packaged mod by
                               # `fklua modsettings write` (the fklua this script already builds) from
                               # testdata/ingame/flipped.json (edited ingredient texts, a custom arm
-                              # on, a custom research cost), and cmp'd against
+                              # on, a custom research cost whose PACK TEXT is a typo the language
+                              # refuses), and cmp'd against
                               # testdata/ingame/flipped.golden.dat before any engine runs, so an
                               # upstream codec change refuses here by name. Hashes of BOTH
                               # normalised dumps are pinned per engine in
@@ -71,7 +73,12 @@ scripts/run-ingame.sh         # the engine gate: both packaged examples under a 
                               # no modsettings subcommand and the gate reports NOT RUN naming it.
                               # About 35 seconds. The mirror flips the settings the in-game row
                               # leaves on a preset and vice versa, so each dropdown is on custom in
-                              # one gate and on a preset in the other. A mod-set mismatch reports
+                              # one gate and on a preset in the other; each gate also carries one
+                              # text the language refuses, an ingredient list in the mirror and a
+                              # pack list here, and this run must EXIT 0 with the research priced on
+                              # the mod's own declared packs and EXACTLY ONE `fkrecipes: ERROR: `
+                              # line in the engine's log (the count is asserted, not the presence).
+                              # A mod-set mismatch reports
                               # SKIPPED and exits 0 (an environmental difference, the FkLua
                               # convention); --strict or FKRECIPES_STRICT=1 makes it exit 1 for a CI
                               # job that only reads exit codes.

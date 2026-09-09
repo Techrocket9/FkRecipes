@@ -8,12 +8,22 @@
 //! written here is a message the corpus already spells, so a sentence changed
 //! here without the corpus is a red suite in two languages.
 //!
-//! REFUSAL, NEVER FALLBACK. A typed name the game does not have stops the load
-//! naming the setting, the entry and the problem, and offers the case-folded
-//! or dash-folded name when the game has THAT. Substituting silently would
-//! hide the player's typo behind a recipe they did not ask for. The author's
-//! own declared lists keep their presence ladders; those are a modpack
-//! tolerance the author chose, and this language is not that path.
+//! REFUSAL, NEVER FALLBACK, AND IT IS A RULE ABOUT THE LANGUAGE. A typed name
+//! the game does not have is answered by naming the setting, the entry and the
+//! problem, with the case-folded or dash-folded name offered when the game has
+//! THAT. Nothing here substitutes a name, picks a nearest match or drops an
+//! entry it cannot resolve: a silent substitute would hide the player's typo
+//! behind a recipe they did not ask for. The author's own declared lists keep
+//! their presence ladders; those are a modpack tolerance the author chose, and
+//! this language is not that path.
+//!
+//! WHAT THE CALLER DOES WITH THE REFUSAL IS NOT THIS MODULE'S RULE. A refused
+//! text no longer stops the load: `data.rs` logs the sentence written here
+//! inside one ERROR line and takes the author's declared list instead, because
+//! a refusal on a field the player types into locks them out of their save
+//! (the client measurement is in `player_fallback`). That changes nothing
+//! above: this module still refuses rather than guessing, which is what makes
+//! the line the player reads name the real problem.
 //!
 //! THE RESERVED WORD `default` IS WHAT THE SETTING SHIPS WITH, and it means
 //! the mod's own list with its ladders, in this release and in every later

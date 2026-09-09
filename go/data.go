@@ -37,29 +37,33 @@ func (l *Lib) PlanData(w World) ([]Op, error) {
 		return nil, err
 	}
 	res := l.resolve(w, prefix)
-	// THE LANGUAGE'S OWN REFUSAL FIRST, before any check about what the plan
-	// declared. A text the player typed is the thing they can act on, and it
-	// was found earliest in the walk; letting a crafting-time floor or a lost
-	// science pack answer in front of it would send them looking at the mod
-	// instead of at the field they just edited.
+	// THE CARRIED REFUSAL FIRST, before any check about what the plan
+	// declared, because it was found earliest in the walk and its "first one
+	// found wins" rule is what makes a plan with two problems answer the same
+	// way every run.
 	//
-	// A MERGED AMOUNT OVER ITS CEILING IS CARRIED IN THE SAME SLOT, and shares
-	// its "first one found wins" rule. It is an author bug rather than a
-	// player one, so it could have taken a check of its own; it does not,
-	// because it is a fact about the SAME resolved list a language refusal is
-	// about, found in the same walk, and a second carried field with a second
-	// check would only have restated the walk order it already has. See
-	// resolution.refusal for the seven sentences that reach this line.
+	// NOTHING A PLAYER TYPES REACHES THIS LINE ANY MORE. A refused text and a
+	// number the engine would not take fall back to the author's own
+	// declaration with one log line each; what is left in the slot is an
+	// author's declaration or a hand-edited file. See resolution.refusal.
+	//
+	// WHICH IS NOT THE SAME AS "A PLAYER CANNOT BE HERE". The declaration a
+	// fallback lands on can fail a check further down, in a modpack where the
+	// author's own packs are all absent or the author's own ladders collapse
+	// onto one item; a player who never typed hits that refusal too, but a
+	// player who did type is owed the fact that their text was set aside. Every
+	// refusal below this line leaves through withFallbackNote, which is what
+	// says so.
 	if res.refusal != "" {
-		return nil, errors.New(res.refusal)
+		return nil, res.withFallbackNote(errors.New(res.refusal))
 	}
-	if err := l.checkResolvedCraftTimes(res); err != nil {
+	if err := res.withFallbackNote(l.checkResolvedCraftTimes(res)); err != nil {
 		return nil, err
 	}
-	if err := checkResolvedPacks(res); err != nil {
+	if err := res.withFallbackNote(checkResolvedPacks(res)); err != nil {
 		return nil, err
 	}
-	if err := l.checkCycles(w, res, prefix); err != nil {
+	if err := res.withFallbackNote(l.checkCycles(w, res, prefix)); err != nil {
 		return nil, err
 	}
 
@@ -466,15 +470,69 @@ type resolution struct {
 	// which of them is a refusal, exactly as the crafting-time floor does.
 	packless string
 
-	// refusal is the FIRST sentence the walk found that stops the load. Seven
-	// producers write it: the language's own refusal for a text the player
-	// typed, a setting bound as a text list that holds something that is not
-	// text, a dropdown holding a value it does not offer, a merged amount
-	// above its ceiling, and the three refuseCostNumbers answers (a research
-	// number that is not finite, a research count below 1, a research time at
-	// or below zero). Carried out rather than raised for the same reason
+	// refusal is the FIRST sentence the walk found that stops the load. Every
+	// producer left is an AUTHOR's declaration rather than a player's typing:
+	// a dropdown holding a value it does not offer (which the engine resets
+	// before any stage runs, so only a hand-edited file reaches it), a merged
+	// amount above its ceiling, and refuseCostNumbers' answers about a
+	// declared default the settings stage would already have refused. The two
+	// that used to be here and are not, the language's own refusal for a text
+	// the player typed and "is not text", are now fallback lines: see
+	// playerFallback. Carried out rather than raised for the same reason
 	// packless is: resolve answers with facts.
 	refusal string
+
+	// fellBack names every setting whose STORED value the library could not
+	// use, in walk order and ONCE EACH.
+	//
+	// IT IS THE DEDUPE AND THE NOTE AT ONCE. A crafting-time setting two
+	// recipes read is one field on the settings screen, so a bad value there
+	// is one problem and gets one line however many declarations reach it;
+	// this slice is what a second reader is checked against. And when a plan
+	// refuses anyway, its FIRST entry is the setting the refusal's added
+	// sentence names, because a walk-order first is the same every run. See
+	// withFallbackNote.
+	//
+	// A SLICE AND A LINEAR SCAN RATHER THAN A SET: the order is the answer, a
+	// map would not have one, and no plan declares enough settings for the
+	// scan to be worth a second data structure.
+	fellBack []string
+}
+
+// noteFallback records one player-controlled setting falling back and logs the
+// line, unless that setting already fell back in this walk.
+func (r *resolution) noteFallback(setting, line string) {
+	for _, seen := range r.fellBack {
+		if seen == setting {
+			return
+		}
+	}
+	r.fellBack = append(r.fellBack, setting)
+	r.logs = append(r.logs, line)
+}
+
+// withFallbackNote adds the ONE sentence a refusal owes a player whose stored
+// value was set aside on the way to it, and it exists because the log ops never
+// reach the host on a refused load.
+//
+// THE OPS ARE LOST, WHICH IS THE WHOLE REASON. resolve accumulates its lines
+// into res.logs and PlanData turns them into Ops only AFTER every check has
+// passed, so a plan that refuses hands the host a message and nothing else: the
+// player would read a refusal about the mod's own declaration with no hint that
+// the field they edited was set aside, and no hint that correcting it is the
+// one thing they can do from inside the game. This says both, in one sentence,
+// naming the first setting the walk set aside.
+//
+// IT APPEARS ONLY WHEN A FALLBACK HAPPENED. A refusal on a plan nobody typed
+// into carries no note, so the sentence is never advice about a field the
+// player never touched.
+func (r *resolution) withFallbackNote(err error) error {
+	if err == nil || len(r.fellBack) == 0 {
+		return err
+	}
+	return errors.New(err.Error() + ". The stored value of " + r.fellBack[0] +
+		" could not be used, so the mod's own declaration applied;" +
+		" correcting it under Settings > Mod settings > Startup is what a player can change here.")
 }
 
 // resolve asks the World everything the plan needs to know and records what
@@ -500,7 +558,13 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 			setting := l.settings[r.spec.CraftTimeFrom.index-1]
 			ct.bound = true
 			ct.setting = setting.emittedName(prefix)
-			ct.value = res.readNumber(w, setting, prefix)
+			// A CRAFTING TIME IS A FIELD THE PLAYER OWNS, so a value the engine
+			// would not take falls back to the setting's declared default with
+			// one line rather than stopping the load. See playerFallback: the
+			// generated minimum keeps a player from typing one of these, but a
+			// second mod declaring the same setting name can hand one over, and
+			// that is not something to lock a player out of their save for.
+			ct.value = res.craftTimeNumber(w, setting, prefix, r.name)
 		}
 		res.craftTimes = append(res.craftTimes, ct)
 
@@ -747,36 +811,34 @@ func dropLine(tech, after string) string {
 
 // unlockedRecipes marks the recipes some technology unlocks. Those are emitted
 // disabled, because the research is what turns them on.
-// checkResolvedCraftTimes refuses a bound crafting time the engine would not
-// take. It runs after resolution because the value is a fact about what the
-// World answered, not about what the plan declared.
+// checkResolvedCraftTimes is the post-condition on every bound crafting time,
+// and it is the AUTHOR-SIDE twin of refuseCostNumbers.
 //
-// The setting is generated with a minimum above the floor, so the ordinary way
-// to reach this is another mod: setting names are a global namespace and the
-// engine keeps the last declaration of a same-type name, silently. A refusal
-// naming the setting beats the engine's load failure blaming the consumer.
+// A VALUE THE PLAYER'S SETTING ANSWERED HAS ALREADY FALLEN BACK by the time
+// this runs: craftTimeNumber holds it to the same two rules where it is read
+// and answers with the setting's declared default when it fails one, logging
+// one line. So the only world left for this loop is a DECLARED default the
+// engine would not take, which validateSettings refuses at the settings stage
+// (a bound setting's minimum has to clear the floor and its default has to
+// clear the minimum). The engine runs that stage before the data stage, so this
+// answers only for a host test that calls PlanData on its own, and it stays
+// because what it protects is the invariant that no recipe this library emits
+// carries an energy_required the engine refuses.
+//
+// THE TWO RULES ARE THE FALLBACK'S, THE TWO SENTENCES ARE NOT. craftTimeFault
+// answers the same two questions in the same order on both sides, so the sides
+// cannot drift about what is wrong; the wording says DECLARED DEFAULT here,
+// because that is the number this loop is looking at. The stored value it
+// replaced is gone, and a sentence saying the setting "answers" this would be
+// describing a value nothing is holding any more.
 func (l *Lib) checkResolvedCraftTimes(res resolution) error {
 	for i, ct := range res.craftTimes {
 		if !ct.bound {
 			continue
 		}
-		// Finiteness FIRST, and not only for the message: an infinity is
-		// above the floor, so the floor arm would wave it through and ship a
-		// recipe that never completes. Three numbers in this library arrive
-		// from outside and so never crossed the declaration checks: this one,
-		// and the research count and research time a custom cost reads, which
-		// are held to the same rule where they are read.
-		if !finite(ct.value) {
-			return errors.New("fkrecipes: the recipe " + l.recipes[i].name +
-				" reads its crafting time from " + ct.setting +
-				", which answers a value that is not a finite number")
+		if f := craftTimeFault(ct.value); f != faultNone {
+			return errors.New(declaredCraftTimeProblem(l.recipes[i].name, ct.setting, f))
 		}
-		if ct.value > craftTimeFloor {
-			continue
-		}
-		return errors.New("fkrecipes: the recipe " + l.recipes[i].name +
-			" reads its crafting time from " + ct.setting +
-			", which answers at or below the engine floor (energy_required can't be <= 0.001)")
 	}
 	return nil
 }

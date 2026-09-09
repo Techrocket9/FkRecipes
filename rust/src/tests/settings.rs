@@ -3,7 +3,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::op::Op;
-use crate::plan::{ItemSpec, Lib, NumericSpec, RecipeSpec, TechSpec};
+use crate::plan::{
+    Ingredient, IngredientChoice, IngredientChoices, ItemSpec, Lib, NumericSpec, RecipeSpec,
+    TechSpec,
+};
 use crate::tests::data::STEEL_PROCESSING_UNIT;
 use crate::tests::*;
 use crate::value::Value;
@@ -405,19 +408,38 @@ fn refusals_compose_without_their_own_stage() {
             },
         },
         Case {
+            // A stored dropdown value the setting does not offer. The engine
+            // resets one before any stage runs (measured), so this is a
+            // hand-edited file, and it is one of the refusals a resolution
+            // still carries out now that a player's typed text and numbers fall
+            // back instead.
             name: "a resolved-value refusal",
             settings_stage: false,
             plan: |l| {
-                let forging = l.double_setting("forging-time", 3.0, NumericSpec::default());
                 let axe = l.item("steel-axe", ItemSpec::default());
+                let style =
+                    l.dropdown_setting_needing_locale("axe-style", "plain", &["plain", "fancy"]);
                 l.recipe(
                     axe,
                     RecipeSpec {
-                        craft_time_from: forging,
+                        ingredients_by: Some(IngredientChoices {
+                            setting: style,
+                            choices: vec![
+                                IngredientChoice {
+                                    value: "plain".into(),
+                                    ingredients: vec![Ingredient::named(1, "steel-plate", &[])],
+                                },
+                                IngredientChoice {
+                                    value: "fancy".into(),
+                                    ingredients: vec![Ingredient::named(2, "steel-plate", &[])],
+                                },
+                            ],
+                            ..Default::default()
+                        }),
                         ..Default::default()
                     },
                 );
-                base_world().with_setting("steelworks-forging-time", Value::Num(0.0005))
+                base_world().with_setting("steelworks-axe-style", Value::string("gilded"))
             },
         },
         Case {

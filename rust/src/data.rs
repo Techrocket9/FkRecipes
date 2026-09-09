@@ -63,30 +63,39 @@ impl Lib {
 
         self.validate(w, &prefix)?;
         let res = self.resolve(w, &prefix);
-        // WHAT THE PLAYER WROTE, FIRST. Resolution asks the World questions
-        // and mostly degrades; the answers it cannot degrade are a stored
-        // value that is not one of a dropdown's values, a text setting holding
-        // something that is not text, an ingredient list the language refuses,
-        // and the three `refuse_cost_numbers` sentences (a research number
-        // that is not finite, a count below 1, a time at or below zero). Each
-        // is carried out of the pass rather than raised inside it, because
-        // resolution answers questions and this is where a plan is refused;
-        // the FIRST one found wins, and it wins over every refusal below
-        // because it is the earliest thing the pass met.
+        // THE CARRIED REFUSAL, FIRST. Resolution asks the World questions and
+        // mostly degrades; the answers it cannot degrade are a stored value
+        // that is not one of a dropdown's values (which the engine resets
+        // before any stage runs, so only a hand-edited file reaches it), a
+        // merged amount above its ceiling, and the two cost-number sentences
+        // about a DECLARED default the settings stage would already have
+        // refused. Each is carried out of the pass rather than raised inside
+        // it, because resolution answers questions and this is where a plan is
+        // refused; the FIRST one found wins, and it wins over every refusal
+        // below because it is the earliest thing the pass met.
         //
-        // A MERGED AMOUNT OVER ITS CEILING IS CARRIED IN THE SAME SLOT, the
-        // seventh sentence to reach this line, and shares that rule. It is an
-        // author bug rather than a player one, so it could have taken a check
-        // of its own; it does not, because it is a fact about the SAME
-        // resolved list a language refusal is about, found in the same walk,
-        // and a second carried field with a second check would only have
-        // restated the walk order it already has.
+        // NOTHING A PLAYER TYPES REACHES THIS LINE ANY MORE. A refused
+        // ingredient list, a setting holding something that is not text and a
+        // research number the engine would not take all fall back to the
+        // author's own declaration with one log line each. See
+        // `player_fallback`.
+        //
+        // WHICH IS NOT THE SAME AS "A PLAYER CANNOT BE HERE". The declaration a
+        // fallback lands on can fail a check further down, in a modpack where
+        // the author's own packs are all absent or the author's own ladders
+        // collapse onto one item; a player who never typed hits that refusal
+        // too, but a player who did type is owed the fact that their text was
+        // set aside. Every refusal below this line leaves through
+        // `with_fallback_note`, which is what says so.
         if let Some(message) = &res.refusal {
-            return Err(message.clone());
+            return Err(res.with_fallback_note(message.clone()));
         }
-        self.check_resolved_craft_times(&res)?;
-        self.check_resolved_packs(&res)?;
-        self.check_cycles(w, &res, &prefix)?;
+        self.check_resolved_craft_times(&res)
+            .map_err(|m| res.with_fallback_note(m))?;
+        self.check_resolved_packs(&res)
+            .map_err(|m| res.with_fallback_note(m))?;
+        self.check_cycles(w, &res, &prefix)
+            .map_err(|m| res.with_fallback_note(m))?;
 
         let mut ops = Vec::with_capacity(
             res.logs.len() + self.items.len() + self.recipes.len() + 2 * self.techs.len(),
@@ -668,8 +677,37 @@ impl Lib {
                 let full = setting.emitted_name(prefix);
                 ct.bound = true;
                 ct.value = setting.def_num;
+                // A CRAFTING TIME IS A FIELD THE PLAYER OWNS, so a value the
+                // engine would not take falls back to the setting's declared
+                // default with one line rather than stopping the load. See
+                // `player_fallback`: the generated minimum keeps a player from
+                // typing one of these, but a second mod declaring the same
+                // setting name can hand one over, and that is not something to
+                // lock a player out of their save for.
+                //
+                // ONLY A VALUE THE SETTING ANSWERED CAN FALL BACK. An
+                // unreadable setting was never HOLDING anything, so its
+                // declared default is an author bug that
+                // `check_resolved_craft_times` names as one rather than a
+                // stored value this line can tell a player to go and correct.
+                //
+                // TWO RECIPES MAY READ ONE SETTING, which nothing else here
+                // can do, and that is why the line goes through
+                // `note_fallback`: one bad field on the settings screen is one
+                // problem, so it says so once however many recipes bind it,
+                // naming the FIRST recipe in declaration order.
                 match w.startup_setting(&full) {
-                    Some(Value::Num(n)) => ct.value = n,
+                    Some(Value::Num(n)) => {
+                        ct.value = n;
+                        let f = craft_time_fault(n);
+                        if f != NumberFault::None {
+                            res.note_fallback(
+                                &full,
+                                number_fallback(&stored_craft_time_problem(&r.name, &full, f)),
+                            );
+                            ct.value = setting.def_num;
+                        }
+                    }
                     _ => res.logs.push(format!(
                         "fkrecipes: the setting {} was not readable, so its default applies",
                         full
@@ -966,39 +1004,41 @@ impl Lib {
         res
     }
 
-    /// Refuses a bound crafting time the engine would not take. It runs after
-    /// resolution because the value is a fact about what the World answered,
-    /// not about what the plan declared.
+    /// The post-condition on every bound crafting time, and the AUTHOR-SIDE
+    /// twin of the two cost-number checks.
     ///
-    /// The setting is generated with a minimum above the floor, so the
-    /// ordinary way to reach this is another mod: setting names are a global
-    /// namespace and the engine keeps the last declaration of a same-type
-    /// name, silently. A refusal naming the setting beats the engine's load
-    /// failure blaming the consumer.
+    /// A VALUE THE PLAYER'S SETTING ANSWERED HAS ALREADY FALLEN BACK by the
+    /// time this runs: `resolve` holds it to the same two rules where it is
+    /// read and answers with the setting's declared default when it fails one,
+    /// logging a line. So the only world left for this loop is a DECLARED
+    /// default the engine would not take, which `validate_settings` refuses at
+    /// the settings stage (a bound setting's minimum has to clear the floor and
+    /// its default has to clear the minimum). The engine runs that stage before
+    /// the data stage, so this answers only for a host test that calls
+    /// `plan_data` on its own, and it stays because what it protects is the
+    /// invariant that no recipe this library emits carries an `energy_required`
+    /// the engine refuses.
+    ///
+    /// THE TWO RULES ARE THE FALLBACK'S, THE TWO SENTENCES ARE NOT.
+    /// `craft_time_fault` answers the same two questions in the same order on
+    /// both sides, so the sides cannot drift about what is wrong; the wording
+    /// says DECLARED DEFAULT here, because that is the number this loop is
+    /// looking at. The stored value it replaced is gone, and a sentence saying
+    /// the setting "answers" this would be describing a value nothing is
+    /// holding any more.
     fn check_resolved_craft_times(&self, res: &Resolution) -> Result<(), String> {
         for (i, ct) in res.craft_times.iter().enumerate() {
             if !ct.bound {
                 continue;
             }
-            // Finiteness FIRST, and not only for the message: an infinity is
-            // above the floor, so the floor arm would wave it through and ship
-            // a recipe that never completes. It is one of the THREE floats
-            // that arrive from outside and so never crossed the declaration
-            // checks; a research count and a research time are the other two,
-            // and `resolve_custom_cost` asks them the same question.
-            if !finite(ct.value) {
-                return Err(format!(
-                    "fkrecipes: the recipe {} reads its crafting time from {}, which answers a value that is not a finite number",
-                    self.recipes[i].name, ct.setting
+            let f = craft_time_fault(ct.value);
+            if f != NumberFault::None {
+                return Err(declared_craft_time_problem(
+                    &self.recipes[i].name,
+                    &ct.setting,
+                    f,
                 ));
             }
-            if ct.value > CRAFT_TIME_FLOOR {
-                continue;
-            }
-            return Err(format!(
-                "fkrecipes: the recipe {} reads its crafting time from {}, which answers at or below the engine floor (energy_required can't be <= 0.001)",
-                self.recipes[i].name, ct.setting
-            ));
         }
         Ok(())
     }
@@ -1117,15 +1157,33 @@ pub(crate) struct Resolution {
     pub(crate) recipes: Vec<Vec<ResolvedIngredient>>,
     pub(crate) techs: Vec<ResolvedTech>,
     pub(crate) rewrites: Vec<RewriteRec>,
-    /// The FIRST answer resolution could not degrade. Seven producers write
-    /// it: a language refusal, a setting that is not text, a stored dropdown
-    /// value the setting does not offer, a merged amount above its ceiling,
-    /// and the three `refuse_cost_numbers` answers (a research number that is
-    /// not finite, a research count below 1, a research time at or below
-    /// zero). Carried rather than returned so the pass stays one shape: it
-    /// keeps resolving, with an empty list where the refused answer would have
-    /// gone, and `plan_data` raises this before it reads any of it.
+    /// The FIRST answer resolution could not degrade. Every producer left is
+    /// an AUTHOR's declaration rather than a player's typing: a stored
+    /// dropdown value the setting does not offer (the engine resets one before
+    /// any stage runs, so only a hand-edited file reaches it), a merged amount
+    /// above its ceiling, and the two cost-number answers about a declared
+    /// default the settings stage would already have refused. The three that
+    /// used to be here and are not, a language refusal, "is not text" and a
+    /// research number a player's setting answered with, are now fallback
+    /// lines: see `player_fallback`. Carried rather than returned so the pass
+    /// stays one shape, and `plan_data` raises this before it reads any of it.
     pub(crate) refusal: Option<String>,
+
+    /// Every setting whose STORED value the library could not use, in walk
+    /// order and ONCE EACH.
+    ///
+    /// IT IS THE DEDUPE AND THE NOTE AT ONCE. A crafting-time setting two
+    /// recipes read is one field on the settings screen, so a bad value there
+    /// is one problem and gets one line however many declarations reach it;
+    /// this vector is what a second reader is checked against. And when a plan
+    /// refuses anyway, its FIRST entry is the setting the refusal's added
+    /// sentence names, because a walk-order first is the same every run. See
+    /// `with_fallback_note`.
+    ///
+    /// A VECTOR AND A LINEAR SCAN RATHER THAN A SET: the order is the answer, a
+    /// set would not have one, and no plan declares enough settings for the
+    /// scan to be worth a second data structure.
+    pub(crate) fell_back: Vec<String>,
 }
 
 impl Resolution {
@@ -1134,6 +1192,42 @@ impl Resolution {
     fn refuse(&mut self, message: String) {
         if self.refusal.is_none() {
             self.refusal = Some(message);
+        }
+    }
+
+    /// Records one player-controlled setting falling back and logs the line,
+    /// unless that setting already fell back in this walk.
+    fn note_fallback(&mut self, setting: &str, line: String) {
+        if self.fell_back.iter().any(|seen| seen == setting) {
+            return;
+        }
+        self.fell_back.push(String::from(setting));
+        self.logs.push(line);
+    }
+
+    /// Adds the ONE sentence a refusal owes a player whose stored value was set
+    /// aside on the way to it, and it exists because the log ops never reach the
+    /// host on a refused load.
+    ///
+    /// THE OPS ARE LOST, WHICH IS THE WHOLE REASON. `resolve` accumulates its
+    /// lines into `logs` and `plan_data` turns them into `Op`s only AFTER every
+    /// check has passed, so a plan that refuses hands the host a message and
+    /// nothing else: the player would read a refusal about the mod's own
+    /// declaration with no hint that the field they edited was set aside, and no
+    /// hint that correcting it is the one thing they can do from inside the
+    /// game. This says both, in one sentence, naming the first setting the walk
+    /// set aside.
+    ///
+    /// IT APPEARS ONLY WHEN A FALLBACK HAPPENED. A refusal on a plan nobody
+    /// typed into carries no note, so the sentence is never advice about a field
+    /// the player never touched.
+    fn with_fallback_note(&self, message: String) -> String {
+        match self.fell_back.first() {
+            None => message,
+            Some(setting) => format!(
+                "{}. The stored value of {} could not be used, so the mod's own declaration applied; correcting it under Settings > Mod settings > Startup is what a player can change here.",
+                message, setting
+            ),
         }
     }
 }
@@ -1233,14 +1327,225 @@ fn note_ignored_number(
     }
 }
 
-/// What a setting that answered with something no arithmetic can use is told.
-/// It names the SETTING rather than the technology, because the technology's
-/// own declaration is fine and the value came from outside it.
-fn not_finite(setting: &str) -> String {
+/// The constant every sentence this library composes begins with, in the
+/// language and in this layer alike.
+///
+/// IT IS A CONSTANT SO IT CAN BE TAKEN BACK OFF. A fallback line carries a
+/// refusal's own sentence inside a line that already opens with the prefix, and
+/// it is removed with an explicit trim of this constant rather than by counting
+/// characters or by cutting at a colon. The corpus asserts the property over
+/// every message the language builds and `fallback_sentences_carry_the_prefix`
+/// over every one this layer builds, so the trim is total rather than hopeful.
+pub(crate) const MESSAGE_PREFIX: &str = "fkrecipes: ";
+
+/// The ONE line a value the PLAYER controls logs when the library cannot use
+/// it, and it exists instead of a refusal.
+///
+/// A VALUE THE PLAYER TYPES NEVER INTRODUCES A REFUSAL A PLAYER WHO TYPED
+/// NOTHING WOULD NOT ALSO HAVE HIT; AN INPUT THE AUTHOR DECLARES STILL REFUSES.
+/// The claim is that narrow one on purpose: what a fallback lands on is the
+/// author's declaration, and a modpack where that declaration cannot produce a
+/// legal result stops the load either way. See `Resolution::with_fallback_note`
+/// for the sentence such a refusal then carries.
+///
+/// MEASURED (Factorio 2.0.77, build 84539): the engine
+/// rewrites mod-settings.dat on every successful load and on NO failed one
+/// (three consecutive failed runs left the file at one sha256), so nothing in a
+/// failed run can edit the value that caused it. In the client the refusal is
+/// an "Error loading mods" dialog offering Disable listed mods, Disable all
+/// mods, Manage mods, Restart, Exit and a Reset mod settings checkbox; Manage
+/// mods shows the Mods screen, which offers enable and disable, has no Mod
+/// settings button, and whose Back returns to the same dialog rather than to
+/// the main menu, so the Mod Settings screen is not reachable. Disabling and
+/// re-enabling the mod does not help either: the engine keeps a disabled mod's
+/// settings, and a disabled mod's settings are not shown on the Mod Settings
+/// screen, so the identical refusal returns. The one escape measured is Reset
+/// mod settings plus Disable listed mods: six steps, every startup preference
+/// in the file lost, the mod disabled and a restart needed. A refusal on a
+/// field the player types into was therefore a lock-out, and the library owns
+/// it.
+///
+/// ERROR IS UPPERCASE DELIBERATELY. Factorio's `log()` has one channel and no
+/// severity (verified: `fk_log` maps to the global `log`, and there is no
+/// second channel and no level parameter), so the severity has to be in the
+/// text. Uppercase also keeps the line out of a case-sensitive grep for the
+/// engine's own `Error` lines while a case-insensitive one still finds it.
+///
+/// FIELD is the word the player looks for on the settings screen: the text of a
+/// list, or the number of a slider.
+pub(crate) fn player_fallback(reason: &str, field: &str) -> String {
     format!(
-        "fkrecipes: {} holds a value that is not a finite number",
-        setting
+        "{}ERROR: {}. The mod loaded with its own default instead; fix the {} under Settings > Mod settings > Startup, then restart.",
+        MESSAGE_PREFIX,
+        reason.strip_prefix(MESSAGE_PREFIX).unwrap_or(reason),
+        field
     )
+}
+
+/// The two fields that exist, named once so no caller spells the word.
+pub(crate) fn text_fallback(reason: &str) -> String {
+    player_fallback(reason, "text")
+}
+
+pub(crate) fn number_fallback(reason: &str) -> String {
+    player_fallback(reason, "number")
+}
+
+/// The one sentence a stored value that is not text is answered with, built in
+/// ONE place: two spellings of one sentence is exactly the drift the corpus
+/// exists to prevent for the language, and this layer gets the same treatment.
+///
+/// THE NAME SPELLS OUT SENTENCE because `crate::value::not_text` is a different
+/// message about a different question (bytes that are not UTF-8 crossing the
+/// emit seam), and two `not_text`s in one crate is a name a reader has to
+/// disambiguate by import path. The Go half named its own the same way.
+pub(crate) fn not_text_sentence(setting: &str) -> String {
+    format!("{}{} is not text", MESSAGE_PREFIX, setting)
+}
+
+/// Which rule a number failed, and it exists so that the ORDER the questions
+/// are asked in lives in one place while the SENTENCE they are answered with
+/// lives in two.
+///
+/// TWO WORDINGS, BECAUSE THE TWO SIDES ARE ABOUT DIFFERENT VALUES. A stored
+/// value is what the SETTING ANSWERED, and the value a fallback lands on is
+/// what the PLAN DECLARED; one wording over both would describe the setting's
+/// answer while talking about the declaration that replaced it. See
+/// `stored_number_problem` and `declared_number_problem`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NumberFault {
+    None,
+    NotFinite,
+    CountBelowOne,
+    TimeAtOrBelowZero,
+    BelowCraftTimeFloor,
+}
+
+/// `count_fault`, `seconds_fault` and `craft_time_fault` answer which rule a
+/// number failed, or `NumberFault::None`.
+///
+/// FINITENESS FIRST WITHIN EACH NUMBER, and not only for the message: a floor
+/// is a question only a finite number can be asked. A NaN is neither below 1
+/// nor at or below zero, so a floor arm reached first would wave it through,
+/// and an infinity would be sorted by whichever side of the floor it fell on
+/// rather than told the one thing that is actually wrong with it.
+///
+/// ONE FUNCTION PER NUMBER RATHER THAN ONE ACROSS ALL OF THEM, which is a
+/// change from the interleaved order this layer used to have: each number now
+/// falls back on its own and logs its own line, so a world where two of them
+/// are wrong answers about both instead of picking one. The residual refusal
+/// walks them in the same per-number order, so there is one ordering in this
+/// file rather than two.
+pub(crate) fn count_fault(v: f64) -> NumberFault {
+    if !finite(v) {
+        NumberFault::NotFinite
+    } else if v < 1.0 {
+        NumberFault::CountBelowOne
+    } else {
+        NumberFault::None
+    }
+}
+
+pub(crate) fn seconds_fault(v: f64) -> NumberFault {
+    if !finite(v) {
+        NumberFault::NotFinite
+    } else if v <= 0.0 {
+        NumberFault::TimeAtOrBelowZero
+    } else {
+        NumberFault::None
+    }
+}
+
+pub(crate) fn craft_time_fault(v: f64) -> NumberFault {
+    if !finite(v) {
+        NumberFault::NotFinite
+    } else if v <= CRAFT_TIME_FLOOR {
+        NumberFault::BelowCraftTimeFloor
+    } else {
+        NumberFault::None
+    }
+}
+
+/// What a value the SETTING ANSWERED WITH is told, and the reason a fallback
+/// line quotes. It names the SETTING rather than the technology, because the
+/// technology's own declaration is fine and the value came from outside it.
+///
+/// A FAULT NO NUMBER OF THIS KIND CAN HAVE ANSWERS WITH THE EMPTY STRING, which
+/// the prefix witness catches: a sentence with no prefix on it fails that test
+/// rather than reaching a player as a line with a hole in it.
+pub(crate) fn stored_number_problem(setting: &str, f: NumberFault) -> String {
+    match f {
+        NumberFault::NotFinite => format!(
+            "{}{} holds a value that is not a finite number",
+            MESSAGE_PREFIX, setting
+        ),
+        NumberFault::CountBelowOne => format!(
+            "{}{} holds a research count below 1",
+            MESSAGE_PREFIX, setting
+        ),
+        NumberFault::TimeAtOrBelowZero => format!(
+            "{}{} holds a research time at or below zero",
+            MESSAGE_PREFIX, setting
+        ),
+        NumberFault::None | NumberFault::BelowCraftTimeFloor => String::new(),
+    }
+}
+
+/// What the value a fallback LANDED ON is refused with, and it says declared
+/// default out loud: by the time this is reached the stored value is gone and
+/// the number being complained about is the one the plan wrote, which is an
+/// author's bug rather than a player's typing.
+pub(crate) fn declared_number_problem(setting: &str, f: NumberFault) -> String {
+    match f {
+        NumberFault::NotFinite => format!(
+            "{}{} declares a default that is not a finite number",
+            MESSAGE_PREFIX, setting
+        ),
+        NumberFault::CountBelowOne => format!(
+            "{}{} declares a default research count below 1",
+            MESSAGE_PREFIX, setting
+        ),
+        NumberFault::TimeAtOrBelowZero => format!(
+            "{}{} declares a default research time at or below zero",
+            MESSAGE_PREFIX, setting
+        ),
+        NumberFault::None | NumberFault::BelowCraftTimeFloor => String::new(),
+    }
+}
+
+/// The same split for a recipe's bound crafting time, which names the recipe as
+/// well as the setting because that is the sentence this value has always been
+/// answered with.
+pub(crate) fn stored_craft_time_problem(recipe: &str, setting: &str, f: NumberFault) -> String {
+    match f {
+        NumberFault::NotFinite => format!(
+            "{}the recipe {} reads its crafting time from {}, which answers a value that is not a finite number",
+            MESSAGE_PREFIX, recipe, setting
+        ),
+        NumberFault::BelowCraftTimeFloor => format!(
+            "{}the recipe {} reads its crafting time from {}, which answers at or below the engine floor (energy_required can't be <= 0.001)",
+            MESSAGE_PREFIX, recipe, setting
+        ),
+        NumberFault::None | NumberFault::CountBelowOne | NumberFault::TimeAtOrBelowZero => {
+            String::new()
+        }
+    }
+}
+
+pub(crate) fn declared_craft_time_problem(recipe: &str, setting: &str, f: NumberFault) -> String {
+    match f {
+        NumberFault::NotFinite => format!(
+            "{}the recipe {} reads its crafting time from {}, whose declared default is not a finite number",
+            MESSAGE_PREFIX, recipe, setting
+        ),
+        NumberFault::BelowCraftTimeFloor => format!(
+            "{}the recipe {} reads its crafting time from {}, whose declared default is at or below the engine floor (energy_required can't be <= 0.001)",
+            MESSAGE_PREFIX, recipe, setting
+        ),
+        NumberFault::None | NumberFault::CountBelowOne | NumberFault::TimeAtOrBelowZero => {
+            String::new()
+        }
+    }
 }
 
 fn drop_line(tech: &str, after: &str) -> String {
@@ -2033,36 +2338,32 @@ impl Lib {
     ///
     /// AN UNREADABLE SETTING BECOMES THE WORD, which is the same degradation
     /// every other bound setting takes and lands on the same path a player who
-    /// never typed takes. A readable value that is not a string is refused:
-    /// the engine resets a wrong-typed stored value to the default before any
-    /// stage runs (measured), so this is a hand-edited file, and guessing what
-    /// a number meant as an ingredient list is not something to do on a
-    /// player's behalf.
+    /// never typed takes. A readable value that is not a string becomes the
+    /// word too, with ONE fallback line: the engine resets a wrong-typed stored
+    /// value to the default before any stage runs (measured), so it is a
+    /// hand-edited file, and the line says so without stopping the game. It
+    /// used to refuse; see `player_fallback` for the client measurement that
+    /// decided it does not.
     ///
     /// IT YIELDS BYTES, and both string arms are one answer here. Whether a
     /// stored value is text is the LANGUAGE's question, asked once at the top
     /// of its parse and answered the same way in both halves; a second answer
-    /// taken here, by treating `Value::Bytes` as "not a string", would refuse
-    /// with the wrong sentence and would be a rule only this half has.
-    fn read_text_setting(
-        &self,
-        w: &dyn World,
-        res: &mut Resolution,
-        full: &str,
-    ) -> Option<Vec<u8>> {
+    /// taken here, by treating `Value::Bytes` as "not a string", would say the
+    /// wrong sentence and would be a rule only this half has.
+    fn read_text_setting(&self, w: &dyn World, res: &mut Resolution, full: &str) -> Vec<u8> {
         match w.startup_setting(full) {
-            Some(Value::Str(text)) => Some(text.into_bytes()),
-            Some(Value::Bytes(b)) => Some(b),
+            Some(Value::Str(text)) => text.into_bytes(),
+            Some(Value::Bytes(b)) => b,
             Some(_) => {
-                res.refuse(format!("fkrecipes: {} is not text", full));
-                None
+                res.note_fallback(full, text_fallback(&not_text_sentence(full)));
+                Vec::from(DEFAULT.as_bytes())
             }
             None => {
                 res.logs.push(format!(
                     "fkrecipes: the setting {} was not readable, so its default applies",
                     full
                 ));
-                Some(Vec::from(DEFAULT.as_bytes()))
+                Vec::from(DEFAULT.as_bytes())
             }
         }
     }
@@ -2072,7 +2373,9 @@ impl Lib {
     /// THE WORD `default` IS THE PRE-EXISTING PATH, ladders and all, and it
     /// logs nothing of its own: the player who never typed gets exactly the
     /// recipe the author declared, drops included. Anything else is taken as
-    /// written, and one line records what was read.
+    /// written, and one line records what was read. A TEXT THE LANGUAGE CANNOT
+    /// READ TAKES THE SAME PRE-EXISTING PATH, with one line of its own saying
+    /// so: see `player_fallback`.
     ///
     /// TWO WORLDS, AND THE SPLIT IS THE POINT. What the PLAYER typed is read
     /// against `own`, which knows this plan's own item names; the author's own
@@ -2090,18 +2393,19 @@ impl Lib {
     ) -> Vec<ResolvedIngredient> {
         let s = &self.settings[h.index - 1];
         let full = s.emitted_name(prefix);
-        let text = match self.read_text_setting(w, res, &full) {
-            Some(text) => text,
-            None => return Vec::new(),
-        };
+        let text = self.read_text_setting(w, res, &full);
         let lang = self.installed_language();
         match (lang.parse)(&text, ListKind::Recipe, &r.spec.category, &full, own) {
-            // THE MESSAGE IS THE WHOLE REFUSAL, verbatim: the language wrote
-            // it for the player, naming the setting, the entry and the
-            // problem, and there is nothing this layer can add to it.
+            // THE MESSAGE IS THE WHOLE DIAGNOSIS, verbatim: the language wrote
+            // it for the player, naming the setting, the entry and the problem,
+            // and there is nothing this layer can add to it. It rides inside
+            // ONE fallback line with the shared prefix trimmed off, because the
+            // line it sits in already opens with one, and the list that reaches
+            // the recipe is the AUTHOR'S own with its ladders: a refused text
+            // takes exactly the path the reserved word takes.
             Err(message) => {
-                res.refuse(message);
-                Vec::new()
+                res.note_fallback(&full, text_fallback(&message));
+                self.resolve_ingredients(w, res, prefix, &r.name, &s.def_ings)
             }
             Ok(ListText::Default) => self.resolve_ingredients(w, res, prefix, &r.name, &s.def_ings),
             Ok(ListText::List(list)) => {
@@ -2147,72 +2451,70 @@ impl Lib {
         cc: &CustomCost,
     ) -> (Value, bool) {
         let lang = self.installed_language();
-        let (count, count_setting) = self.read_num_setting(w, res, prefix, cc.count.index);
-        let (seconds, seconds_setting) = self.read_num_setting(w, res, prefix, cc.seconds.index);
+        // EACH NUMBER IS HELD TO WHAT THE ENGINE TAKES WHERE IT IS READ, and
+        // one that is not takes the setting's DECLARED DEFAULT with a line
+        // naming it. All three fields here are the player's, so all three
+        // follow the same rule; the lines come out in the order the values are
+        // read, which is the order the cost line below names them.
+        let (count, count_setting) =
+            self.read_cost_number(w, res, prefix, cc.count.index, count_fault);
+        let (seconds, seconds_setting) =
+            self.read_cost_number(w, res, prefix, cc.seconds.index, seconds_fault);
         let s = &self.settings[cc.packs.index - 1];
         let full = s.emitted_name(prefix);
-        let packs = match self.read_text_setting(w, res, &full) {
-            None => Vec::new(),
-            Some(text) => match (lang.parse)(&text, ListKind::Packs, "", &full, own) {
-                Err(message) => {
-                    res.refuse(message);
-                    Vec::new()
-                }
-                // THE LADDERS ARE THE AUTHOR'S, so the word walks them and a
-                // pack the game does not have is dropped with its line, the
-                // way it is for a hand-rolled unit.
-                Ok(ListText::Default) => resolve_packs(w, res, &t.name, &s.def_packs),
-                Ok(ListText::List(list)) => list
-                    .entries
-                    .iter()
-                    .map(|e| ResolvedPack {
-                        name: e.name.clone(),
-                        // A pack list resolves through tool_exists and a tool
-                        // is an item, so every entry the parser returns here
-                        // carries an item amount: `resolve_for_packs` answers
-                        // "not a fluid" for every name it accepts, and the
-                        // fluid arm of an entry is reached only behind that
-                        // answer. A 0 here would be a research the engine
-                        // refuses with a message naming nothing of this
-                        // library's, so the impossible case says so instead.
-                        amount: match e.amount {
-                            Amount::Item(n) => n,
-                            Amount::Fluid(_) => {
-                                unreachable!("a science pack list parsed a fluid entry")
-                            }
-                        },
-                    })
-                    .collect(),
-            },
+        let text = self.read_text_setting(w, res, &full);
+        let packs = match (lang.parse)(&text, ListKind::Packs, "", &full, own) {
+            // ONE LINE AND THE AUTHOR'S OWN PACKS, the same shape the recipe
+            // path takes: a refused text lands on the path the reserved word
+            // takes, ladders and drop lines and all.
+            Err(message) => {
+                res.note_fallback(&full, text_fallback(&message));
+                resolve_packs(w, res, &t.name, &s.def_packs)
+            }
+            // THE LADDERS ARE THE AUTHOR'S, so the word walks them and a
+            // pack the game does not have is dropped with its line, the
+            // way it is for a hand-rolled unit.
+            Ok(ListText::Default) => resolve_packs(w, res, &t.name, &s.def_packs),
+            Ok(ListText::List(list)) => list
+                .entries
+                .iter()
+                .map(|e| ResolvedPack {
+                    name: e.name.clone(),
+                    // A pack list resolves through tool_exists and a tool
+                    // is an item, so every entry the parser returns here
+                    // carries an item amount: `resolve_for_packs` answers
+                    // "not a fluid" for every name it accepts, and the
+                    // fluid arm of an entry is reached only behind that
+                    // answer. A 0 here would be a research the engine
+                    // refuses with a message naming nothing of this
+                    // library's, so the impossible case says so instead.
+                    amount: match e.amount {
+                        Amount::Item(n) => n,
+                        Amount::Fluid(_) => {
+                            unreachable!("a science pack list parsed a fluid entry")
+                        }
+                    },
+                })
+                .collect(),
         };
-        // THE NUMBERS ARE ASKED AFTER THE TEXT, and a bad text answers first.
-        // All three fields are the player's and a world where two of them are
-        // wrong is a world the two halves would otherwise report differently;
-        // the pack text is the field a player is likeliest to have typed by
-        // hand, so it is the one whose sentence comes back. See
-        // agents/customizer-design.md.
-        //
-        // THE ORDER IS FINITENESS FIRST, both numbers, and only then the two
-        // floors: a floor is a question only a finite number can be asked. A
-        // NaN is neither below 1 nor at or below zero, so a floor arm reached
-        // first would wave it through, and an infinity would be sorted by
-        // whichever side of the floor it fell on rather than told the one
-        // thing that is actually wrong with it. One arm answers, because the
-        // first refusal is the one a Resolution keeps.
-        if !finite(count) {
-            res.refuse(not_finite(&count_setting));
-        } else if !finite(seconds) {
-            res.refuse(not_finite(&seconds_setting));
-        } else if count < 1.0 {
-            res.refuse(format!(
-                "fkrecipes: {} holds a research count below 1",
-                count_setting
-            ));
-        } else if seconds <= 0.0 {
-            res.refuse(format!(
-                "fkrecipes: {} holds a research time at or below zero",
-                seconds_setting
-            ));
+        // AND THE POST-CONDITION, on whatever the two reads settled on. After a
+        // fallback the value IS the declared default, so the only world this
+        // can still refuse is a plan whose declared default is itself outside
+        // what the engine takes. That is an AUTHOR bug: `validate_settings`
+        // refuses it at the settings stage, which the engine runs before the
+        // data stage, so it reaches here only through a host test that calls
+        // `plan_data` on its own. It refuses, because an author's declaration
+        // is not a player's typing, and it SAYS declared default: the stored
+        // value is gone by here, so the sentence a fallback line quoted would
+        // be describing a number nothing is holding any more. Count then
+        // seconds, one arm answering, because the first refusal is the one a
+        // Resolution keeps.
+        let count_bad = count_fault(count);
+        let seconds_bad = seconds_fault(seconds);
+        if count_bad != NumberFault::None {
+            res.refuse(declared_number_problem(&count_setting, count_bad));
+        } else if seconds_bad != NumberFault::None {
+            res.refuse(declared_number_problem(&seconds_setting, seconds_bad));
         }
         // ONE LINE WHATEVER THE TEXT SAID, unlike the ingredients path: the
         // count and the seconds come from their settings on every load, so
@@ -2248,6 +2550,48 @@ impl Lib {
         )
     }
 
+    /// One of a custom cost's two numbers, held to what the engine takes,
+    /// FALLING BACK to the setting's declared default rather than refusing.
+    ///
+    /// A NUMBER IS A FIELD THE PLAYER OWNS, exactly as the pack text beside it
+    /// is, so it takes the same rule: see `player_fallback` for the client
+    /// measurement that decided it. The declared minima and the engine's own
+    /// reset rule keep a player from producing one of these through the
+    /// settings screen, and a `World` is still a trait: a fixture that answers
+    /// a NaN used to reach the amount formatter, and one that answers an
+    /// infinity used to be rendered into the unit. The line names the SETTING,
+    /// because that is the field somebody would go and fix.
+    ///
+    /// THE DEFAULT IS THE SAME ONE AN UNREADABLE SETTING TAKES, which is what
+    /// makes this one shape rather than two: `read_num_setting` already answers
+    /// with `def_num` for a value it cannot read, and this answers with it for
+    /// a value it cannot use.
+    ///
+    /// ONLY A VALUE THE SETTING ANSWERED CAN FALL BACK, which is what the third
+    /// return of `read_num_setting` is for. An unreadable setting was never
+    /// HOLDING anything, so a declared default the engine would not take is an
+    /// author bug the post-condition names as one; a fallback line there would
+    /// send a player to a field whose stored value was never the problem.
+    fn read_cost_number(
+        &self,
+        w: &dyn World,
+        res: &mut Resolution,
+        prefix: &str,
+        index: usize,
+        fault: fn(f64) -> NumberFault,
+    ) -> (f64, String) {
+        let (v, full, held) = self.read_num_setting(w, res, prefix, index);
+        if !held {
+            return (v, full);
+        }
+        let f = fault(v);
+        if f != NumberFault::None {
+            res.note_fallback(&full, number_fallback(&stored_number_problem(&full, f)));
+            return (self.settings[index - 1].def_num, full);
+        }
+        (v, full)
+    }
+
     /// A number a player set, or the declared default with a line saying the
     /// setting was not readable, AND the setting's emitted name, because the
     /// caller's refusals name whichever setting answered. One reader for both
@@ -2260,17 +2604,17 @@ impl Lib {
         res: &mut Resolution,
         prefix: &str,
         index: usize,
-    ) -> (f64, String) {
+    ) -> (f64, String, bool) {
         let s = &self.settings[index - 1];
         let full = s.emitted_name(prefix);
         match w.startup_setting(&full) {
-            Some(Value::Num(n)) => (n, full),
+            Some(Value::Num(n)) => (n, full, true),
             _ => {
                 res.logs.push(format!(
                     "fkrecipes: the setting {} was not readable, so its default applies",
                     full
                 ));
-                (s.def_num, full)
+                (s.def_num, full, false)
             }
         }
     }

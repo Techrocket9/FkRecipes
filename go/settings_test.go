@@ -312,11 +312,22 @@ func TestRefusalsComposeWithoutTheirOwnStage(t *testing.T) {
 			return lib, baseWorld()
 		}},
 		{"a resolved-value refusal", func() (*Lib, World) {
+			// A stored dropdown value the setting does not offer. The engine
+			// resets one before any stage runs (measured), so this is a
+			// hand-edited file, and it is one of the refusals a resolution
+			// still carries out now that a player's typed text and numbers
+			// fall back instead.
 			lib := New()
-			forging := lib.DoubleSetting("forging-time", 3, NumericSpec{})
 			axe := lib.Item("steel-axe", ItemSpec{})
-			lib.Recipe(axe, RecipeSpec{CraftTimeFrom: forging})
-			return lib, baseWorld().withSetting("steelworks-forging-time", Num(0.0005))
+			style := lib.DropdownSettingNeedingLocale("axe-style", "plain", []string{"plain", "fancy"})
+			lib.Recipe(axe, RecipeSpec{IngredientsBy: &IngredientChoices{
+				Setting: style,
+				Choices: []IngredientChoice{
+					{Value: "plain", Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")}},
+					{Value: "fancy", Ingredients: []Ingredient{IngredientNamed(2, "steel-plate")}},
+				},
+			}})
+			return lib, baseWorld().withSetting("steelworks-axe-style", Str("gilded"))
 		}},
 		{"a cycle refusal", func() (*Lib, World) {
 			lib := New()

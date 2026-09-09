@@ -25,10 +25,18 @@
 # testdata/ingame/flipped.json written into the mod directory as
 # mod-settings.dat by `fklua modsettings write`: a dropdown on custom with a
 # player-typed ingredient list carrying a FLUID, a research priced out of three
-# settings and placed by its own ladder, a whole ingredient list typed into a
-# setting with no dropdown in front of it, and one text left untouched behind a
-# preset. Nothing but the engine can say those work, because the settings stage
-# reads a stored value and no stand-in has one.
+# settings and placed by its own ladder with a TYPO in its pack text, a whole
+# ingredient list typed into a setting with no dropdown in front of it, and one
+# text left untouched behind a preset. Nothing but the engine can say those
+# work, because the settings stage reads a stored value and no stand-in has one.
+#
+# THE TYPO IS THE ROW'S SECOND SUBJECT. An input the PLAYER controls never
+# refuses the load: the run must exit 0, the research must come out priced on
+# the packs the mod declared, and the log must carry exactly one ERROR line
+# naming the setting. Before that decision this row exited 1 with "Failed to
+# load mod" and wrote no dump, and the file that caused it was one nothing in
+# the game could then edit, so a valid edit and a refused one in ONE row is what
+# says both halves of the rule hold on a real engine.
 #
 # THE DEFAULT ROW RUNS TWICE AND THE FLIPPED ROW ONCE. Determinism is a
 # property of the data stage and not of a particular settings file, so the
@@ -579,7 +587,8 @@ jqassert "the player's typed fluid reached the quenching recipe" "$FDUMP" \
   '.recipe["fkrecipes-example-hardened-steel-plate-quenching"].ingredients ==
    [{"amount":1,"name":"steel-plate","type":"item"},{"amount":10,"name":"water","type":"fluid"}]'
 # THE WHOLE LIST OF A RECIPE WITH NO DROPDOWN in front of it, in the order the
-# player wrote rather than the order the mod declared.
+# player wrote rather than the order the mod declared. The mirror puts a REFUSED
+# text on this same setting, so one gate covers each side of the arm.
 jqassert "the player's typed list reached the recipe that has no dropdown" "$FDUMP" \
   '.recipe["fkrecipes-example-steel-rivet"].ingredients ==
    [{"amount":2,"name":"iron-stick","type":"item"},{"amount":1,"name":"steel-plate","type":"item"}]'
@@ -594,9 +603,16 @@ jqassert "the preset applied while its text was left untouched" "$FDUMP" \
 # from, so it carries one, and military-2 is the first rung a stock install
 # has. The default row copies a whole unit out of base instead, formula, level
 # cap and all, so these two rows cover the two ways a cost is built.
+# THE PACK TEXT IS THE TYPO, so the two NUMBERS the player set are what reach
+# the unit and the pack list is the mod's OWN declared one: "loaded with its own
+# default instead" in the prototype rather than only in the log, on a real
+# engine. This is the measurement the whole decision rests on: before it, this
+# row exited 1 with "Failed to load mod" and no dump at all, and a player in
+# that state could not reach the Mod Settings screen to undo it (see the client
+# walk in the library's player_fallback).
 jqassert "the player's research cost reached the technology" "$FDUMP" \
   '.technology["fkrecipes-example-hardened-tips"].unit ==
-   {"count":40,"time":20,"ingredients":[["automation-science-pack",2],["military-science-pack",1]]}'
+   {"count":40,"time":20,"ingredients":[["automation-science-pack",1],["military-science-pack",1]]}'
 jqassert "the custom arm's position ladder placed the technology" "$FDUMP" \
   '.technology["fkrecipes-example-hardened-tips"].prerequisites == ["military-2"]'
 # A BUILT unit is not a COPIED one: nothing was copied here, so the level cap
@@ -609,13 +625,40 @@ jqassert "the built unit carried no level cap of a technology it never copied" "
 # what they typed, so they learn the form the library would have written.
 grep -q "fkrecipes: fkrecipes-example-hardened-steel-plate-quenching takes its ingredients from fkrecipes-example-quench-ingredients: 1 steel-plate, 10 \[fluid=water\]" "$FLOG" ||
   fail "the custom arm's edited text logged nothing in the engine's own log"
+# AND THE ERROR LINE FOR THE TEXT THE LANGUAGE REFUSED, in the engine's own
+# log. Factorio's log() has one channel and no severity, so the word ERROR is in
+# the text; it is uppercase so a case-sensitive grep for the engine's own Error
+# lines does not collect it while a case-insensitive one still finds it. The
+# sentence inside it is the language's own, verbatim, with the shared
+# "fkrecipes: " prefix trimmed off because the line already opens with one.
+grep -q 'fkrecipes: ERROR: fkrecipes-example-tips-packs, entry 2 ("1 militar-science-pack"): no science pack is named militar-science-pack\. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart\.' "$FLOG" ||
+  fail "the refused pack text logged no ERROR line in the engine's own log"
+# AND EXACTLY ONE OF THEM. One player-controlled value in this row is wrong, so
+# one line is the whole answer: a second would mean a setting nobody edited had
+# been reported, or one field reported twice, and a gate that only asked whether
+# an ERROR line is PRESENT could not tell either apart from a pass.
+errors=$(grep -c "fkrecipes: ERROR: " "$FLOG" || true)
+[ "$errors" = 1 ] ||
+  fail "the flipped row logged $errors fkrecipes ERROR lines in the engine's own log, want 1"
 grep -q "fkrecipes: fkrecipes-example-steel-rivet takes its ingredients from fkrecipes-example-rivet-ingredients: 2 iron-stick, 1 steel-plate" "$FLOG" ||
   fail "the edited ingredient text logged nothing in the engine's own log"
-grep -q "fkrecipes: fkrecipes-example-hardened-tips takes its research cost from fkrecipes-example-tips-packs: count 40, time 20, packs 2 automation-science-pack, 1 military-science-pack" "$FLOG" ||
+# THE LINES THAT MUST NOT BE THERE, and the file has to EXIST for the question
+# to have been asked. A negative grep over a path that is not there answers "no
+# match" and reads exactly like a pass, which is the one way this whole block
+# could be vacuous.
+[ -s "$FLOG" ] || fail "the engine's log $FLOG is missing or empty, so nothing below was actually checked"
+# A refused text is not a list that was read, so nothing may report it as one.
+if grep -q "takes its research cost from fkrecipes-example-tips-packs: count 40, time 20, packs 2 automation-science-pack" "$FLOG"; then
+  fail "a refused pack text was logged as a list the research took"
+fi
+# AND WHAT IT DID FALL BACK ONTO, said out loud: the cost line comes out
+# whatever the text said, because the count and the seconds are read on every
+# load, and the packs it names are the mod's own.
+grep -q "fkrecipes: fkrecipes-example-hardened-tips takes its research cost from fkrecipes-example-tips-packs: count 40, time 20, packs 1 automation-science-pack, 1 military-science-pack" "$FLOG" ||
   fail "the custom research cost logged nothing in the engine's own log"
-# AND THE LINE THAT MUST NOT BE THERE. An untouched text is the author's list
-# with its ladders, which is the pre-existing path and gets no line of its own;
-# a line here would mean the reserved word had been read as an edit.
+# An untouched text is the author's list with its ladders, which is the
+# pre-existing path and gets no line of its own; a line here would mean the
+# reserved word had been read as an edit.
 if grep -q "takes its ingredients from fkrecipes-example-chain-ingredients" "$FLOG"; then
   fail "an untouched text was logged as an edit"
 fi

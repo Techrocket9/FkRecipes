@@ -254,10 +254,22 @@ grep -qF '{1="",2="\n",3={1="string-mod-setting.fkrecipes-example-chain-links-lo
 # A WHOLE LIST THE PLAYER WROTE, through a setting with no dropdown in front of
 # it, in two forms no author would write: a rich-text tag and a glued sign. The
 # canonical rendering in the log line is what says both were read.
-grep -q "^LOG fkrecipes: fkrecipes-example-steel-rivet takes its ingredients from fkrecipes-example-rivet-ingredients: 3 steel-plate, 2 iron-stick$" "$T" ||
-  fail "the edited ingredient text logged no canonical rendering"
-grep -qF '"ingredients"={1={"amount"=3,"name"="steel-plate","type"="item"},2={"amount"=2,"name"="iron-stick","type"="item"}}' "$T" ||
-  fail "the edited ingredient text did not reach the recipe"
+# A TEXT THE LANGUAGE REFUSES, on the arm with no dropdown in front of it. An
+# input the PLAYER controls never refuses the load on its own: the line names
+# the setting, quotes the language's own sentence with the shared prefix trimmed
+# off it, and says where to fix it. Before this the same text ended the load, so
+# neither this line nor the recipe below could exist.
+grep -q '^LOG fkrecipes: ERROR: fkrecipes-example-rivet-ingredients, entry 2 ("2 iron-stik"): no item or fluid is named iron-stik\. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart\.$' "$T" ||
+  fail "the refused ingredient text logged no ERROR line"
+# And what it landed on: the mod's OWN declared list, which is what "loaded with
+# its own default instead" means in the prototype rather than only in the line.
+grep -qF '"ingredients"={1={"amount"=1,"name"="iron-plate","type"="item"}}' "$T" ||
+  fail "the refused text did not leave the recipe on the mod's own declared list"
+# AND THE LINE THAT MUST NOT BE THERE FOR IT. A refused text is not a list that
+# was read, so nothing may report it as one.
+if grep -q "takes its ingredients from fkrecipes-example-rivet-ingredients" "$T"; then
+  fail "a refused text was logged as a list the recipe took"
+fi
 # A TEXT THE PLAYER EDITED THAT IS NOT LIVE, because the dropdown beside it is
 # on a preset. Without the line the player edits a field and nothing happens.
 grep -q "^LOG fkrecipes: fkrecipes-example-quench-ingredients is edited, but fkrecipes-example-quench-medium is not on custom, so the text is ignored$" "$T" ||
@@ -278,15 +290,25 @@ grep -qF '4=": cost of ",5={1="technology-name.military-4"}' "$T" ||
 if grep -qF '": cost of military-4"' "$T"; then
   fail "a cost preset line still carries the internal technology name"
 fi
-# THE CUSTOM ARM OF A DROPDOWN, with a typed FLUID and a fractional amount: the
-# one ingredient shape whose amount is a double rather than an item count.
-grep -q "^LOG fkrecipes: fkrecipes-example-steel-chain takes its ingredients from fkrecipes-example-chain-ingredients: 2 steel-plate, 0.5 \[fluid=water\]$" "$T" ||
+# THE CUSTOM ARM OF A DROPDOWN, with a typed FLUID and a fractional amount (the
+# one ingredient shape whose amount is a double rather than an item count),
+# written in two forms no author would write (a rich-text tag and a trailing
+# amount), beside THIS MOD'S OWN ITEM pasted verbatim out of the setting's own
+# composed description. A player's text resolves against an overlay carrying
+# this plan's item names, so the name the description offers is one the field
+# takes; it used to refuse, because a text was resolved against a data.raw the
+# plan's own items are not in yet.
+grep -q "^LOG fkrecipes: fkrecipes-example-steel-chain takes its ingredients from fkrecipes-example-chain-ingredients: 4 fkrecipes-example-steel-rivet, 0.5 \[fluid=water\]$" "$T" ||
   fail "the custom arm's edited text logged no canonical rendering"
 grep -qF '{"amount"=0.5,"name"="water","type"="fluid"}' "$T" ||
   fail "the typed fluid did not reach the recipe as a fluid ingredient"
-# A RESEARCH COST THE PLAYER PRICED: the packs from the text, the count and the
-# seconds from their own settings, and the unit in the engine's short tuple
-# form rather than the long ingredient form a recipe takes.
+grep -qF '{"amount"=4,"name"="fkrecipes-example-steel-rivet","type"="item"}' "$T" ||
+  fail "the plan's own item name did not resolve out of a typed list"
+# A RESEARCH COST THE PLAYER PRICED AND THE LIBRARY TOOK: two packs out of a
+# TYPED list, the count and the seconds from their own settings, and the unit in
+# the engine's short tuple form rather than the long ingredient form a recipe
+# takes. This is the only place either harness pins a typed pack list reaching a
+# unit without a Factorio binary.
 grep -q "^LOG fkrecipes: fkrecipes-example-chain-forging takes its research cost from fkrecipes-example-chain-packs: count 25, time 12.5, packs 2 automation-science-pack, 1 logistic-science-pack$" "$T" ||
   fail "the custom research cost logged nothing"
 grep -qF '"unit"={"count"=25,"ingredients"={1={1="automation-science-pack",2=2},2={1="logistic-science-pack",2=1}},"time"=12.5}' "$T" ||

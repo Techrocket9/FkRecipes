@@ -1468,10 +1468,14 @@ fn the_post_resolution_checks_report_in_their_fixed_order() {
         ..Default::default()
     };
 
-    // ALL THREE AT ONCE: the crafting time is what is reported.
+    // ALL THREE AT ONCE: the crafting time is what is reported. THE DECLARED
+    // DEFAULT IS THE ONE AT THE FLOOR, not the setting's answer: a crafting
+    // time a player's setting answers falls back to the declared default with
+    // a log line, so the only world the crafting-time check still answers for
+    // is a default the settings stage would have refused.
     let mut all_three = Lib::new();
     let axe = all_three.item("steel-axe", ItemSpec::default());
-    let from = all_three.double_setting("axe-craft-time", 2.5, NumericSpec::default());
+    let from = all_three.double_setting("axe-craft-time", 0.001, NumericSpec::default());
     all_three.recipe(
         axe,
         RecipeSpec {
@@ -1480,12 +1484,12 @@ fn the_post_resolution_checks_report_in_their_fixed_order() {
         },
     );
     all_three.technology("steel-axes", unpayable());
-    let world = ringed().with_setting("steelworks-axe-craft-time", Value::Num(0.001));
+    let world = ringed().with_setting("steelworks-axe-craft-time", Value::Num(0.0));
     match all_three.plan_data(&world) {
         Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
         Err(got) => assert_eq!(
             got,
-            "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers at or below the engine floor (energy_required can't be <= 0.001)"
+            "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, whose declared default is at or below the engine floor (energy_required can't be <= 0.001). The stored value of steelworks-axe-craft-time could not be used, so the mod's own declaration applied; correcting it under Settings > Mod settings > Startup is what a player can change here."
         ),
     }
 
@@ -2069,56 +2073,25 @@ fn plan_data_refusals() {
             want: "fkrecipes: the recipe steel-axe declares a crafting time the engine refuses (energy_required can't be <= 0.001)",
         },
         Case {
-            // The generated setting's own minimum clears the floor, so this is
-            // what a colliding mod's setting looks like: same name, same type,
-            // last declaration wins, silently.
-            name: "a bound crafting time answered below the engine floor",
-            world: |w: FixtureWorld| {
-                w.with_setting("steelworks-axe-craft-time", Value::Num(0.001))
-            },
-            build: |l: &mut Lib| {
-                let axe = l.item("steel-axe", ItemSpec::default());
-                let from = l.double_setting("axe-craft-time", 2.5, NumericSpec::default());
-                l.recipe(
-                    axe,
-                    RecipeSpec {
-                        craft_time_from: from,
-                        ..Default::default()
-                    },
-                );
-            },
-            want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers at or below the engine floor (energy_required can't be <= 0.001)",
-        },
-        Case {
-            // An infinity is ABOVE the floor, so the floor arm would wave it
-            // through and ship a recipe that never completes.
-            name: "a bound crafting time answered as an infinity",
-            world: |w: FixtureWorld| {
-                w.with_setting("steelworks-axe-craft-time", Value::Num(f64::INFINITY))
-            },
-            build: |l: &mut Lib| {
-                let axe = l.item("steel-axe", ItemSpec::default());
-                let from = l.double_setting("axe-craft-time", 2.5, NumericSpec::default());
-                l.recipe(
-                    axe,
-                    RecipeSpec {
-                        craft_time_from: from,
-                        ..Default::default()
-                    },
-                );
-            },
-            want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers a value that is not a finite number",
-        },
-        Case {
-            // A NaN compares false against the floor, so it reached the floor
-            // arm and was reported as a value at or below it, which it is not.
-            name: "a bound crafting time answered as a NaN",
+            // THE AUTHOR'S HALF OF THE CRAFTING-TIME PAIR. A value the player's
+            // setting answered falls back (see `a_bound_crafting_time_falls_back`);
+            // the DECLARED default it falls back onto is still held to the
+            // engine's rule, and this is the only world that reaches the check.
+            // `validate_settings` refuses this declaration at the settings
+            // stage, so `plan_data` sees it only when a host test calls it on
+            // its own.
+            // THE SENTENCE NAMES THE DECLARED DEFAULT, not what the setting
+            // answered: the stored NaN is gone by the time this check runs, and
+            // the number it is about is the 0.001 the plan wrote. The trailing
+            // sentence is the fallback note, which is here because the stored
+            // value WAS set aside on the way to this refusal.
+            name: "a bound crafting time whose declared default is below the engine floor",
             world: |w: FixtureWorld| {
                 w.with_setting("steelworks-axe-craft-time", Value::Num(f64::NAN))
             },
             build: |l: &mut Lib| {
                 let axe = l.item("steel-axe", ItemSpec::default());
-                let from = l.double_setting("axe-craft-time", 2.5, NumericSpec::default());
+                let from = l.double_setting("axe-craft-time", 0.001, NumericSpec::default());
                 l.recipe(
                     axe,
                     RecipeSpec {
@@ -2127,7 +2100,28 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers a value that is not a finite number",
+            want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, whose declared default is at or below the engine floor (energy_required can't be <= 0.001). The stored value of steelworks-axe-craft-time could not be used, so the mod's own declaration applied; correcting it under Settings > Mod settings > Startup is what a player can change here.",
+        },
+        Case {
+            // The same pair for finiteness: a declared default of an infinity
+            // is above the floor, so the floor arm would wave it through and
+            // ship a recipe that never completes.
+            name: "a bound crafting time whose declared default is an infinity",
+            world: |w: FixtureWorld| {
+                w.with_setting("steelworks-axe-craft-time", Value::Num(0.001))
+            },
+            build: |l: &mut Lib| {
+                let axe = l.item("steel-axe", ItemSpec::default());
+                let from = l.double_setting("axe-craft-time", f64::INFINITY, NumericSpec::default());
+                l.recipe(
+                    axe,
+                    RecipeSpec {
+                        craft_time_from: from,
+                        ..Default::default()
+                    },
+                );
+            },
+            want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, whose declared default is not a finite number. The stored value of steelworks-axe-craft-time could not be used, so the mod's own declaration applied; correcting it under Settings > Mod settings > Startup is what a player can change here.",
         },
         Case {
             // PRESENT and nil, which is what a unit whose table carried a
@@ -2881,6 +2875,125 @@ fn craft_time_binding_falls_back_to_its_default() {
             "log fkrecipes: the setting steelworks-axe-craft-time was not readable, so its default applies",
             r#"extend {type="item", name="steelworks-steel-axe", stack_size=50}"#,
             r#"extend {type="recipe", name="steelworks-steel-axe", energy_required=2.5000000000000000e0, enabled=true, ingredients=[], results=[{type="item", name="steelworks-steel-axe", amount=1}]}"#,
+        ],
+    );
+}
+
+/// A CRAFTING TIME IS A FIELD THE PLAYER OWNS, so a value the engine would not
+/// take falls back to the setting's declared default with one ERROR line rather
+/// than stopping the load.
+///
+/// The generated minimum clears the engine floor, so a player cannot type one
+/// of these through the settings screen; a second mod declaring the same
+/// setting name can hand one over, because setting names are a global namespace
+/// and the engine keeps the last declaration of a same-type name silently. That
+/// is not something to lock a player out of their save for, and the line names
+/// the setting so they can see which one collided. The Go half pins the same
+/// three worlds.
+#[test]
+fn a_bound_crafting_time_falls_back() {
+    struct Case {
+        name: &'static str,
+        answer: f64,
+        want: &'static str,
+    }
+
+    let cases = [
+        Case {
+            name: "at or below the engine floor",
+            answer: 0.001,
+            want: "the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers at or below the engine floor (energy_required can't be <= 0.001)",
+        },
+        Case {
+            // An infinity is ABOVE the floor, so a floor arm reached first
+            // would wave it through and ship a recipe that never completes.
+            name: "an infinity",
+            answer: f64::INFINITY,
+            want: "the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers a value that is not a finite number",
+        },
+        Case {
+            // A NaN compares false against the floor, so a floor arm reached
+            // first would report it as a value at or below one, which it is not.
+            name: "a NaN",
+            answer: f64::NAN,
+            want: "the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, which answers a value that is not a finite number",
+        },
+    ];
+
+    for c in cases {
+        let mut lib = Lib::new();
+        let axe = lib.item("steel-axe", ItemSpec::default());
+        let from = lib.double_setting("axe-craft-time", 2.5, NumericSpec::default());
+        lib.recipe(
+            axe,
+            RecipeSpec {
+                craft_time_from: from,
+                ..Default::default()
+            },
+        );
+        let w = base_world().with_setting("steelworks-axe-craft-time", Value::Num(c.answer));
+        let ops = lib.plan_data(&w).expect("plan refused");
+
+        assert_lines_named(
+            &transcript(&ops),
+            &[
+                &alloc::format!("log fkrecipes: ERROR: {}. The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.", c.want),
+                r#"extend {type="item", name="steelworks-steel-axe", stack_size=50}"#,
+                r#"extend {type="recipe", name="steelworks-steel-axe", energy_required=2.5000000000000000e0, enabled=true, ingredients=[], results=[{type="item", name="steelworks-steel-axe", amount=1}]}"#,
+            ],
+            c.name,
+        );
+    }
+}
+
+/// ONE BAD FIELD IS ONE LINE, however many declarations read it.
+///
+/// A CRAFTING TIME IS THE ONE SETTING TWO DECLARATIONS MAY SHARE in this
+/// library (`validate_bindings` refuses a shared cost number and a shared text,
+/// and says why). A player looking at the settings screen sees ONE field, so a
+/// bad value in it is ONE problem: a line per recipe would report the same typo
+/// twice and name a different recipe each time, and the count of ERROR lines a
+/// gate greps for would depend on how many recipes happened to bind it.
+///
+/// THE LINE NAMES THE FIRST RECIPE IN DECLARATION ORDER, which is the same
+/// every run, and BOTH recipes still take the declared default: the dedupe is
+/// about the line, never about the value. The Go half pins the same plan.
+#[test]
+fn one_bad_crafting_time_setting_two_recipes_logs_one_line() {
+    let mut lib = Lib::new();
+    let axe = lib.item("steel-axe", ItemSpec::default());
+    let hammer = lib.item("steel-hammer", ItemSpec::default());
+    let from = lib.double_setting("forging-time", 2.5, NumericSpec::default());
+    lib.recipe(
+        axe,
+        RecipeSpec {
+            name: "steel-axe-forging".into(),
+            craft_time_from: from,
+            ingredients: vec![Ingredient::named(1, "steel-plate", &[])],
+            ..Default::default()
+        },
+    );
+    lib.recipe(
+        hammer,
+        RecipeSpec {
+            name: "steel-hammer-forging".into(),
+            craft_time_from: from,
+            ingredients: vec![Ingredient::named(2, "steel-plate", &[])],
+            ..Default::default()
+        },
+    );
+
+    let w = base_world().with_setting("steelworks-forging-time", Value::Num(0.0));
+    let ops = lib.plan_data(&w).expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: ERROR: the recipe steel-axe-forging reads its crafting time from steelworks-forging-time, which answers at or below the engine floor (energy_required can't be <= 0.001). The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.",
+            r#"extend {type="item", name="steelworks-steel-axe", stack_size=50}"#,
+            r#"extend {type="item", name="steelworks-steel-hammer", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-steel-axe-forging", energy_required=2.5000000000000000e0, enabled=true, ingredients=[{type="item", name="steel-plate", amount=1}], results=[{type="item", name="steelworks-steel-axe", amount=1}]}"#,
+            r#"extend {type="recipe", name="steelworks-steel-hammer-forging", energy_required=2.5000000000000000e0, enabled=true, ingredients=[{type="item", name="steel-plate", amount=2}], results=[{type="item", name="steelworks-steel-hammer", amount=1}]}"#,
         ],
     );
 }

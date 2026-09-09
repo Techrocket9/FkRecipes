@@ -1,6 +1,6 @@
 # The ingredient list
 
-An ingredient list is the text a player types into a startup setting to say what a recipe is made of, or which science packs a research takes. This page is the reference for that text: what to type, how it is read, and what every refusal means. Mod authors declare the setting as described at the end of this page and in [Using FkRecipes](usage.md); players see it in the Mod Settings screen under the Startup tab.
+An ingredient list is the text a player types into a startup setting to say what a recipe is made of, or which science packs a research takes. This page is the reference for that text: what to type, how it is read, and what happens when it cannot be read. Mod authors declare the setting as described at the end of this page and in [Using FkRecipes](usage.md); players see it in the Mod Settings screen under the Startup tab.
 
 ## What to type
 
@@ -29,12 +29,14 @@ The two reserved words `default` and `none` are the exception: they are matched 
 
 ## The rules
 
+Anything these rules turn down is reported in the log and the mod's own list applies instead, so nothing you type here is the reason a load stops. The mod's own list is then held to the same rules it always was: in a modpack where it cannot produce a legal recipe the load still stops, exactly as it would if you had never typed anything. The section [What happens when the text cannot be read](#what-happens-when-the-text-cannot-be-read) has the exact shape of that line.
+
 - Spaces around the text, around commas and between the amount and the name do not matter. A single trailing comma is allowed.
 - An amount is written in plain digits, with a dot for a fraction: `2`, `10`, `0.5`. There is no thousands separator: a thousand is `1000`. Every amount is more than 0. Items take whole amounts up to 65535. Fluids take any positive amount, fractions included, up to 1e301.
 - A name is looked up first among the game's items, then among its fluids. A name that is both an item and a fluid means the item; write `[fluid=name]` to mean the fluid, or `[item=name]` to insist on the item.
 - A comma inside `[` and `]` does not separate ingredients; a `[` with no closing `]` runs to the end of the text.
 - The same ingredient cannot appear twice.
-- A fluid is accepted only in a recipe whose category allows fluids. The default category, `crafting`, is the one the player crafts by hand and it takes items only; the game refuses a fluid there, so this library refuses it first with a sentence naming the category.
+- A fluid is accepted only in a recipe whose category allows fluids. The default category, `crafting`, is the one the player crafts by hand and it takes items only; the game refuses to load a recipe with a fluid there, so this library turns it down first, with a sentence naming the category.
 - The words `default` and `none`, alone, are the mod's list and the empty list, in any capitalisation. Neither can be combined with other entries.
 - A name that could be read as an amount, as an `x`, or as one of those two words is written in its tag: `[item=42]`, `[item=2x4]`.
 - Spaces, tabs, line breaks and the four spaces a word processor produces (U+00A0, U+2007, U+202F, U+3000) separate words. Every other character with no visible shape of its own is refused and named by its code point wherever it sits: the control characters, every Unicode format character (general category `Cf`, which is the zero-width space and the joiners, the byte order mark, the bidirectional marks, the Arabic and Kaithi number signs, the invisible operators and the language tags), every character the standard derives as default-ignorable (the variation selectors, the Hangul and Khmer fillers, the combining grapheme joiner, and the runs reserved for more of the same), and the blank spaces outside the four above. Private-use characters are not in that set, because a font may draw one and you would see it. Nothing is removed from the text for you, so retype a list rather than pasting one.
@@ -43,7 +45,7 @@ The two reserved words `default` and `none` are the exception: they are matched 
 
 ## Science packs
 
-The same text names the science packs of a research cost, with two differences: only items the game treats as science packs (prototype type `tool`) are accepted, and `none` is refused, because a research with no packs is not something this library will emit on a player's behalf.
+The same text names the science packs of a research cost, with two differences: only items the game treats as science packs (prototype type `tool`) are accepted, and `none` is not, because a research with no packs is not something this library will emit on a player's behalf.
 
 ```
 1 automation-science-pack, 1 logistic-science-pack
@@ -53,15 +55,27 @@ The research count and its seconds per unit are separate numeric settings beside
 
 ## Leaving the text on default
 
-The word `default` means the mod's own declared list, with every fallback the mod declared, and it keeps meaning that when the mod changes its list in a later release. Anything else is taken as written: every name must exist in the game as loaded, and nothing is substituted. A typo is refused rather than guessed at, and the refusal names the setting, the entry and the problem.
+The word `default` means the mod's own declared list, with every fallback the mod declared, and it keeps meaning that when the mod changes its list in a later release. Anything else is taken as written: every name must exist in the game as loaded, and nothing is substituted. A typo is never guessed at; the text is set aside, the mod's own list applies instead, and the log says what was wrong with it.
 
-A fallback can land on something the list already carries, and the recipe that reaches the game never names one ingredient twice: the amounts are added into the earlier entry, keeping its place in the list, and a line in the log says so. For an item that line names the ingredient and both amounts; for a fluid it names the ingredient and the fallback that landed on it, so two lines about one fluid say which declaration each came from. The game refuses to load a recipe that names one ingredient twice, so this is what keeps a modpack missing one name loading at all. An item and a fluid of the same name are two ingredients and are not added together. In a list you type yourself none of this applies, because the same ingredient written twice is refused as you wrote it.
+A fallback can land on something the list already carries, and the recipe that reaches the game never names one ingredient twice: the amounts are added into the earlier entry, keeping its place in the list, and a line in the log says so. For an item that line names the ingredient and both amounts; for a fluid it names the ingredient and the fallback that landed on it, so two lines about one fluid say which declaration each came from. The game refuses to load a recipe that names one ingredient twice, so this is what keeps a modpack missing one name loading at all. An item and a fluid of the same name are two ingredients and are not added together. In a list you type yourself none of this applies: the same ingredient written twice is reported as you wrote it, and the mod's own list applies instead.
 
 When a recipe also has a dropdown of preset ingredient lists, the text applies only while the dropdown says `custom`; on any other value the preset applies and the text is ignored. The dropdown's description lists each preset written out, so the player can start a custom list from the preset they were using.
 
-## What a refusal means
+## What happens when the text cannot be read
 
-A refusal stops the game from loading and shows a message. Every message starts with `fkrecipes:` and the setting's full name; those about one entry quote the entry as typed and number it from 1 in the order written. Inside those quotation marks, a character you cannot see is written as `U+XXXX` rather than printed, so the quoted entry reads as what is on your screen. Entries are read in order and the first problem found is the one reported.
+**The game still loads.** A text the language cannot read is set aside: the recipe or research comes out exactly as the mod declared it, with the mod's own list and every fallback in it, as though the field still said `default`. One line goes into the log, and it looks like this:
+
+```
+fkrecipes: ERROR: mymod-parts, entry 1 ("2 iron-plat"): no item or fluid is named iron-plat. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.
+```
+
+Factorio's log has a single channel with no severity of its own, so the word `ERROR` is part of the text. The log is `factorio-current.log` in your Factorio user directory, and the line is also in the console output if you run the game from one.
+
+To fix it: open Settings, then Mod settings, then the Startup tab, correct the text in the field the line names, and restart the game. Setting the field back to the word `default` is always valid and always means the mod's own list.
+
+The numeric fields beside a research pack list, the count and the seconds, behave the same way: a number the game cannot use takes the mod's own default and logs a line of the same shape, ending `fix the number under Settings > Mod settings > Startup` instead. A stored value that is not a number at all is a different case and logs `the setting <name> was not readable, so its default applies`; the settings screen cannot produce one, so it comes from a file edited by hand. Nothing you type into a startup setting is the reason the mod stops loading. If the mod's own declaration cannot work in your modpack the load still stops, with the message you would have seen without typing anything, plus one sentence naming the setting whose value was set aside.
+
+Every message starts with `fkrecipes:` and the setting's full name; those about one entry quote the entry as typed and number it from 1 in the order written. Inside those quotation marks, a character you cannot see is written as `U+XXXX` rather than printed, so the quoted entry reads as what is on your screen. Entries are read in order and the first problem found is the one reported, so a text with two mistakes in it reports the earlier one and reports the second after you fix the first.
 
 | Message | Cause |
 |---|---|

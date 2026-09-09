@@ -762,6 +762,194 @@ func localisedGroup(params []Value) Value {
 // The data stage.
 // ---------------------------------------------------------------------------
 
+// messagePrefix is the constant every sentence this library composes begins
+// with, in the language and in this layer alike.
+//
+// IT IS A CONSTANT SO IT CAN BE TAKEN BACK OFF. A fallback line carries a
+// refusal's own sentence inside a line that already opens with the prefix, and
+// it is removed with an explicit trim of this constant rather than by counting
+// characters or by cutting at a colon. The corpus asserts the property over
+// every message the language builds and TestFallbackSentencesCarryThePrefix
+// over every one this layer builds, so the trim is total rather than hopeful.
+const messagePrefix = "fkrecipes: "
+
+// playerFallback is the ONE line a value the PLAYER controls logs when the
+// library cannot use it, and it exists instead of a refusal.
+//
+// A VALUE THE PLAYER TYPES NEVER INTRODUCES A REFUSAL A PLAYER WHO TYPED
+// NOTHING WOULD NOT ALSO HAVE HIT; AN INPUT THE AUTHOR DECLARES STILL REFUSES.
+// The claim is that narrow one on purpose: what a fallback lands on is the
+// author's declaration, and a modpack where that declaration cannot produce a
+// legal result stops the load either way. See resolution.withFallbackNote for
+// the sentence such a refusal then carries.
+//
+// MEASURED (Factorio 2.0.77, build 84539): the engine
+// rewrites mod-settings.dat on every successful load and on NO failed one
+// (three consecutive failed runs left the file at one sha256), so nothing in a
+// failed run can edit the value that caused it. In the client the refusal is
+// an "Error loading mods" dialog offering Disable listed mods, Disable all
+// mods, Manage mods, Restart, Exit and a Reset mod settings checkbox; Manage
+// mods shows the Mods screen, which offers enable and disable, has no Mod
+// settings button, and whose Back returns to the same dialog rather than to
+// the main menu, so the Mod Settings screen is not reachable. Disabling and
+// re-enabling the mod does not help either: the engine keeps a disabled mod's
+// settings, and a disabled mod's settings are not shown on the Mod Settings
+// screen, so the identical refusal returns. The one escape measured is Reset
+// mod settings plus Disable listed mods: six steps, every startup preference
+// in the file lost, the mod disabled and a restart needed. A refusal on a
+// field the player types into was therefore a lock-out, and the library owns
+// it.
+//
+// ERROR IS UPPERCASE DELIBERATELY. Factorio's log() has one channel and no
+// severity (verified: fk_log maps to the global log, and there is no second
+// channel and no level parameter), so the severity has to be in the text.
+// Uppercase also keeps the line out of a case-sensitive grep for the engine's
+// own Error lines while a case-insensitive one still finds it.
+//
+// FIELD is the word the player looks for on the settings screen: the text of a
+// list, or the number of a slider.
+func playerFallback(reason, field string) string {
+	return messagePrefix + "ERROR: " + strings.TrimPrefix(reason, messagePrefix) +
+		". The mod loaded with its own default instead; fix the " + field +
+		" under Settings > Mod settings > Startup, then restart."
+}
+
+// textFallback and numberFallback are the two fields that exist, named once so
+// no caller spells the word.
+func textFallback(reason string) string   { return playerFallback(reason, "text") }
+func numberFallback(reason string) string { return playerFallback(reason, "number") }
+
+// notTextSentence is the one sentence a stored value that is not text is
+// answered with, built in ONE place: two spellings of one sentence is exactly
+// the drift the corpus exists to prevent for the language, and this layer gets
+// the same treatment.
+func notTextSentence(setting string) string {
+	return messagePrefix + setting + " is not text"
+}
+
+// numberFault is WHICH rule a number failed, and it exists so that the ORDER
+// the questions are asked in lives in one place while the SENTENCE they are
+// answered with lives in two.
+//
+// TWO WORDINGS, BECAUSE THE TWO SIDES ARE ABOUT DIFFERENT VALUES. A stored
+// value is what the SETTING ANSWERED, and the value a fallback lands on is what
+// the PLAN DECLARED; one wording over both would describe the setting's answer
+// while talking about the declaration that replaced it. See storedNumberProblem
+// and declaredNumberProblem.
+type numberFault int
+
+const (
+	faultNone numberFault = iota
+	faultNotFinite
+	faultCountBelowOne
+	faultTimeAtOrBelowZero
+	faultBelowCraftTimeFloor
+)
+
+// countFault, secondsFault and craftTimeFault answer which rule a number
+// failed, or faultNone.
+//
+// FINITENESS FIRST WITHIN EACH NUMBER, and not only for the message: a floor is
+// a question only a finite number can be asked. A NaN is neither below 1 nor at
+// or below zero, so a floor arm reached first would wave it through, and an
+// infinity would be sorted by whichever side of the floor it fell on rather
+// than told the one thing that is actually wrong with it.
+//
+// ONE FUNCTION PER NUMBER RATHER THAN ONE ACROSS ALL OF THEM, which is a change
+// from the interleaved order this layer used to have: each number now falls
+// back on its own and logs its own line, so a world where two of them are wrong
+// answers about both instead of picking one. The residual refusal below walks
+// them in the same per-number order, so there is one ordering in this file
+// rather than two.
+func countFault(v float64) numberFault {
+	switch {
+	case !finite(v):
+		return faultNotFinite
+	case v < 1:
+		return faultCountBelowOne
+	}
+	return faultNone
+}
+
+func secondsFault(v float64) numberFault {
+	switch {
+	case !finite(v):
+		return faultNotFinite
+	case v <= 0:
+		return faultTimeAtOrBelowZero
+	}
+	return faultNone
+}
+
+func craftTimeFault(v float64) numberFault {
+	switch {
+	case !finite(v):
+		return faultNotFinite
+	case v <= craftTimeFloor:
+		return faultBelowCraftTimeFloor
+	}
+	return faultNone
+}
+
+// storedNumberProblem is what a value the SETTING ANSWERED WITH is told, and it
+// is the reason a fallback line quotes. It names the setting rather than the
+// technology, because the technology's own declaration is fine and the value
+// came from outside it.
+func storedNumberProblem(setting string, f numberFault) string {
+	switch f {
+	case faultNotFinite:
+		return messagePrefix + setting + " holds a value that is not a finite number"
+	case faultCountBelowOne:
+		return messagePrefix + setting + " holds a research count below 1"
+	case faultTimeAtOrBelowZero:
+		return messagePrefix + setting + " holds a research time at or below zero"
+	}
+	return ""
+}
+
+// declaredNumberProblem is what the value a fallback LANDED ON is refused with,
+// and it says declared default out loud: by the time this is reached the stored
+// value is gone and the number being complained about is the one the plan
+// wrote, which is an author's bug rather than a player's typing.
+func declaredNumberProblem(setting string, f numberFault) string {
+	switch f {
+	case faultNotFinite:
+		return messagePrefix + setting + " declares a default that is not a finite number"
+	case faultCountBelowOne:
+		return messagePrefix + setting + " declares a default research count below 1"
+	case faultTimeAtOrBelowZero:
+		return messagePrefix + setting + " declares a default research time at or below zero"
+	}
+	return ""
+}
+
+// storedCraftTimeProblem and declaredCraftTimeProblem are the same split for a
+// recipe's bound crafting time, which names the recipe as well as the setting
+// because that is the sentence this value has always been answered with.
+func storedCraftTimeProblem(recipe, setting string, f numberFault) string {
+	switch f {
+	case faultNotFinite:
+		return messagePrefix + "the recipe " + recipe + " reads its crafting time from " + setting +
+			", which answers a value that is not a finite number"
+	case faultBelowCraftTimeFloor:
+		return messagePrefix + "the recipe " + recipe + " reads its crafting time from " + setting +
+			", which answers at or below the engine floor (energy_required can't be <= 0.001)"
+	}
+	return ""
+}
+
+func declaredCraftTimeProblem(recipe, setting string, f numberFault) string {
+	switch f {
+	case faultNotFinite:
+		return messagePrefix + "the recipe " + recipe + " reads its crafting time from " + setting +
+			", whose declared default is not a finite number"
+	case faultBelowCraftTimeFloor:
+		return messagePrefix + "the recipe " + recipe + " reads its crafting time from " + setting +
+			", whose declared default is at or below the engine floor (energy_required can't be <= 0.001)"
+	}
+	return ""
+}
+
 // planItemWorld is the World a text the player TYPED is resolved against: this
 // plan's own item names answer ItemExists, and every other question is the real
 // World's.
@@ -807,44 +995,54 @@ func (l *Lib) ownItemWorld(w World, prefix string) planItemWorld {
 
 // resolveTextList reads one text setting and answers with what it says.
 //
-// THREE OUTCOMES, and the second is the one the whole design turns on:
+// FOUR WAYS IN AND THREE OF THEM LAND ON THE AUTHOR'S OWN LIST:
 //
 //   - unreadable: the declared default applies, with the ordinary log line the
 //     rest of the library uses for a setting it could not read;
 //   - the word default: the AUTHOR's declared list with its ladders, which is
 //     the pre-existing resolution path and gets no line of its own;
-//   - anything else: parsed and resolved by the language, refused on the first
-//     problem with the message the reference documents.
+//   - not text at all, or a text the language refuses: the declared default
+//     again, with ONE fallback line naming the setting and quoting the reason;
+//   - anything else: parsed and resolved by the language, in the typed order.
 //
-// A READABLE NON-STRING IS REFUSED rather than degraded to the default. The
-// engine resets a wrong-typed stored value before any stage runs (measured), so
-// this is unreachable through the settings screen and reachable only through a
-// hand-edited file; a silent default there would hide a file somebody broke.
+// IT NEVER REFUSES, and that is the decision this round turned on. The two
+// arms that used to stop the load are the two a PLAYER reaches by typing, and
+// a refusal there is a lock-out rather than a diagnosis: see playerFallback for
+// what the client actually does with one. The parser is untouched, and its rule
+// is untouched with it: it still names the problem rather than guessing a
+// substitute. What changed is what this caller does with the answer.
+//
+// A READABLE NON-STRING TAKES THE SAME PATH. The engine resets a wrong-typed
+// stored value before any stage runs (measured), so it is reachable only
+// through a hand-edited file; the line says so out loud, which is all a refusal
+// ever bought and it buys it without stopping the game.
 //
 // THE WORLD HERE IS THE OVERLAY, planItemWorld, and every caller passes it: the
 // language's resolver, its tag hint and its suggestion fold all have to see the
 // items this plan is about to emit. Reading the setting itself goes through the
 // overlay too, which delegates it.
-func (l *Lib) resolveTextList(w World, res *resolution, s settingDecl, prefix, category string, kind listKind) (parsedList, bool) {
+func (l *Lib) resolveTextList(w World, res *resolution, s settingDecl, prefix, category string, kind listKind) parsedList {
 	full := s.emittedName(prefix)
 	v, ok := w.StartupSetting(full)
 	if !ok {
 		res.logs = append(res.logs, "fkrecipes: the setting "+full+" was not readable, so its default applies")
-		return parsedList{isDefault: true}, true
+		return parsedList{isDefault: true}
 	}
 	if v.Kind != KindStr {
-		res.refuse("fkrecipes: " + full + " is not text")
-		return parsedList{}, false
+		res.noteFallback(full, textFallback(notTextSentence(full)))
+		return parsedList{isDefault: true}
 	}
 	parsed, problem := l.lang.parse(v.Str, kind, category, full, w)
 	if problem != "" {
-		// VERBATIM. The language already composed the whole sentence, naming
-		// the setting, the entry and the problem, and it is the same sentence
-		// the corpus pins in both languages.
-		res.refuse(problem)
-		return parsedList{}, false
+		// VERBATIM INSIDE THE LINE. The language already composed the whole
+		// sentence, naming the setting, the entry and the problem, and it is
+		// the same sentence the corpus pins in both languages; the fallback
+		// line carries it with the shared prefix trimmed off, because the line
+		// it sits in already opens with one.
+		res.noteFallback(full, textFallback(problem))
+		return parsedList{isDefault: true}
 	}
-	return parsed, true
+	return parsed
 }
 
 // resolveIngredientsFrom is a recipe whose ingredients the player writes.
@@ -855,10 +1053,7 @@ func (l *Lib) resolveTextList(w World, res *resolution, s settingDecl, prefix, c
 // author's list of things other mods might provide and its rungs are answered
 // exactly as they were before the overlay existed.
 func (l *Lib) resolveIngredientsFrom(w, text World, res *resolution, prefix string, r recipeDecl, s settingDecl) []resolvedIngredient {
-	parsed, ok := l.resolveTextList(text, res, s, prefix, r.spec.Category, listRecipe)
-	if !ok {
-		return nil
-	}
+	parsed := l.resolveTextList(text, res, s, prefix, r.spec.Category, listRecipe)
 	if parsed.isDefault {
 		// The pre-existing path, ladders and drop lines and all.
 		return l.resolveIngredients(w, res, prefix, r.name, s.defIngredients)
@@ -954,21 +1149,22 @@ func (l *Lib) resolveCustomCost(w, text World, res *resolution, prefix string, t
 	secondsSetting := l.settings[c.Seconds.index-1]
 	packsSetting := l.settings[c.Packs.index-1]
 
-	count := res.readNumber(w, countSetting, prefix)
-	seconds := res.readNumber(w, secondsSetting, prefix)
+	// EACH NUMBER IS HELD TO WHAT THE ENGINE TAKES WHERE IT IS READ, and one
+	// that is not takes the setting's DECLARED DEFAULT with a line naming it.
+	// All three fields here are the player's, so all three follow the same
+	// rule; the lines come out in the order the values are read, which is the
+	// order the cost line below names them.
+	count := res.costNumber(w, countSetting, prefix, countFault)
+	seconds := res.costNumber(w, secondsSetting, prefix, secondsFault)
 
-	parsed, ok := l.resolveTextList(text, res, packsSetting, prefix, "", listPacks)
-	if !ok {
-		// The refusal is recorded; the value is never emitted.
-		return refusedCost(count, seconds)
-	}
-	// THE TWO NUMBERS ARE CHECKED BEFORE ANYTHING IS BUILT OUT OF THEM. The
-	// declared minima and the engine's own reset rule keep a player from
-	// producing one of these, and a World is still an interface: a fixture that
-	// answers a NaN used to reach the amount formatter, and one that answers an
-	// infinity used to be rendered into the unit. They are refused by the name
-	// of the SETTING that holds them, because that is the field somebody would
-	// go and fix.
+	parsed := l.resolveTextList(text, res, packsSetting, prefix, "", listPacks)
+	// AND THE POST-CONDITION, on whatever the two reads settled on. After a
+	// fallback the value IS the declared default, so the only world this can
+	// still refuse is a plan whose declared default is itself outside what the
+	// engine takes. That is an AUTHOR bug: validateSettings refuses it at the
+	// settings stage, which the engine runs before the data stage, so it
+	// reaches here only through a host test that calls PlanData on its own.
+	// It refuses, because an author's declaration is not a player's typing.
 	if !res.refuseCostNumbers(countSetting.emittedName(prefix), secondsSetting.emittedName(prefix), count, seconds) {
 		return refusedCost(count, seconds)
 	}
@@ -1016,46 +1212,115 @@ func customPrereqs(w World, res *resolution, tech string, position []string) []s
 // readNumber is every numeric read a binding makes: the crafting time, the
 // research count and the research time all come through here, so the line an
 // unreadable one logs is one sentence in one place.
-func (r *resolution) readNumber(w World, s settingDecl, prefix string) float64 {
+//
+// IT SAYS WHETHER THE SETTING ANSWERED, and that second value is what keeps a
+// fallback line honest: a setting the World has no number for was never HOLDING
+// anything, so a declared default the engine would not take is an author bug
+// found here rather than a player's stored value set aside. Only a value the
+// setting actually answered with can fall back.
+func (r *resolution) readNumber(w World, s settingDecl, prefix string) (float64, bool) {
 	full := s.emittedName(prefix)
 	if v, ok := w.StartupSetting(full); ok && v.Kind == KindNum {
-		return v.Num
+		return v.Num, true
 	}
 	r.logs = append(r.logs, "fkrecipes: the setting "+full+" was not readable, so its default applies")
-	return s.defNum
+	return s.defNum, false
 }
 
-// refuseCostNumbers holds a research count and a research time a World answered
-// to what the engine takes, and answers whether the cost may be built.
+// costNumber reads one of a custom cost's two numbers and holds it to what the
+// engine takes, FALLING BACK to the setting's declared default rather than
+// refusing.
 //
-// THE ORDER IS FINITENESS FIRST, both numbers, and only then the two floors: a
-// floor is a question only a finite number can be asked. A NaN is neither below
-// 1 nor at or below zero, so a floor arm reached first would wave it through,
-// and an infinity would be sorted by whichever side of the floor it fell on
-// rather than told the one thing that is actually wrong with it.
+// A NUMBER IS A FIELD THE PLAYER OWNS, exactly as the pack text beside it is,
+// so it takes the same rule: see playerFallback for the client measurement that
+// decided it. The declared minima and the engine's own reset rule keep a player
+// from producing one of these through the settings screen, and a World is still
+// an interface: a fixture that answers a NaN used to reach the amount formatter,
+// and one that answers an infinity used to be rendered into the unit. The line
+// names the SETTING, because that is the field somebody would go and fix.
 //
-// The sentences are the declared path's, with the SETTING in the place of the
-// technology: the number came out of a field, and the technology did not
-// declare it.
-func (r *resolution) refuseCostNumbers(countName, secondsName string, count, seconds float64) bool {
-	switch {
-	case !finite(count):
-		r.refuse("fkrecipes: " + countName + " holds a value that is not a finite number")
-	case !finite(seconds):
-		r.refuse("fkrecipes: " + secondsName + " holds a value that is not a finite number")
-	case count < 1:
-		r.refuse("fkrecipes: " + countName + " holds a research count below 1")
-	case seconds <= 0:
-		r.refuse("fkrecipes: " + secondsName + " holds a research time at or below zero")
-	default:
-		return true
+// THE DEFAULT IS THE SAME ONE AN UNREADABLE SETTING TAKES, which is what makes
+// this one shape rather than two: readNumber already answers with s.defNum for
+// a value it cannot read, and this answers with it for a value it cannot use.
+//
+// ONLY A VALUE THE SETTING ANSWERED CAN FALL BACK, which is what readNumber's
+// second answer is for. An unreadable setting was never HOLDING anything, so a
+// declared default the engine would not take is an author bug refuseCostNumbers
+// names as one; a fallback line there would send a player to a field whose
+// stored value was never the problem.
+func (r *resolution) costNumber(w World, s settingDecl, prefix string, fault func(float64) numberFault) float64 {
+	full := s.emittedName(prefix)
+	v, held := r.readNumber(w, s, prefix)
+	if !held {
+		return v
 	}
-	return false
+	if f := fault(v); f != faultNone {
+		r.noteFallback(full, numberFallback(storedNumberProblem(full, f)))
+		return s.defNum
+	}
+	return v
+}
+
+// craftTimeNumber is costNumber for a recipe's bound crafting time: the same
+// rule, with the sentence that names the recipe as well as the setting because
+// that is the sentence this value has always been answered with.
+//
+// TWO RECIPES MAY READ ONE SETTING, which nothing else here can do, and that is
+// why the line goes through noteFallback: one bad field on the settings screen
+// is one problem, so it says so once however many recipes bind it. The recipe
+// the line names is the FIRST in declaration order, the same one every run.
+func (r *resolution) craftTimeNumber(w World, s settingDecl, prefix, recipe string) float64 {
+	full := s.emittedName(prefix)
+	v, held := r.readNumber(w, s, prefix)
+	if !held {
+		return v
+	}
+	if f := craftTimeFault(v); f != faultNone {
+		r.noteFallback(full, numberFallback(storedCraftTimeProblem(recipe, full, f)))
+		return s.defNum
+	}
+	return v
+}
+
+// refuseCostNumbers is the post-condition on the two numbers a unit is built
+// from, and it answers whether the cost may be built.
+//
+// IT IS AN AUTHOR-SIDE GUARD NOW. Every value a player can hold has already
+// fallen back to the setting's declared default by the time this runs, so the
+// only world left for it is a declared default outside what the engine takes,
+// which validateSettings refuses at the settings stage. The engine runs that
+// stage first, so this answers only for a host test that calls PlanData on its
+// own, and it stays because what it protects is the invariant that nothing this
+// library emits carries a unit the engine would refuse.
+//
+// AND IT SAYS DECLARED DEFAULT. The stored value is gone by here, so the
+// sentence a fallback line quoted would be describing a number nothing is
+// holding any more; declaredNumberProblem is the same two rules in the same
+// order with the wording that is true on this side.
+//
+// THE ORDER IS PER NUMBER, count then seconds, and inside each of them
+// finiteness before the floor. It used to interleave the four checks so that a
+// world with two bad numbers answered with the finiteness one; nothing observes
+// that any more, because each number now falls back on its own and logs its own
+// line, and one ordering in this file beats two.
+func (r *resolution) refuseCostNumbers(countName, secondsName string, count, seconds float64) bool {
+	if f := countFault(count); f != faultNone {
+		r.refuse(declaredNumberProblem(countName, f))
+		return false
+	}
+	if f := secondsFault(seconds); f != faultNone {
+		r.refuse(declaredNumberProblem(secondsName, f))
+		return false
+	}
+	return true
 }
 
 // refusedCost is the unit a refused custom cost hands back. It is never
 // emitted: the refusal is recorded and PlanData stops the load before any op
-// reaches the host. It exists so the two refusal arms answer in one shape.
+// reaches the host. ONE ARM REACHES IT NOW, refuseCostNumbers over a declared
+// default the settings stage would have refused; the text arm that used to
+// share it falls back instead, and the shape is kept because a value has to
+// come back from a function that returns one.
 func refusedCost(count, seconds float64) Value {
 	return Obj(kv("count", Num(count)), kv("time", Num(seconds)), kv("ingredients", Arr()))
 }
