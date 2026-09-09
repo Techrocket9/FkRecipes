@@ -33,13 +33,22 @@
 //! the rules that need both (a fluid in a crafting recipe, a fraction on an
 //! item, the fluid ceiling), then duplicates across entries.
 //!
+//! ONE POLICY FOR A CHARACTER THE PLAYER CANNOT SEE, and it is refusal.
+//! Whitespace separates; every other member of the invisible set is refused by
+//! its code point wherever it sits, and nothing is deleted from a stored text
+//! on the player's behalf. Where a message quotes a piece of that text, every
+//! invisible character in it is written as `U+XXXX`, so a quoted word is the
+//! word on the player's screen or it names what is not there.
+//!
 //! NOTHING HERE READS THE ENGINE except through [`World`], and every question
 //! it asks is a presence probe. The whole module is host-testable for exactly
 //! that reason.
 
+use alloc::borrow::Cow;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use core::fmt::Write;
 
 use crate::data::takes_items_only;
 use crate::plan::Amount;
@@ -61,6 +70,27 @@ pub(crate) const DEFAULT: &str = "default";
 /// MEASURED: a stored value of 98,000 characters reaches the guest intact, so
 /// without this a paste of somebody's log file would be quoted back whole in
 /// a refusal. Nothing an ingredient list has to say needs more than this.
+///
+/// WHAT THE CEILING BOUNDS IS THE REFUSAL, and [`quotable`] now sets the rate:
+/// an invisible character costs its `U+XXXX` token rather than its own bytes,
+/// so the bound had to be re-measured when the escaping landed. MEASURED at
+/// exactly 2000 characters, which is the widest text this rule lets through:
+/// 2000 x U+E0001 refuses in 14129 bytes and 2000 x U+200B in 12128. Both
+/// halves build the same message, byte for byte, which is what the corpus
+/// pins, and the Go twin is where the two numbers are re-taken:
+///
+/// ```text
+/// cd go && go test -run 'TestWholeTextRules/length' -v
+/// ```
+///
+/// A dozen kilobytes is a load failure a player can still read; the
+/// 98,000-character paste this rule turns away would have been most of a
+/// megabyte.
+///
+/// THE QUOTED ENTRY IS NOT TRUNCATED, deliberately. A truncation rule would be
+/// written here to be unwound: this round moves a refused text out of the
+/// error dialog and into the log, and the dialog is the only place the size of
+/// the quotation was ever the problem.
 const MAX_TEXT: usize = 2000;
 
 /// U+00D7 MULTIPLICATION SIGN. A player whose keyboard or autocorrect
@@ -245,19 +275,19 @@ pub(crate) fn parse(
         ));
     }
 
-    // THE ZERO-WIDTH FOUR ARE STRIPPED, not refused: a BOM or a zero-width
-    // joiner carried in by a copy from a wiki page or a chat client is
-    // invisible to the player who pasted it, and it changes nothing about
-    // what they meant. Every other invisible character is refused by code
-    // point, because those DO change what a name is.
-    let stripped: String = text.chars().filter(|c| !is_stripped(*c)).collect();
-
     // THE PARSER TRIMS FOR ITSELF, here and again around every entry. A
     // stored text arrives verbatim (measured: a setting with auto_trim = true
     // still reads back "  3 iron-plate , 0.5 [fluid=water]  " with both space
     // runs, because auto_trim is a GUI behaviour and does not touch what
     // mod-settings.dat holds), so there is nowhere else this can happen.
-    let whole = trim_ws(&stripped);
+    //
+    // NOTHING IS REMOVED FROM THE TEXT, only trimmed off its ends. A BOM or a
+    // zero-width joiner carried in by a copy from a wiki page used to be
+    // deleted here; it is refused by its code point now, with every other
+    // character the player cannot see, because a deletion answered a text
+    // nobody typed and a refusal quoting the result showed them a word that
+    // was not on their screen.
+    let whole = trim_ws(text);
     if whole.is_empty() {
         return Err(match kind {
             ListKind::Recipe => format!(
@@ -270,7 +300,7 @@ pub(crate) fn parse(
             ),
         });
     }
-    if whole == DEFAULT {
+    if whole.eq_ignore_ascii_case(DEFAULT) {
         return Ok(ListText::Default);
     }
 
@@ -305,17 +335,27 @@ pub(crate) fn parse(
     // THE RESERVED WORDS, positionally, before per-entry diagnosis: "none, 2
     // iron.plate" is answered about the word rather than about the dot,
     // because the word is what makes the rest of the list meaningless.
+    //
+    // MATCHED WITHOUT ASCII CASE, because they are this language's own English
+    // keywords and not names the game has to carry: a player typing into a
+    // settings field types None as readily as none. The sentence names the
+    // word in the one spelling the language has rather than echoing the
+    // player's capitals, so both halves say it the same way.
     for e in &raw {
-        if *e != NONE && *e != DEFAULT {
+        let word = if e.eq_ignore_ascii_case(NONE) {
+            NONE
+        } else if e.eq_ignore_ascii_case(DEFAULT) {
+            DEFAULT
+        } else {
             continue;
-        }
+        };
         if raw.len() > 1 {
             return Err(format!(
                 "fkrecipes: {}: {} stands alone; remove the other entries or the word",
-                setting, e
+                setting, word
             ));
         }
-        if *e == DEFAULT {
+        if word == DEFAULT {
             return Ok(ListText::Default);
         }
         return match kind {
@@ -345,7 +385,7 @@ pub(crate) fn parse(
                     "fkrecipes: {}, entry {} (\"{}\"): {}",
                     setting,
                     i + 1,
-                    text,
+                    quotable(text),
                     problem
                 ))
             }
@@ -627,7 +667,11 @@ fn fixed_notation(digits: &str, exponent: i32) -> String {
 /// answer cannot drift from what the parser does: `loader-1x1` is a name,
 /// `X2` is a sign and an amount, and neither fact is written down twice.
 fn lexes_as_a_plain_name(name: &str) -> bool {
-    if name == NONE || name == DEFAULT {
+    // FOLDED, LIKE THE PARSER'S OWN TEST, and this is the third of the three
+    // sites: an item called Default written bare would be read back as the
+    // marker, so the tag is what keeps the round trip an identity. The fold is
+    // an equality and not a prefix, so `defaults` is a name and stays plain.
+    if name.eq_ignore_ascii_case(NONE) || name.eq_ignore_ascii_case(DEFAULT) {
         return false;
     }
     let mut toks: Vec<Tok> = Vec::new();
@@ -672,16 +716,19 @@ fn one_entry(
         return Err(two_names(&names, kind, w));
     }
     if signs.len() > 1 {
-        return Err(format!("has more than one \"{}\"", signs[0]));
+        return Err(format!("has more than one \"{}\"", quotable(signs[0])));
     }
     if signs.len() == 1 {
         if amounts.is_empty() {
-            return Err(format!("has \"{}\" with no amount beside it", signs[0]));
+            return Err(format!(
+                "has \"{}\" with no amount beside it",
+                quotable(signs[0])
+            ));
         }
         if !sign_sits_between(&toks) {
             return Err(format!(
                 "\"{}\" goes between the amount and the name",
-                signs[0]
+                quotable(signs[0])
             ));
         }
     }
@@ -754,9 +801,14 @@ fn one_entry(
 /// an amount with nothing after it.
 fn no_name(text: &str, next: Option<&str>, toks: &[Tok], kind: ListKind, w: &dyn World) -> String {
     if let Some(tag) = reads_as_a_name(text, kind, w) {
+        // The tag at the end is what the player types, and it is written as
+        // typed: this arm was reached because the World has the text AS a
+        // name, so the engine's own charset already says it is visible.
         return format!(
             "\"{}\" is a name that reads as an amount; write it in its tag, as [{}={}]",
-            text, tag, text
+            quotable(text),
+            tag,
+            text
         );
     }
     let one_amount = matches!(toks, [Tok::Amount(_)]);
@@ -827,7 +879,12 @@ fn two_names(names: &[(&str, Tag)], kind: ListKind, w: &dyn World) -> String {
     let singular = joined.strip_suffix('s').map(String::from);
     for candidate in [Some(joined.clone()), singular].into_iter().flatten() {
         if exists_for(&candidate, kind, w) {
-            return format!("{} \"{}\"; did you mean {}", no_such, spaced, candidate);
+            return format!(
+                "{} \"{}\"; did you mean {}",
+                no_such,
+                quotable(&spaced),
+                candidate
+            );
         }
     }
     if names.iter().all(|(n, _)| exists_for(n, kind, w)) {
@@ -835,7 +892,9 @@ fn two_names(names: &[(&str, Tag)], kind: ListKind, w: &dyn World) -> String {
     }
     format!(
         "{} \"{}\"; names are the game's internal names, such as {}, and a comma separates two ingredients",
-        no_such, spaced, example
+        no_such,
+        quotable(&spaced),
+        example
     )
 }
 
@@ -980,9 +1039,14 @@ fn sign_sits_between(toks: &[Tok]) -> bool {
 /// What separates words and surrounds the text, measured rather than taken
 /// from a Unicode class: the ASCII four that reach the guest intact, plus the
 /// spaces a word processor or a phone keyboard produces where a player meant
-/// a space. Everything else that looks blank is either stripped (the
-/// zero-width four) or refused by code point, because a name is not allowed
-/// to hide one.
+/// a space. Everything else that looks blank is refused by its code point,
+/// because a name is not allowed to hide one.
+///
+/// SIX OF THE EIGHT ARE IN THE INVISIBLE SET AS WELL (tab, LF, CR, U+2007,
+/// U+202F and U+3000), and they separate rather than refuse because this
+/// question is asked FIRST. That order is the whole difference between the two
+/// sets: a character the player used as a space is one, and a character hiding
+/// inside a name is the other.
 fn is_ws(c: char) -> bool {
     matches!(
         c,
@@ -997,30 +1061,146 @@ fn is_ws(c: char) -> bool {
     )
 }
 
-/// The four that are removed wherever they occur, before anything is trimmed
-/// or split.
-fn is_stripped(c: char) -> bool {
-    matches!(c, '\u{feff}' | '\u{200b}' | '\u{200c}' | '\u{200d}')
-}
-
-/// The characters a refusal names by CODE POINT rather than by quoting,
-/// because quoting one shows the player nothing: controls, the format
-/// characters, the exotic spaces and the interlinear annotations. The
-/// whitespace set is checked before this one, so the members the two share
-/// (U+202F, U+3000) separate words rather than refusing.
+/// The characters a refusal names by CODE POINT rather than by quoting, and
+/// the ones [`quotable`] rewrites inside quotation marks. It is the ONE answer
+/// this language has to a character the player cannot see; nothing is deleted
+/// from a text on their behalf.
+///
+/// CLOSED RANGES AND NO UNICODE TABLE, in both halves. This crate is compiled
+/// into a consumer's wasm and its size is a measured property, so every
+/// table-backed `char` method is out (and `unicode.IsPrint` with it, on the Go
+/// side); the ranges below are written by hand and the corpus pins one member
+/// of each. The ranges were DERIVED rather than recalled, from two local
+/// Unicode tables that agree: Python 3.14's `unicodedata` at Unicode 16.0.0
+/// and the Go standard library's `unicode` package at 15.0.0, which carry the
+/// same 170 format characters.
+///
+/// WHAT IS IN IT, exactly, in three parts:
+///
+/// - EVERY FORMAT CHARACTER, general category `Cf`, all 170 of them. That is
+///   what makes the reference's claim true rather than nearly true: the Arabic
+///   number signs and letter mark, the end-of-ayah pair, the Syriac
+///   abbreviation mark, the Arabic pound and piastre marks, the two Kaithi
+///   number signs, the joiners and bidirectional marks, the invisible
+///   operators, the byte-order mark, the interlinear annotation marks, the
+///   Egyptian hieroglyph format controls, the shorthand format controls, the
+///   musical beams, ties, slurs and phrases, and the language tags.
+/// - EVERY POINT THE STANDARD DERIVES AS DEFAULT-IGNORABLE, which adds the
+///   combining grapheme joiner, the Hangul choseong, jungseong and halfwidth
+///   fillers, the two Khmer inherent vowels, the Mongolian free variation
+///   selectors, the variation selectors and their supplement, and the reserved
+///   runs (U+2065, U+FFF0 to U+FFF8, and most of the tag block).
+/// - THE CHARACTERS THAT SHOW AS BLANK BUT ARE NEITHER, which is the C0 and C1
+///   controls, the general-punctuation spaces U+2000 to U+200A, the line and
+///   paragraph separators, the narrow no-break space, the medium mathematical
+///   space and the ideographic space.
+///
+/// PRIVATE-USE POINTS STAY OUT: a font may draw a glyph for one, so refusing it
+/// as invisible would be a lie. UNASSIGNED POINTS ARE IN ONLY WHERE THE
+/// STANDARD RESERVES THE RUN AS DEFAULT-IGNORABLE, which is the three runs
+/// named above; every one of the 3769 unassigned points this predicate takes
+/// carries `Other_Default_Ignorable_Code_Point`, so a conforming renderer draws
+/// nothing for it and a character assigned there later will be invisible by
+/// construction. Taking those runs whole is also what lets the tag block be one
+/// closed range instead of a table.
+///
+/// The whitespace set is checked before this one, so the six members the two
+/// share (tab, LF, CR, U+2007, U+202F, U+3000) separate words rather than
+/// refusing.
 fn is_invisible(c: char) -> bool {
     matches!(c as u32,
         0x0000..=0x001f
             | 0x007f..=0x009f
             | 0x00ad
+            | 0x034f
+            | 0x0600..=0x0605
             | 0x061c
-            | 0x180e
+            | 0x06dd
+            | 0x070f
+            | 0x0890..=0x0891
+            | 0x08e2
+            | 0x115f..=0x1160
+            | 0x17b4..=0x17b5
+            | 0x180b..=0x180f
             | 0x2000..=0x200f
             | 0x2028..=0x202f
             | 0x205f..=0x206f
             | 0x3000
+            | 0x3164
+            | 0xfe00..=0xfe0f
             | 0xfeff
-            | 0xfff9..=0xfffb)
+            | 0xffa0
+            | 0xfff0..=0xfffb
+            | 0x110bd
+            | 0x110cd
+            | 0x13430..=0x1343f
+            | 0x1bca0..=0x1bca3
+            | 0x1d173..=0x1d17a
+            | 0xe0000..=0xe0fff)
+}
+
+/// The one way a piece of the PLAYER's text reaches a message that puts it
+/// between quotation marks: every member of the invisible set becomes its
+/// `U+XXXX` token, and a text with none of them is borrowed back untouched.
+///
+/// A QUOTED WORD MUST BE THE WORD ON THE PLAYER'S SCREEN, or it must name what
+/// is not there. Quoting the raw text failed that both ways, one half measured
+/// and the other half not.
+///
+/// MEASURED, on 2.0.77: a zero-width space between two letters quoted a word
+/// that reads exactly as the name the player thinks they typed, so the refusal
+/// looked like it was arguing with itself. That is this rule's whole reason on
+/// its own.
+///
+/// MEASURED, but about a different path: a NUL truncates a STORED SETTING
+/// VALUE inside the engine and the truncation is persisted (the row in
+/// agents/customizer-design.md). That is the value on its way IN, not a
+/// refusal on its way out, and what it actually implies is that a NUL typed on
+/// the settings screen never reaches the guest at all, because the value is
+/// cut at the NUL before it is stored. INFERRED, and asserted nowhere: what
+/// the engine would do with a NUL inside a load-failure message. A hand-edited
+/// mod-settings.dat is the only path that would ask, and this rule is why it
+/// never has to be asked, because an entry carrying a NUL is quoted as
+/// `U+0000` and the message is printable whichever way the answer would have
+/// gone.
+///
+/// THE TOKEN CANNOT PRODUCE A MESSAGE A RAW TEXT COULD HAVE PRODUCED, which is
+/// the precise claim; the token itself IS typeable. A player who types the six
+/// characters `U+0000` gets an entry quoted as `U+0000`, byte for byte what
+/// this rule writes for a real NUL. The two WHOLE messages still differ,
+/// because `+` is not a name character and is not part of an amount: the typed
+/// text is refused FOR the `+` and the real NUL is refused as an invisible
+/// character. So a reader who sees `U+200B` in a quoted entry beside the
+/// invisible-character sentence is looking at this rule and at nothing else.
+///
+/// EVERY QUOTING SITE GOES THROUGH IT, which is what makes the property total
+/// rather than spot-applied: the entry, the sign, the multi-word fold, the
+/// pieces the lexer refuses, and the single strange character. The one place a
+/// player's text is written WITHOUT quotation marks is the tag a refusal tells
+/// them to type, and that text is a name the World answered to, so the
+/// engine's own charset is what keeps it visible.
+///
+/// AT LEAST FOUR HEX DIGITS, uppercase, the same token the invisible-character
+/// sentence prints, so one form of a code point appears in this language and
+/// not two.
+fn quotable(s: &str) -> Cow<'_, str> {
+    if !s.chars().any(is_invisible) {
+        return Cow::Borrowed(s);
+    }
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if is_invisible(c) {
+            // WRITTEN INTO THE BUFFER THAT IS ALREADY THERE, rather than
+            // formatted into a String of its own and copied in: a text of 2000
+            // invisible characters would otherwise be 2000 allocations to
+            // build one message. A write into a String cannot fail, which is
+            // what the discarded Result says.
+            let _ = write!(out, "U+{:04X}", c as u32);
+            continue;
+        }
+        out.push(c);
+    }
+    Cow::Owned(out)
 }
 
 fn trim_ws(s: &str) -> &str {
@@ -1168,7 +1348,7 @@ fn classify_plain(piece: &str, out: &mut Vec<Tok>) -> Result<(), String> {
     if is_thousands(piece) {
         return Err(format!(
             "\"{}\" is not an amount here; a dot marks a fraction, and a thousand is written 1000",
-            piece
+            quotable(piece)
         ));
     }
     if is_amount(piece) {
@@ -1187,7 +1367,7 @@ fn classify_plain(piece: &str, out: &mut Vec<Tok>) -> Result<(), String> {
     if is_signed(piece) || is_exponent(piece) {
         return Err(format!(
             "\"{}\" is not an amount; amounts are plain digits such as 2 or 0.5",
-            piece
+            quotable(piece)
         ));
     }
     if piece.chars().all(is_name_char) {
@@ -1209,9 +1389,14 @@ fn classify_plain(piece: &str, out: &mut Vec<Tok>) -> Result<(), String> {
             bad as u32
         ));
     }
+    // quotable is a no-op on this one by construction, the arm above having
+    // taken every invisible character. It is written anyway, because the
+    // property is that EVERY quoting site goes through it and an audit reads
+    // the quotation marks rather than the reachability.
+    let mut buf = [0u8; 4];
     Err(format!(
         "\"{}\" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in \"2 iron-plate\"",
-        bad
+        quotable(bad.encode_utf8(&mut buf))
     ))
 }
 

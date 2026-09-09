@@ -21,6 +21,11 @@ import (
 
 const corpusPath = "../testdata/ingredient-list/cases.txt"
 
+// refusalPrefix is what every refusal this language builds begins with. A later
+// caller strips it to compose a log line, so the property has to be TOTAL over
+// the corpus rather than true of the messages somebody remembered.
+const refusalPrefix = "fkrecipes: "
+
 // corpusWorld is the fixture the corpus states: three name lists and nothing
 // else. It EMBEDS UnimplementedWorld, which is the shape a consumer's fixture
 // should copy: four methods are implemented because the language asks four
@@ -127,14 +132,25 @@ func TestIngredientListCorpus(t *testing.T) {
 	w, cases := readCorpus(t)
 
 	// Anti-vacuity: a reader that silently matched nothing would be a test
-	// that passes over an empty set, which reads exactly like a pass.
-	if len(cases) < 150 {
+	// that passes over an empty set, which reads exactly like a pass. The floor
+	// tracks the corpus and is RAISED when it grows, never lowered to fit a
+	// reader; the Rust half carries the same number.
+	if len(cases) < 242 {
 		t.Fatalf("only %d cases were read from %s; the reader is not seeing the file", len(cases), corpusPath)
 	}
 	oks, refusals := 0, 0
 	for _, c := range cases {
 		if c.refuses {
 			refusals++
+			// EVERY REFUSAL BEGINS WITH THE LIBRARY'S OWN PREFIX, over the
+			// whole corpus rather than over the cases somebody thought to
+			// check. A caller that strips it to build a log line needs the
+			// property to be total, and a message written without it would
+			// otherwise only show up wherever that caller is exercised.
+			if !strings.HasPrefix(c.want, refusalPrefix) {
+				t.Errorf("%s:%d %s: the refusal |%s| does not begin with %q",
+					corpusPath, c.line, c.section, c.want, refusalPrefix)
+			}
 			continue
 		}
 		oks++
@@ -156,6 +172,10 @@ func TestIngredientListCorpus(t *testing.T) {
 			if problem != c.want {
 				t.Errorf("%s:%d %s\n  in:     |%s|\n  want:   |%s|\n  got:    |%s|",
 					corpusPath, c.line, c.section, c.in, c.want, problem)
+			}
+			if !strings.HasPrefix(problem, refusalPrefix) {
+				t.Errorf("%s:%d %s: the refusal this half produced does not begin with %q\n  got: |%s|",
+					corpusPath, c.line, c.section, refusalPrefix, problem)
 			}
 			// A REFUSED TEXT COMES BACK AS NOTHING AT ALL, neither a list nor
 			// the default marker: a caller that read the result past a refusal
@@ -509,7 +529,7 @@ func TestCorpusEscapesAreRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, escape := range []string{`\x`, `\u`, `\t`, `\\`} {
+	for _, escape := range []string{`\x`, `\u`, `\U`, `\t`, `\\`} {
 		if !strings.Contains(string(raw), escape) {
 			t.Errorf("the corpus carries no %s escape; the reader's arm for it is untested by the file", escape)
 		}
@@ -523,7 +543,7 @@ func TestCorpusEscapesAreRead(t *testing.T) {
 // much as for the compiler.
 func TestRulesBeyondTheCorpus(t *testing.T) {
 	w := &corpusWorld{
-		items:  []string{"iron-plate", "copper-cable", "none", "default", "automation-science-pack"},
+		items:  []string{"iron-plate", "copper-cable", "none", "default", "defaults", "automation-science-pack"},
 		fluids: []string{"water"},
 		tools:  []string{"automation-science-pack"},
 	}
@@ -621,6 +641,36 @@ func TestRulesBeyondTheCorpus(t *testing.T) {
 			want:    "fkrecipes: mymod-parts, entry 1 (\"1 Water\"): no item or fluid is named Water; did you mean water",
 			refuses: true,
 		},
+		{
+			// A CASED RESERVED WORD IS THE WORD, so it stands alone by the same
+			// rule, and the sentence names the word in the one spelling the
+			// language has rather than echoing the player's capitals back. The
+			// corpus pins the all-capitals spelling; this is the mixed one,
+			// which is the shape a fold written as two comparisons would miss.
+			name:    "a cased none beside another entry",
+			in:      "NoNe, 2 iron-plate",
+			want:    "fkrecipes: mymod-parts: none stands alone; remove the other entries or the word",
+			refuses: true,
+		},
+		{
+			// THE FOLD IS AN EQUALITY, not a prefix: an item whose name merely
+			// begins with a reserved word is a name like any other.
+			name: "a name that only begins with a reserved word",
+			in:   "2 defaults",
+			want: "2 defaults",
+		},
+		{
+			// A HOMOGLYPH IS NOT THE WORD. The last letter here is a Cyrillic
+			// capital Te (U+0422), so the entry reads as DEFAULT on screen and
+			// is none of the language's words: the fold is over ASCII letters
+			// and a name is what its code points are. The character rule
+			// answers, and it quotes the character that is not what it looks
+			// like.
+			name:    "a homoglyph that reads as the word",
+			in:      "DEFAUL\u0422",
+			want:    "fkrecipes: mymod-parts, entry 1 (\"DEFAUL\u0422\"): \"\u0422\" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in \"2 iron-plate\"",
+			refuses: true,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -716,12 +766,36 @@ func TestWholeTextRules(t *testing.T) {
 		if _, problem := parseIngredientList(wide+"あ", listRecipe, "crafting", "mymod-parts", w); problem != want {
 			t.Errorf("2001 wide characters\n got:  |%s|\nwant:  |%s|", problem, want)
 		}
-		// The rule is counted on the RAW text, before anything is stripped: a
-		// player who pasted 2001 zero-width spaces did not write a list, and a
-		// count taken after stripping would call that empty instead.
+		// The rule is counted on the text AS STORED, and nothing is removed
+		// from it beforehand: a player who pasted 2001 zero-width spaces did
+		// not write a list, and they are told so by the length rather than by
+		// an entry quoting 2001 code points back at them.
 		zeroWidth := strings.Repeat("\u200b", 2001)
 		if _, problem := parseIngredientList(zeroWidth, listRecipe, "crafting", "mymod-parts", w); problem != want {
-			t.Errorf("2001 stripped characters\n got:  |%s|\nwant:  |%s|", problem, want)
+			t.Errorf("2001 invisible characters\n got:  |%s|\nwant:  |%s|", problem, want)
+		}
+		// THE WORST MESSAGE THE CEILING LETS THROUGH, measured here rather than
+		// asserted in a comment: a text of exactly 2000 characters passes the
+		// length rule and is quoted back whole, with every invisible character in
+		// it written as its token, so the token is what sets the bound. The two
+		// numbers below are the ones the comment on maxListChars cites, and this
+		// is the command that re-takes them:
+		//
+		//	cd go && go test -run 'TestWholeTextRules/length' -v
+		for _, c := range []struct {
+			name  string
+			r     rune
+			bytes int
+		}{
+			{"U+E0001", '\U000e0001', 14129},
+			{"U+200B", '\u200b', 12128},
+		} {
+			_, problem := parseIngredientList(strings.Repeat(string(c.r), 2000), listRecipe, "crafting", "mymod-parts", w)
+			t.Logf("2000 x %s refuses in %d bytes", c.name, len(problem))
+			if len(problem) != c.bytes {
+				t.Errorf("2000 x %s refuses in %d bytes, not the %d maxListChars is documented with; re-measure and update BOTH halves' comments",
+					c.name, len(problem), c.bytes)
+			}
 		}
 	})
 
@@ -735,22 +809,142 @@ func TestWholeTextRules(t *testing.T) {
 		}
 	})
 
-	// THE STRIPPED SET AND THE WHITESPACE SET, each character in turn. The
-	// corpus carries one of each; a set is a place where one member goes
-	// missing in one language and nothing goes red.
-	t.Run("stripped and whitespace", func(t *testing.T) {
-		for _, r := range []rune{'\ufeff', '\u200b', '\u200c', '\u200d'} {
-			in := "2 iron" + string(r) + "-plate"
-			got, problem := parseIngredientList(in, listRecipe, "crafting", "mymod-parts", w)
-			if problem != "" {
-				t.Errorf("U+%04X inside a name was not stripped: %s", r, problem)
-				continue
+	// THE INVISIBLE SET AND THE WHITESPACE SET, EVERY MEMBER OF BOTH.
+	//
+	// ONE POLICY: a character the player cannot see is refused by its code
+	// point, wherever it sits, and nothing is deleted from the text on their
+	// behalf. The whitespace set is the exception and it is asked FIRST, which
+	// is why the six members the two sets share (tab, LF, CR, U+2007, U+202F
+	// and U+3000) separate words rather than refuse.
+	//
+	// THE SET IS SPELLED HERE AND NOT READ OUT OF THE PREDICATE, which is the
+	// whole difference between a table that guards and a walk that asks its own
+	// subject what to ask about. An earlier shape of this test iterated every
+	// rune and skipped the ones isInvisibleRune said no to, so a range NARROWED
+	// in the predicate simply stopped being tested. PROVED: narrowing
+	// 0x115f..0x1160 to 0x115f and 0xfe00..0xfe0f to 0xfe0f drops 15 code
+	// points, and the whole Go suite stays green while the two halves disagree.
+	//
+	// So the table below is an INDEPENDENT spelling of the same set, and it is
+	// asked twice about every member: of the PARSER, which is the behaviour a
+	// player meets, and of the PREDICATE directly, which is the behaviour the
+	// renderer and quotable share. The code point either side of every range is
+	// asked both questions too and must answer the other way, which is the half
+	// of a boundary a list of members cannot state: a range widened by one would
+	// otherwise pass here.
+	//
+	// The Rust twin carries the same table for the same reason, and the corpus
+	// pins one member of every range in both languages.
+	t.Run("invisible and whitespace", func(t *testing.T) {
+		// Range by range, low to high. Derived rather than recalled; the
+		// predicate's own comment says from what and how.
+		invisible := [][2]rune{
+			{0x0000, 0x001f},
+			{0x007f, 0x009f},
+			{0x00ad, 0x00ad},
+			{0x034f, 0x034f},
+			{0x0600, 0x0605},
+			{0x061c, 0x061c},
+			{0x06dd, 0x06dd},
+			{0x070f, 0x070f},
+			{0x0890, 0x0891},
+			{0x08e2, 0x08e2},
+			{0x115f, 0x1160},
+			{0x17b4, 0x17b5},
+			{0x180b, 0x180f},
+			{0x2000, 0x200f},
+			{0x2028, 0x202f},
+			{0x205f, 0x206f},
+			{0x3000, 0x3000},
+			{0x3164, 0x3164},
+			{0xfe00, 0xfe0f},
+			{0xfeff, 0xfeff},
+			{0xffa0, 0xffa0},
+			{0xfff0, 0xfffb},
+			{0x110bd, 0x110bd},
+			{0x110cd, 0x110cd},
+			{0x13430, 0x1343f},
+			{0x1bca0, 0x1bca3},
+			{0x1d173, 0x1d17a},
+			{0xe0000, 0xe0fff},
+		}
+		inTable := func(r rune) bool {
+			for _, g := range invisible {
+				if r >= g[0] && r <= g[1] {
+					return true
+				}
 			}
-			if rendered := got.render(); rendered != "2 iron-plate" {
-				t.Errorf("U+%04X inside a name rendered as |%s|", r, rendered)
+			return false
+		}
+
+		members, refused := 0, 0
+		for _, g := range invisible {
+			for r := g[0]; r <= g[1]; r++ {
+				members++
+				if !utf8.ValidRune(r) {
+					t.Fatalf("the table covers U+%04X, which is not a scalar value and can be in no text", r)
+				}
+				if !isInvisibleRune(r) {
+					t.Errorf("U+%04X is in the table and isInvisibleRune says it is not in the set", r)
+				}
+				// The six the whitespace set takes first are members of this
+				// set and separate words anyway; the loop below is where they
+				// are put to the parser.
+				if isListSpace(r) {
+					continue
+				}
+				refused++
+				in := "2 iron" + string(r) + "-plate"
+				token := "U+" + codePointHex(r)
+				want := `fkrecipes: mymod-parts, entry 1 ("2 iron` + token + `-plate"): an invisible character (` +
+					token + `) has no place here; retype the entry rather than pasting it`
+				got, problem := parseIngredientList(in, listRecipe, "crafting", "mymod-parts", w)
+				if problem != want {
+					t.Errorf("%s inside a name\n got:  |%s|\nwant:  |%s|", token, problem, want)
+				}
+				if got.isDefault || got.entries != nil {
+					t.Errorf("%s inside a name came back as %+v", token, got)
+				}
 			}
 		}
-		for _, r := range []rune{'\t', '\n', '\r', ' ', '\u00a0', '\u2007', '\u202f', '\u3000'} {
+		// EXACTLY, not a floor: a floor a deleted range still clears is a floor
+		// that cannot notice. The tag block alone is 4096 of the 4287, and six of
+		// them are whitespace first.
+		if members != 4287 || refused != 4281 {
+			t.Fatalf("the table walked %d members and put %d of them to the parser; the set is 4287 and 4281, and a table that no longer says so is a set somebody changed on one side",
+				members, refused)
+		}
+		t.Logf("%d invisible characters refused by code point, out of %d in the set", refused, members)
+
+		// THE CODE POINT EITHER SIDE OF EVERY RANGE, quoted as itself and denied
+		// by the predicate. A neighbour that is itself a member of another range,
+		// or a member of the whitespace set, answers a different question and is
+		// stepped past.
+		neighbours := 0
+		for _, g := range invisible {
+			for _, r := range []rune{g[0] - 1, g[1] + 1} {
+				if r < 0 || r > 0x10ffff || !utf8.ValidRune(r) || inTable(r) || isListSpace(r) {
+					continue
+				}
+				neighbours++
+				if isInvisibleRune(r) {
+					t.Errorf("U+%04X sits outside the table and isInvisibleRune says it is in the set", r)
+				}
+				in := "2 iron" + string(r) + "-plate"
+				want := `fkrecipes: mymod-parts, entry 1 ("2 iron` + string(r) + `-plate"): "` + string(r) +
+					`" has no place here; ` + charsetHint
+				if _, problem := parseIngredientList(in, listRecipe, "crafting", "mymod-parts", w); problem != want {
+					t.Errorf("U+%04X sits just outside the set\n got:  |%s|\nwant:  |%s|", r, problem, want)
+				}
+			}
+		}
+		if neighbours != 53 {
+			t.Fatalf("%d neighbours were exercised, not the 53 the table has; a boundary went unasked", neighbours)
+		}
+
+		separated := 0
+		for _, r := range listWhitespace {
+			separated++
 			in := string(r) + "2" + string(r) + "iron-plate" + string(r)
 			got, problem := parseIngredientList(in, listRecipe, "crafting", "mymod-parts", w)
 			if problem != "" {
@@ -761,14 +955,13 @@ func TestWholeTextRules(t *testing.T) {
 				t.Errorf("U+%04X as whitespace rendered as |%s|", r, rendered)
 			}
 		}
-		// And the other side: a space-looking character OUTSIDE the set is
-		// refused by code point rather than quietly eaten. U+2002 is an en
-		// space, which a paste from a word processor really carries.
-		_, problem := parseIngredientList("2\u2002iron-plate", listRecipe, "crafting", "mymod-parts", w)
-		want := `fkrecipes: mymod-parts, entry 1 ("2` + "\u2002" + `iron-plate"): an invisible character (U+2002) has no place here; retype the entry rather than pasting it`
-		if problem != want {
-			t.Errorf("\n got:  |%s|\nwant:  |%s|", problem, want)
+		if separated != 8 {
+			t.Errorf("the whitespace set has %d members, not the eight it is documented as", separated)
 		}
+		// THE FOUR THAT USED TO BE DELETED are in the set like everything else,
+		// and this is the row that says so: a BOM, a zero-width space and the
+		// two joiners are answered by their code points rather than silently
+		// removed from a text nobody typed that way.
 	})
 }
 
@@ -848,6 +1041,7 @@ func TestRenderThenParseIsIdentity(t *testing.T) {
 	w := &corpusWorld{
 		items: []string{
 			"iron-plate", "copper-cable", "42", "x", "X", "none", "default",
+			"None", "Default", "defaults",
 			"2x", "X2", "2x4", "loader-1x1", "1e3", "both",
 			"automation-science-pack", "logistic-science-pack",
 		},
@@ -866,6 +1060,10 @@ func TestRenderThenParseIsIdentity(t *testing.T) {
 		{"42", true}, {"x", true}, {"X", true}, {"2x", true},
 		{"X2", true}, {"2x4", true}, {"1e3", true},
 		{"none", true}, {"default", true},
+		// THE RESERVED WORDS ARE MATCHED WITHOUT CASE, so an item called
+		// Default takes its tag exactly as one called default does. The fold
+		// is an equality: "defaults" is a name and stays plain.
+		{"None", true}, {"Default", true}, {"defaults", false},
 	}
 	for _, c := range renderRule {
 		if got := nameNeedsTag(c.name); got != c.wantTag {

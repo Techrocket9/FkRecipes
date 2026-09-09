@@ -19,10 +19,15 @@ import (
 // THE SHAPE OF THE PASS, and why it is this one:
 //
 //   - The WHOLE TEXT is judged first, before any of it is read as a list: not
-//     text at all, then too long, then invisible characters stripped, then
-//     empty, then the two reserved words. Each of those is about the setting
-//     rather than about anything inside it, and a text that fails one of them
-//     has no entries worth quoting back.
+//     text at all, then too long, then empty, then the two reserved words. Each
+//     of those is about the setting rather than about anything inside it, and a
+//     text that fails one of them has no entries worth quoting back.
+//   - ONE POLICY FOR A CHARACTER THE PLAYER CANNOT SEE, and it is refusal.
+//     Nothing is deleted from the text on the player's behalf: whitespace
+//     separates, and every other member of the invisible set is refused by its
+//     code point wherever it sits. A silent deletion answered a text the player
+//     never typed, and a message that quoted the result showed them a word that
+//     was not on their screen.
 //   - Then split on commas outside a rich-text tag, then read each entry on
 //     its own, then look for duplicates across entries. Each stage refuses
 //     with the FIRST problem it finds and the stages run in that order, so two
@@ -59,13 +64,13 @@ import (
 // space, figure space, narrow no-break space and ideographic space. Every other
 // invisible character is REFUSED by code point rather than silently eaten,
 // because a player cannot see what they pasted and needs to be told.
+//
+// SIX OF THE EIGHT ARE IN THE INVISIBLE SET AS WELL (tab, LF, CR, U+2007,
+// U+202F and U+3000), and they separate rather than refuse because the
+// whitespace question is asked FIRST. That order is the whole difference
+// between the two sets: a character the player used as a space is one, and a
+// character hiding inside a name is the other.
 const listWhitespace = "\u0009\u000a\u000d\u0020\u00a0\u2007\u202f\u3000"
-
-// listStripped is deleted wherever it occurs, before anything else looks at the
-// text: the byte-order mark and the three zero-width joiners and non-joiners.
-// They carry no meaning here, they arrive from copying a name out of a wiki
-// page, and a player cannot delete a character they cannot see.
-const listStripped = "\ufeff\u200b\u200c\u200d"
 
 // noneWord is the empty list written out. It is a word rather than an empty
 // text because a free recipe is something a player should have to say on
@@ -88,8 +93,25 @@ const defaultWord = "default"
 // maxListChars is the ceiling on the whole text, in Unicode scalars.
 //
 // MEASURED: a stored value of 98000 characters reaches the guest intact. Such a
-// text is not an ingredient list, and quoting an entry out of it would put tens
-// of kilobytes into a load failure, so it is refused whole before parsing.
+// text is not an ingredient list, and it is refused whole before parsing rather
+// than quoted back.
+//
+// WHAT THE CEILING BOUNDS IS THE REFUSAL, and quotable now sets the rate: an
+// invisible character costs its U+XXXX token rather than its own bytes, so the
+// bound had to be re-measured when the escaping landed. MEASURED at exactly
+// 2000 characters, which is the widest text this rule lets through: 2000 x
+// U+E0001 refuses in 14129 bytes and 2000 x U+200B in 12128. Re-take both with
+//
+//	cd go && go test -run 'TestWholeTextRules/length' -v
+//
+// which is where those two numbers are pinned. A dozen kilobytes is a load
+// failure a player can still read; the 98000-character paste this rule turns
+// away would have been most of a megabyte.
+//
+// THE QUOTED ENTRY IS NOT TRUNCATED, deliberately. A truncation rule would be
+// written here to be unwound: this round moves a refused text out of the error
+// dialog and into the log, and the dialog is the only place the size of the
+// quotation was ever the problem.
 const maxListChars = 2000
 
 // maxItemAmount is the engine's ceiling on an item ingredient's count.
@@ -195,15 +217,16 @@ func parseIngredientList(text string, kind listKind, category string, setting st
 	if !utf8.ValidString(text) {
 		return parsedList{}, "fkrecipes: " + setting + " contains characters that are not text; retype the list"
 	}
-	// Counted in scalars on the RAW text, before anything is stripped: the
-	// ceiling is about what the player stored, and a rule that counted bytes
-	// would be a different number in a language with accents in it.
+	// Counted in scalars on the text AS STORED, with nothing removed from it
+	// first: the ceiling is about what the player stored, and a rule that
+	// counted bytes would be a different number in a language with accents in
+	// it.
 	if utf8.RuneCountInString(text) > maxListChars {
 		return parsedList{}, "fkrecipes: " + setting + " is longer than " +
 			strconv.Itoa(maxListChars) + " characters; that is not an ingredient list"
 	}
 
-	trimmed := strings.Trim(stripInvisible(text), listWhitespace)
+	trimmed := strings.Trim(text, listWhitespace)
 	if trimmed == "" {
 		// The one message shape with neither a comma nor a colon after the
 		// setting name: it is about the setting itself and not about anything
@@ -218,7 +241,7 @@ func parseIngredientList(text string, kind listKind, category string, setting st
 	// entries. It is also recognised as an entry below, which is what lets the
 	// tolerated trailing comma apply to it; this arm is the one a reader of the
 	// reference looks for, and both halves carry both.
-	if trimmed == defaultWord {
+	if isReservedWord(trimmed, defaultWord) {
 		return parsedList{isDefault: true}, ""
 	}
 
@@ -241,8 +264,8 @@ func parseIngredientList(text string, kind listKind, category string, setting st
 	// and BEFORE any entry is diagnosed, so "none, 2 iron.plate" is answered by
 	// the word standing in company rather than by the stop in the other entry.
 	for _, e := range entries {
-		switch e {
-		case noneWord:
+		switch {
+		case isReservedWord(e, noneWord):
 			if len(entries) > 1 {
 				return parsedList{}, listProblem(setting, "none stands alone; remove the other entries or the word")
 			}
@@ -250,7 +273,7 @@ func parseIngredientList(text string, kind listKind, category string, setting st
 				return parsedList{}, listProblem(setting, "research takes at least one science pack")
 			}
 			return parsedList{entries: ingredientList{}}, ""
-		case defaultWord:
+		case isReservedWord(e, defaultWord):
 			if len(entries) > 1 {
 				return parsedList{}, listProblem(setting, "default stands alone; remove the other entries or the word")
 			}
@@ -294,22 +317,41 @@ func parseIngredientList(text string, kind listKind, category string, setting st
 	return parsedList{entries: list}, ""
 }
 
-// stripInvisible deletes the zero-width characters that carry no meaning here.
-// Written as a scan rather than four Replace passes so the text is walked once
-// and the common case, which is a text with none of them, allocates nothing.
-func stripInvisible(text string) string {
-	if !strings.ContainsAny(text, listStripped) {
-		return text
+// isReservedWord reports whether a trimmed text or entry IS one of the two
+// reserved words, with ASCII letter case ignored.
+//
+// CASE-FOLDED BECAUSE THEY ARE ENGLISH KEYWORDS AND NOT NAMES. A player typing
+// into a settings field types Default as readily as default, and the word is
+// this language's own vocabulary rather than something the game has to have; a
+// NAME, by contrast, stays case sensitive, because the engine's own lookup is.
+//
+// ASCII ONLY, AND WRITTEN OUT, because the two halves have to give one answer
+// and the two languages' convenient functions are two different rules:
+// strings.EqualFold folds the whole of Unicode simply (measured: it reads the
+// Kelvin sign U+212A as a k), and Rust's eq_ignore_ascii_case does not. Neither
+// of today's two words carries a letter those two disagree about, which is
+// exactly why the rule has to be written down rather than inherited: the day
+// this language grows a third word, an inherited fold would make the halves
+// disagree about it and nothing here would say so.
+//
+// word is one of the two constants and so is lowercase ASCII, which is what
+// lets the fold run one way. A homoglyph is NOT the word: a Cyrillic Te in
+// DEFAULT reads as the word on screen and is refused by the character rule,
+// because a name is what its code points are.
+func isReservedWord(s, word string) bool {
+	if len(s) != len(word) {
+		return false
 	}
-	var b strings.Builder
-	b.Grow(len(text))
-	for _, r := range text {
-		if strings.ContainsRune(listStripped, r) {
-			continue
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
 		}
-		b.WriteRune(r)
+		if c != word[i] {
+			return false
+		}
 	}
-	return b.String()
+	return true
 }
 
 // renderIngredientList is the inverse: the canonical text for a list.
@@ -501,7 +543,12 @@ func withFraction(whole, fraction string) string {
 // anything other than that one name. That is what keeps loader-1x1 plain while
 // 2x4 and X2 take a tag, without either answer being written down twice.
 func nameNeedsTag(name string) bool {
-	if name == noneWord || name == defaultWord {
+	// FOLDED, LIKE THE PARSER'S OWN TEST, and this is the third site of the
+	// three: an item called Default written bare would be read back as the
+	// marker by the arm above, so the tag is what keeps the round trip an
+	// identity. A name that only LOOKS like a word ("defaults") is untouched,
+	// because the fold is an equality and not a prefix.
+	if isReservedWord(name, noneWord) || isReservedWord(name, defaultWord) {
 		return true
 	}
 	var probe []lexToken
@@ -520,7 +567,70 @@ func nameNeedsTag(name string) bool {
 // quotes the entry as typed and numbers it; a list's problem names the setting
 // and nothing else, because it is about the whole text.
 func entryProblem(setting string, n int, entry, problem string) string {
-	return "fkrecipes: " + setting + ", entry " + strconv.Itoa(n) + ` ("` + entry + `"): ` + problem
+	return "fkrecipes: " + setting + ", entry " + strconv.Itoa(n) + ` ("` + quotable(entry) + `"): ` + problem
+}
+
+// quotable is the one way a piece of the PLAYER's text reaches a message that
+// puts it between quotation marks: every member of the invisible set becomes
+// its U+XXXX token, and a text with none of them comes back untouched and
+// unallocated.
+//
+// A QUOTED WORD MUST BE THE WORD ON THE PLAYER'S SCREEN, or it must name what
+// is not there. Quoting the raw text failed that both ways, one half measured
+// and the other half not.
+//
+// MEASURED, on 2.0.77: a zero-width space between two letters quoted a word
+// that reads exactly as the name the player thinks they typed, so the refusal
+// looked like it was arguing with itself. That is this rule's whole reason on
+// its own.
+//
+// MEASURED, but about a different path: a NUL truncates a STORED SETTING VALUE
+// inside the engine and the truncation is persisted (the row in
+// agents/customizer-design.md). That is the value on its way IN, not a refusal
+// on its way out, and what it actually implies is that a NUL typed on the
+// settings screen never reaches the guest at all, because the value is cut at
+// the NUL before it is stored. INFERRED, and asserted nowhere: what the engine
+// would do with a NUL inside a load-failure message. A hand-edited
+// mod-settings.dat is the only path that would ask, and this rule is why it
+// never has to be asked, because an entry carrying a NUL is quoted as U+0000
+// and the message is printable whichever way the answer would have gone.
+//
+// THE TOKEN CANNOT PRODUCE A MESSAGE A RAW TEXT COULD HAVE PRODUCED, which is
+// the precise claim; the token itself IS typeable. A player who types the six
+// characters "U+0000" gets an entry quoted as "U+0000", byte for byte what
+// this rule writes for a real NUL. The two WHOLE messages still differ, because
+// "+" is not a name character and is not part of an amount: the typed text is
+// refused FOR the "+" and the real NUL is refused as an invisible character.
+// So a reader who sees U+200B in a quoted entry beside the invisible-character
+// sentence is looking at this rule and at nothing else.
+//
+// EVERY QUOTING SITE GOES THROUGH IT, which is what makes the property total
+// rather than spot-applied: the entry, the sign, the multi-word fold, the
+// pieces the lexer refuses, and the single strange character. The one place a
+// player's text is written WITHOUT quotation marks is the tag a refusal tells
+// them to type, and that text is a name the World answered to, so the engine's
+// own charset is what keeps it visible.
+func quotable(s string) string {
+	needed := false
+	for _, r := range s {
+		if isInvisibleRune(r) {
+			needed = true
+			break
+		}
+	}
+	if !needed {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if isInvisibleRune(r) {
+			b.WriteString("U+" + codePointHex(r))
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func listProblem(setting, problem string) string {
@@ -664,14 +774,14 @@ func parseEntry(entry, next string, kind listKind, category string, w World) (li
 		return listEntry{}, manyNamesProblem(tokens, kind, w)
 	}
 	if signs > 1 {
-		return listEntry{}, `has more than one "` + signTok.text + `"`
+		return listEntry{}, `has more than one "` + quotable(signTok.text) + `"`
 	}
 	if signs == 1 {
 		if amounts == 0 {
-			return listEntry{}, `has "` + signTok.text + `" with no amount beside it`
+			return listEntry{}, `has "` + quotable(signTok.text) + `" with no amount beside it`
 		}
 		if !signIsBetween(tokens) {
-			return listEntry{}, `"` + signTok.text + `" goes between the amount and the name`
+			return listEntry{}, `"` + quotable(signTok.text) + `" goes between the amount and the name`
 		}
 	}
 
@@ -735,7 +845,10 @@ func parseEntry(entry, next string, kind listKind, category string, w World) (li
 // inventory.
 func noNameProblem(entry, next string, tokens []lexToken, kind listKind, w World) string {
 	if word, ok := tagWordForName(entry, kind, w); ok {
-		return `"` + entry + `" is a name that reads as an amount; write it in its tag, as [` +
+		// The tag at the end is what the player types, and it is written as
+		// typed: this arm was reached because the World has the entry AS a
+		// name, so the engine's own charset already says it is visible.
+		return `"` + quotable(entry) + `" is a name that reads as an amount; write it in its tag, as [` +
 			word + "=" + entry + "]"
 	}
 	// A DECIMAL COMMA, which is how most of the world writes a fraction and how
@@ -800,7 +913,7 @@ func manyNamesProblem(tokens []lexToken, kind listKind, w World) string {
 	}
 	for _, c := range candidates {
 		if existsIn(c, in, w) {
-			return noSuchName(kind) + ` "` + spaced + `"; did you mean ` + c
+			return noSuchName(kind) + ` "` + quotable(spaced) + `"; did you mean ` + c
 		}
 	}
 	every := true
@@ -813,7 +926,7 @@ func manyNamesProblem(tokens []lexToken, kind listKind, w World) string {
 	if every {
 		return "names two ingredients; a comma separates them"
 	}
-	return noSuchName(kind) + ` "` + spaced + `"; ` + internalNamesHint(kind)
+	return noSuchName(kind) + ` "` + quotable(spaced) + `"; ` + internalNamesHint(kind)
 }
 
 func noSuchName(kind listKind) string {
@@ -904,7 +1017,7 @@ func classifyPiece(piece string, tokens *[]lexToken) string {
 		return classifyTag(piece, tokens)
 	}
 	if isThousandsShape(piece) {
-		return `"` + piece + `" is not an amount here; a dot marks a fraction, and a thousand is written 1000`
+		return `"` + quotable(piece) + `" is not an amount here; a dot marks a fraction, and a thousand is written 1000`
 	}
 	if isNumber(piece) {
 		*tokens = append(*tokens, lexToken{kind: tokenAmount, text: piece})
@@ -942,7 +1055,7 @@ func classifyPiece(piece string, tokens *[]lexToken) string {
 		return ""
 	}
 	if isSignedNumber(piece) || isExponentNumber(piece) {
-		return `"` + piece + `" is not an amount; amounts are plain digits such as 2 or 0.5`
+		return `"` + quotable(piece) + `" is not an amount; amounts are plain digits such as 2 or 0.5`
 	}
 	if isPlainName(piece) {
 		*tokens = append(*tokens, lexToken{kind: tokenName, text: piece, name: piece})
@@ -1117,19 +1230,25 @@ func existsIn(name string, in lookup, w World) bool {
 // ESC all survive mod-settings.dat and reach the guest. A message quoting one
 // of those between two quotation marks shows a blank or nothing at all, which
 // is worse than useless in a load failure, so the invisible set is named by
-// code point instead and the advice is to retype rather than paste.
+// code point instead and the advice is to retype rather than paste. The ENTRY
+// the message quotes carries the same characters, and quotable is what keeps
+// that half of the sentence readable too.
 func strangeCharacterProblem(piece string) string {
 	r, ok := firstStrangeRune(piece)
 	if !ok {
 		// Unreachable: a piece whose every rune is in the charset is a plain
 		// name and was classified as one. Quoting the piece is the honest
 		// answer if that ever stops being true.
-		return `"` + piece + `" has no place here; ` + charsetHint
+		return `"` + quotable(piece) + `" has no place here; ` + charsetHint
 	}
 	if isInvisibleRune(r) {
 		return "an invisible character (U+" + codePointHex(r) + ") has no place here; retype the entry rather than pasting it"
 	}
-	return `"` + string(r) + `" has no place here; ` + charsetHint
+	// quotable is a no-op on this one by construction, the arm above having
+	// taken every invisible rune. It is written anyway, because the property
+	// is that EVERY quoting site goes through it and an audit reads the
+	// quotation marks rather than the reachability.
+	return `"` + quotable(string(r)) + `" has no place here; ` + charsetHint
 }
 
 // charsetHint says what a name and an amount may be made of. It replaces an
@@ -1160,23 +1279,74 @@ func codePointHex(r rune) string {
 	return hex
 }
 
-// isInvisibleRune is the set named by code point rather than quoted.
+// isInvisibleRune is the set a refusal names by code point rather than quoting,
+// and the set quotable rewrites inside quotation marks. It is the ONE answer
+// this language has to a character the player cannot see; nothing is deleted
+// from a text on their behalf.
 //
-// The C0 and C1 controls, the soft hyphen, the Arabic letter mark, the Mongolian
-// vowel separator, the general-punctuation spaces and bidirectional marks, the
-// line and paragraph separators, the narrow spaces, the mathematical and
-// deprecated-format block, the ideographic space, the byte-order mark and the
-// interlinear annotation marks. Some of these are also in listWhitespace or in
-// listStripped and are handled before a piece is ever classified; they are
-// listed here anyway so this predicate answers the question it is named for
-// rather than the question the callers happen to ask today.
+// CLOSED RANGES AND NO UNICODE TABLE, in both halves. This crate is compiled
+// into a consumer's wasm and its size is a measured property, so unicode.IsPrint
+// (which links the whole set of ranges) and Rust's table-backed char methods are
+// both out; the ranges below are written by hand and the corpus pins one member
+// of each. The ranges were DERIVED rather than recalled, from two local Unicode
+// tables that agree: Python 3.14's unicodedata at Unicode 16.0.0 and the Go
+// standard library's unicode package at 15.0.0, which carry the same 170
+// format characters.
+//
+// WHAT IS IN IT, exactly, in three parts:
+//
+//   - EVERY FORMAT CHARACTER, general category Cf, all 170 of them. That is
+//     what makes the reference's claim true rather than nearly true: the
+//     Arabic number signs and letter mark, the end-of-ayah pair, the Syriac
+//     abbreviation mark, the Arabic pound and piastre marks, the two Kaithi
+//     number signs, the joiners and bidirectional marks, the invisible
+//     operators, the byte-order mark, the interlinear annotation marks, the
+//     Egyptian hieroglyph format controls, the shorthand format controls, the
+//     musical beams, ties, slurs and phrases, and the language tags.
+//   - EVERY POINT THE STANDARD DERIVES AS DEFAULT-IGNORABLE, which adds the
+//     combining grapheme joiner, the Hangul choseong, jungseong and halfwidth
+//     fillers, the two Khmer inherent vowels, the Mongolian free variation
+//     selectors, the variation selectors and their supplement, and the
+//     reserved runs (U+2065, U+FFF0 to U+FFF8, and most of the tag block).
+//   - THE CHARACTERS THAT SHOW AS BLANK BUT ARE NEITHER, which is the C0 and
+//     C1 controls, the general-punctuation spaces U+2000 to U+200A, the line
+//     and paragraph separators, the narrow no-break space, the medium
+//     mathematical space and the ideographic space.
+//
+// PRIVATE-USE POINTS STAY OUT: a font may draw a glyph for one, so refusing it
+// as invisible would be a lie. UNASSIGNED POINTS ARE IN ONLY WHERE THE STANDARD
+// RESERVES THE RUN AS DEFAULT-IGNORABLE, which is the three runs named above;
+// every one of the 3769 unassigned points this predicate takes carries
+// Other_Default_Ignorable_Code_Point, so a conforming renderer draws nothing
+// for it and a character assigned there later will be invisible by
+// construction. Taking those runs whole is also what lets the tag block be one
+// closed range instead of a table.
+//
+// Six members are in listWhitespace too and separate words instead of refusing,
+// because the whitespace question is asked first; they are listed here anyway so
+// this predicate answers the question it is named for rather than the question
+// the callers happen to ask today.
 func isInvisibleRune(r rune) bool {
 	switch {
 	case r >= 0 && r <= 0x1f:
 		return true
 	case r >= 0x7f && r <= 0x9f:
 		return true
-	case r == 0x00ad, r == 0x061c, r == 0x180e:
+	case r == 0x00ad, r == 0x034f:
+		return true
+	case r >= 0x0600 && r <= 0x0605:
+		return true
+	case r == 0x061c, r == 0x06dd, r == 0x070f:
+		return true
+	case r >= 0x0890 && r <= 0x0891:
+		return true
+	case r == 0x08e2:
+		return true
+	case r >= 0x115f && r <= 0x1160:
+		return true
+	case r >= 0x17b4 && r <= 0x17b5:
+		return true
+	case r >= 0x180b && r <= 0x180f:
 		return true
 	case r >= 0x2000 && r <= 0x200f:
 		return true
@@ -1184,9 +1354,23 @@ func isInvisibleRune(r rune) bool {
 		return true
 	case r >= 0x205f && r <= 0x206f:
 		return true
-	case r == 0x3000, r == 0xfeff:
+	case r == 0x3000, r == 0x3164:
 		return true
-	case r >= 0xfff9 && r <= 0xfffb:
+	case r >= 0xfe00 && r <= 0xfe0f:
+		return true
+	case r == 0xfeff, r == 0xffa0:
+		return true
+	case r >= 0xfff0 && r <= 0xfffb:
+		return true
+	case r == 0x110bd, r == 0x110cd:
+		return true
+	case r >= 0x13430 && r <= 0x1343f:
+		return true
+	case r >= 0x1bca0 && r <= 0x1bca3:
+		return true
+	case r >= 0x1d173 && r <= 0x1d17a:
+		return true
+	case r >= 0xe0000 && r <= 0xe0fff:
 		return true
 	}
 	return false

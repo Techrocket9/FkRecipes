@@ -3,6 +3,7 @@
 # Both suites read this file and run every case against the SAME fixture World:
 #   items  (ItemExists):  iron-plate copper-cable steel-plate iron-gear-wheel 42 x none default both
 #                         loader-1x1 2x4 X2 7 automation-science-pack logistic-science-pack
+#                         Default None
 #   fluids (FluidExists): water steam both 2x2
 #   tools  (ToolExists):  automation-science-pack logistic-science-pack 7
 #
@@ -20,6 +21,11 @@
 # point above U+10FFFF is a reader error, and a case that needs such bytes writes them with
 # \x), \t \r \n are the ASCII controls, and \\ is one backslash. Lines starting with "#" and
 # blank lines are ignored.
+#
+# A message that quotes a piece of the player's text writes every invisible character in it
+# as a "U+XXXX" token, so the quoted word matches what is on the player's screen or names
+# what is not there. A "refuse:" line therefore spells those tokens as plain ASCII, and a
+# case whose input carries the escape \u200B has a refusal that carries the token U+200B.
 
 [recipe crafting mymod-parts]
 
@@ -78,10 +84,10 @@ in:|2\u00A0iron-plate|
 ok:|2 iron-plate|
 
 in:|\uFEFF2 iron-plate|
-ok:|2 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("U+FEFF2 iron-plate"): an invisible character (U+FEFF) has no place here; retype the entry rather than pasting it|
 
 in:|2 iron-plate\u200B|
-ok:|2 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+200B"): an invisible character (U+200B) has no place here; retype the entry rather than pasting it|
 
 in:|2 iron-plate,|
 ok:|2 iron-plate|
@@ -142,6 +148,40 @@ ok:|default|
 
 in:|default,|
 ok:|default|
+
+# THE TWO RESERVED WORDS ARE MATCHED WITHOUT CASE, ASCII case only: they are English
+# keywords rather than names, and a player who typed one in capitals typed the word.
+in:|DEFAULT|
+ok:|default|
+
+in:|Default|
+ok:|default|
+
+in:|  DeFaUlT  |
+ok:|default|
+
+in:|NONE|
+ok:|none|
+
+in:|None|
+ok:|none|
+
+in:|NoNe,|
+ok:|none|
+
+in:|NONE, 2 iron-plate|
+refuse:|fkrecipes: mymod-parts: none stands alone; remove the other entries or the word|
+
+in:|2 iron-plate, Default|
+refuse:|fkrecipes: mymod-parts: default stands alone; remove the other entries or the word|
+
+# A NAME IS NOT THE WORD, whatever its case: the tag reaches an item the game really has
+# under a name that folds to a reserved word, and the renderer writes that tag back.
+in:|[item=Default] 2|
+ok:|2 [item=Default]|
+
+in:|2 None|
+ok:|2 [item=None]|
 
 in:|3.0 iron-plate|
 ok:|3 iron-plate|
@@ -283,13 +323,13 @@ in:|2 iron\\plate|
 refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron\\plate"): "\\" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
 
 in:|2 iron-plate\u00AD|
-refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u00AD"): an invisible character (U+00AD) has no place here; retype the entry rather than pasting it|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+00AD"): an invisible character (U+00AD) has no place here; retype the entry rather than pasting it|
 
 in:|2 iron-plate\x1b[31m|
-refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\x1b[31m"): an invisible character (U+001B) has no place here; retype the entry rather than pasting it|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+001B[31m"): an invisible character (U+001B) has no place here; retype the entry rather than pasting it|
 
 in:|2\u2000iron-plate|
-refuse:|fkrecipes: mymod-parts, entry 1 ("2\u2000iron-plate"): an invisible character (U+2000) has no place here; retype the entry rather than pasting it|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2U+2000iron-plate"): an invisible character (U+2000) has no place here; retype the entry rather than pasting it|
 
 in:|-2 iron-plate|
 refuse:|fkrecipes: mymod-parts, entry 1 ("-2 iron-plate"): "-2" is not an amount; amounts are plain digits such as 2 or 0.5|
@@ -393,8 +433,9 @@ refuse:|fkrecipes: mymod-parts, entry 1 ("[item=iron-plate 2"): a tag is [item=n
 in:|[item=iron-plate, 3 copper-cable|
 refuse:|fkrecipes: mymod-parts, entry 1 ("[item=iron-plate, 3 copper-cable"): a tag is [item=name] or [fluid=name]|
 
-# Every member of the whitespace set separates, and every stripped character vanishes,
-# inside a word as well as at the edges.
+# Every member of the whitespace set separates, inside a word as well as at the edges. The
+# members it shares with the invisible set (U+2007, U+202F, U+3000) separate rather than
+# refuse, because the whitespace question is asked first.
 in:|2\u2007iron-plate|
 ok:|2 iron-plate|
 
@@ -405,66 +446,153 @@ in:|2\u3000iron-plate|
 ok:|2 iron-plate|
 
 in:|2 iron-plate\u200C|
-ok:|2 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+200C"): an invisible character (U+200C) has no place here; retype the entry rather than pasting it|
 
 in:|2 iron\u200D-plate|
-ok:|2 iron-plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 ironU+200D-plate"): an invisible character (U+200D) has no place here; retype the entry rather than pasting it|
 
-# The invisible set at its boundaries: each member is named by its code point, and the
-# visible character just past each boundary is quoted as itself.
+# The invisible set at its boundaries: one member of every range, named by its code point,
+# and the visible character just past a boundary quoted as itself.
 in:|2 iron-plate\x00|
-refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\x00"): an invisible character (U+0000) has no place here; retype the entry rather than pasting it|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+0000"): an invisible character (U+0000) has no place here; retype the entry rather than pasting it|
 
 in:|2 iron-plate\x7f|
-refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\x7f"): an invisible character (U+007F) has no place here; retype the entry rather than pasting it|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+007F"): an invisible character (U+007F) has no place here; retype the entry rather than pasting it|
 
 in:|2 iron-plate\u009F|
-refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u009F"): an invisible character (U+009F) has no place here; retype the entry rather than pasting it|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+009F"): an invisible character (U+009F) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u034F|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+034F"): an invisible character (U+034F) has no place here; retype the entry rather than pasting it|
+
+# THE FORMAT CHARACTERS THE SET GAINED start here and run to the end of this section, one
+# member of every new range, interleaved in code-point order with the ranges that were
+# already pinned. U+0606 is the visible character just past the first of them and is quoted
+# as itself, which is where the widening stops.
+in:|2 iron-plate\u0600|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+0600"): an invisible character (U+0600) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u0606|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u0606"): "\u0606" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
 
 in:|2 iron-plate\u061C|
-refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u061C"): an invisible character (U+061C) has no place here; retype the entry rather than pasting it|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+061C"): an invisible character (U+061C) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u06DD|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+06DD"): an invisible character (U+06DD) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u070F|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+070F"): an invisible character (U+070F) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u0890|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+0890"): an invisible character (U+0890) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u08E2|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+08E2"): an invisible character (U+08E2) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u115F|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+115F"): an invisible character (U+115F) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u17B4|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+17B4"): an invisible character (U+17B4) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u180B|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+180B"): an invisible character (U+180B) has no place here; retype the entry rather than pasting it|
 
 in:|2 iron-plate\u180E|
-refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u180E"): an invisible character (U+180E) has no place here; retype the entry rather than pasting it|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+180E"): an invisible character (U+180E) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\u1810|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u1810"): "\u1810" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
 
 in:|2 iron-plate\u200E|
-refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u200E"): an invisible character (U+200E) has no place here; retype the entry rather than pasting it|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+200E"): an invisible character (U+200E) has no place here; retype the entry rather than pasting it|
 
 in:|2 iron-plate\u200F|
-refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u200F"): an invisible character (U+200F) has no place here; retype the entry rather than pasting it|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+200F"): an invisible character (U+200F) has no place here; retype the entry rather than pasting it|
 
 in:|2 iron-plate\u2010|
 refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u2010"): "\u2010" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
 
 in:|2 iron-plate\u2028|
-refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u2028"): an invisible character (U+2028) has no place here; retype the entry rather than pasting it|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+2028"): an invisible character (U+2028) has no place here; retype the entry rather than pasting it|
 
 in:|2 iron-plate\u2029|
-refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u2029"): an invisible character (U+2029) has no place here; retype the entry rather than pasting it|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+2029"): an invisible character (U+2029) has no place here; retype the entry rather than pasting it|
 
 in:|2 iron-plate\u2030|
 refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u2030"): "\u2030" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
 
 in:|2 iron-plate\u205F|
-refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u205F"): an invisible character (U+205F) has no place here; retype the entry rather than pasting it|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+205F"): an invisible character (U+205F) has no place here; retype the entry rather than pasting it|
 
 in:|2 iron-plate\u2060|
-refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u2060"): an invisible character (U+2060) has no place here; retype the entry rather than pasting it|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+2060"): an invisible character (U+2060) has no place here; retype the entry rather than pasting it|
 
 in:|2 iron-plate\u206F|
-refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u206F"): an invisible character (U+206F) has no place here; retype the entry rather than pasting it|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+206F"): an invisible character (U+206F) has no place here; retype the entry rather than pasting it|
 
 in:|2 iron-plate\u2070|
 refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\u2070"): "\u2070" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
 
+in:|2 iron-plate\u3164|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+3164"): an invisible character (U+3164) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\uFE0F|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+FE0F"): an invisible character (U+FE0F) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\uFE10|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\uFE10"): "\uFE10" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
+
+in:|2 iron-plate\uFFA0|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+FFA0"): an invisible character (U+FFA0) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\uFFF0|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+FFF0"): an invisible character (U+FFF0) has no place here; retype the entry rather than pasting it|
+
 in:|2 iron-plate\uFFF9|
-refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\uFFF9"): an invisible character (U+FFF9) has no place here; retype the entry rather than pasting it|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+FFF9"): an invisible character (U+FFF9) has no place here; retype the entry rather than pasting it|
 
 in:|2 iron-plate\uFFFB|
-refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\uFFFB"): an invisible character (U+FFFB) has no place here; retype the entry rather than pasting it|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+FFFB"): an invisible character (U+FFFB) has no place here; retype the entry rather than pasting it|
 
 in:|2 iron-plate\uFFFC|
 refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plate\uFFFC"): "\uFFFC" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"|
+
+in:|2 iron-plate\U000110BD|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+110BD"): an invisible character (U+110BD) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\U000110CD|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+110CD"): an invisible character (U+110CD) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\U00013430|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+13430"): an invisible character (U+13430) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\U0001BCA0|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+1BCA0"): an invisible character (U+1BCA0) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\U0001D173|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+1D173"): an invisible character (U+1D173) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron-plate\U000E0001|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+E0001"): an invisible character (U+E0001) has no place here; retype the entry rather than pasting it|
+
+# THE QUOTED ENTRY CARRIES NO CHARACTER THE PLAYER CANNOT SEE. A NUL would truncate the
+# message inside the engine and a zero-width space would quote a word that is not on the
+# screen, so every invisible character inside the quotes is written as its code point.
+in:|\x00|
+refuse:|fkrecipes: mymod-parts, entry 1 ("U+0000"): an invisible character (U+0000) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron\x00plate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 ironU+0000plate"): an invisible character (U+0000) has no place here; retype the entry rather than pasting it|
+
+in:|2 iron\u200Bplate|
+refuse:|fkrecipes: mymod-parts, entry 1 ("2 ironU+200Bplate"): an invisible character (U+200B) has no place here; retype the entry rather than pasting it|
+
+# An invisible character inside a reserved word: the word is no longer the word, and the
+# refusal says which character is in it rather than quoting something that reads as default.
+in:|de\u200Bfault|
+refuse:|fkrecipes: mymod-parts, entry 1 ("deU+200Bfault"): an invisible character (U+200B) has no place here; retype the entry rather than pasting it|
 
 # A tool is an item, so a science pack whose name reads as an amount gets the item tag here.
 in:|7|
@@ -586,6 +714,12 @@ ok:|3 automation-science-pack|
 
 in:|default|
 ok:|default|
+
+in:|DEFAULT|
+ok:|default|
+
+in:|NONE|
+refuse:|fkrecipes: mymod-packs: research takes at least one science pack|
 
 in:|2 iron-plate|
 refuse:|fkrecipes: mymod-packs, entry 1 ("2 iron-plate"): iron-plate is an item, not a science pack|

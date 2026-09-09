@@ -97,6 +97,11 @@ struct Case {
     refusal: Option<String>,
 }
 
+/// What every refusal this language builds begins with. A later caller strips
+/// it to compose a log line, so the property has to be TOTAL over the corpus
+/// rather than true of the messages somebody remembered.
+const REFUSAL_PREFIX: &str = "fkrecipes: ";
+
 fn corpus_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../testdata/ingredient-list/cases.txt")
 }
@@ -316,7 +321,7 @@ fn read_corpus() -> (CorpusWorld, Vec<Case>) {
     // over nothing. The floor tracks the corpus the review left behind; it is
     // raised when the corpus grows, never lowered to fit a reader.
     assert!(
-        cases.len() >= 203,
+        cases.len() >= 242,
         "only {} cases were read from {}; the reader is not reaching them",
         cases.len(),
         corpus_path().display()
@@ -346,7 +351,18 @@ fn read_corpus() -> (CorpusWorld, Vec<Case>) {
     // The awkward half of the fixture, named here so a header quietly trimmed
     // back to easy names cannot pass: each of these is a name that reads as
     // something else, and they are what give the render rule teeth.
-    for need in ["default", "none", "42", "x", "X2", "2x4", "loader-1x1", "7"] {
+    for need in [
+        "default",
+        "none",
+        "42",
+        "x",
+        "X2",
+        "2x4",
+        "loader-1x1",
+        "7",
+        "Default",
+        "None",
+    ] {
         assert!(
             items.iter().any(|n| n == need),
             "the header's items do not include {}, which the render rule turns on",
@@ -468,6 +484,20 @@ fn the_corpus_is_the_contract() {
                 if &got != want {
                     failures.push(report(c, want, &got));
                 }
+                // EVERY REFUSAL BEGINS WITH THE LIBRARY'S OWN PREFIX, over the
+                // whole corpus rather than over the cases somebody thought to
+                // check. A caller that strips it to build a log line needs the
+                // property to be total, and a message written without it would
+                // otherwise only show up wherever that caller is exercised.
+                for (whose, text) in [("the corpus", want.as_str()), ("this half", got.as_str())] {
+                    if !text.starts_with(REFUSAL_PREFIX) {
+                        failures.push(report(
+                            c,
+                            &format!("{} to begin with {:?}", whose, REFUSAL_PREFIX),
+                            text,
+                        ));
+                    }
+                }
             }
             (_, Some(want), Ok(list)) => failures.push(report(
                 c,
@@ -544,6 +574,207 @@ fn every_canonical_rendering_parses_to_itself() {
     );
 }
 
+/// THE INVISIBLE SET AND THE WHITESPACE SET, EVERY MEMBER OF BOTH, which the
+/// corpus can only carry one member of per range.
+///
+/// ONE POLICY: a character the player cannot see is refused by its code point
+/// wherever it sits, and nothing is deleted from the text on their behalf. The
+/// whitespace set is the exception and it is asked FIRST, which is why the six
+/// members the two sets share (tab, LF, CR, U+2007, U+202F and U+3000)
+/// separate words rather than refuse.
+///
+/// THE SET IS SPELLED HERE RATHER THAN READ OUT OF THE PREDICATE, and the Go
+/// twin now carries the same table for the same reason. A walk that asks
+/// `is_invisible` which points to test is a test that asks its own subject
+/// what to ask about: a range NARROWED in the predicate simply stops being
+/// tested. PROVED on the Go side, whose walk was shaped that way: narrowing
+/// 0x115f..0x1160 to 0x115f and 0xfe00..0xfe0f to 0xfe0f dropped 15 code
+/// points with the whole Go suite still green. This table is an INDEPENDENT
+/// spelling of the same set.
+///
+/// ASKED THROUGH THE PARSER, because the predicate itself is out of reach and
+/// on purpose: `is_invisible` is a private `fn` of the language module, and a
+/// `pub(crate)` in front of it is exactly the widening
+/// `nothing_reachable_in_the_language_module_is_unguarded` exists to refuse.
+/// The parser is the stronger question anyway, since it pins the message as
+/// well as the answer: every member of the table is put to it, and so is the
+/// code point either side of every range, which must come back quoted as
+/// itself. A range narrowed, widened or dropped in `ingredient_list.rs` fails
+/// here by name.
+///
+/// The corpus pins one member of every range in both languages, and the Go
+/// twin walks its own copy of this table member by member. Between the three,
+/// every member of the set is witnessed in BOTH halves and no half's witness
+/// is the predicate it is testing.
+#[test]
+fn every_invisible_character_is_refused_and_the_whitespace_set_separates() {
+    let world = CorpusWorld {
+        items: names(&["iron-plate"]),
+        fluids: names(&["water"]),
+        tools: names(&["automation-science-pack"]),
+    };
+    let read = |text: &str| {
+        parse(
+            text.as_bytes(),
+            ListKind::Recipe,
+            "crafting",
+            "mymod-parts",
+            &world,
+        )
+    };
+
+    // The whitespace set, in the order the language's own constant spells it.
+    const WHITESPACE: &[u32] = &[
+        0x0009, 0x000a, 0x000d, 0x0020, 0x00a0, 0x2007, 0x202f, 0x3000,
+    ];
+    // The invisible set, range by range, low to high. Derived rather than
+    // recalled; the predicate's own doc says from what and how.
+    const INVISIBLE: &[(u32, u32)] = &[
+        (0x0000, 0x001f),
+        (0x007f, 0x009f),
+        (0x00ad, 0x00ad),
+        (0x034f, 0x034f),
+        (0x0600, 0x0605),
+        (0x061c, 0x061c),
+        (0x06dd, 0x06dd),
+        (0x070f, 0x070f),
+        (0x0890, 0x0891),
+        (0x08e2, 0x08e2),
+        (0x115f, 0x1160),
+        (0x17b4, 0x17b5),
+        (0x180b, 0x180f),
+        (0x2000, 0x200f),
+        (0x2028, 0x202f),
+        (0x205f, 0x206f),
+        (0x3000, 0x3000),
+        (0x3164, 0x3164),
+        (0xfe00, 0xfe0f),
+        (0xfeff, 0xfeff),
+        (0xffa0, 0xffa0),
+        (0xfff0, 0xfffb),
+        (0x110bd, 0x110bd),
+        (0x110cd, 0x110cd),
+        (0x13430, 0x1343f),
+        (0x1bca0, 0x1bca3),
+        (0x1d173, 0x1d17a),
+        (0xe0000, 0xe0fff),
+    ];
+
+    let mut members = 0usize;
+    let mut refused = 0usize;
+    for (low, high) in INVISIBLE {
+        for point in *low..=*high {
+            let c = char::from_u32(point).expect(
+                "the table covers a point that is not a scalar value and can be in no text",
+            );
+            members += 1;
+            // The six the whitespace set takes first are members of this set
+            // and separate words anyway; the loop below is where they are put
+            // to the parser.
+            if WHITESPACE.contains(&point) {
+                continue;
+            }
+            refused += 1;
+            let token = alloc::format!("U+{:04X}", point);
+            assert_eq!(
+                read(&alloc::format!("2 iron{}-plate", c)).expect_err("an invisible character was accepted"),
+                alloc::format!(
+                    "fkrecipes: mymod-parts, entry 1 (\"2 iron{}-plate\"): an invisible character ({}) has no place here; retype the entry rather than pasting it",
+                    token, token
+                ),
+                "{} inside a name",
+                token
+            );
+        }
+    }
+    // EXACTLY, not a floor: a floor a deleted range still clears is a floor
+    // that cannot notice. The tag block alone is 4096 of the 4287, and six of
+    // them are whitespace first. The Go twin asserts the same two numbers.
+    assert_eq!(
+        (members, refused),
+        (4287, 4281),
+        "the table walked {} members and put {} of them to the parser; the set is 4287 and 4281, and a table that no longer says so is a set somebody changed on one side",
+        members,
+        refused
+    );
+
+    // THE CODE POINT EITHER SIDE OF EVERY RANGE is quoted as itself, which is
+    // the half of the boundary a list of members cannot state: a range widened
+    // by one would otherwise pass here.
+    let mut neighbours = 0usize;
+    for (low, high) in INVISIBLE {
+        for point in [low.checked_sub(1), high.checked_add(1)]
+            .into_iter()
+            .flatten()
+        {
+            let c = match char::from_u32(point) {
+                Some(c) => c,
+                // A boundary that lands on a surrogate is not a scalar value
+                // and no text can carry it.
+                None => continue,
+            };
+            if WHITESPACE.contains(&point)
+                || INVISIBLE.iter().any(|(l, h)| (*l..=*h).contains(&point))
+            {
+                continue;
+            }
+            neighbours += 1;
+            assert_eq!(
+                read(&alloc::format!("2 iron{}-plate", c)).expect_err("a strange character was accepted"),
+                alloc::format!(
+                    "fkrecipes: mymod-parts, entry 1 (\"2 iron{}-plate\"): \"{}\" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in \"2 iron-plate\"",
+                    c, c
+                ),
+                "U+{:04X} sits just outside the set and must be quoted as itself",
+                point
+            );
+        }
+    }
+    assert_eq!(
+        neighbours, 53,
+        "{} neighbours were exercised, not the 53 the table has; a boundary went unasked",
+        neighbours
+    );
+
+    // Every member of the whitespace set separates, at the edges and inside.
+    for point in WHITESPACE {
+        let c = char::from_u32(*point).expect("the whitespace set holds scalar values only");
+        let text = alloc::format!("{}2{}iron-plate{}", c, c, c);
+        match read(&text) {
+            Ok(list) => assert_eq!(
+                render(&list),
+                "2 iron-plate",
+                "U+{:04X} as whitespace",
+                point
+            ),
+            Err(got) => panic!("U+{:04X} as whitespace was refused: {}", point, got),
+        }
+    }
+
+    // THE FOUR THAT USED TO BE DELETED are members like any other, and this is
+    // the row that says so: a BOM, a zero-width space and the two joiners are
+    // answered by their code points rather than silently removed from a text
+    // nobody typed that way.
+    //
+    // PUT TO THE PARSER, not to the table above. An earlier shape asked
+    // whether INVISIBLE contained them, which is a table asserted against four
+    // literals in the same file: it would have stayed green with the predicate
+    // stripping all four again.
+    for point in [0xfeffu32, 0x200b, 0x200c, 0x200d] {
+        let c = char::from_u32(point).expect("the four are scalar values");
+        let token = alloc::format!("U+{:04X}", point);
+        assert_eq!(
+            read(&alloc::format!("2 iron{}-plate", c)).expect_err("one of the four was accepted"),
+            alloc::format!(
+                "fkrecipes: mymod-parts, entry 1 (\"2 iron{}-plate\"): an invisible character ({}) has no place here; retype the entry rather than pasting it",
+                token, token
+            ),
+            "{} is not refused by code point",
+            token
+        );
+    }
+}
+
 /// A deterministic generator, seeded by a constant: a property that fails
 /// only on some runs is a property nobody can bisect. xorshift64 star, four
 /// lines, no dependency.
@@ -589,6 +820,13 @@ fn rendering_then_parsing_is_an_identity() {
         "loader-1x1",
         "none",
         "default",
+        // THE RESERVED WORDS ARE MATCHED WITHOUT ASCII CASE, so an item called
+        // Default takes its tag exactly as one called default does, and one
+        // called defaults is a name and stays plain: the fold is an equality
+        // and not a prefix.
+        "None",
+        "Default",
+        "defaults",
         "2x",
         "1e3",
         "both",
@@ -1071,6 +1309,32 @@ fn the_rules_the_corpus_leaves_to_the_implementation() {
             ListKind::Packs,
             "mymod-packs",
             "fkrecipes: mymod-packs, entry 1 (\"[item=iron-plate]\"): iron-plate is an item, not a science pack",
+        ),
+        // A CASED RESERVED WORD IS THE WORD, so it stands alone by the same
+        // rule, and the sentence names the word in the one spelling the
+        // language has rather than echoing the player's capitals back.
+        (
+            "NoNe, 2 iron-plate",
+            ListKind::Recipe,
+            "mymod-parts",
+            "fkrecipes: mymod-parts: none stands alone; remove the other entries or the word",
+        ),
+        (
+            "2 iron-plate, DEFAULT",
+            ListKind::Recipe,
+            "mymod-parts",
+            "fkrecipes: mymod-parts: default stands alone; remove the other entries or the word",
+        ),
+        // A HOMOGLYPH IS NOT THE WORD. The last letter here is a Cyrillic
+        // capital Te (U+0422), so the entry reads as DEFAULT on screen and is
+        // none of the language's words: the fold is over ASCII letters and a
+        // name is what its code points are. The character rule answers, and it
+        // quotes the character that is not what it looks like.
+        (
+            "DEFAUL\u{422}",
+            ListKind::Recipe,
+            "mymod-parts",
+            "fkrecipes: mymod-parts, entry 1 (\"DEFAUL\u{422}\"): \"\u{422}\" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in \"2 iron-plate\"",
         ),
     ];
     for (input, kind, setting, want) in cases {

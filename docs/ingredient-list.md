@@ -25,6 +25,8 @@ The setting starts out as the word `default`. Leave it there and the mod's own l
 
 Names are the game's internal prototype names, the ones that appear in the game's data and in rich text, such as `iron-plate`, `advanced-circuit` or `water`. They are not the translated names shown on screen. Names use letters, digits, `-` and `_`, and are case sensitive. The mod's own items count, under the names the setting's description shows for them.
 
+The two reserved words `default` and `none` are the exception: they are matched without regard to case, so `Default`, `DEFAULT` and `default` are one word. An item really named one of those words is still reachable, and the amount beside it is what says so: `2 None` is two of the item called `None`. Written on its own it would be the reserved word, so there it needs its tag, as `[item=None]`. The rendering always writes such a name back in its tag, whichever way you typed it.
+
 ## The rules
 
 - Spaces around the text, around commas and between the amount and the name do not matter. A single trailing comma is allowed.
@@ -33,9 +35,11 @@ Names are the game's internal prototype names, the ones that appear in the game'
 - A comma inside `[` and `]` does not separate ingredients; a `[` with no closing `]` runs to the end of the text.
 - The same ingredient cannot appear twice.
 - A fluid is accepted only in a recipe whose category allows fluids. The default category, `crafting`, is the one the player crafts by hand and it takes items only; the game refuses a fluid there, so this library refuses it first with a sentence naming the category.
-- The words `default` and `none`, alone, are the mod's list and the empty list. Neither can be combined with other entries.
+- The words `default` and `none`, alone, are the mod's list and the empty list, in any capitalisation. Neither can be combined with other entries.
 - A name that could be read as an amount, as an `x`, or as one of those two words is written in its tag: `[item=42]`, `[item=2x4]`.
-- The text is at most 2000 characters, and it is plain text: an invisible character pasted in from elsewhere is refused with its code point, so retype rather than paste.
+- Spaces, tabs, line breaks and the four spaces a word processor produces (U+00A0, U+2007, U+202F, U+3000) separate words. Every other character with no visible shape of its own is refused and named by its code point wherever it sits: the control characters, every Unicode format character (general category `Cf`, which is the zero-width space and the joiners, the byte order mark, the bidirectional marks, the Arabic and Kaithi number signs, the invisible operators and the language tags), every character the standard derives as default-ignorable (the variation selectors, the Hangul and Khmer fillers, the combining grapheme joiner, and the runs reserved for more of the same), and the blank spaces outside the four above. Private-use characters are not in that set, because a font may draw one and you would see it. Nothing is removed from the text for you, so retype a list rather than pasting one.
+- Where a message quotes what you typed, any invisible character inside the quotes is written as `U+XXXX`. A quoted word is therefore the word on your screen, or it names what is not.
+- The text is at most 2000 characters.
 
 ## Science packs
 
@@ -55,7 +59,7 @@ When a recipe also has a dropdown of preset ingredient lists, the text applies o
 
 ## What a refusal means
 
-A refusal stops the game from loading and shows a message. Every message starts with `fkrecipes:` and the setting's full name; those about one entry quote the entry as typed and number it from 1 in the order written. Entries are read in order and the first problem found is the one reported.
+A refusal stops the game from loading and shows a message. Every message starts with `fkrecipes:` and the setting's full name; those about one entry quote the entry as typed and number it from 1 in the order written. Inside those quotation marks, a character you cannot see is written as `U+XXXX` rather than printed, so the quoted entry reads as what is on your screen. Entries are read in order and the first problem found is the one reported.
 
 | Message | Cause |
 |---|---|
@@ -77,7 +81,7 @@ A refusal stops the game from loading and shows a message. Every message starts 
 | `... has "x" with no amount beside it` | An `x`, `*` or `×` with no number in the entry. The sign quoted is the one written. |
 | `... "x" goes between the amount and the name` | A sign that is not between the amount and the name, as in `2 iron-plate x`. |
 | `... "<character>" has no place here; names use the letters a to z, digits, - and _, and an amount is plain digits, as in "2 iron-plate"` | A character outside the syntax, such as `:`, `=`, `;`, a full-width digit, or a dot outside a number. The first such character is quoted. |
-| `... an invisible character (U+00A0) has no place here; retype the entry rather than pasting it` | A control character or an invisible Unicode character, named by its code point. |
+| `... an invisible character (U+200B) has no place here; retype the entry rather than pasting it` | A control character or an invisible Unicode character, named by its code point. The quoted entry beside it carries the same code point written out, so a zero-width space between `iron` and `plate` is quoted as `2 ironU+200Bplate`. |
 | `... "<text>" is not an amount; amounts are plain digits such as 2 or 0.5` | A sign in front of a number (`-2`, `+2`), an exponent (`1e3`), or both (`-1e3`). |
 | `... "1.000" is not an amount here; a dot marks a fraction, and a thousand is written 1000` | A number followed by a dot and exactly three zeros, which is a thousands separator in many countries and would be read as 1 here. `0.000` is an amount of zero and gets the zero message instead. |
 | `... the amount must be more than 0` | An amount of 0. |
