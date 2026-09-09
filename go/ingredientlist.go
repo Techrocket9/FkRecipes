@@ -579,10 +579,12 @@ func entryProblem(setting string, n int, entry, problem string) string {
 	return "fkrecipes: " + setting + ", entry " + strconv.Itoa(n) + ` ("` + quotable(entry) + `"): ` + problem
 }
 
-// quotable is the one way a piece of the PLAYER's text reaches a message that
-// puts it between quotation marks: every member of the invisible set becomes
+// quotable is the one way a piece of the PLAYER's text reaches a message THIS
+// FILE puts between quotation marks: every member of the invisible set becomes
 // its U+XXXX token, and a text with none of them comes back untouched and
-// unallocated.
+// unallocated. THIS FILE IS THE SCOPE, not the library: data.go's readDropdown
+// quotes a stored dropdown value into `holds "..."` raw, and it cannot call
+// this one. See the NUL paragraph below.
 //
 // A QUOTED WORD MUST BE THE WORD ON THE PLAYER'S SCREEN, or it must name what
 // is not there. Quoting the raw text failed that both ways, one half measured
@@ -593,16 +595,22 @@ func entryProblem(setting string, n int, entry, problem string) string {
 // looked like it was arguing with itself. That is this rule's whole reason on
 // its own.
 //
-// MEASURED, but about a different path: a NUL truncates a STORED SETTING VALUE
-// inside the engine and the truncation is persisted (the row in
-// agents/customizer-design.md). That is the value on its way IN, not a refusal
-// on its way out, and what it actually implies is that a NUL typed on the
-// settings screen never reaches the guest at all, because the value is cut at
-// the NUL before it is stored. INFERRED, and asserted nowhere: what the engine
-// would do with a NUL inside a load-failure message. A hand-edited
-// mod-settings.dat is the only path that would ask, and this rule is why it
-// never has to be asked, because an entry carrying a NUL is quoted as U+0000
-// and the message is printable whichever way the answer would have gone.
+// MEASURED, on both paths now, and the second one is why this rule is a
+// property rather than a convenience. What a NUL does to a STORED SETTING
+// VALUE is LENGTH-DEPENDENT (the row in agents/customizer-design.md): a total
+// of 22 bytes or fewer is cut at the byte between the file and the guest and a
+// load that COMPLETES persists the cut, while 23 to 48 reaches the guest whole
+// (measured whole over that range; nothing longer was read, and the
+// short-string signature is what says it holds above). So a pasted NUL reaches
+// this parser whenever the whole stored text is 23 bytes or more. And the
+// engine cuts a LOAD-FAILURE MESSAGE at a NUL, printing only what precedes it.
+// The two together are what this rule closes: an entry carrying a NUL is
+// quoted as U+0000, so no message built in THIS FILE can carry the byte out to
+// be cut at. THE FILE IS THE WHOLE OF "HERE": data.go's readDropdown quotes a
+// stored dropdown value with no escaper at all, and it cannot call this one,
+// because a name of this file written in data.go links the whole language into
+// every consumer (source_test.go refuses it by name). It is an open item in
+// agents/implementation-notes.md rather than a fix.
 //
 // THE TOKEN CANNOT PRODUCE A MESSAGE A RAW TEXT COULD HAVE PRODUCED, which is
 // the precise claim; the token itself IS typeable. A player who types the six

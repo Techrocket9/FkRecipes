@@ -577,9 +577,13 @@ refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+1D173"): an invisible ch
 in:|2 iron-plate\U000E0001|
 refuse:|fkrecipes: mymod-parts, entry 1 ("2 iron-plateU+E0001"): an invisible character (U+E0001) has no place here; retype the entry rather than pasting it|
 
-# THE QUOTED ENTRY CARRIES NO CHARACTER THE PLAYER CANNOT SEE. A NUL would truncate the
-# message inside the engine and a zero-width space would quote a word that is not on the
-# screen, so every invisible character inside the quotes is written as its code point.
+# THE QUOTED ENTRY CARRIES NO CHARACTER THE PLAYER CANNOT SEE. A zero-width space would
+# quote a word that is not on the screen, measured, and that is reason enough on its own.
+# THE NUL IS MEASURED ON ONE PATH AND NOT ON THE OTHER: the engine does cut a mod's
+# LOAD-FAILURE MESSAGE at a NUL, measured, and refusals over a text the player typed are
+# LOG lines rather than load failures, so that is the path these cases are on and what
+# log() does with the byte is NOT measured. Every invisible character inside the quotes is
+# written as its code point either way.
 in:|\x00|
 refuse:|fkrecipes: mymod-parts, entry 1 ("U+0000"): an invisible character (U+0000) has no place here; retype the entry rather than pasting it|
 
