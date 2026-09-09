@@ -568,6 +568,38 @@ jqassert "the generated craft-time minimum reached the settings dump" "$DSDUMP" 
 # nested {"technology-name.<source>"} where the internal name used to sit.
 jqassert "the cost dropdown's composed description names its technology through its locale key" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-tips-research-tier") | .localised_description | .. | arrays | select(.[0]? == "technology-name.military-4")] | length > 0'
+# WHAT THE SCREEN OWES A PLAYER TYPING INTO A TEXT FIELD, in the engine's own
+# settings dump. Both sentences are the library's own composition, and both
+# answer something a client measurement found stated nowhere a player looks:
+# the prototype declares NO maximum-length key at all (the engine would store
+# 98000 characters), so the length sentence IS the limit as far as the settings
+# screen goes; and a text this library cannot use is set aside for the declared
+# list, which the screen cannot show because the field still holds what the
+# player typed. That second sentence promises the NARROW claim and not a load:
+# the declared list is held to every rule it always was, so a modpack where it
+# cannot produce a legal result still stops the load, and on a refused load no
+# log op reaches the host, which is why the sentence names the load error too.
+# The dump carries the localised
+# string TABLE and not the rendered text (--dump-data does not read locale), so
+# what this proves is the shape and the bytes, which is what a later edit would
+# drop. One row per sentence, so a failure names which one went.
+jqassert "the text setting's composed description states the length limit" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-rivet-ingredients") | .localised_description]
+   | length > 0 and all(any(.[]; . == "\nWrite internal names, as the default line above does, in at most 2000 characters."))'
+jqassert "the text setting's composed description states what an unusable text costs" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-rivet-ingredients") | .localised_description]
+   | length > 0 and all(any(.[]; . == "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."))'
+# AN INGREDIENT PRESET IS TWO LINES, not one run of text in two vocabularies.
+# The label before it is the consumer's display prose, which the client
+# truncates at about 37 characters in the closed dropdown; the internal names
+# the field beside it takes are on their own line under the word a player acts
+# on, so the copyable half of the tooltip is never the truncated half.
+jqassert "an ingredient preset puts the internal names on their own line" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-quench-medium") | .localised_description | .. | arrays
+    | select(.[2]? | type == "array")
+    | select(.[2][0]? | startswith("string-mod-setting."))
+    | .[3]]
+   | length > 0 and all(startswith("\n  type: "))'
 
 # ---------------------------------------------------------------------------
 # THE FLIPPED ROW. Everything above reads the default dump, where no player has

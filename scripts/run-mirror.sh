@@ -245,12 +245,26 @@ if grep -q '"auto_trim"=true,"default_value"="1 iron-plate"' "$T"; then
   fail "a text setting's default is a rendered list rather than the word default"
 fi
 # The composed descriptions, both shapes: a text setting's own key plus the
-# declared list, and a dropdown's key plus one nested string per preset under
-# the preset's OWN localised label.
-grep -qF '{1="",2={1="mod-setting-description.fkrecipes-example-rivet-ingredients"},3="\ndefault: 1 iron-plate"}' "$T" ||
+# declared list, the format and the fallback, and a dropdown's key plus one
+# nested string per preset under the preset's OWN localised label.
+#
+# THE WHOLE TEXT DESCRIPTION, all four parameters, because the two lines after
+# the list are the ones a player has nowhere else to read: the ceiling the
+# parser enforces and what a text this library cannot use costs them. The
+# prototype declares no maximum length of its own (the engine would store
+# 98000 characters), so the sentence IS the limit as far as the screen goes.
+grep -qF '{1="",2={1="mod-setting-description.fkrecipes-example-rivet-ingredients"},3="\ndefault: 1 iron-plate",4="\nWrite internal names, as the default line above does, in at most 2000 characters.",5="\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."}' "$T" ||
   fail "the text setting's composed description is not in the transcript"
-grep -qF '{1="",2="\n",3={1="string-mod-setting.fkrecipes-example-chain-links-long"},4=": 8 fkrecipes-example-steel-rivet, 1 steel-plate"}' "$T" ||
+# AN INGREDIENT PRESET IS TWO LINES, not one run of text in two vocabularies.
+# The label is the consumer's display prose and the client truncates it at
+# about 37 characters; the internal names the field beside it takes are on
+# their own line, under the word a player acts on, so the copyable half is
+# never the truncated half.
+grep -qF '{1="",2="\n",3={1="string-mod-setting.fkrecipes-example-chain-links-long"},4="\n  type: 8 fkrecipes-example-steel-rivet, 1 steel-plate"}' "$T" ||
   fail "the custom-arm dropdown's composed preset line is not in the transcript"
+if grep -qF '4=": 8 fkrecipes-example-steel-rivet, 1 steel-plate"' "$T"; then
+  fail "an ingredient preset line still joins the two vocabularies with a colon"
+fi
 # A WHOLE LIST THE PLAYER WROTE, through a setting with no dropdown in front of
 # it, in two forms no author would write: a rich-text tag and a glued sign. The
 # canonical rendering in the log line is what says both were read.

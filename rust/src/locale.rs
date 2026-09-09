@@ -3,6 +3,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::plan::{Lib, SettingKind};
+use crate::settings::{text_description, text_format_line, TEXT_FALLBACK_LINE};
+use crate::value::Value;
 
 /// How many problems a report names before it stops. A generated or badly
 /// encoded file can produce one finding per line, and a thousand sentences
@@ -125,7 +127,14 @@ impl Lib {
         complete: bool,
     ) -> Vec<String> {
         let prefix = format!("{}-", mod_name);
-        let (sections, mut findings) = parse_locale(cfg);
+
+        // (0) THE LIBRARY'S OWN LINES, AHEAD OF EVERY FINDING ABOUT THE FILE.
+        // This is the one rule here that is not about the author's .cfg at
+        // all, so it goes first and it goes once. See
+        // [`Lib::check_composed_text_lines`].
+        let mut findings = self.check_composed_text_lines(&prefix);
+        let (sections, parsed) = parse_locale(cfg);
+        findings.extend(parsed);
 
         // The contradiction first, before anything reads the list as truth.
         if complete {
@@ -151,15 +160,17 @@ impl Lib {
                 ));
             }
             // THE TWO SETTINGS WHOSE DESCRIPTION IS NOT OPTIONAL. A text
-            // setting's description is where the player learns the format, and
-            // it is what the declared list is written into; a dropdown with a
-            // custom arm has its presets composed onto its own description, so
-            // a missing entry there is a key rendered raw in the tooltip.
+            // setting's description is where the library writes the declared
+            // list, the format, the length limit and the fallback, so a
+            // missing entry loses all four along with whatever the consumer
+            // meant to say; a dropdown with a custom arm has its presets
+            // composed onto its own description, so a missing entry there is a
+            // key rendered raw in the tooltip.
             let missing_description = !locale_has(&sections, "mod-setting-description", &full);
             if matches!(s.kind, SettingKind::Ingredients | SettingKind::Packs) {
                 if missing_description {
                     findings.push(format!(
-                        "the setting {} has no [mod-setting-description] entry, and a text setting needs one to tell the player the format",
+                        "the setting {} has no [mod-setting-description] entry, and a text setting needs one to say what the setting is for; the library composes the format, the limits and the fallback onto it",
                         full
                     ));
                 }
@@ -297,6 +308,114 @@ impl Lib {
             }
         }
         false
+    }
+
+    /// The DRIFT GUARD over what this library composes onto a text setting's
+    /// description: the format line and the fallback line, each reported by name
+    /// when the composition stops carrying it.
+    ///
+    /// IT IS NOT AN AUTHOR FINDING, and that is why it is worded and placed the
+    /// way it is. The consumer writes the `[mod-setting-description]` entry and
+    /// this library writes everything under it, so a report here says the library
+    /// shipped a description missing a line it owes; nothing the consumer can type
+    /// puts one back. The checker is where it lives because the composition has no
+    /// other reader that runs on a host: a settings-stage refusal would be a load
+    /// failure over a tooltip, and the engine's own dump proves the shape only
+    /// where somebody runs an engine.
+    ///
+    /// ONCE PER REPORT, NOT ONCE PER SETTING, and the sentence names the library
+    /// rather than a setting. What it inspects does not vary with the setting: the
+    /// two lines are constants and the only per-setting part of the composition,
+    /// the consumer's own key, is not what it looks at. Run inside the per-setting
+    /// loop it turned ONE library defect into one finding per text setting, five
+    /// of them on the example guest, and at fifty text settings the two sentences
+    /// alone would fill [`LOCALE_FINDING_CAP`] and push every author finding out
+    /// of the report.
+    ///
+    /// FIRST IN THE REPORT, WHICH IS ALSO HOW IT SURVIVES THE CAP. The cap keeps
+    /// the first [`LOCALE_FINDING_CAP`] findings and replaces the tail with a
+    /// count, so a finding emitted ahead of the parse findings and of every rule
+    /// about the author's file cannot be dropped by a file that produces a
+    /// thousand of its own. That is the cheaper of the two ways to keep it: a cap
+    /// exemption would have to be carried through the truncation in both halves,
+    /// and this is one ordering decision instead.
+    ///
+    /// NOTHING TO GUARD WITHOUT A TEXT SETTING. A plan that declares none composes
+    /// no text description, so there is no shipped description for a line to have
+    /// gone missing from, and a report about one would name a defect that plan
+    /// cannot carry.
+    ///
+    /// THE LIST IS LEFT OUT OF THE COMPOSITION, and that is the one deviation from
+    /// "check what is emitted". Rendering the declared list is the only part of
+    /// [`text_description`] that reaches the language, and it is also the only
+    /// part that indexes `self.items`. The checker validates nothing, exactly as
+    /// the rest of it validates nothing, so a plan the planners would refuse must
+    /// not panic here: with the list left out neither the language nor the item
+    /// table is touched, and the two lines under test are the two this function
+    /// can see. What the rendered list itself says is the settings stage's
+    /// business and the corpus's.
+    pub(crate) fn check_composed_text_lines(&self, prefix: &str) -> Vec<String> {
+        match self.guarded_text_description(prefix) {
+            Some(desc) => composed_text_lines_missing(&desc),
+            None => Vec::new(),
+        }
+    }
+
+    /// WHICH composition the guard inspects, split out from the rule so that
+    /// the choice is visible to a test on its own: the first text setting's in
+    /// declaration order, with the declared list left out, and no composition
+    /// at all when the plan declares no text setting.
+    pub(crate) fn guarded_text_description(&self, prefix: &str) -> Option<Value> {
+        self.settings
+            .iter()
+            .find(|s| matches!(s.kind, SettingKind::Ingredients | SettingKind::Packs))
+            .map(|s| text_description(&s.emitted_name(prefix), ""))
+    }
+}
+
+/// The guard's rule over one composition.
+///
+/// THE DESCRIPTION IS A PARAMETER so that a test can hand it the composition
+/// with one line taken out of it, which is the only way to see the finding
+/// without editing the source: nothing a consumer can declare produces a
+/// composition missing a line.
+pub(crate) fn composed_text_lines_missing(desc: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    for (line, missing) in [
+        (
+            text_format_line(),
+            "no line about the format and the length limit",
+        ),
+        (
+            String::from(TEXT_FALLBACK_LINE),
+            "no line about what happens to a text this mod cannot use",
+        ),
+    ] {
+        if !localised_carries(desc, &line) {
+            out.push(format!(
+                "the library composes {} onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
+                missing
+            ));
+        }
+    }
+    out
+}
+
+/// Whether a composed localised string holds this exact string as one of its
+/// parameters, at any depth.
+///
+/// DEPTH BECAUSE THE QUESTION IS "DOES THE PLAYER READ IT", NOT "WHERE". The
+/// composition it is handed is flat past the consumer's own key, which is
+/// itself a nested table: [`text_description`] is fixed at four parameters and
+/// never reaches the nesting rule, and a dropdown's composition is never handed
+/// here at all. A top-level scan would therefore be a claim about the shape of
+/// the composition rather than about the lines, and it would go quietly wrong
+/// the day a line moves into a group. This asks only what the guard needs.
+fn localised_carries(v: &Value, want: &str) -> bool {
+    match v {
+        Value::Str(s) => s == want,
+        Value::Arr(items) => items.iter().any(|item| localised_carries(item, want)),
+        _ => false,
     }
 }
 
@@ -879,9 +998,11 @@ fkrecipes-example-quench-medium-oil=Oil
     }
 
     /// A DESCRIPTION IS NOT OPTIONAL FOR THESE TWO. A text setting's is where
-    /// the player learns the format and where the mod's own list is written
-    /// out; a custom-arm dropdown's is what the preset lines are composed
-    /// onto, so a missing entry renders a raw key in the tooltip.
+    /// the player learns what the setting is for; the declared list, the
+    /// format, the limits and the fallback are the library's own lines under
+    /// it, so an absent entry loses all of them at once. A custom-arm
+    /// dropdown's is what the preset lines are composed onto, so a missing
+    /// entry renders a raw key in the tooltip.
     #[test]
     fn check_locale_requires_a_description_where_one_is_composed() {
         let cfg = "[mod-setting-name]
@@ -900,8 +1021,8 @@ fkrecipes-example-quench-medium-custom=Custom
             customizer_plan().check_locale("fkrecipes-example", cfg),
             [
                 "the dropdown setting fkrecipes-example-quench-medium has no [mod-setting-description] entry, which the custom arm composes its preset list onto",
-                "the setting fkrecipes-example-quench-ingredients has no [mod-setting-description] entry, and a text setting needs one to tell the player the format",
-                "the setting fkrecipes-example-rivet-ingredients has no [mod-setting-description] entry, and a text setting needs one to tell the player the format",
+                "the setting fkrecipes-example-quench-ingredients has no [mod-setting-description] entry, and a text setting needs one to say what the setting is for; the library composes the format, the limits and the fallback onto it",
+                "the setting fkrecipes-example-rivet-ingredients has no [mod-setting-description] entry, and a text setting needs one to say what the setting is for; the library composes the format, the limits and the fallback onto it",
             ]
         );
     }
@@ -959,6 +1080,103 @@ fkrecipes-example-quench-medium-custom=Custom
         );
     }
 
+    /// THE DRIFT GUARD OVER WHAT THE LIBRARY ITSELF COMPOSES. The consumer's
+    /// entry is checked above; these two lines are this library's, so no
+    /// locale file can put one back and no plan can leave one out. What the
+    /// rule can see is a composition that stopped carrying a line, which is
+    /// why the composition is what it is handed.
+    ///
+    /// THE SENTENCE NAMES THE LIBRARY AND NOT A SETTING, because the rule's
+    /// input does not vary with the setting: both lines are constants, and the
+    /// only per-setting part of a text description is the consumer's key,
+    /// which the rule does not look at. One defect is therefore one finding.
+    ///
+    /// THE HEALTHY PATH FIRST, so a rule that fired on everything would be
+    /// caught here rather than in a golden somewhere: the real composition
+    /// reports nothing.
+    #[test]
+    fn composed_text_lines_missing_guards_the_composed_lines() {
+        use crate::locale::composed_text_lines_missing;
+        use crate::settings::{text_description, text_format_line, TEXT_FALLBACK_LINE};
+        use crate::value::Value;
+
+        const FULL: &str = "steelworks-axe-ingredients";
+        let whole = text_description(FULL, "1 steel-plate");
+        assert_eq!(composed_text_lines_missing(&whole), Vec::<String>::new());
+
+        // The same composition with one line taken out of it, which is the
+        // only way to reach the finding: nothing a consumer declares composes
+        // a description missing a line.
+        let without = |line: &str| match &whole {
+            Value::Arr(items) => Value::Arr(
+                items
+                    .iter()
+                    .filter(|v| !matches!(v, Value::Str(s) if s == line))
+                    .cloned()
+                    .collect(),
+            ),
+            _ => unreachable!("the composition is an array"),
+        };
+        assert_eq!(
+            composed_text_lines_missing(&without(&text_format_line())),
+            ["the library composes no line about the format and the length limit onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file"]
+        );
+        assert_eq!(
+            composed_text_lines_missing(&without(TEXT_FALLBACK_LINE)),
+            ["the library composes no line about what happens to a text this mod cannot use onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file"]
+        );
+        // Both gone: both reported, format first, which is the order the lines
+        // sit in and the order every other rule here reports in.
+        let stripped = Value::Arr(alloc::vec![
+            Value::string(""),
+            Value::Arr(alloc::vec![Value::Str(format!(
+                "mod-setting-description.{}",
+                FULL
+            ))]),
+        ]);
+        assert_eq!(
+            composed_text_lines_missing(&stripped),
+            [
+                "the library composes no line about the format and the length limit onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
+                "the library composes no line about what happens to a text this mod cannot use onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
+            ]
+        );
+    }
+
+    /// THE GUARD IS HANDED ONE COMPOSITION, NOT ONE PER SETTING, and it is the
+    /// first text setting's in declaration order. A plan that declares no text
+    /// setting composes no text description at all, so there is nothing for a
+    /// line to have gone missing from and the guard has nothing to inspect.
+    ///
+    /// THE INPUT IS WHAT THIS PINS, because the finding itself is unreachable
+    /// from a healthy library: the sentences are pinned above and the cap
+    /// defect was about how many times this input is taken, not about what the
+    /// rule says. Run once per text setting it turned one library defect into
+    /// five findings on the example guest.
+    #[test]
+    fn the_drift_guard_inspects_the_first_text_setting_only() {
+        use crate::plan::{Ingredient, ItemSpec, Pack};
+        use crate::settings::text_description;
+
+        let mut lib = Lib::new();
+        lib.bool_setting("hint", true);
+        assert_eq!(lib.guarded_text_description("steelworks-"), None);
+
+        let axe = lib.item("steel-axe", ItemSpec::default());
+        lib.ingredients_setting("axe-ingredients", alloc::vec![Ingredient::of(axe, 1)]);
+        lib.packs_setting(
+            "axe-packs",
+            alloc::vec![Pack::named(1, "automation-science-pack", &[])],
+        );
+        // The FIRST one's, and with the list left out: the packs setting
+        // declared after it is not what the guard reads, and neither is any
+        // rendering.
+        assert_eq!(
+            lib.guarded_text_description("steelworks-"),
+            Some(text_description("steelworks-axe-ingredients", ""))
+        );
+    }
+
     /// The same file with the three descriptions written, and the custom
     /// value's own entry: clean. The ordinary dropdown still needs none, which
     /// is what says the new rule is scoped rather than a blanket one.
@@ -1002,7 +1220,7 @@ fkrecipes-example-rivet-ingredients=
         let got = customizer_plan().check_locale("fkrecipes-example", cfg);
         assert!(
             got.iter().any(|f| f
-                == "the setting fkrecipes-example-rivet-ingredients has no [mod-setting-description] entry, and a text setting needs one to tell the player the format"),
+                == "the setting fkrecipes-example-rivet-ingredients has no [mod-setting-description] entry, and a text setting needs one to say what the setting is for; the library composes the format, the limits and the fallback onto it"),
             "a blank description was accepted: {:?}",
             got
         );

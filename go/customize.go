@@ -634,11 +634,7 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		// THE LANGUAGE IS THERE BECAUSE THIS SETTING IS. Both planners run
 		// validateTextSettings in front of this walk, and it refuses a text
 		// setting whose language is missing before anything renders.
-		out[i] = Arr(
-			Str(""),
-			localeRef("mod-setting-description", s.emittedName(prefix)),
-			Str("\ndefault: "+l.lang.render(entries)),
-		)
+		out[i] = textDescription(s.emittedName(prefix), l.lang.render(entries))
 	}
 	// Recipes then technologies, in declaration order, which is the order a
 	// dropdown's own description is built in when two declarations arm one
@@ -668,7 +664,7 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		// stepped past above and renders nothing.
 		for _, c := range by.Choices {
 			params = append(params, presetLine(full, c.Value,
-				Str(": "+l.lang.render(l.declaredIngredientEntries(prefix, c.Ingredients)))))
+				Str(ingredientPresetHead+l.lang.render(l.declaredIngredientEntries(prefix, c.Ingredients)))))
 		}
 		out[i] = localisedGroup(params)
 	}
@@ -692,6 +688,74 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 // localeRef is a localised string that is nothing but a key: {"section.key"}.
 func localeRef(section, key string) Value { return Arr(Str(section + "." + key)) }
 
+// textDescription is the whole localised_description a TEXT setting is emitted
+// with: the consumer's own entry, then the three things this library owes the
+// player about the field beside it.
+//
+// FOUR PARAMETERS, and none of them a table beyond the consumer's key, so the
+// twenty-parameter ceiling maxLocalisedParams records is nowhere near reached
+// and the shape needs no nesting rule of its own.
+//
+// THE THREE LINES ARE THE ANSWER TO WHAT A CLIENT MEASUREMENT FOUND. A player
+// standing in the Mod Settings screen reads the tooltip whole (measured on
+// 2.0.77: a seven-line composed description renders readable and unclipped),
+// so the description is where the library can say what the field takes; the
+// closed dropdown's LABEL beside it is truncated at about 37 characters, which
+// is why nothing a player needs may live in a label. The default line shows
+// the list the word default stands for, in the internal names the field
+// actually takes; the format line says so in words and states the ceiling; and
+// the fallback line says what a text this library cannot use costs, which
+// before it was stated nowhere a player looks.
+//
+// ONE COMPOSITION, TWO READERS. The settings planner emits this; CheckLocale
+// asks the same function for the same shape with the list left out, so a line
+// deleted here is a finding rather than a silent loss. See checkTextDescription.
+func textDescription(full, rendered string) Value {
+	return Arr(
+		Str(""),
+		localeRef("mod-setting-description", full),
+		Str("\ndefault: "+rendered),
+		Str(textFormatLine()),
+		Str(textFallbackLine),
+	)
+}
+
+// textFormatLine is the sentence that says what to type and how much of it.
+//
+// THE NUMBER IS maxListChars AND NOT A DIGIT TYPED HERE. The limit the player
+// is told and the limit the parser enforces are one number by construction, so
+// a change to the ceiling cannot ship a description that lies about it. That
+// is held by a source property rather than by a value test, because a typed
+// 2000 and this expression render the same bytes while the ceiling happens to
+// be 2000: TestTheCeilingIsNeverTypedIntoAMessage forbids the ceiling's own
+// decimal rendering in every string literal this package builds a message out
+// of. It is a constant, so naming it here links no part of the language: a
+// plan with no text setting still links no parser and no renderer.
+//
+// IT NAMES THE DEFAULT LINE ABOVE IT rather than describing internal names in
+// the abstract, because that line is the copyable example, and copying it is
+// exactly what the composition is for.
+func textFormatLine() string {
+	return "\nWrite internal names, as the default line above does, in at most " +
+		strconv.Itoa(maxListChars) + " characters."
+}
+
+// textFallbackLine is what happens to a text this library cannot use.
+//
+// IT IS THE ONE THING THE SCREEN CANNOT SHOW. The text is set aside and the
+// declared list applies (decision 2), so a player whose text went unused sees a
+// settings screen that still holds it and a game that ignores it. Saying so in
+// the description is the only warning available before the fact.
+//
+// IT PROMISES THE NARROW CLAIM AND NOT A LOAD, which is what the wording is
+// for. Setting a text aside is not the same as loading: the declared list is
+// held to every rule it always was, so a modpack in which that declaration
+// cannot produce a legal result still stops the load, and on a refused load the
+// log ops never reach the host at all (that is why withFallbackNote in data.go
+// exists). Naming both places the reason can be, the log or the load error, is
+// therefore the whole claim this line is allowed to make.
+const textFallbackLine = "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."
+
 // presetLine is one preset's line in a composed dropdown description.
 //
 // THE VALUE IS LABELLED BY ITS OWN LOCALE ENTRY, not by its raw key, because
@@ -713,6 +777,23 @@ func presetLine(setting, value string, tail ...Value) Value {
 	items = append(items, Str(""), Str("\n"), localeRef("string-mod-setting", setting+"-"+value))
 	return Arr(append(items, tail...)...)
 }
+
+// ingredientPresetHead opens the second line of an INGREDIENT preset, and it is
+// a line of its own rather than a separator.
+//
+// TWO VOCABULARIES ARE NOT ONE RUN OF TEXT. A preset's label is the consumer's
+// display prose ("Default: 4 iron plates, 2 gears") and the rendering after it
+// is the internal names the field beside it takes ("4 iron-plate, ..."). Joined
+// by ": " they read as one sentence in two languages, and only the second half
+// can be copied into the field: measured on 2.0.77, the first half pasted into
+// the text setting is refused and nothing in the tooltip said which half was
+// which. The break and the word type put the copyable half on its own line,
+// under the word a player acts on, so the two vocabularies are two lines.
+//
+// A COST PRESET KEEPS ITS ": cost of " (see costPresetTail) because it has only
+// one vocabulary: a localised label followed by a localised technology name is
+// prose throughout, and there is nothing in it to copy.
+const ingredientPresetHead = "\n  type: "
 
 // costPresetTail is what a research preset says it costs: the ladder's FIRST
 // source, which is the technology whose unit would be copied. A ladder with no

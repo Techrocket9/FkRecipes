@@ -57,12 +57,12 @@ func TestOrderAfterPlacesGeneratedSettingsUnderALegacyOrder(t *testing.T) {
 		`extend {type="string-setting", name="bbb-recipe-cost", setting_type="startup", default_value="vanilla", order="a", allowed_values=["vanilla", "cheap", "custom"]}`,
 		`extend {type="string-setting", name="steelworks-recipe-ingredients", setting_type="startup",` +
 			` default_value="default", order="aab", auto_trim=true,` +
-			` localised_description=["", ["mod-setting-description.steelworks-recipe-ingredients"], "` + "\n" + `default: 2 steel-plate"]}`,
+			` localised_description=["", ["mod-setting-description.steelworks-recipe-ingredients"], "` + "\n" + `default: 2 steel-plate"` + wantTextTail + `]}`,
 		`extend {type="bool-setting", name="steelworks-recipe-hint", setting_type="startup", default_value=true, order="aac"}`,
 		`extend {type="string-setting", name="bbb-tech-cost", setting_type="startup", default_value="logistics", order="b", allowed_values=["logistics", "custom"]}`,
 		`extend {type="string-setting", name="steelworks-tech-packs", setting_type="startup",` +
 			` default_value="default", order="bae", auto_trim=true,` +
-			` localised_description=["", ["mod-setting-description.steelworks-tech-packs"], "` + "\n" + `default: 1 automation-science-pack"]}`,
+			` localised_description=["", ["mod-setting-description.steelworks-tech-packs"], "` + "\n" + `default: 1 automation-science-pack"` + wantTextTail + `]}`,
 		`extend {type="int-setting", name="steelworks-tech-count", setting_type="startup", default_value=20, order="baf", minimum_value=1, maximum_value=1000000}`,
 		`extend {type="double-setting", name="steelworks-tech-seconds", setting_type="startup", default_value=15, order="bag", minimum_value=1, maximum_value=3600}`,
 		`extend {type="string-setting", name="steelworks-tech-style", setting_type="startup", default_value="plain", order="bah", allowed_values=["plain", "fancy"]}`,

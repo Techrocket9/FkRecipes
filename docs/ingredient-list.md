@@ -115,11 +115,13 @@ Every message starts with `fkrecipes:` and the setting's full name; those about 
 
 ## Declaring the setting
 
-A mod declares the text setting with `IngredientsSetting` (Go) or `ingredients_setting` (Rust), giving the bare name and the default list, and binds it to a recipe through `IngredientsFrom`, or as the `Custom` arm of a dropdown of presets. A pack list is declared with `PacksSetting` and bound through `CostFrom` or as the `Custom` arm of a research-cost dropdown, together with an int setting for the count and a double setting for the seconds. The setting's default text is the word `default`; the list you declared is written out in the setting's description after your own description text. The name and description come from the mod's locale file under `mod-setting-name` and `mod-setting-description`, and the locale checker treats both as required for a text setting. A short description that tells the player the format is enough:
+A mod declares the text setting with `IngredientsSetting` (Go) or `ingredients_setting` (Rust), giving the bare name and the default list, and binds it to a recipe through `IngredientsFrom`, or as the `Custom` arm of a dropdown of presets. A pack list is declared with `PacksSetting` and bound through `CostFrom` or as the `Custom` arm of a research-cost dropdown, together with an int setting for the count and a double setting for the seconds. The setting's default text is the word `default`. The name and description come from the mod's locale file under `mod-setting-name` and `mod-setting-description`, and the locale checker treats both as required for a text setting.
+
+The library composes three lines onto the description, under whatever your own `[mod-setting-description]` entry says: the list you declared written out in the form this page documents, a line saying the field takes internal names and takes at most 2000 characters, and a line saying that a text it cannot use is set aside for that list, with the reason in the log or in the load error. So your entry says what the setting is for, and the library says how to fill it in and what it costs to get it wrong. The entry does not have to teach the syntax:
 
 ```
 [mod-setting-description]
-mymod-parts-ingredients=What the part is made of. Write the amount, then the item name, and separate ingredients with commas: 2 iron-plate, 3 copper-cable
+mymod-parts-ingredients=What a part is made of. Leave this alone and parts are built the way the mod intends.
 ```
 
 See [Using FkRecipes](usage.md) for the constructors and [Migrating a mod that already ships settings](migration.md) for adding a custom arm to a dropdown a mod already ships.

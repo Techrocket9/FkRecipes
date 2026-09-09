@@ -10,6 +10,27 @@ use crate::value::{Value, MAX_EXACT_INT};
 // same lines from the same plan, which is what "the two halves agree" means
 // before the packaged mirror harness exists to say it in Lua.
 
+/// The two lines this library composes onto EVERY text setting's description,
+/// after the default list: what to write and how much of it, then what a text
+/// it cannot use costs.
+///
+/// SPELLED OUT HERE RATHER THAN TAKEN FROM THE SOURCE, which is the whole
+/// point of a golden: `text_format_line` builds the number from `MAX_TEXT`, so
+/// a test that asked it for the sentence would move with any edit to either.
+/// These bytes are the contract, the Go twin carries the same ones, and the
+/// mirror compares the two transcripts.
+///
+/// A golden writes [`TEXT_TAIL`] where these belong and `assert_composed`
+/// expands it, because a `&[&str]` of raw strings cannot concatenate a
+/// constant the way the Go twin's `+` does.
+pub(crate) const WANT_TEXT_TAIL: &str = concat!(
+    r#", "\nWrite internal names, as the default line above does, in at most 2000 characters.""#,
+    r#", "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway.""#
+);
+
+/// What a golden writes where [`WANT_TEXT_TAIL`] belongs.
+pub(crate) const TEXT_TAIL: &str = "<text tail>";
+
 pub(crate) fn transcript(ops: &[Op]) -> Vec<String> {
     let mut lines = Vec::with_capacity(ops.len());
     for op in ops {
@@ -133,7 +154,10 @@ pub(crate) fn field(v: &Value, key: &str) -> Option<Value> {
 /// written against it use `\n` and this puts the character back before
 /// comparing.
 pub(crate) fn assert_composed(got: &[String], want: &[&str]) {
-    let want: Vec<String> = want.iter().map(|w| w.replace("\\n", "\n")).collect();
+    let want: Vec<String> = want
+        .iter()
+        .map(|w| w.replace(TEXT_TAIL, WANT_TEXT_TAIL).replace("\\n", "\n"))
+        .collect();
     let refs: Vec<&str> = want.iter().map(|s| s.as_str()).collect();
     assert_lines(got, &refs);
 }

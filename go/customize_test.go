@@ -15,6 +15,19 @@ import (
 // is held up to the light here is the BINDING: which setting a recipe reads,
 // what the settings screen shows, and which of the three text paths applies.
 
+// wantTextTail is the two lines this library composes onto EVERY text
+// setting's description, after the default list: what to write and how much of
+// it, then what a text it cannot use costs.
+//
+// SPELLED OUT HERE RATHER THAN TAKEN FROM THE SOURCE, which is the whole point
+// of a golden: textFormatLine builds the number from maxListChars, so a test
+// that asked it for the sentence would move with any edit to either. These
+// bytes are the contract, the Rust twin carries the same ones, and the mirror
+// compares the two transcripts.
+const wantTextTail = `, "` + "\n" +
+	`Write internal names, as the default line above does, in at most 2000 characters.", "` + "\n" +
+	`A text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."`
+
 // customWorld is baseWorld plus the two names the customizer's fixtures reach
 // for: an iron stick to type into a list, and a military science pack so a
 // declared pack ladder has a second rung that exists.
@@ -47,7 +60,7 @@ func TestPlanSettingsEmitsATextSetting(t *testing.T) {
 		`extend {type="string-setting", name="steelworks-rivet-ingredients", setting_type="startup",` +
 			` default_value="default", order="aa", auto_trim=true,` +
 			` localised_description=["", ["mod-setting-description.steelworks-rivet-ingredients"],` +
-			` "` + "\n" + `default: 2 tungsten-plate, 4 steelworks-steel-rivet"]}`,
+			` "` + "\n" + `default: 2 tungsten-plate, 4 steelworks-steel-rivet"` + wantTextTail + `]}`,
 	})
 }
 
@@ -75,11 +88,11 @@ func TestPlanSettingsEmitsAPacksSettingAndAnEmptyList(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		`extend {type="string-setting", name="steelworks-axe-ingredients", setting_type="startup",` +
 			` default_value="default", order="aa", auto_trim=true,` +
-			` localised_description=["", ["mod-setting-description.steelworks-axe-ingredients"], "` + "\n" + `default: none"]}`,
+			` localised_description=["", ["mod-setting-description.steelworks-axe-ingredients"], "` + "\n" + `default: none"` + wantTextTail + `]}`,
 		`extend {type="string-setting", name="steelworks-axe-packs", setting_type="startup",` +
 			` default_value="default", order="ab", auto_trim=true,` +
 			` localised_description=["", ["mod-setting-description.steelworks-axe-packs"],` +
-			` "` + "\n" + `default: 1 automation-science-pack, 2 military-science-pack"]}`,
+			` "` + "\n" + `default: 1 automation-science-pack, 2 military-science-pack"` + wantTextTail + `]}`,
 		`extend {type="int-setting", name="steelworks-axe-count", setting_type="startup", default_value=20, order="ac", minimum_value=1, maximum_value=100000}`,
 		`extend {type="double-setting", name="steelworks-axe-seconds", setting_type="startup", default_value=10, order="ad", minimum_value=5.0000000000000000e-1, maximum_value=600}`,
 	})
@@ -101,7 +114,7 @@ func TestPlanSettingsEmitsALegacyTextSetting(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		`extend {type="string-setting", name="bbb-part-ingredients", setting_type="startup",` +
 			` default_value="default", order="c", auto_trim=true,` +
-			` localised_description=["", ["mod-setting-description.bbb-part-ingredients"], "` + "\n" + `default: 3 steel-plate"]}`,
+			` localised_description=["", ["mod-setting-description.bbb-part-ingredients"], "` + "\n" + `default: 3 steel-plate"` + wantTextTail + `]}`,
 	})
 }
 
@@ -132,11 +145,11 @@ func TestPlanSettingsComposesADropdownDescription(t *testing.T) {
 		`extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup",` +
 			` default_value="water", order="aa", allowed_values=["water", "oil", "custom"],` +
 			` localised_description=["", ["mod-setting-description.steelworks-quench-medium"],` +
-			` ["", "` + "\n" + `", ["string-mod-setting.steelworks-quench-medium-water"], ": 2 steel-plate, 10 [fluid=water]"],` +
-			` ["", "` + "\n" + `", ["string-mod-setting.steelworks-quench-medium-oil"], ": 2 steel-plate, 0.5 [fluid=lubricant]"]]}`,
+			` ["", "` + "\n" + `", ["string-mod-setting.steelworks-quench-medium-water"], "` + "\n" + `  type: 2 steel-plate, 10 [fluid=water]"],` +
+			` ["", "` + "\n" + `", ["string-mod-setting.steelworks-quench-medium-oil"], "` + "\n" + `  type: 2 steel-plate, 0.5 [fluid=lubricant]"]]}`,
 		`extend {type="string-setting", name="steelworks-quench-ingredients", setting_type="startup",` +
 			` default_value="default", order="ab", auto_trim=true,` +
-			` localised_description=["", ["mod-setting-description.steelworks-quench-ingredients"], "` + "\n" + `default: 2 steel-plate"]}`,
+			` localised_description=["", ["mod-setting-description.steelworks-quench-ingredients"], "` + "\n" + `default: 2 steel-plate"` + wantTextTail + `]}`,
 	})
 }
 
@@ -2096,9 +2109,116 @@ func TestCustomResearchCostCarriesNoMaxLevel(t *testing.T) {
 // The locale checker.
 // ---------------------------------------------------------------------------
 
+// THE DRIFT GUARD OVER WHAT THE LIBRARY ITSELF COMPOSES. The consumer's entry
+// is checked above; these two lines are this library's, so no locale file can
+// put one back and no plan can leave one out. What the rule can see is a
+// composition that stopped carrying a line, which is why the composition is
+// what it is handed.
+//
+// THE SENTENCE NAMES THE LIBRARY AND NOT A SETTING, because the rule's input
+// does not vary with the setting: both lines are constants, and the only
+// per-setting part of a text description is the consumer's key, which the rule
+// does not look at. One defect is therefore one finding.
+//
+// THE HEALTHY PATH FIRST, so a rule that fired on everything would be caught
+// here rather than in a golden somewhere: the real composition reports
+// nothing.
+func TestComposedTextLinesMissingGuardsTheComposedLines(t *testing.T) {
+	const full = "steelworks-axe-ingredients"
+	whole := textDescription(full, "1 steel-plate")
+	if got := composedTextLinesMissing(whole); len(got) != 0 {
+		t.Fatalf("the real composition reported %v", got)
+	}
+
+	// The same composition with one line taken out of it, which is the only
+	// way to reach the finding: nothing a consumer declares composes a
+	// description missing a line.
+	without := func(line string) Value {
+		out := make([]Value, 0, len(whole.Arr))
+		for _, v := range whole.Arr {
+			if v.Kind == KindStr && v.Str == line {
+				continue
+			}
+			out = append(out, v)
+		}
+		return Arr(out...)
+	}
+	assertFindings(t, composedTextLinesMissing(without(textFormatLine())), []string{
+		"the library composes no line about the format and the length limit onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
+	})
+	assertFindings(t, composedTextLinesMissing(without(textFallbackLine)), []string{
+		"the library composes no line about what happens to a text this mod cannot use onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
+	})
+	// Both gone: both reported, format first, which is the order the lines sit
+	// in and the order every other rule here reports in.
+	stripped := Arr(Str(""), localeRef("mod-setting-description", full))
+	assertFindings(t, composedTextLinesMissing(stripped), []string{
+		"the library composes no line about the format and the length limit onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
+		"the library composes no line about what happens to a text this mod cannot use onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
+	})
+}
+
+// THE GUARD IS HANDED ONE COMPOSITION, NOT ONE PER SETTING, and it is the
+// first text setting's in declaration order. A plan that declares no text
+// setting composes no text description at all, so there is nothing for a line
+// to have gone missing from and the guard has nothing to inspect.
+//
+// THE INPUT IS WHAT THIS PINS, because the finding itself is unreachable from
+// a healthy library: the sentences are pinned above and the cap defect was
+// about how many times this input is taken, not about what the rule says. Run
+// once per text setting it turned one library defect into five findings on the
+// example guest.
+func TestTheDriftGuardInspectsTheFirstTextSettingOnly(t *testing.T) {
+	lib := New()
+	lib.BoolSetting("hint", true)
+	if _, ok := lib.guardedTextDescription("steelworks-"); ok {
+		t.Fatal("a plan with no text setting handed the guard a composition")
+	}
+
+	axe := lib.Item("steel-axe", ItemSpec{})
+	lib.IngredientsSetting("axe-ingredients", []Ingredient{IngredientOf(axe, 1)})
+	lib.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+	desc, ok := lib.guardedTextDescription("steelworks-")
+	if !ok {
+		t.Fatal("a plan with two text settings handed the guard nothing")
+	}
+	// The FIRST one's, and with the list left out: the packs setting declared
+	// after it is not what the guard reads, and neither is any rendering.
+	want := renderValue(textDescription("steelworks-axe-ingredients", ""))
+	if got := renderValue(desc); got != want {
+		t.Errorf("\n got: %s\nwant: %s", got, want)
+	}
+}
+
+// THE TWO LINES, BYTE FOR BYTE, and the number in the first one comes from the
+// same constant the parser refuses on. A sentence promising a limit the parser
+// does not keep is the drift this pins; the Rust twin carries the same bytes
+// and the mirror compares the two transcripts.
+func TestTheComposedTextLinesAreTheStatedOnes(t *testing.T) {
+	if maxListChars != 2000 {
+		t.Fatalf("maxListChars is %d; the sentence below and both halves' docs say 2000", maxListChars)
+	}
+	if got, want := textFormatLine(),
+		"\nWrite internal names, as the default line above does, in at most 2000 characters."; got != want {
+		t.Errorf("\n got: %q\nwant: %q", got, want)
+	}
+	if got, want := textFallbackLine,
+		"\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."; got != want {
+		t.Errorf("\n got: %q\nwant: %q", got, want)
+	}
+	// A LINE, NOT A SEPARATOR, and the word a player acts on opens it. The
+	// dropdown label beside this is the consumer's prose and the client
+	// truncates it at about 37 characters; the internal names are on their own
+	// line so the copyable half of the tooltip is never the truncated half.
+	if got, want := ingredientPresetHead, "\n  type: "; got != want {
+		t.Errorf("\n got: %q\nwant: %q", got, want)
+	}
+}
+
 // A DESCRIPTION IS OPTIONAL EVERYWHERE ELSE and required here, because it is
-// where the player learns the format. A free-text field with no explanation is
-// a field nobody can fill in.
+// where the player learns what the setting is for. The format, the limits and
+// the fallback are the library's own lines under it, so an absent entry loses
+// all of them at once.
 func TestCheckLocaleRequiresATextSettingDescription(t *testing.T) {
 	lib := New()
 	axe := lib.Item("steel-axe", ItemSpec{})
@@ -2107,7 +2227,7 @@ func TestCheckLocaleRequiresATextSettingDescription(t *testing.T) {
 
 	cfg := "[mod-setting-name]\nsteelworks-axe-ingredients=What an axe is made of\n"
 	assertFindings(t, lib.CheckLocale("steelworks", cfg), []string{
-		"the setting steelworks-axe-ingredients has no [mod-setting-description] entry, and a text setting needs one to tell the player the format",
+		"the setting steelworks-axe-ingredients has no [mod-setting-description] entry, and a text setting needs one to say what the setting is for; the library composes the format, the limits and the fallback onto it",
 	})
 
 	full := cfg + "\n[mod-setting-description]\nsteelworks-axe-ingredients=Amount, then name, commas between.\n"

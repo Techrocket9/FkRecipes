@@ -294,6 +294,77 @@ fn no_message_carries_its_own_stage() {
     );
 }
 
+/// THE CEILING IS NEVER TYPED INTO A MESSAGE, which is what makes "one number
+/// by construction" a fact rather than a hope.
+///
+/// [`text_format_line`] builds the sentence the player reads from `MAX_TEXT`,
+/// and the parser's own too-long refusal does the same. Nothing in a value
+/// test can see the difference between that and a typed 2000: both render the
+/// same bytes while the constant happens to be 2000, so a hand-typed digit run
+/// would sit there green until somebody changed the ceiling and shipped a
+/// description that lied about it. Only a property over the source can see
+/// it, so this forbids the ceiling's own decimal rendering in every string
+/// literal the crate builds a message out of.
+///
+/// IT TRACKS THE CONSTANT. The needle is `MAX_TEXT` rendered at run time, so
+/// raising the ceiling moves what is forbidden with it. A literal that merely
+/// CONTAINS those digits is caught too (12000 would be), and that is the right
+/// side to err on: a number near the ceiling in a player-facing sentence is
+/// one somebody should have to re-read.
+///
+/// It is the Go twin's `TestTheCeilingIsNeverTypedIntoAMessage`, over the same
+/// module list the stage property above reads.
+#[test]
+fn the_ceiling_is_never_typed_into_a_message() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut sources: Vec<PathBuf> = Vec::new();
+    for entry in
+        fs::read_dir(&root).expect("the source is the thing under test and it is not there")
+    {
+        let path = entry.expect("unreadable directory entry").path();
+        if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+            sources.push(path);
+        }
+    }
+    sources.sort();
+    assert!(
+        sources.len() >= 5,
+        "only {} modules found under {}; the scan would prove nothing",
+        sources.len(),
+        root.display()
+    );
+
+    let needle = alloc::format!("{}", crate::ingredient_list::MAX_TEXT);
+    let mut checked = 0usize;
+    let mut problems: Vec<String> = Vec::new();
+    for path in &sources {
+        let text = fs::read_to_string(path).expect("a module is not readable");
+        for (line, lit) in string_literals(&text) {
+            checked += 1;
+            if lit.contains(&needle) {
+                problems.push(alloc::format!(
+                    "{}:{}: a string literal types the ceiling {} instead of building it from MAX_TEXT\n  literal: {:?}",
+                    path.file_name().unwrap().to_string_lossy(),
+                    line,
+                    needle,
+                    lit
+                ));
+            }
+        }
+    }
+    assert!(
+        problems.is_empty(),
+        "messages typing the ceiling instead of building it:\n{}",
+        problems.join("\n")
+    );
+    assert!(
+        checked >= 50,
+        "only {} string literals were scanned across {} modules; the scanner is not reaching the messages",
+        checked,
+        sources.len()
+    );
+}
+
 /// THE SEAM, AS A SOURCE PROPERTY.
 ///
 /// The behavioural tests prove that a plan declaring no text setting installs

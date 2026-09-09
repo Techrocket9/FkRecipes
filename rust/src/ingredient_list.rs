@@ -101,7 +101,13 @@ pub(crate) const DEFAULT: &str = "default";
 /// written here to be unwound: this round moves a refused text out of the
 /// error dialog and into the log, and the dialog is the only place the size of
 /// the quotation was ever the problem.
-const MAX_TEXT: usize = 2000;
+///
+/// IT IS `pub(crate)` BECAUSE THE DESCRIPTION QUOTES IT. `text_format_line`
+/// tells the player the ceiling in words, and a digit typed there instead
+/// would be a promise the parser could stop keeping. A constant is not a
+/// function: naming it outside this module links no parser and no renderer, so
+/// it is not part of the seam `SEAM` guards.
+pub(crate) const MAX_TEXT: usize = 2000;
 
 /// U+00D7 MULTIPLICATION SIGN. A player whose keyboard or autocorrect
 /// produces it means what `x` means, and it cannot appear in a prototype name

@@ -108,7 +108,13 @@ func (l *Lib) CheckLocaleWith(modName string, cfg string, handRolled []string) [
 // description orphan rule can only be the mod prefix.
 func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, complete bool) []string {
 	prefix := modName + "-"
-	sections, findings := parseLocale(cfg)
+
+	// (0) THE LIBRARY'S OWN LINES, AHEAD OF EVERY FINDING ABOUT THE FILE. This
+	// is the one rule here that is not about the author's .cfg at all, so it
+	// goes first and it goes once. See checkComposedTextLines.
+	findings := l.checkComposedTextLines(prefix)
+	sections, parsed := parseLocale(cfg)
+	findings = append(findings, parsed...)
 
 	// The contradiction first, before anything reads the list as truth.
 	if complete {
@@ -132,9 +138,12 @@ func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, compl
 		}
 		// A TEXT SETTING'S DESCRIPTION IS REQUIRED, and it is the one place a
 		// description is. Everywhere else a missing one costs a tooltip; here
-		// it costs the player the FORMAT, because a free-text field with no
-		// explanation is a field nobody can fill in. The library composes the
-		// declared list onto that entry, so an absent one also loses the list.
+		// it costs the player the whole tooltip, because the library composes
+		// the declared list, the format, the length limit and the fallback
+		// onto that entry: an absent one loses all four along with whatever the
+		// consumer meant to say. What the consumer's own entry is FOR is
+		// therefore what the setting is, not how to fill it in, and the
+		// sentence says so.
 		//
 		// NO elsewhere HINT ON THESE TWO. That hint names another section
 		// holding the same key, and a setting with a perfectly good
@@ -145,7 +154,8 @@ func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, compl
 		if s.kind.isText() {
 			if !localeHas(sections, "mod-setting-description", full) {
 				findings = append(findings, "the setting "+full+
-					" has no [mod-setting-description] entry, and a text setting needs one to tell the player the format")
+					" has no [mod-setting-description] entry, and a text setting needs one to say what the setting is for;"+
+					" the library composes the format, the limits and the fallback onto it")
 			}
 			continue
 		}
@@ -227,6 +237,118 @@ func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, compl
 		findings = append(findings[:localeFindingCap], tail)
 	}
 	return findings
+}
+
+// checkComposedTextLines is the DRIFT GUARD over what this library composes
+// onto a text setting's description: the format line and the fallback line,
+// each reported by name when the composition stops carrying it.
+//
+// IT IS NOT AN AUTHOR FINDING, and that is why it is worded and placed the way
+// it is. The consumer writes the [mod-setting-description] entry and this
+// library writes everything under it, so a report here says the library shipped
+// a description missing a line it owes; nothing the consumer can type puts one
+// back. The checker is where it lives because the composition has no other
+// reader that runs on a host: a settings-stage refusal would be a load failure
+// over a tooltip, and the engine's own dump proves the shape only where
+// somebody runs an engine.
+//
+// ONCE PER REPORT, NOT ONCE PER SETTING, and the sentence names the library
+// rather than a setting. What it inspects does not vary with the setting: the
+// two lines are constants and the only per-setting part of the composition, the
+// consumer's own key, is not what it looks at. Run inside the per-setting loop
+// it turned ONE library defect into one finding per text setting, five of them
+// on the example guest, and at fifty text settings the two sentences alone
+// would fill localeFindingCap and push every author finding out of the report.
+//
+// FIRST IN THE REPORT, WHICH IS ALSO HOW IT SURVIVES THE CAP. The cap keeps the
+// first localeFindingCap findings and replaces the tail with a count, so a
+// finding emitted ahead of the parse findings and of every rule about the
+// author's file cannot be dropped by a file that produces a thousand of its
+// own. That is the cheaper of the two ways to keep it: a cap exemption would
+// have to be carried through the truncation in both halves, and this is one
+// ordering decision instead.
+//
+// NOTHING TO GUARD WITHOUT A TEXT SETTING. A plan that declares none composes
+// no text description, so there is no shipped description for a line to have
+// gone missing from, and a report about one would name a defect that plan
+// cannot carry. The composition is built from the FIRST text setting in
+// declaration order, so what is inspected is a description this plan really
+// emits.
+//
+// THE LIST IS LEFT OUT OF THE COMPOSITION, and that is the one deviation from
+// "check what is emitted". Rendering the declared list is the only part of
+// textDescription that reaches the language, and it is also the only part that
+// dereferences an item handle. The checker validates nothing, exactly as the
+// rest of it validates nothing, so a plan the planners would refuse must not
+// panic here: with the list left out neither the language nor l.items is
+// touched, and the two lines under test are the two this function can see. What
+// the rendered list itself says is the settings stage's business and the
+// corpus's.
+func (l *Lib) checkComposedTextLines(prefix string) []string {
+	desc, ok := l.guardedTextDescription(prefix)
+	if !ok {
+		return nil
+	}
+	return composedTextLinesMissing(desc)
+}
+
+// guardedTextDescription is WHICH composition the guard inspects, split out
+// from the rule so that the choice is visible to a test on its own: the first
+// text setting's in declaration order, with the declared list left out, and no
+// composition at all when the plan declares no text setting.
+func (l *Lib) guardedTextDescription(prefix string) (Value, bool) {
+	for _, s := range l.settings {
+		if s.kind.isText() {
+			return textDescription(s.emittedName(prefix), ""), true
+		}
+	}
+	return Value{}, false
+}
+
+// composedTextLinesMissing is the guard's rule over one composition.
+//
+// THE DESCRIPTION IS A PARAMETER so that a test can hand it the composition
+// with one line taken out of it, which is the only way to see the finding
+// without editing the source: nothing a consumer can declare produces a
+// composition missing a line.
+func composedTextLinesMissing(desc Value) []string {
+	var out []string
+	for _, want := range []struct{ line, missing string }{
+		{textFormatLine(), "no line about the format and the length limit"},
+		{textFallbackLine, "no line about what happens to a text this mod cannot use"},
+	} {
+		if !localisedCarries(desc, want.line) {
+			out = append(out, "the library composes "+want.missing+
+				" onto a text setting's description; a text setting's description carries one,"+
+				" so this is a defect in fkrecipes and not in this locale file")
+		}
+	}
+	return out
+}
+
+// localisedCarries reports whether a composed localised string holds this exact
+// string as one of its parameters, at any depth.
+//
+// DEPTH BECAUSE THE QUESTION IS "DOES THE PLAYER READ IT", NOT "WHERE". The
+// composition it is handed is flat past the consumer's own key, which is itself
+// a nested table: textDescription is fixed at four parameters and never reaches
+// localisedGroup's nesting rule, and a dropdown's composition is never handed
+// here at all. A top-level scan would therefore be a claim about the shape of
+// the composition rather than about the lines, and it would go quietly wrong
+// the day a line moves into a group. This asks only what the guard needs.
+func localisedCarries(v Value, want string) bool {
+	if v.Kind == KindStr {
+		return v.Str == want
+	}
+	if v.Kind != KindArr {
+		return false
+	}
+	for _, item := range v.Arr {
+		if localisedCarries(item, want) {
+			return true
+		}
+	}
+	return false
 }
 
 // elsewhere names the section a missing key actually turned up in, when that

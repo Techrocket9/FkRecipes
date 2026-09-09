@@ -418,3 +418,202 @@ The whole objects, `jq -c '.jumps.data' tmp/mirror/report-go.json` and the same 
 | The size trajectory: the number that says whether the modules stay loadable, measured and printed | "What this round leaves open on this side", above | the luagen size round (58bc28a, 6310005, cf08bd8, a2149b6; 37ede52 re-takes FkLua's own size table), measured in part one as about ten percent off the Go module and the Rust module out of the relay, and the `jumps` object above | RESOLVED upstream |
 
 Carried on this side, unchanged from part one: `CostChoice.Sources` entries are not validated (an empty rung composes `{"technology-name."}`), and the localised nesting rule outruns the engine's 19-table ceiling past about 343 presets in either kind of dropdown. Neither is an FkLua ask. NOTHING REMAINS OPEN ON FkLua'S SIDE AS OF THIS PASS, and every commit of the pass left both goldens where it found them.
+
+## Fix round 1: the library half of the pilot's migration assessment
+
+An adversarial assessment of BetterBeltBalancer's update path, run on a real CLIENT for the first time (BBB `agents/migration-assessment.md`, its head `ca9aa36`, over FkRecipes 9754f49 on FkLua b88965d), numbers TWELVE findings: 1 to 11, and a twelfth that is a CLEAN row rather than a defect. Its closing section lists five recommendation items for this library, (a) to (e), and they do not sit one per finding: (a) is finding 2, (d) is finding 9, and (b), (c) and (e) are all finding 10. The round took all five and went past them, which is why the sections below are headed by findings rather than by letters: they cover findings 2, 1, 10 (in two parts) and 5, 6 and 9 together. Finding 1 is in there because its own recommendation, (f), was addressed to the consumer and the library turned out to own the mechanism. What follows is what each one now does, the measurement behind it, what moved, and what the consumer must do to adopt it. Four commits, each with its own adversarial review before it landed; every review found something, and "What the reviews found" below says what.
+
+### Finding 2, BLOCKED, and it is the round's centre: a refused text was a lock-out
+
+The assessment reached the client and established that a refused startup text CANNOT be corrected from inside the game. On 2.0.77 (build 84539, mac-arm64, steam): the engine rewrites `mod-settings.dat` on every successful load and on NO failed one, so nothing in a failed run edits the file that caused it (three consecutive runs, one sha256); the `Error loading mods` dialog offers `Disable listed mods`, `Disable all mods`, `Manage mods`, `Restart`, `Exit` and a `Reset mod settings` checkbox, and walking `Manage mods` shows a Mods screen with no Mod settings button whose `Back` returns to the same dialog; disabling and re-enabling does not drop the value and a disabled mod's settings do not appear on the settings screen at all; the one measured escape costs six steps, every startup preference in the file and the mod being disabled.
+
+**The rule now.** A value the PLAYER types never introduces a refusal a player who typed nothing would not also have hit; an input the AUTHOR declares still refuses. SEVEN kinds of value fall back, and the enumeration is the whole count: both text settings' parse arms and their not-text arms (4), the research count, the research seconds, and a bound crafting time. They are not seven code sites in either half, and the two halves do not agree on the number, because each shares its helpers differently: Go reaches them through four `noteFallback` calls in three functions (`resolveTextList` carries both arms and is called for both text settings, `costNumber` is called for the count and for the seconds, `craftTimeNumber` for the time), Rust through five `note_fallback` calls in five (`read_text_setting` shares the not-text arm between the two text settings, while `resolve_text_ingredients`, `resolve_custom_cost`, `read_cost_number` and the crafting-time arm of `resolve` carry the rest). The line, once per setting however many declarations read it:
+
+```
+fkrecipes: ERROR: fkrecipes-example-rivet-ingredients, entry 2 ("2 iron-stik"): no item or fluid is named iron-stik. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.
+```
+
+`ERROR` is uppercase because Factorio's `log()` has one channel and no severity (verified: `fk_log` maps to the global `log`, there is no second channel and no level parameter), so the severity has to be in the text; uppercase also keeps it out of a case-sensitive grep for the engine's own `Error` lines while a case-insensitive one still finds it. The reason is the sentence the refusal would have carried with the constant prefix trimmed, and six setting-layer sentences moved into named producers so the trim is total over a closed set.
+
+**THE FALLBACK IS NOT TOTAL, and the review is what established that.** A text that falls back lands on the author's declaration, and the author's declaration can still refuse: a modpack that removes every science pack a technology declares, or a ladder collapsing above the item ceiling. Measured in both halves: a player who typed a working list into such a modpack loads, and one typo later refuses. The property that IS provable is the narrow one above, and it is now stated that way in all eight places that had carried an absolute one. What the round can still do for that player is a partial answer to the SECOND HALF of the assessment's item (a), which offered two alternatives: "either a fallback with a loud log for the text settings, or a refusal message that tells the player the one thing that works, which is to move the dropdown off Custom". The round took the first outright. For the case the first cannot reach it also does something about the second, though not the thing (a) names: because no log op reaches the host on a refused load, every refusal raised after resolution carries one added sentence when a stored value fell back, naming the first such setting in walk order and pointing at the Startup tab. It does NOT name moving a dropdown off Custom, which is (a)'s own suggestion and would be advice about a different mechanism.
+
+```
+. The stored value of fkrecipes-example-chain-packs could not be used, so the mod's own declaration applied; correcting it under Settings > Mod settings > Startup is what a player can change here.
+```
+
+**The engine proof, which is what the decision rests on.** The gate's flipped row was changed to store a refused PACK text, and it is the row's ONLY changed value that the language refuses: `testdata/ingame/flipped.json` gives `fkrecipes-example-tips-packs` the text `2 automation-science-pack, 1 militar-science-pack`. So the sentence at stake is the pack one, not the recipe one, and the whole line `scripts/run-ingame.sh:666` asserts is:
+
+```
+fkrecipes: ERROR: fkrecipes-example-tips-packs, entry 2 ("1 militar-science-pack"): no science pack is named militar-science-pack. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.
+```
+
+Against the old code that same row exited 1 with no dump written, on the language's own refusal with the ERROR wrapper and the trailing advice absent, `fkrecipes: fkrecipes-example-tips-packs, entry 2 ("1 militar-science-pack"): no science pack is named militar-science-pack`, inside whatever load-failure wrapper the host puts round it. Against the new code: `EXIT=0`, and both dump logs carry the ERROR line. Those exit codes and dumps are the engine gate's own, from `scripts/run-ingame.sh` on Factorio 2.0.77 (build 84539); nothing in the repository reproduces them without a binary, and the pinned sentence is what a reader without one can check. The script also asserts there is EXACTLY ONE `fkrecipes: ERROR: ` line, because an assertion that only checked for presence could not tell one from three.
+
+Still refusing, each with its reason recorded: every author declaration, including the round trip that renders and reparses a text setting's declared default; and the unoffered stored dropdown value, because the engine resets an out-of-list value before any stage runs, so the library never sees one through the game.
+
+### Finding 1, BLOCKED: a ladder that landed twice on one name emitted a list the engine refuses
+
+BBB's ladders all end on the constant `iron-plate`, so its vanilla preset on a mod set without `transport-belt` resolved the third rung onto `iron-plate` and the engine refused the whole load with `Duplicate item ingredients are not allowed (iron-plate exists 2 or more times)`, exit 1, no dump, nothing naming the setting or the missing item, on a player who never opened the Startup tab.
+
+A ladder that collapses now MERGES into the first occurrence, so declaration order survives, and item and fluid stay distinct identities:
+
+```
+fkrecipes: <recipe>: iron-plate is in the list twice after the fallbacks, so the amounts are added: 4 plus 2 is 6
+fkrecipes: <recipe>: iron-plate is in the list twice after the fallbacks, and 40000 plus 30000 is above the item ceiling of 65535
+```
+
+The fluid twin names the collided rung instead of the two amounts, and that is forced rather than chosen: rendering a fluid amount means the language's own formatter, and both halves carry a source property that refuses a call to it from outside the two text-setting constructors, because such a call links the ingredient language into every consumer that declares no text setting. Injecting the call was red-proven; the observed line is quoted here with its tail elided, `data.go:1668:6: names formatListAmount, which links the ingredient language into every consumer; ...`, and the whole sentence is `go/source_test.go:336`'s format string, `"%s: names %s, which links the ingredient language into every consumer; only %s may name it"`, the last parameter being the places the guard allows. Measured alternatives, so a later change does not reach for one by reflex: Go's `FormatFloat(5e300,'g',-1,64)` is `5e+300`, Rust's `{}` is a 5 and 300 zeros, its `{:e}` is `5e300`. No pair agrees. (All three re-taken here: `strconv.FormatFloat` and a two-line `rustc` program on this machine.)
+
+An AUTHOR's literal duplicate refuses rather than merging, which the review caught: the first shape swallowed a declared preset `[4 iron-plate, 2 iron-plate]`, composed a description reading `: 4 iron-plate, 2 iron-plate` that the player's own field refuses, and emitted `6`. The engine used to refuse that loudly. Now it refuses at plan time, in BOTH SHAPES, because a pack list is not an ingredient list and does not borrow its sentence: `fkrecipes: the recipe <name> names <name> twice; each ingredient is taken once` for a recipe's own list or a dropdown preset (`go/data.go:1363`, `rust/src/data.rs:1963`, reached from the recipe spec, from each choice preset in the data planner, and from the same presets again in the settings planner), and `fkrecipes: the technology <name> names <pack> twice; each science pack is taken once` for a unit's packs (`go/data.go:1379`, `rust/src/data.rs:2135`). Between them that is every place either can be declared. With that in, the merge is reachable only from a ladder collapse, which is what makes the log line's phrase "after the fallbacks" true wherever it appears.
+
+**Measured, because the first shape argued it instead.** A research unit ingredient really is held in 16 bits. Probed with a Lua-only mod under `--dump-data`, `write-data` pointed at a private directory, on 2.0.77 (build 84539):
+
+| unit ingredient amount | result |
+|---|---|
+| 65535 | exit 0, dumped as `[["automation-science-pack",65535]]` |
+| 65536 | exit 1 |
+| 2147483648 | exit 1 |
+| 9007199254740992 | exit 1 |
+
+`Error while loading technology prototype "packceiling-probe" (technology): Value (65536) outside of range. The data type allows values from 0 to 65535 in property tree at ROOT.technology.packceiling-probe.unit.ingredients[0][1]`
+
+So the merged-pack ceiling of 65535 is right, and the declared pack path that capped at `maxExactInt` was emitting a load failure. It refuses by name now: `fkrecipes: the technology <name> takes 70000 of automation-science-pack, and a science pack amount goes up to 65535`.
+
+### Finding 10, AWKWARD: three invisible characters, three policies, and a refusal quoting text the player cannot see
+
+`U+00AD` was named by its code point, `U+FEFF`, `U+200B`, `U+200C` and `U+200D` (`listStripped` at 9754f49, exactly those four) were silently DELETED anywhere in the text so `2 iron<ZWSP>plate` refused with `no item or fluid is named ironplate` (a word not on the player's screen and unfindable by searching for it), and, on the assessment's own measurement, a NUL survived a load and cut a refusal message in half. What this repository had measured about a NUL says the opposite; the paragraph below is what is and is not settled.
+
+One policy now, and the wider one. The strip is gone: those four points were already in the invisible set, so deleting `stripInvisible` and `is_stripped` is the whole of it. The set grew from 11 ranges and 114 code points to 28 and 4287, both counted off the range tables themselves (`git show 9754f49:go/ingredientlist.go` lines 1173-1193 for the old one, `go/ingredientlist.go`'s `isInvisibleRune` for the new one, each expanded and counted with Python's `unicodedata` at Unicode 16.0.0). It is DERIVED rather than guessed, and it is THREE PARTS that account for the whole rather than a list with a remainder:
+
+- every `Cf` code point in Unicode, all 170 (Python's 16.0.0 table and Go's 15.0.0 table agree on all 170, re-checked here in both);
+- every code point carrying the `Default_Ignorable` derivation, 4174, all of them inside the predicate;
+- the characters that show as blank but are neither, which is the C0 and C1 controls plus the spaces the derivation subtracts as whitespace: `U+2000..U+200A`, `U+2028`, `U+2029`, `U+202F`, `U+205F` and `U+3000`.
+
+Those three ARE the whole: `Cf` union `Default_Ignorable` is 4206, the third part adds exactly the remaining 81, and 4206 plus 81 is 4287. `U+FFF0..U+FFF8` is not a fourth part and never was one: it is inside `Default_Ignorable` already, so listing it as a "plus" double-counted it. Private-use points stay out, because a player's font can give one a glyph; unassigned points are in only where the standard reserves the run as default-ignorable, and that is THREE RUNS rather than one block: `U+2065`, `U+FFF0..U+FFF8`, and most of the plane-14 tag block. The tag-block range contributes 3759 of the 3769 unassigned points the predicate takes and those other two runs the remaining 10; 3769 is the total, which is what the source comment and `agents/customizer-design.md` both say, and every one of them carries `Other_Default_Ignorable_Code_Point`. The predicate is still a closed-range match with no Unicode table linked, because size is a measured property here. The whitespace set is untouched and still folds to a space, which is what keeps its SIX members that are also in the invisible set separating words rather than refusing: tab, LF, CR, `U+2007`, `U+202F` and `U+3000`. The whitespace question runs first.
+
+Second, `quotable()` in each half: every message that puts a piece of the player's text between quotation marks renders each invisible-set member as `U+XXXX`, the same token the "an invisible character (U+XXXX)" clause prints. The claim worth making is that one, not a site count, because the halves do not agree on the count and never could: Go calls it at 11 sites in 6 functions (`entryProblem`, `parseEntry`, `noNameProblem`, `manyNamesProblem`, `classifyPiece`, `strangeCharacterProblem`) and Rust at 10 in 5 (`parse`, `one_entry`, `no_name`, `two_names`, `classify_plain`), because the two halves group their message builders differently. What holds the property is `testdata/ingredient-list/cases.txt`, which carries a case per range whose refusal spells the token and which both suites run byte for byte, plus the per-member predicate test in each half. NO TEST SCANS GENERATED MESSAGES for an unescaped member, and no such scan is reproducible from this repository; an earlier draft of this section reported one over 8,896,512 messages, and that figure came from a reviewer's own differential probe over the two halves rather than from anything committed here.
+
+**The NUL, and TWO MEASUREMENTS THAT DISAGREE.** Two notes describe the same engine, both say measured, and they cannot both be right.
+
+- BBB's `agents/migration-assessment.md`, finding 10, on 2.0.77: a NUL in a stored setting value "survives a successful load and the engine's rewrite byte for byte", and on a refusal it cuts the message in half, ending at `entry 1 ("2 iron-plate` with no reason given. That assessment could not type into the settings field at all (secure input was active for its whole session), so every value it tested was installed by file with `fklua modsettings write`; the finding does not say which of its two arms, headless or client, this row came from.
+- This repository's `agents/customizer-design.md`, in the customizer round's probe list, also on 2.0.77: a NUL byte truncates the stored value inside the engine and the truncation is persisted. That row records neither how the byte was installed nor where the truncation was read back. If it holds, a NUL never reaches the guest at all, and the assessment's refusal quoting half a message could not have happened as described.
+
+NOTHING IN THIS ROUND RE-MEASURED IT, so this note does not pick a winner; how the byte was installed and read back is the obvious place the two runs differ, and neither note records enough for that to be settled from what is written down. What survives either answer, and is the only thing this round's decisions rest on: what the engine does with a NUL inside a load-failure message is NOT measured either way, and the escaping makes every message independent of the answer, so nothing here has to know.
+
+The 2000-character ceiling's stated reason went stale with the escaping and now carries numbers instead of an adjective: the worst-case message is 14,129 bytes for 2000 `U+E0001` and 12,128 for 2000 `U+200B`. Both re-derived here from the message producers and a setting named `mymod-parts`, the corpus's own: 2000 seven-character tokens plus a 129-byte frame, and 2000 six-character ones plus a 128-byte frame. The "it was 8,162 and 180" beside them is about code this round deleted and was not re-taken. No quoted entry is truncated, because finding 2's change moves that text out of the load-failure dialog and into the log.
+
+### Finding 10, second half: the reserved words match the way a player types them
+
+`"  default  "` was accepted and `DEFAULT` refused, and because a refused text repeats for ever it stayed refused. `default` and `none` now fold on ASCII case at three sites: the whole text, the entry, and the renderer's tag decision. The third is what keeps render-then-parse an identity, and `Default`, `None` and `defaults` joined both identity fixtures so the claim has a witness rather than a comment. ONLY THE GO HALF WRITES THE FOLD OUT, and the reason is the shape of the two standard libraries rather than a symmetry: `strings.EqualFold` is whole-Unicode simple folding, which is the WRONG rule here (it reads the Kelvin sign U+212A as a `k`), so `isReservedWord` is a byte loop; Rust's `eq_ignore_ascii_case` IS the rule and is called at all three sites. Go was written by hand to match Rust, not both halves written out to avoid both libraries. What makes it worth writing down at all is that neither of today's two words carries a letter the two functions disagree about, so an inherited fold would look correct until a third word landed and nothing would say so.
+
+### Findings 5, 6 and 9, MISLED: the composed description said none of what a player needed
+
+The composed tooltip printed each preset twice in two vocabularies separated only by `": "`, the client truncates the closed dropdown's label at roughly 37 characters so the half that works is the half a player never sees, the 2000-character limit is the library's and no prototype key declares it, and nothing said what happens when a text cannot be used.
+
+A text setting's description gains two lines after `"\ndefault: <rendered list>"`:
+
+```
+\nWrite internal names, as the default line above does, in at most 2000 characters.
+\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway.
+```
+
+The 2000 comes from `maxListChars` / `MAX_TEXT`, held by a source property that forbids the ceiling's own decimal rendering in any message literal, because a typed `2000` and the expression render the same bytes while the ceiling happens to be 2000. The second sentence went through the review: its first shape promised "the mod loads with that default instead, and the log says why", which is exactly false in the one case finding 2 leaves open, and where `withFallbackNote` exists precisely because the log is not reached.
+
+An INGREDIENT preset line's `": "` became `"\n  type: "`. A COST preset line is unchanged: a localised technology name after a localised label is one vocabulary, not two.
+
+**Measured in the engine's own dump** (`mod-settings-dump.json`, 2.0.77):
+
+```
+fkrecipes-example-rivet-ingredients
+["",["mod-setting-description.fkrecipes-example-rivet-ingredients"],"\ndefault: 1 iron-plate","\nWrite internal names, ...","\nA text this mod cannot use ..."]
+
+fkrecipes-example-quench-medium
+["",["mod-setting-description...."],["","\n",["string-mod-setting....-water"],"\n  type: 2 tungsten-plate, 4 fkrecipes-example-steel-rivet, 1 tungsten-carbide"],["","\n",["string-mod-setting....-oil"],"\n  type: 2 steel-plate, ..."]]
+```
+
+Counting parameters the way the engine counts them (elements after the leading key, which is the convention `maxLocalisedParams = 20` uses): the text setting spends 4 of 20 at depth 2 of 19, an ingredient dropdown 3 at the top and 3 per preset line at depth 3, a cost dropdown unchanged at 3 and 4. The ceilings were re-measured before the shape was fixed, out of FkLua's data-stage probe rows `locstring-params-20`/`-21`, `locstring-nest-19`/`-20` and `locstring-nested-groups`, which take them on a `string-setting`'s `localised_description`, the very field this writes. The grouping rule is unaffected: a preset line is one parameter of its group whatever its head says. Both halves emit byte-identical tables, checked by pulling all eight composed descriptions out of each half's own engine dump and comparing (3094 bytes each, identical).
+
+**Why the shape is honest at 37 characters, and what is still open.** The truncation is of the dropdown's own label in the closed widget, and the label is the consumer's string; the composed description is the tooltip. Under the old shape the tooltip line was `<label>: <internal list>`, one run of text whose halves were separated only by `": "`, so nothing marked where the copyable half began and a truncated label showed only the half that refuses. Under the new shape there is no composite line left to truncate: each preset's copyable half opens its own indented line under the label. The mitigation is real and not total, measured: a player who retypes the whole line gets `entry 1 ("type: 4 iron-plate"): ":" has no place here; ...`, the same message class the old defect produced. And the premise the design rests on carries its condition: the client measured seven lines (the pilot's six presets plus the consumer's entry, on the OLD shape) as readable and unclipped. The same tooltip under the new shape is 13 lines, and no client has seen it. That is the third open claim in `agents/customizer-design.md`.
+
+### The locale checker, and what it can and cannot be
+
+`CheckLocale` gained a drift guard: the library composes the two sentences, so a text setting whose composed description lacks either is reported. Its first shape ran inside the per-setting loop and produced five identical findings on the example fixture, which at fifty text settings would fill `localeFindingCap = 100` and push every author finding out; it reports once now, first in the report, in the library's own voice. The existing "a text setting needs a description entry to tell the player the format" message was rewritten, because the library supplies the format, the limits and the fallback now, and the consumer's entry says what the setting is FOR.
+
+The guard is fed `textDescription(full, "")` rather than the full composition, and the reason is a hazard nobody predicted: rendering the declared list is the only part that dereferences an item handle, and `CheckLocale` validates nothing by design, so asking it for the full composition turns a plan the planners refuse by name into a panic inside the checker. Constructed and confirmed: `IngredientsSetting("axe-ingredients", []Ingredient{IngredientOf(ItemRef{}, 1)})` then `declaredIngredientEntries` gives `runtime error: index out of range [-1]`.
+
+`testdata/locale/findings.golden` did NOT move, and that is load-bearing rather than incidental: a healthy composition reports nothing new.
+
+**What this rule is not.** It can only fire if this library's own composition drifts, so it is a drift guard rather than a finding a consumer can act on. Two author-facing alternatives were considered and rejected: a keyword scan of the consumer's entry for a promise of refusal (fragile, and silent on any non-English locale file), and a "this label reads like an ingredient list" heuristic over `[string-mod-setting]` values (the same objection, and it is the consumer's own item (g) in the assessment rather than the library's).
+
+### What moved in the goldens, and why
+
+| Commit | `testdata/mirror/transcript.golden` | `testdata/ingame/dump-sha256.txt` | `flipped.golden.dat` |
+|---|---|---|---|
+| the invisible-character and reserved-word policy | unmoved | unmoved | unmoved |
+| the ladder merge | unmoved | unmoved | unmoved |
+| the player-text fallback | 2 hunks, 5 lines replaced, 47 lines either side | flipped DATA hash only | re-recorded |
+| the composed description | 2 hunks, 8 lines replaced, 47 lines either side | both SETTINGS hashes only | unmoved |
+
+Read those cells off `git show 2e5f779 --numstat -- testdata/mirror/transcript.golden`, which is `5 5`, and `git diff --numstat HEAD -- testdata/mirror/transcript.golden`, which is `8 8`; the file is 47 lines before and after both, so neither commit changed its length. The other cells check out as written: 2e5f779 moved the flipped row's data hash and left both settings hashes at `2b44da19...`, and re-recorded `flipped.golden.dat` for the new stored text; the description commit moved both rows' settings hash to `0254345f...` with both data hashes standing, and did not touch `flipped.golden.dat`.
+
+THE COLUMNS ARE THE TWO GATE GOLDENS AND THE SETTINGS BLOB, and the first two commits moved nothing in them because no example guest types a character the new policy touches, declares a duplicate, or carries a colliding ladder. They did not move NOTHING under `testdata/`: the invisible-character and reserved-word commit moved `testdata/ingredient-list/cases.txt` by 159 lines added and 25 removed, which CLAUDE.md calls the language's CONTRACT and which is the file that pins the new policy in both halves. The ladder-merge commit left the corpus alone, because a merge is a plan-time event rather than a parse. The fallback commit's stand-in stores a refused INGREDIENT text and its engine row a refused PACK text, so between the two gates both list kinds are covered on the fallback path; only a data hash moved, because a stored value does not move a setting prototype. The description commit is the mirror image: only the settings hashes moved, identically on both rows, because the settings dump holds prototypes and every composed description changed. The cost dropdown's transcript line did not move, which is the cost preset staying as it was.
+
+### Size, measured over the whole round
+
+`git archive 9754f49` against the working tree, both built at the same absolute scratch path (rustc and TinyGo write source paths into the wasm, so a differing path length reads as a fake delta), packaged with an `fklua` built from a `git archive` of FkLua b88965d, with the harness's own flags. Both trees' `rust/Cargo.lock` are byte-identical, so the delta is FkRecipes code alone.
+
+| guest | wasm bytes | `fk_data_module.lua` bytes | lines |
+|---|---|---|---|
+| `go/examples/notext` | 665,182 to 716,980 (+7.79%) | 2,542,105 to 2,710,197 (+6.61%) | 63,271 to 68,049 |
+| `rust/examples/notext` | 142,129 to 149,774 (+5.38%) | 2,171,601 to 2,293,724 (+5.62%) | 52,980 to 55,772 |
+| `go/examples/datastage` | 1,020,119 to 1,087,279 (+6.58%) | 3,647,117 to 3,857,652 (+5.77%) | 95,017 to 101,216 |
+| `rust/examples/datastage` | 232,977 to 244,345 (+4.88%) | 3,177,137 to 3,330,780 (+4.84%) | 79,515 to 83,272 |
+
+The round costs about 5 to 8 percent everywhere, and it costs the no-text guests as much as the ones that declare text settings. Go pays more than Rust in both shapes. The BEFORE `datastage` rows reproduce the "Sizes at the same head" paragraph above exactly, which is what makes the two tables comparable; the one figure that differs is the Go wasm, by 356 bytes of DWARF path, which does not reach the packaged Lua.
+
+**The seam holds and its edge is now visible.** Neither `notext` guest links a parser or a renderer: `invisible character`, `is longer than`, `stands alone` and `no item or fluid is named` are all absent from both, and present in the `datastage` control, and a header diff of the Go `notext` module shows six new functions and none of them from `ingredientlist.go`. But three description PROSE constants do reach every guest now, where all seven needles were absent at 9754f49: `Write internal names`, `set aside` and `type: `. Two arrive because the locale checker builds an unconditional table naming `textFormatLine()` and `textFallbackLine`; the third because the preset head is a constant beside a call through the seam's function value. About 230 bytes of string data against 168 KB of growth, so it is a linkage observation rather than a size driver, and the comment that claims "naming it here links no part of the language" is true as written and narrower than these needles.
+
+Jump rows (`limit_bytes` 655,355, `hop_bytes` 327,677). NEITHER GATE PACKAGES `notext`, so the rows below are the `datastage` pair alone, and no `notext` jump row exists outside this round's own scratch packaging pass. `go/examples/datastage` went from the recorded 988,326 bytes of widest pre-relay span over 12 stations (the row in the sync-pass section above, at 9754f49) to 1,018,671 over 14; `rust/examples/datastage` from 545,785 with no relay to 577,567, still with no relay. Both AFTER figures are read out of `jq -c '.jumps.data'` over the reports this round's gate runs left in `tmp/mirror/` and `tmp/ingame/`, which agree with each other byte for byte per language. Block room is unmoved on both: 314,648 for Go (widest block 13,029 in `copyValue`) and 323,877 for Rust (3,800 in `value::not_text`), the same figures as at 9754f49, so nothing is near refusing. An earlier draft of this paragraph also carried 318,831 bytes of block room; that came from the scratch pass, not from a gate report, and this correction pass neither re-took it nor established which guest it belongs to.
+
+### Gates
+
+Every gate in CLAUDE.md's Gates block ran before every one of the four commits, exit codes read directly and never through a pipe, all 0: `gofmt -l .` (no output), `go vet ./...`, `go test ./...`, `go test -race ./...`, `go/examples/notext` `go vet .`, `cargo fmt --check`, `cargo test`, `RUSTFLAGS=-Dwarnings cargo clippy --workspace --all-targets`, `cargo build --target wasm32-unknown-unknown --workspace`, `scripts/run-mirror.sh` and `scripts/run-ingame.sh`. The engine gate ran on `Version: 2.0.77 (build 84539, mac-arm64, steam)`, re-asked before each run, with `FACTORIO_USERDIR` at its private `/tmp/fkrecipes` default. The suites grew from 175 Rust unit tests to 196, and the corpus from 204 cases to 242. The Rust baseline is 175 rather than the 176 the fallback commit's message says: counted as `#[test]` attributes under `rust/src` at both revisions (`git grep -c '#\[test\]' 9754f49 -- 'rust/src/*.rs'` against the working tree), a method whose current answer, 196, is exactly what `cargo test` reports for the lib target. The corpus figures are `in:|` lines in `testdata/ingredient-list/cases.txt` at the same two revisions.
+
+### What the reviews found, which is why there were four of them
+
+Every one of the four adversarial reviews found something the implementation had got wrong, and two of them found defects that would have shipped silently:
+
+- the invisible-character commit's first shape had a Go per-member test that read the set OUT of the predicate, so narrowing a range simply removed those points from the test: 15 code points dropped and the whole suite stayed green while the two halves diverged. Both halves now carry an independently spelled range table.
+- the merge commit's first shape swallowed an author's literal duplicate, turning an engine refusal into a silent `6`.
+- the fallback commit's first shape claimed totality in seven places where the property is narrower, and left the Rust half with no refusal-ordering witness at all after a rename.
+- the description commit's first shape promised a load in the one case where the library does not deliver one.
+
+Three defects nobody had asked about turned up while taking review findings: the cost and crafting-time checks ran over whatever `readNumber` returned, so an UNREADABLE setting with an illegal declared default logged a player-facing line blaming a stored value that never existed; the declared pack path emitted amounts the engine refuses; and Rust's stands-alone sentence interpolated the player's entry where Go interpolated the literal word, which was invisible until the case fold made `NONE stands alone` possible.
+
+### What BetterBeltBalancer must do to adopt this
+
+Nothing in BBB is required for the library changes to take effect: they are all library-side, and BBB's declarations compile unchanged. What BBB should now DO, in the assessment's own numbering:
+
+1. **(f) Reconsider `FallbackName`.** `guest/go/tune/tune.go:168` sets it to `iron-plate` and every ladder ends on it, so the vanilla and cheap presets now MERGE rather than refuse: a pack without `transport-belt` gets `6 iron-plate, 2 iron-gear-wheel` and a log line, not a dead game. That is a better outcome than the crash and it is still probably not the balance intended. The ladders can now be checked against what is already chosen, and a ladder whose collapse the author does not want is one rung the author should drop rather than one the library should guess at.
+2. **Declare no literal duplicate.** A declared list, choice preset or unit that names one item twice now REFUSES at plan time, where it used to reach the engine. BBB declares none today; a future preset that does will be told by name.
+3. **(g) Rewrite `bbb-recipe-cost`'s description, and scope the reassurance to the presets.** The assessment asks for two things here and both still stand. First, the description is byte-identical to published 0.2.2's and never mentions Custom, while its twin `bbb-tech-cost`'s was rewritten and does; it needs the same rewrite, and it needs to mention Custom. Second, `If an option names something your mods do not have, the nearest thing they do have is used instead.` MUST BE SCOPED TO THE PRESETS. This round did not make it true of the field, and could not have: a typed name the game lacks is not substituted with anything, the WHOLE typed text is set aside, and the author's declared list with its ladders applies instead. That is what the library's own new line says in as many words, `A text this mod cannot use is set aside and that default applies instead`. A player who reads the unscoped sentence over the field is told their typo will be quietly nudged onto a neighbour; what actually happens is that everything they typed stops counting. The rewrite is shorter than it was under refusal, but it is still a rewrite: the library now supplies the format, the 2000-character limit and the fallback policy, so the consumer's entry only has to say what the setting is FOR.
+4. **(h) Leave the preset labels alone, or rewrite them, but decide it.** The library no longer prints both vocabularies as one run of text: each preset's internal-name list is on its own indented `type:` line under the label. A label spelling display names is now merely unhelpful rather than a trap. If BBB rewrites its labels in internal names, the tooltip reads the same thing twice; if it keeps them, the `type:` line is the answer.
+5. **Two changelog sentences the settings screen cannot say**, both now written up for authors in `docs/migration.md`. Adding a `custom` value to a dropdown that older releases lack means a player who runs an older release once has that choice reset, silently and permanently, and the typed text surviving is what makes it look like nothing was lost. And a Custom cost arm moves the technology's prerequisite to the ladder's first existing entry even when all three numbers are untouched.
+6. **Re-run the assessment's finding 2 and finding 1 arms.** Both should now be green, and both have a library-side gate behind them, but the pilot is where a real client can confirm the log line reads well on screen and the 13-line tooltip renders whole.
+7. **(i) `release/2.0` is BBB's alone** and nothing here touches it.
+
+### What this round leaves open on this side
+
+- The fallback is not total: an author declaration that cannot produce a legal result in a given mod set still stops the load, and a player who had typed a working list around it loses that workaround to a typo. The added sentence tells them what to change; the load still stops.
+- The 13-line tooltip has not been seen by a client. The seven-line measurement is on the old shape.
+- Three description prose constants link into a guest that declares no text setting. Cheap, and the seam that matters holds, but the "no text setting links nothing" claim now needs its adjective.
+- The engine's own behaviour with a NUL inside a load-failure message is unmeasured. The escaping makes it moot, not answered. What a NUL does to a STORED VALUE has two measurements that contradict each other, above, and neither was re-taken here.
+- The declared-pack path's old `maxExactInt` cap is now the measured 65535, but the TYPED path always checked 65535 and the two were inconsistent for a while; nothing else in the library holds two ceilings for one kind of value, and it is worth a look if a third appears.
+
+### Corrections to numbers this round's own commit messages carry
+
+History is linear here and is not rewritten, so two landed commit messages still carry figures and claims the section above now corrects. A reader of the log should take the section as the current answer:
+
+- **3a9de88** says the set "grew from 18 ranges to 28, from 4237 code points to 4287": the new pair is right, the old pair is not, and the old set is 11 ranges and 114 code points. The same message calls 3769 what "the plane-14 tag block contributes": 3769 is the total over three reserved runs and the tag-block range contributes 3759 of it. It says "Seven sites in each half, all of them" of `quotable()`: Go has 11 and Rust 10. It says the ASCII fold is "written out rather than taken from either standard library": only Go writes it out, and Rust's `eq_ignore_ascii_case` is what Go was written to match. And it states the design record's NUL row as settled: it is contradicted by the assessment's finding 10 and nothing has re-measured which is right.
+- **2e5f779** says "Eight sites fall back": the enumeration that follows it is seven, and the code sites are four in Go and five in Rust. Its red proof (a) quotes the old code's refusal as `no item or fluid is named ...`: the flipped row's refused value is a PACK list, so the sentence is `no science pack is named militar-science-pack`. Its gate line reads "cargo test (192, was 176 at the start of the round)": the baseline is 175.
+- Nothing in **696387f** is corrected here.

@@ -77,8 +77,8 @@ fn plan_settings_text_setting_prototypes() {
     assert_composed(
         &transcript(&ops),
         &[
-            r#"extend {type="string-setting", name="steelworks-rivet-ingredients", setting_type="startup", default_value="default", order="aa", auto_trim=true, localised_description=["", ["mod-setting-description.steelworks-rivet-ingredients"], "\ndefault: 2 tungsten-plate, 4 steelworks-steel-rivet, 0.5 [fluid=water]"]}"#,
-            r#"extend {type="string-setting", name="steelworks-research-packs", setting_type="startup", default_value="default", order="z", auto_trim=true, localised_description=["", ["mod-setting-description.steelworks-research-packs"], "\ndefault: 1 military-science-pack"]}"#,
+            r#"extend {type="string-setting", name="steelworks-rivet-ingredients", setting_type="startup", default_value="default", order="aa", auto_trim=true, localised_description=["", ["mod-setting-description.steelworks-rivet-ingredients"], "\ndefault: 2 tungsten-plate, 4 steelworks-steel-rivet, 0.5 [fluid=water]"<text tail>]}"#,
+            r#"extend {type="string-setting", name="steelworks-research-packs", setting_type="startup", default_value="default", order="z", auto_trim=true, localised_description=["", ["mod-setting-description.steelworks-research-packs"], "\ndefault: 1 military-science-pack"<text tail>]}"#,
             r#"extend {type="int-setting", name="steelworks-tips-count", setting_type="startup", default_value=30, order="ac", minimum_value=1, maximum_value=100000}"#,
             r#"extend {type="double-setting", name="steelworks-tips-seconds", setting_type="startup", default_value=15, order="ad", minimum_value=5.0000000000000000e-1, maximum_value=600}"#,
         ],
@@ -104,9 +104,37 @@ fn an_empty_declared_ingredient_list_reads_as_none() {
     assert_composed(
         &transcript(&ops)[..1],
         &[
-            r#"extend {type="string-setting", name="steelworks-rivet-ingredients", setting_type="startup", default_value="default", order="aa", auto_trim=true, localised_description=["", ["mod-setting-description.steelworks-rivet-ingredients"], "\ndefault: none"]}"#,
+            r#"extend {type="string-setting", name="steelworks-rivet-ingredients", setting_type="startup", default_value="default", order="aa", auto_trim=true, localised_description=["", ["mod-setting-description.steelworks-rivet-ingredients"], "\ndefault: none"<text tail>]}"#,
         ],
     );
+}
+
+/// THE TWO LINES, BYTE FOR BYTE, and the number in the first one comes from
+/// the same constant the parser refuses on. A sentence promising a limit the
+/// parser does not keep is the drift this pins; the Go twin carries the same
+/// bytes and the mirror compares the two transcripts.
+#[test]
+fn the_composed_text_lines_are_the_stated_ones() {
+    use crate::ingredient_list::MAX_TEXT;
+    use crate::settings::{text_format_line, INGREDIENT_PRESET_HEAD, TEXT_FALLBACK_LINE};
+
+    assert_eq!(
+        MAX_TEXT, 2000,
+        "the sentence below and both halves' docs say 2000"
+    );
+    assert_eq!(
+        text_format_line(),
+        "\nWrite internal names, as the default line above does, in at most 2000 characters."
+    );
+    assert_eq!(
+        TEXT_FALLBACK_LINE,
+        "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."
+    );
+    // A LINE, NOT A SEPARATOR, and the word a player acts on opens it. The
+    // dropdown label beside this is the consumer's prose and the client
+    // truncates it at about 37 characters; the internal names are on their own
+    // line so the copyable half of the tooltip is never the truncated half.
+    assert_eq!(INGREDIENT_PRESET_HEAD, "\n  type: ");
 }
 
 /// THE DROPDOWN'S DESCRIPTION IS COMPOSED, because the engine will not let the
@@ -157,7 +185,7 @@ fn plan_settings_composes_a_dropdown_with_a_custom_arm() {
     assert_composed(
         &transcript(&ops)[..1],
         &[
-            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="aa", allowed_values=["water", "oil", "custom"], localised_description=["", ["mod-setting-description.steelworks-quench-medium"], ["", "\n", ["string-mod-setting.steelworks-quench-medium-water"], ": 2 steel-plate, 10 [fluid=water]"], ["", "\n", ["string-mod-setting.steelworks-quench-medium-oil"], ": 3 steel-plate"]]}"#,
+            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="aa", allowed_values=["water", "oil", "custom"], localised_description=["", ["mod-setting-description.steelworks-quench-medium"], ["", "\n", ["string-mod-setting.steelworks-quench-medium-water"], "\n  type: 2 steel-plate, 10 [fluid=water]"], ["", "\n", ["string-mod-setting.steelworks-quench-medium-oil"], "\n  type: 3 steel-plate"]]}"#,
         ],
     );
 }

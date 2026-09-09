@@ -117,6 +117,61 @@ func TestNoMessageCarriesItsOwnStage(t *testing.T) {
 	t.Logf("scanned %d string literals across %d source files", checked, len(sources))
 }
 
+// THE CEILING IS NEVER TYPED INTO A MESSAGE, which is what makes "one number
+// by construction" a fact rather than a hope.
+//
+// textFormatLine builds the sentence the player reads from maxListChars, and
+// the parser's own too-long refusal does the same. Nothing in a value test can
+// see the difference between that and a typed 2000: both render the same bytes
+// while the constant happens to be 2000, so a hand-typed digit run would sit
+// there green until somebody changed the ceiling and shipped a description
+// that lied about it. Only a property over the source can see it, so this
+// forbids the ceiling's own decimal rendering in every string literal the
+// package builds a message out of.
+//
+// IT TRACKS THE CONSTANT. The needle is strconv.Itoa(maxListChars) taken at
+// run time, so raising the ceiling moves what is forbidden with it. A literal
+// that merely CONTAINS those digits is caught too (12000 would be), and that
+// is the right side to err on: a number near the ceiling in a player-facing
+// sentence is one somebody should have to re-read.
+func TestTheCeilingIsNeverTypedIntoAMessage(t *testing.T) {
+	sources := packageSources(t)
+	needle := strconv.Itoa(maxListChars)
+
+	fset := token.NewFileSet()
+	checked := 0
+	for _, path := range sources {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("the source is the thing under test and it is not readable: %v", err)
+		}
+		file, err := parser.ParseFile(fset, path, src, 0)
+		if err != nil {
+			t.Fatalf("%s does not parse: %v", path, err)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			text, err := strconv.Unquote(lit.Value)
+			if err != nil {
+				return true
+			}
+			checked++
+			if strings.Contains(text, needle) {
+				t.Errorf("%s: a string literal types the ceiling %s instead of building it from maxListChars\n  literal: %q",
+					fset.Position(lit.Pos()), needle, text)
+			}
+			return true
+		})
+	}
+	if checked < 50 {
+		t.Fatalf("only %d string literals were scanned across %d files; the walk is not reaching the messages",
+			checked, len(sources))
+	}
+}
+
 // ---------------------------------------------------------------------------
 // The language seam, as a source property.
 // ---------------------------------------------------------------------------
