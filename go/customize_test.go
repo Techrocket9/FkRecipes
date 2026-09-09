@@ -2645,6 +2645,12 @@ func TestTheConstructorsInstallTheLanguage(t *testing.T) {
 	// whole seam exists to produce: no field here names the parser, the
 	// renderer, the amount formatter or the custom-cost resolver, so nothing
 	// in a consumer built this way keeps them alive.
+	//
+	// THOSE FOUR, and not everything: the description prose the settings
+	// planner composes for a text setting is named from a runtime branch every
+	// guest compiles in, so that prose ships whether or not a text setting is
+	// declared. Measured, under "The claim gets its adjective" in Fix round 1b
+	// of agents/implementation-notes.md.
 	plain := New()
 	plainAxe := plain.Item("steel-axe", ItemSpec{})
 	plain.Recipe(plainAxe, RecipeSpec{Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")}})

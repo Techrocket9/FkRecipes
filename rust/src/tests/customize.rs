@@ -2065,8 +2065,14 @@ fn a_packs_handle_naming_another_kind_is_refused() {
 
 /// WHAT THE SEAM IS FOR, asserted on the plan itself: a plan that declares no
 /// text setting carries neither table, so nothing it can do reaches the
-/// language and a link-time elimination pass has nothing to keep. The two
-/// constructors install what their own readers need and no more.
+/// language and a link-time elimination pass keeps no parser, no renderer, no
+/// amount formatter and no custom-cost resolver. THOSE FOUR, and not "nothing
+/// to keep": the description prose the settings planner composes for a text
+/// setting is named from a runtime branch every guest compiles in, so that
+/// prose ships whether or not a text setting is declared. Measured, under "The
+/// claim gets its adjective" in Fix round 1b of
+/// `agents/implementation-notes.md`. The two constructors install what their
+/// own readers need and no more.
 #[test]
 fn a_plan_installs_only_the_tables_its_settings_need() {
     let mut lib = Lib::new();

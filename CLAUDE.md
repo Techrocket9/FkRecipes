@@ -113,11 +113,15 @@ go/examples/datastage   the Go example guest, its own module (a consumer-shaped 
 rust/examples/datastage the Rust example guest (workspace member), the mirror harness's Rust arm
 go/examples/notext      the size-measurement fixtures: a BetterBeltBalancer-shaped guest (two legacy
 rust/examples/notext    dropdowns over IngredientsBy and CostBy, no text setting) written twice, so "a
-                        plan with no text setting links no ingredient language" is a number somebody
-                        can re-take with the commands in agents/implementation-notes.md. The Go one is
-                        its own module and only `go vet .` in its directory keeps it compiling; the
-                        Rust one is a workspace member, so the wasm workspace build does. Nothing runs
-                        either under an engine or the stand-in
+                        plan with no text setting links no PARSER, no RENDERER, no AMOUNT FORMATTER
+                        and no CUSTOM-COST RESOLVER" is a number somebody can re-take with the
+                        commands in agents/implementation-notes.md. Those four and not everything:
+                        the description prose a text setting's composition holds is named from a
+                        runtime branch every guest compiles in, so it ships in all four guests, and
+                        the same section measures that beside them. The Go one is its own module and
+                        only `go vet .` in its directory keeps it compiling; the Rust one is a
+                        workspace member, so the wasm workspace build does. Nothing runs either
+                        under an engine or the stand-in
 scripts/                gate scripts: run-mirror.sh is the cross-language mirror, run-ingame.sh the
                         engine gate, and lib-report.sh the one copy both source. lib-report.sh reads
                         the jumps row out of `fklua mod --report` and prints it per language, and it

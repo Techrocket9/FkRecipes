@@ -30,8 +30,9 @@ func (*noCopy) Unlock() {}
 // dropdowns driving IngredientsBy and CostBy, no text setting anywhere), and
 // it exists so this number can be re-taken. Packaged with fklua it produced a
 // 95,227 line, 3,658,810 byte fk_data_module.lua before this seam and a 67,023
-// line, 2,716,663 byte one after, because both planners used to call the
-// parser, the renderer and the custom-cost resolver by name and TinyGo
+// line, 2,716,663 byte one after (measured at c7a806e against an fklua at
+// a1fcd04, and a figure for that head alone), because both planners used to
+// call the parser, the renderer and the custom-cost resolver by name and TinyGo
 // therefore had to keep all three. The pilot's own module is neither figure:
 // 39,056 lines and 1,763,788 bytes at its pre-customizer release, 122,031
 // lines and 4,904,124 bytes at its round-three head, where it declares text
@@ -41,9 +42,11 @@ func (*noCopy) Unlock() {}
 // single-caller function and its header leaves the module while its code
 // stays, so a leak of tens of kilobytes can sit behind a grep for
 // parseIngredientList, classifyPiece and resolveCustomCost that answers zero
-// on all three. Compare the counts against the pinned figures; the commands
-// and the numbers are in agents/implementation-notes.md, in the follow-up
-// subsection.
+// on all three. Compare the counts against the CURRENT figures, the
+// four-fixture table under "The claim gets its adjective" in Fix round 1b of
+// agents/implementation-notes.md, which carries the runnable recipe beside
+// them; the pair above is the seam's own before and after and belongs to the
+// head it names.
 //
 // A PLAN THAT DECLARES NO TEXT SETTING CARRIES A NIL HERE, and that state
 // cannot be reached through the public surface: the two text-setting

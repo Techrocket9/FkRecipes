@@ -5,10 +5,12 @@
 // and no text setting is declared anywhere. That is the shape that says
 // whether a consumer who never calls IngredientsSetting or PacksSetting ships
 // the ingredient language: package this guest with fklua and compare
-// fk_data_module.lua's line and byte counts against the figures pinned in
-// agents/implementation-notes.md (the follow-up subsection carries the
-// commands and the numbers, before and after the seam that keeps the language
-// behind the two constructors). The counts are the oracle; a grep for the
+// fk_data_module.lua's line and byte counts against the CURRENT figures, which
+// are the four-fixture table under "The claim gets its adjective" in Fix round
+// 1b of agents/implementation-notes.md, with a runnable recipe beside them. The
+// follow-up subsection's older table is the seam's own before and after,
+// measured at c7a806e against an fklua at a1fcd04, and neither half of it is a
+// figure for this tree. The counts are the oracle; a grep for the
 // language's function names is only a secondary signal, because TinyGo inlines
 // a single-caller function and its header disappears from the module while its
 // code stays.

@@ -170,20 +170,22 @@ pub(crate) struct ListEntry {
 /// `opt-level = "s"` with LTO and packaged by `fklua mod`. With the planners
 /// naming these functions it packaged 84,959 lines of fk_data_module.lua;
 /// with this table in front of them, 59,491, the language's own functions
-/// gone from the packaged module's headers. LINES rather than bytes, because
-/// rustc writes a source path into the wasm's panic locations and the
-/// packaged module's byte total moves by a few hundred bytes with wherever the
-/// checkout sits; the follow-up subsection of `agents/implementation-notes.md`
-/// carries the commands and the byte totals with the path they were taken
-/// under.
+/// gone from the packaged module's headers. That pair was measured at c7a806e
+/// against an `fklua` at a1fcd04 and belongs to that head: the CURRENT figures
+/// for all four guests are the table under "The claim gets its adjective" in
+/// Fix round 1b of `agents/implementation-notes.md`, with a runnable recipe
+/// beside them. LINES rather than bytes, because rustc writes a source path
+/// into the wasm's panic locations and the packaged module's byte total moves
+/// by a few hundred bytes with wherever the checkout sits; both subsections
+/// carry the byte totals with the path they were taken under.
 ///
-/// The guest that DOES declare text settings pays for the indirection, and
-/// the whole bill is 0.6%: `rust/examples/datastage` goes from 3,656,235
-/// bytes of fk_data_module.lua to 3,679,378, and from 89,943 lines to 90,520.
-/// The question came from the pilot, which measured its own packaged data
-/// module at 4,904,124 bytes at its round-three head, WITH its text settings
-/// declared; that is a different plan from the fixture above and not the same
-/// measurement.
+/// The guest that DOES declare text settings paid for the indirection, and at
+/// that same head the whole bill was 0.6%: `rust/examples/datastage` went from
+/// 3,656,235 bytes of fk_data_module.lua to 3,679,378, and from 89,943 lines
+/// to 90,520. The question came from the pilot, which measured its own
+/// packaged data module at 4,904,124 bytes at its round-three head, WITH its
+/// text settings declared; that is a different plan from the fixture above and
+/// not the same measurement.
 ///
 /// So the planners reach the language through this table and never by name.
 /// It is installed by the two constructors that declare a text setting,
