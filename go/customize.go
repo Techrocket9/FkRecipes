@@ -698,14 +698,17 @@ func localeRef(section, key string) Value { return Arr(Str(section + "." + key))
 //
 // THE THREE LINES ARE THE ANSWER TO WHAT A CLIENT MEASUREMENT FOUND. A player
 // standing in the Mod Settings screen reads the tooltip whole (measured on
-// 2.0.77: a seven-line composed description renders readable and unclipped),
-// so the description is where the library can say what the field takes; the
-// closed dropdown's LABEL beside it is truncated at about 37 characters, which
-// is why nothing a player needs may live in a label. The default line shows
-// the list the word default stands for, in the internal names the field
-// actually takes; the format line says so in words and states the ceiling; and
-// the fallback line says what a text this library cannot use costs, which
-// before it was stated nowhere a player looks.
+// 2.0.77 on a DROPDOWN's composed description, one line per preset: seven
+// lines rendered readable and unclipped; the ceilings on a composed
+// description are the parameter count maxLocalisedParams holds and the nesting
+// depth its comment records, and neither of them is a line count), so the
+// description is where the library can say what the field takes; the closed
+// dropdown's LABEL beside it is truncated at about 37 characters, which is why
+// nothing a player needs may live in a label. The default line shows the list
+// the word default stands for, in the internal names the field actually takes;
+// the format line says so in words and states the ceiling; and the fallback
+// line says what a text this library cannot use costs, which before it was
+// stated nowhere a player looks.
 //
 // ONE COMPOSITION, TWO READERS. The settings planner emits this; CheckLocale
 // asks the same function for the same shape with the list left out, so a line
