@@ -1248,13 +1248,26 @@ pub(crate) const LIST_WRAP_LINE: &str =
 /// What happens to a text this library cannot use.
 ///
 /// IT IS THE ONE THING THE SCREEN CANNOT SHOW. The text is set aside and the
-/// declared list applies (decision 2), so a player whose text went unused sees
-/// a settings screen that still holds it and a game that ignores it. Saying so
-/// in the description is the only warning available before the fact.
+/// field then decides exactly as it does while it holds the reserved word
+/// (decision 2), so a player whose text went unused sees a settings screen that
+/// still holds it and a game that ignores it. Saying so in the description is
+/// the only warning available before the fact.
+///
+/// "BEHAVES AS THOUGH IT SAID DEFAULT" POINTS AT THE SWITCH LINE, and the
+/// wording is chosen for where it lands on the screen. The line used to read
+/// "that default applies instead", which is deictic, and its nearest antecedent
+/// three rows above is the DEFAULT LINE, which renders the author's declared
+/// list and nothing else; beside a dropdown that is a contradiction a player
+/// can read in one glance (measured: the tooltip said one list, the recipe the
+/// game built was another). `text_switch_line` composes the row immediately
+/// above this one and already says what the word default does in THIS field:
+/// the option chosen above or below where there is a dropdown, this mod's own
+/// list where there is not. Pointing at that row is what makes this line true
+/// on every preset.
 ///
 /// IT PROMISES THE NARROW CLAIM AND NOT A LOAD, which is what the wording is
-/// for. Setting a text aside is not the same as loading: the declared list is
-/// held to every rule it always was, so a modpack in which that declaration
+/// for. Setting a text aside is not the same as loading: the list that then
+/// decides is held to every rule it always was, so a modpack in which it
 /// cannot produce a legal result still stops the load, and on a refused load
 /// the log ops never reach the host at all, so the load error is the only
 /// place the reason can be: `Resolution::fallback_fact` is what puts it there,
@@ -1262,7 +1275,7 @@ pub(crate) const LIST_WRAP_LINE: &str =
 /// log or the load error, is therefore the whole claim this line is allowed to
 /// make.
 pub(crate) const TEXT_FALLBACK_LINE: &str =
-    "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway.";
+    "\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway.";
 
 /// One preset's line: a newline, the value's own locale entry, and what it
 /// means. The LABEL IS THE LOCALISED ONE, because that is what the settings

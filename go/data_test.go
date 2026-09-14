@@ -1917,7 +1917,7 @@ func TestBoundCraftingTimeFallsBack(t *testing.T) {
 
 			assertLines(t, transcript(ops), []string{
 				`log fkrecipes: ERROR: ` + c.want +
-					`. The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.`,
+					`. The mod loaded as though that number had been left alone; fix the number under Settings > Mod settings > Startup, then restart.`,
 				`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
 				`extend {type="recipe", name="steelworks-steel-axe", ` +
 					noteIn("steelworks-axe-craft-time", false) +
@@ -1955,7 +1955,7 @@ func TestOneBadCraftingTimeSettingTwoRecipesLogsOneLine(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: ERROR: the recipe steel-axe-forging reads its crafting time from steelworks-forging-time,` +
 			` which answers at or below the engine floor (energy_required can't be <= 0.001).` +
-			` The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.`,
+			` The mod loaded as though that number had been left alone; fix the number under Settings > Mod settings > Startup, then restart.`,
 		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
 		`extend {type="item", name="steelworks-steel-hammer", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-steel-axe-forging", ` +

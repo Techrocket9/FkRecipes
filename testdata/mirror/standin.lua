@@ -502,9 +502,9 @@ settings = { startup = {
   -- and this is where the composed ERROR line is pinned byte for byte across
   -- the two halves: the language's own sentence, the shared prefix trimmed off
   -- it, and the instruction that names the screen the player fixes it on. The
-  -- list that reaches the recipe is the mod's OWN declared one, which is what
-  -- "loaded with its own default instead" means in the prototype rather than
-  -- only in the line.
+  -- list that reaches the recipe is the mod's OWN declared one, because this
+  -- field has no dropdown beside it, which is what "loaded as though that text
+  -- had been left alone" means in the prototype rather than only in the line.
   --
   -- THE OTHER SIDE OF THIS SETTING IS THE IN-GAME GATE'S, where the same field
   -- carries a list the language accepts, so one gate covers the refusal and the

@@ -1001,19 +1001,32 @@ const listWrapLine = "\nA list too long for one line continues on the next; the 
 // textFallbackLine is what happens to a text this library cannot use.
 //
 // IT IS THE ONE THING THE SCREEN CANNOT SHOW. The text is set aside and the
-// declared list applies (decision 2), so a player whose text went unused sees a
-// settings screen that still holds it and a game that ignores it. Saying so in
-// the description is the only warning available before the fact.
+// field then decides exactly as it does while it holds the reserved word
+// (decision 2), so a player whose text went unused sees a settings screen that
+// still holds it and a game that ignores it. Saying so in the description is
+// the only warning available before the fact.
+//
+// "BEHAVES AS THOUGH IT SAID DEFAULT" POINTS AT THE SWITCH LINE, and the
+// wording is chosen for where it lands on the screen. The line used to read
+// "that default applies instead", which is deictic, and its nearest antecedent
+// three rows above is the DEFAULT LINE, which renders the author's declared
+// list and nothing else; beside a dropdown that is a contradiction a player can
+// read in one glance (measured: the tooltip said one list, the recipe the game
+// built was another). textSwitchLine composes the row immediately above this
+// one and already says what the word default does in THIS field: the option
+// chosen above or below where there is a dropdown, this mod's own list where
+// there is not. Pointing at that row is what makes this line true on every
+// preset.
 //
 // IT PROMISES THE NARROW CLAIM AND NOT A LOAD, which is what the wording is
-// for. Setting a text aside is not the same as loading: the declared list is
-// held to every rule it always was, so a modpack in which that declaration
+// for. Setting a text aside is not the same as loading: the list that then
+// decides is held to every rule it always was, so a modpack in which it
 // cannot produce a legal result still stops the load, and on a refused load the
 // log ops never reach the host at all, so the load error is the only place the
 // reason can be: resolution.fallbackFact is what puts it there, which is what
 // keeps this line's second clause true. Naming both places, the log or the load
 // error, is therefore the whole claim this line is allowed to make.
-const textFallbackLine = "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."
+const textFallbackLine = "\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway."
 
 // presetLine is one preset's line in a composed dropdown description.
 //
@@ -1163,14 +1176,22 @@ const messagePrefix = "fkrecipes: "
 // own Error lines while a case-insensitive one still finds it.
 //
 // FIELD is the word the player looks for on the settings screen: the text of a
-// list, or the number of a slider.
+// list, or the number of a slider. It is now in the sentence TWICE, because the
+// line used to say the mod loaded with its own default instead and that is
+// false wherever a preset dropdown sits beside the field: the set-aside value
+// leaves the dropdown's CURRENTLY CHOSEN preset deciding, not the declaration.
+// Saying the mod loaded as though that field had been left alone is true
+// there, true on every preset, true where no dropdown exists, and true of a
+// number as well as a text. The ROUTE is unchanged and stays: this line is
+// written on a load that SUCCEEDED, so the settings screen really is reachable.
+//
 // TAIL is what the field costs beyond being wrong, and it is a parameter
 // rather than a branch on the reason so that no sentence here is chosen by
 // reading another sentence. Only a recipe's ingredient text has one: see
 // recipeTextFallback.
 func playerFallback(reason, field, tail string) string {
 	return messagePrefix + "ERROR: " + strings.TrimPrefix(reason, messagePrefix) +
-		". The mod loaded with its own default instead; fix the " + field +
+		". The mod loaded as though that " + field + " had been left alone; fix the " + field +
 		" under Settings > Mod settings > Startup, then restart." + tail
 }
 
@@ -1414,14 +1435,17 @@ func (l *Lib) ownItemWorld(w World, prefix string) planItemWorld {
 
 // resolveTextList reads one text setting and answers with what it says.
 //
-// FOUR WAYS IN AND THREE OF THEM LAND ON THE AUTHOR'S OWN LIST:
+// FOUR WAYS IN AND THREE OF THEM LEAVE THE FIELD WHERE A PLAYER WHO TYPED
+// NOTHING LEFT IT, which beside a dropdown is the dropdown's chosen preset and
+// on its own is the author's declared list with its ladders:
 //
-//   - unreadable: the declared default applies, with the ordinary log line the
-//     rest of the library uses for a setting it could not read;
-//   - the word default: the AUTHOR's declared list with its ladders, which is
-//     the pre-existing resolution path and gets no line of its own;
-//   - not text at all, or a text the language refuses: the declared default
-//     again, with ONE fallback line naming the setting and quoting the reason;
+//   - unreadable: the field decides as though it held the reserved word, with
+//     the ordinary log line the rest of the library uses for a setting it
+//     could not read;
+//   - the word default: the same path, which is the pre-existing one and gets
+//     no line of its own;
+//   - not text at all, or a text the language refuses: the same path again,
+//     with ONE fallback line naming the setting and quoting the reason;
 //   - anything else: parsed and resolved by the language, in the typed order.
 //
 // IT NEVER REFUSES, and that is the decision this round turned on. The two

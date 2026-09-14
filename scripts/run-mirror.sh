@@ -278,7 +278,7 @@ fi
 # own (the engine would store 98000 characters), so the sentence IS the limit as
 # far as the screen goes; and the settings screen has no conditional visibility
 # at all (measured), so the switch line is the only place the pairing is stated.
-grep -qF '{1="",2={1="?",2={1="mod-setting-description.fkrecipes-example-rivet-ingredients"},3="fkrecipes-example-rivet-ingredients"},3="\ndefault: 1 iron-plate",4="\nA list too long for one line continues on the next; the continuation is part of the same list.",5="\nWrite internal names, as the default line above does, in at most 2000 characters. The word none empties the list, so the recipe costs nothing to craft.",6="\nWhile this says default this mod'"'"'s own list applies.",7="\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."}' "$T" ||
+grep -qF '{1="",2={1="?",2={1="mod-setting-description.fkrecipes-example-rivet-ingredients"},3="fkrecipes-example-rivet-ingredients"},3="\ndefault: 1 iron-plate",4="\nA list too long for one line continues on the next; the continuation is part of the same list.",5="\nWrite internal names, as the default line above does, in at most 2000 characters. The word none empties the list, so the recipe costs nothing to craft.",6="\nWhile this says default this mod'"'"'s own list applies.",7="\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway."}' "$T" ||
   fail "the text setting's composed description is not in the transcript"
 # AND THE PACKS TWIN, WHOLE, which is the same six parameters with ONE
 # difference: its format line stops at the ceiling and does not name the word
@@ -287,7 +287,7 @@ grep -qF '{1="",2={1="?",2={1="mod-setting-description.fkrecipes-example-rivet-i
 # library turns down. The two greps below say the same thing negatively, per
 # packs setting, so a clause that leaked would be caught even if this whole
 # pin were re-recorded around it.
-grep -qF '{1="",2={1="?",2={1="mod-setting-description.fkrecipes-example-chain-packs"},3="fkrecipes-example-chain-packs"},3="\ndefault: 1 automation-science-pack",4="\nA list too long for one line continues on the next; the continuation is part of the same list.",5="\nWrite internal names, as the default line above does, in at most 2000 characters.",6="\nWhile this says default this mod'"'"'s own list applies.",7="\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."}' "$T" ||
+grep -qF '{1="",2={1="?",2={1="mod-setting-description.fkrecipes-example-chain-packs"},3="fkrecipes-example-chain-packs"},3="\ndefault: 1 automation-science-pack",4="\nA list too long for one line continues on the next; the continuation is part of the same list.",5="\nWrite internal names, as the default line above does, in at most 2000 characters.",6="\nWhile this says default this mod'"'"'s own list applies.",7="\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway."}' "$T" ||
   fail "the packs setting's composed description is not in the transcript"
 for packs in fkrecipes-example-chain-packs fkrecipes-example-tips-packs; do
   if grep '^TRANSCRIPT extend' "$T" | grep -F "\"name\"=\"$packs\"" | grep -qF 'The word none'; then
@@ -360,7 +360,7 @@ fi
 # same line: what the engine does to an assembling machine when the recipe it is
 # running changes. The pack text and the two numbers do not carry it, and the
 # grep below for the pack text's own line is what says so.
-grep -q '^LOG fkrecipes: ERROR: fkrecipes-example-rivet-ingredients, entry 2 ("2 iron-stik"): no item or fluid is named iron-stik\. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart\. Changing a recipe empties an assembling machine'"'"'s input slots of anything the new list does not use\.$' "$T" ||
+grep -q '^LOG fkrecipes: ERROR: fkrecipes-example-rivet-ingredients, entry 2 ("2 iron-stik"): no item or fluid is named iron-stik\. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart\. Changing a recipe empties an assembling machine'"'"'s input slots of anything the new list does not use\.$' "$T" ||
   fail "the refused ingredient text logged no ERROR line"
 # THE LOG IS NOT A DISCLOSURE, which is what this line exists for: the whole
 # composed localised_description of the recipe whose text was set aside, pinned
@@ -383,7 +383,7 @@ grep -q '^LOG fkrecipes: ERROR: fkrecipes-example-rivet-ingredients, entry 2 ("2
 # refuses the old one now, by the same rule and with the same sentence the
 # engine uses.
 grep '^TRANSCRIPT extend#' "$T" |
-  grep -qF '"localised_description"={1="",2="The stored value of fkrecipes-example-rivet-ingredients could not be used, so this mod'"'"'s own choice applies instead. The reason is in the log. Changing a recipe empties an ",3="assembling machine'"'"'s input slots of anything the new list does not use."},"localised_name"={1="",2="Steel rivets"},"name"="fkrecipes-example-steel-rivet"' ||
+  grep -qF '"localised_description"={1="",2="The stored value of fkrecipes-example-rivet-ingredients could not be used, so the game loaded as though that setting had been left alone. The reason is in the log. Changing a ",3="recipe empties an assembling machine'"'"'s input slots of anything the new list does not use."},"localised_name"={1="",2="Steel rivets"},"name"="fkrecipes-example-steel-rivet"' ||
   fail "the recipe whose text was set aside carries no note in its own description"
 # AND A RECIPE NOTHING FELL BACK ON CARRIES NONE, which is what says the note is
 # a consequence of the fallback rather than something every prototype now has.
@@ -391,8 +391,9 @@ if grep '^TRANSCRIPT extend#' "$T" |
   grep -F '"name"="fkrecipes-example-salvaged-steel-rivet"' | grep -q "could not be used"; then
   fail "a recipe with no fallback carries a note"
 fi
-# And what it landed on: the mod's OWN declared list, which is what "loaded with
-# its own default instead" means in the prototype rather than only in the line.
+# And what it landed on: the mod's OWN declared list, because this field has no
+# dropdown beside it, which is what "loaded as though that text had been left
+# alone" means in the prototype rather than only in the line.
 grep -qF '"ingredients"={1={"amount"=1,"name"="iron-plate","type"="item"}}' "$T" ||
   fail "the refused text did not leave the recipe on the mod's own declared list"
 # AND THE LINE THAT MUST NOT BE THERE FOR IT. A refused text is not a list that

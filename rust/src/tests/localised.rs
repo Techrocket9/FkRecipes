@@ -726,8 +726,8 @@ fn the_chunker_splits_on_spaces_within_the_budget() {
             "the note a recipe's ingredient text falls back with",
             note,
             alloc::vec![
-                String::from("The stored value of steelworks-rivet-ingredients could not be used, so this mod's own choice applies instead. The reason is in the log. Changing a recipe empties an assembling "),
-                String::from("machine's input slots of anything the new list does not use."),
+                String::from("The stored value of steelworks-rivet-ingredients could not be used, so the game loaded as though that setting had been left alone. The reason is in the log. Changing a recipe "),
+                String::from("empties an assembling machine's input slots of anything the new list does not use."),
             ],
         ),
     ];

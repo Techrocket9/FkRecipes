@@ -520,9 +520,9 @@ func TestTheChunkerSplitsOnSpacesWithinTheBudget(t *testing.T) {
 			in:   fallbackNote("steelworks-rivet-ingredients", true),
 			want: []string{
 				"The stored value of steelworks-rivet-ingredients could not be used," +
-					" so this mod's own choice applies instead. The reason is in the log." +
-					" Changing a recipe empties an assembling ",
-				"machine's input slots of anything the new list does not use.",
+					" so the game loaded as though that setting had been left alone. The reason is in the log." +
+					" Changing a recipe ",
+				"empties an assembling machine's input slots of anything the new list does not use.",
 			},
 		},
 	} {

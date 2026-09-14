@@ -2624,7 +2624,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, whose declared default is at or below the engine floor (energy_required can't be <= 0.001). The stored value of steelworks-axe-craft-time could not be used, so the mod's own declaration applied.",
+            want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, whose declared default is at or below the engine floor (energy_required can't be <= 0.001). The stored value of steelworks-axe-craft-time could not be used and was set aside, so what applied is what that field gives when it is left alone.",
         },
         Case {
             // The same pair for finiteness: a declared default of an infinity
@@ -2645,7 +2645,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, whose declared default is not a finite number. The stored value of steelworks-axe-craft-time could not be used, so the mod's own declaration applied.",
+            want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, whose declared default is not a finite number. The stored value of steelworks-axe-craft-time could not be used and was set aside, so what applied is what that field gives when it is left alone.",
         },
         Case {
             // PRESENT and nil, which is what a unit whose table carried a
@@ -3461,7 +3461,7 @@ fn a_bound_crafting_time_falls_back() {
         assert_lines_named(
             &transcript(&ops),
             &[
-                &alloc::format!("log fkrecipes: ERROR: {}. The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.", c.want),
+                &alloc::format!("log fkrecipes: ERROR: {}. The mod loaded as though that number had been left alone; fix the number under Settings > Mod settings > Startup, then restart.", c.want),
                 r#"extend {type="item", name="steelworks-steel-axe", stack_size=50}"#,
                 &(String::from(r#"extend {type="recipe", name="steelworks-steel-axe", "#)
                 + &note_in("steelworks-axe-craft-time", false)
@@ -3515,7 +3515,7 @@ fn one_bad_crafting_time_setting_two_recipes_logs_one_line() {
     assert_lines(
         &transcript(&ops),
         &[
-            "log fkrecipes: ERROR: the recipe steel-axe-forging reads its crafting time from steelworks-forging-time, which answers at or below the engine floor (energy_required can't be <= 0.001). The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.",
+            "log fkrecipes: ERROR: the recipe steel-axe-forging reads its crafting time from steelworks-forging-time, which answers at or below the engine floor (energy_required can't be <= 0.001). The mod loaded as though that number had been left alone; fix the number under Settings > Mod settings > Startup, then restart.",
             r#"extend {type="item", name="steelworks-steel-axe", stack_size=50}"#,
             r#"extend {type="item", name="steelworks-steel-hammer", stack_size=50}"#,
             &(String::from(r#"extend {type="recipe", name="steelworks-steel-axe-forging", "#)

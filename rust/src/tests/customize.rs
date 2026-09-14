@@ -177,7 +177,7 @@ fn the_composed_text_lines_are_the_stated_ones() {
     );
     assert_eq!(
         TEXT_FALLBACK_LINE,
-        "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."
+        "\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway."
     );
     // A LINE, NOT A SEPARATOR, and the word a player acts on opens it. The
     // dropdown label beside this is the consumer's prose and the client
@@ -2195,7 +2195,7 @@ fn a_language_refusal_becomes_a_fallback_line() {
     assert_lines(
         &transcript(&ops),
         &[
-            &with_recipe_tail("log fkrecipes: ERROR: steelworks-rivet-ingredients, entry 2 (\"3 unobtainium\"): no item or fluid is named unobtainium. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart."),
+            &with_recipe_tail("log fkrecipes: ERROR: steelworks-rivet-ingredients, entry 2 (\"3 unobtainium\"): no item or fluid is named unobtainium. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart."),
             "log fkrecipes: steel-rivet: none of tungsten-carbide, titanium-plate is present, so the ingredient is dropped",
             r#"extend {type="item", name="steelworks-steel-rivet", stack_size=50}"#,
             &(String::from(r#"extend {type="recipe", name="steelworks-steel-rivet", "#)
@@ -2224,7 +2224,7 @@ fn a_text_setting_holding_something_else_falls_back() {
     assert_lines(
         &transcript(&ops),
         &[
-            &with_recipe_tail("log fkrecipes: ERROR: steelworks-rivet-ingredients is not text. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart."),
+            &with_recipe_tail("log fkrecipes: ERROR: steelworks-rivet-ingredients is not text. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart."),
             "log fkrecipes: steel-rivet: none of tungsten-carbide, titanium-plate is present, so the ingredient is dropped",
             r#"extend {type="item", name="steelworks-steel-rivet", stack_size=50}"#,
             &(String::from(r#"extend {type="recipe", name="steelworks-steel-rivet", "#)
@@ -2305,7 +2305,7 @@ fn a_refused_text_beside_a_dropdown_falls_back_to_the_dropdown() {
     assert_lines(
         &transcript(&ops),
         &[
-            &with_recipe_tail("log fkrecipes: ERROR: steelworks-quench-ingredients, entry 1 (\"4 unobtanium\"): no item or fluid is named unobtanium. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart."),
+            &with_recipe_tail("log fkrecipes: ERROR: steelworks-quench-ingredients, entry 1 (\"4 unobtanium\"): no item or fluid is named unobtanium. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart."),
             r#"extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}"#,
             &(String::from(r#"extend {type="recipe", name="steelworks-hardened-steel-plate", "#)
                 + &note_in("steelworks-quench-ingredients", true)
@@ -2487,7 +2487,7 @@ fn a_refused_pack_text_beside_a_tier_takes_the_tiers_packs() {
     assert_lines(
         &transcript(&ops),
         &[
-            "log fkrecipes: ERROR: steelworks-tips-packs, entry 1 (\"2 unobtainium\"): no science pack is named unobtainium. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.",
+            "log fkrecipes: ERROR: steelworks-tips-packs, entry 1 (\"2 unobtainium\"): no science pack is named unobtainium. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.",
             "log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs: count 40, time 30, packs 1 automation-science-pack, 1 logistic-science-pack; the steelworks-tips-research-tier choice cheap supplies what the settings leave at default",
             &(String::from(r#"extend {type="technology", name="steelworks-hardened-tips", "#)
                 + &note_in("steelworks-tips-packs", false)
@@ -2508,7 +2508,7 @@ fn a_bad_number_beside_a_tier_leaves_the_tier_deciding() {
     assert_lines(
         &transcript(&ops),
         &[
-            "log fkrecipes: ERROR: steelworks-tips-count holds a value that is not a finite number. The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.",
+            "log fkrecipes: ERROR: steelworks-tips-count holds a value that is not a finite number. The mod loaded as though that number had been left alone; fix the number under Settings > Mod settings > Startup, then restart.",
             &alloc::format!(
                 r#"extend {{type="technology", name="steelworks-hardened-tips", {}prerequisites=["logistics-2"], {}}}"#,
                 note_in("steelworks-tips-count", false),
@@ -2750,7 +2750,7 @@ fn a_research_number_the_world_cannot_answer_falls_back() {
         assert_lines_named(
             &transcript(&ops),
             &[
-                &format!("log fkrecipes: ERROR: {}. The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.", c.want),
+                &format!("log fkrecipes: ERROR: {}. The mod loaded as though that number had been left alone; fix the number under Settings > Mod settings > Startup, then restart.", c.want),
                 "log fkrecipes: steelworks-chain-forging takes its research cost from steelworks-chain-packs: count 30, time 15, packs 1 automation-science-pack, 1 logistic-science-pack",
                 &(String::from(r#"extend {type="technology", name="steelworks-chain-forging", "#)
                     + &note_in(c.setting, false)
@@ -2904,9 +2904,9 @@ fn every_bad_field_of_a_custom_cost_answers() {
     assert_lines(
         &transcript(&ops),
         &[
-            "log fkrecipes: ERROR: steelworks-chain-count holds a research count below 1. The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.",
-            "log fkrecipes: ERROR: steelworks-chain-seconds holds a value that is not a finite number. The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.",
-            "log fkrecipes: ERROR: steelworks-chain-packs, entry 1 (\"2 unobtainium\"): no science pack is named unobtainium. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.",
+            "log fkrecipes: ERROR: steelworks-chain-count holds a research count below 1. The mod loaded as though that number had been left alone; fix the number under Settings > Mod settings > Startup, then restart.",
+            "log fkrecipes: ERROR: steelworks-chain-seconds holds a value that is not a finite number. The mod loaded as though that number had been left alone; fix the number under Settings > Mod settings > Startup, then restart.",
+            "log fkrecipes: ERROR: steelworks-chain-packs, entry 1 (\"2 unobtainium\"): no science pack is named unobtainium. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.",
             "log fkrecipes: steelworks-chain-forging takes its research cost from steelworks-chain-packs: count 30, time 15, packs 1 automation-science-pack, 1 logistic-science-pack",
             &(String::from(r#"extend {type="technology", name="steelworks-chain-forging", "#)
                 + &note_in("steelworks-chain-count", false)
@@ -3010,8 +3010,8 @@ fn player_fields_fall_back_while_the_author_channel_still_refuses() {
     assert_lines(
         &transcript(&ops),
         &[
-            "log fkrecipes: ERROR: the recipe steel-rivet reads its crafting time from steelworks-forging-time, which answers at or below the engine floor (energy_required can't be <= 0.001). The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.",
-            &with_recipe_tail("log fkrecipes: ERROR: steelworks-rivet-ingredients, entry 1 (\"2 unobtainium\"): no item or fluid is named unobtainium. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart."),
+            "log fkrecipes: ERROR: the recipe steel-rivet reads its crafting time from steelworks-forging-time, which answers at or below the engine floor (energy_required can't be <= 0.001). The mod loaded as though that number had been left alone; fix the number under Settings > Mod settings > Startup, then restart.",
+            &with_recipe_tail("log fkrecipes: ERROR: steelworks-rivet-ingredients, entry 1 (\"2 unobtainium\"): no item or fluid is named unobtainium. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart."),
             r#"extend {type="item", name="steelworks-steel-rivet", stack_size=50}"#,
             &(String::from(r#"extend {type="recipe", name="steelworks-steel-rivet", "#)
                 + &note_in("steelworks-forging-time", false)
@@ -3185,7 +3185,7 @@ fn the_suggestion_fold_offers_a_plans_own_item() {
     // line the player reads still names the name that is really there.
     assert_eq!(
         transcript(&ops)[0],
-        with_recipe_tail("log fkrecipes: ERROR: steelworks-plate-ingredients, entry 1 (\"1 Steelworks-Steel-Rivet\"): no item or fluid is named Steelworks-Steel-Rivet; did you mean steelworks-steel-rivet. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.")
+        with_recipe_tail("log fkrecipes: ERROR: steelworks-plate-ingredients, entry 1 (\"1 Steelworks-Steel-Rivet\"): no item or fluid is named Steelworks-Steel-Rivet; did you mean steelworks-steel-rivet. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.")
     );
 }
 
@@ -3234,7 +3234,7 @@ fn a_pack_text_naming_a_plan_item_is_told_it_is_an_item() {
 
     assert_eq!(
         transcript(&ops)[2],
-        "log fkrecipes: ERROR: steelworks-chain-packs, entry 1 (\"1 steelworks-steel-rivet\"): steelworks-steel-rivet is an item, not a science pack. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart."
+        "log fkrecipes: ERROR: steelworks-chain-packs, entry 1 (\"1 steelworks-steel-rivet\"): steelworks-steel-rivet is an item, not a science pack. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart."
     );
 }
 
@@ -3305,7 +3305,7 @@ fn a_text_setting_holding_bytes_that_are_not_text_is_answered_by_the_language() 
 
     assert_eq!(
         transcript(&ops)[0],
-        with_recipe_tail("log fkrecipes: ERROR: steelworks-rivet-ingredients contains characters that are not text; retype the list. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.")
+        with_recipe_tail("log fkrecipes: ERROR: steelworks-rivet-ingredients contains characters that are not text; retype the list. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.")
     );
 }
 
@@ -3387,7 +3387,7 @@ fn a_text_beside_a_dropdown_whose_bytes_are_not_text_falls_back() {
     assert_lines(
         &transcript(&ops),
         &[
-            &with_recipe_tail("log fkrecipes: ERROR: steelworks-quench-ingredients contains characters that are not text; retype the list. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart."),
+            &with_recipe_tail("log fkrecipes: ERROR: steelworks-quench-ingredients contains characters that are not text; retype the list. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart."),
             r#"extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}"#,
             &(String::from(r#"extend {type="recipe", name="steelworks-hardened-steel-plate", "#)
                 + &note_in("steelworks-quench-ingredients", true)
@@ -3507,11 +3507,11 @@ fn player_fallback_line_shape() {
 
     assert_eq!(
         player_fallback("fkrecipes: mymod-parts is not text", "text", ""),
-        "fkrecipes: ERROR: mymod-parts is not text. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart."
+        "fkrecipes: ERROR: mymod-parts is not text. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart."
     );
     assert_eq!(
         number_fallback("fkrecipes: mymod-count holds a research count below 1"),
-        "fkrecipes: ERROR: mymod-count holds a research count below 1. The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart."
+        "fkrecipes: ERROR: mymod-count holds a research count below 1. The mod loaded as though that number had been left alone; fix the number under Settings > Mod settings > Startup, then restart."
     );
     assert_eq!(
         text_fallback("fkrecipes: mymod-parts is not text"),
@@ -3576,7 +3576,7 @@ fn a_recipe_text_fallback_names_what_changing_a_recipe_costs() {
 fn fallback_note_shape() {
     use crate::data::fallback_note;
 
-    let head = "The stored value of mymod-parts could not be used, so this mod's own choice applies instead. The reason is in the log.";
+    let head = "The stored value of mymod-parts could not be used, so the game loaded as though that setting had been left alone. The reason is in the log.";
     assert_eq!(fallback_note("mymod-parts", false), head);
     assert_eq!(
         fallback_note("mymod-parts", true),
@@ -3647,8 +3647,8 @@ fn a_fallback_note_joins_the_authors_own_description() {
     assert_lines(
         &transcript(&ops),
         &[
-            &with_recipe_tail("log fkrecipes: ERROR: steelworks-rivet-ingredients, entry 1 (\"2 unobtainium\"): no item or fluid is named unobtainium. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart."),
-            "log fkrecipes: ERROR: steelworks-rivet-packs, entry 1 (\"1 unobtainium\"): no science pack is named unobtainium. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.",
+            &with_recipe_tail("log fkrecipes: ERROR: steelworks-rivet-ingredients, entry 1 (\"2 unobtainium\"): no item or fluid is named unobtainium. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart."),
+            "log fkrecipes: ERROR: steelworks-rivet-packs, entry 1 (\"1 unobtainium\"): no science pack is named unobtainium. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.",
             "log fkrecipes: steelworks-riveting takes its research cost from steelworks-rivet-packs: count 20, time 10, packs 1 automation-science-pack",
             r#"extend {type="item", name="steelworks-steel-rivet", localised_description=["", "A small steel rivet."], stack_size=50}"#,
             &(String::from(r#"extend {type="recipe", name="steelworks-steel-rivet-forging", localised_description=["", "Forged from plate.", "#)

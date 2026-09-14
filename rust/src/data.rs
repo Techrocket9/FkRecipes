@@ -1643,6 +1643,25 @@ impl Resolution {
     /// aside is still true and is still the one thing this message can add. So
     /// the sentence states it and stops there: no screen, no route, no advice.
     ///
+    /// IT MAY NOT SAY "THE MOD LOADED" IN ANY FORM, and that is why this
+    /// sentence is worded differently from the three the customize layer
+    /// writes: this one decorates a REFUSAL, so nothing loaded. What it can say
+    /// is what happened to the value, and the honest generic for that is the
+    /// library's own rule: a stored value it cannot use behaves exactly as if
+    /// the player had left the field alone. It used to say the mod's own
+    /// declaration applied, which is false on five of six presets: beside a
+    /// dropdown a set-aside text leaves the dropdown's CURRENTLY CHOSEN preset
+    /// deciding, and the mod's own declared list is what a field left alone
+    /// gives only where no dropdown sits beside it. See [`fallback_note`] for
+    /// the same correction on the prototype side.
+    ///
+    /// THE ADVERBIAL BELONGS TO THE OUTCOME AND NOT TO THE SETTING-ASIDE,
+    /// which is the one way this sentence is built differently from its three
+    /// siblings. Nothing about the setting-aside is conditional: the value
+    /// went, full stop. What "left alone" describes is what then APPLIED, so
+    /// the clause hangs off that and the sentence names the two things in the
+    /// order they happened.
+    ///
     /// IT APPEARS ONLY WHEN A FALLBACK HAPPENED, and it names the FIRST setting
     /// in walk order, so a refusal on a plan nobody typed into carries nothing
     /// and a plan with two fallbacks answers the same way every run.
@@ -1650,7 +1669,7 @@ impl Resolution {
         match self.fell_back.first() {
             None => message,
             Some(setting) => format!(
-                "{}. The stored value of {} could not be used, so the mod's own declaration applied.",
+                "{}. The stored value of {} could not be used and was set aside, so what applied is what that field gives when it is left alone.",
                 message, setting
             ),
         }
@@ -1911,16 +1930,26 @@ pub(crate) const MESSAGE_PREFIX: &str = "fkrecipes: ";
 /// engine's own `Error` lines while a case-insensitive one still finds it.
 ///
 /// FIELD is the word the player looks for on the settings screen: the text of a
-/// list, or the number of a slider.
+/// list, or the number of a slider. It is now in the sentence TWICE, because
+/// the line used to say the mod loaded with its own default instead and that is
+/// false wherever a preset dropdown sits beside the field: the set-aside value
+/// leaves the dropdown's CURRENTLY CHOSEN preset deciding, not the declaration.
+/// Saying the mod loaded as though that field had been left alone is true
+/// there, true on every preset, true where no dropdown exists, and true of a
+/// number as well as a text. The ROUTE is unchanged and stays: this line is
+/// written on a load that SUCCEEDED, so the settings screen really is
+/// reachable.
+///
 /// TAIL is what the field costs beyond being wrong, and it is a parameter
 /// rather than a branch on the reason so that no sentence here is chosen by
 /// reading another sentence. Only a recipe's ingredient text has one: see
 /// [`recipe_text_fallback`].
 pub(crate) fn player_fallback(reason: &str, field: &str, tail: &str) -> String {
     format!(
-        "{}ERROR: {}. The mod loaded with its own default instead; fix the {} under Settings > Mod settings > Startup, then restart.{}",
+        "{}ERROR: {}. The mod loaded as though that {} had been left alone; fix the {} under Settings > Mod settings > Startup, then restart.{}",
         MESSAGE_PREFIX,
         reason.strip_prefix(MESSAGE_PREFIX).unwrap_or(reason),
+        field,
         field,
         tail
     )
@@ -2014,10 +2043,21 @@ pub(crate) const RECIPE_CHANGE_SENTENCE: &str = "Changing a recipe empties an as
 /// THE TAIL IS SCOPED BY WHAT MOVED, not by what kind of prototype carries it:
 /// `destroys_inputs` is true only where the ingredient list itself changed. See
 /// [`Resolution::note_on`].
+///
+/// IT NAMES NO TARGET, and that is measured rather than tidy. The sentence used
+/// to say this mod's own choice applied instead, and on a recipe whose text
+/// sits beside a preset dropdown that is false on every preset but the declared
+/// one: the consumer measured all six and got six different ingredient lists
+/// under one byte-identical note. What is true on all six, and beside a field
+/// with no dropdown at all, and of a NUMBER setting as well as a text one, is
+/// the library's own rule: a stored value it cannot use behaves exactly as if
+/// the player had left the field alone. Naming the preset instead would mean
+/// hoisting `read_dropdown` above the composer, which `resolve` keeps
+/// deliberately late; the generic is true without it.
 pub(crate) fn fallback_note(setting: &str, destroys_inputs: bool) -> String {
     with_destruction(
         format!(
-            "The stored value of {} could not be used, so this mod's own choice applies instead. The reason is in the log.",
+            "The stored value of {} could not be used, so the game loaded as though that setting had been left alone. The reason is in the log.",
             setting
         ),
         destroys_inputs,

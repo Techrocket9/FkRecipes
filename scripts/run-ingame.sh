@@ -812,7 +812,7 @@ jqassert "a cost dropdown carries no line about a list it does not render" "$DSD
    | length > 0 and all(contains("A list too long") | not)'
 jqassert "the text setting's composed description states what an unusable text costs" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-rivet-ingredients") | .localised_description]
-   | length > 0 and all(any(.[]; . == "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."))'
+   | length > 0 and all(any(.[]; . == "\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway."))'
 # WHICH OF THE TWO FIELDS IS DECIDING, which the settings screen cannot show at
 # all: it has no conditional visibility (measured), so a player looking at a
 # text field beside a dropdown has nowhere else to learn that one of them wins.
@@ -892,13 +892,14 @@ jqassert "the player's typed list took the dropdown's choice over" "$FDUMP" \
 # A RESEARCH COST OVERRIDDEN WHOLE, in the short tuple form, and PLACED BY THE
 # TIER: the count and the time are the player's, the pack TEXT IS THE TYPO and
 # so falls back exactly as the reserved word behaves, which beside a tier means
-# the MILITARY tier's own packs. "Loaded with its own default instead" in the
-# prototype rather than only in the log, on a real engine. This is the
-# measurement the whole decision rests on: before it, this row exited 1 with
-# "Failed to load mod" and no dump at all, and a player in that state could not
-# reach the Mod Settings screen to undo it (see the client walk in the library's
-# player_fallback). The mirror moves ONE of the three fields on the same
-# technology, so between the two gates the merge is covered whole and per field.
+# the MILITARY tier's own packs, and NOT the mod's own declared cost. "Loaded
+# as though that text had been left alone" in the prototype rather than only in
+# the log, on a real engine. This is the measurement the whole decision rests
+# on: before it, this row exited 1 with "Failed to load mod" and no dump at all,
+# and a player in that state could not reach the Mod Settings screen to undo it
+# (see the client walk in the library's player_fallback). The mirror moves ONE
+# of the three fields on the same technology, so between the two gates the merge
+# is covered whole and per field.
 # THE PACKS ARE military-4'S OWN, read out of the same dump rather than written
 # here: this asserts "the tier supplied the field the text left at its default"
 # rather than "the packs are what I typed into this script", and a base game
@@ -930,7 +931,7 @@ jqassert "the unit carried no level cap its source never had" "$FDUMP" \
 jqassert "the technology whose pack text was set aside says so in its own tooltip" "$FDUMP" \
   '.technology["fkrecipes-example-hardened-tips"].localised_description ==
    ["", "Every level puts a harder edge on the same tools.",
-    "\nThe stored value of fkrecipes-example-tips-packs could not be used, so this mod'"'"'s own choice applies instead. The reason is in the log."]'
+    "\nThe stored value of fkrecipes-example-tips-packs could not be used, so the game loaded as though that setting had been left alone. The reason is in the log."]'
 # AND A PROTOTYPE NOTHING FELL BACK ON CARRIES NO NOTE, which is what says the
 # line is a consequence of the fallback rather than something every prototype
 # now has. The chain recipe in this row took the list the player TYPED, so
@@ -942,17 +943,17 @@ jqassert "a recipe with no fallback carries the author's description and no note
 # be 200 BYTES on a data-stage prototype (measured on 2.0.77: 201 refuses with
 # "Localised string key is too large: 201 > 200 (limit)." naming the 0-based
 # element, bytes and not characters, with no aggregate budget), and this note is
-# 245 bytes with its newline for this setting's name. Until the library chunked
-# it, this exact row exited 1 with no dump at all, which is the lock-out the
-# fallback exists to prevent reintroduced by the fallback's own disclosure. The
-# four elements are pinned WHOLE: the author's own sentence first, then the note
-# split at a word boundary, and the engine concatenates them back into one
-# sentence for the player.
+# 266 bytes with its newline for this setting's name, 265 without it. Until the
+# library chunked it, this exact row exited 1 with no dump at all, which is the
+# lock-out the fallback exists to prevent reintroduced by the fallback's own
+# disclosure. The four elements are pinned WHOLE: the author's own sentence
+# first, then the note split at a word boundary, and the engine concatenates
+# them back into one sentence for the player.
 jqassert "the recipe whose ingredient text was set aside says so in its own tooltip" "$FDUMP" \
   '.recipe["fkrecipes-example-hardened-steel-plate-quenching"].localised_description ==
    ["", "Quench the plate, then temper it back to workable.",
-    "\nThe stored value of fkrecipes-example-quench-ingredients could not be used, so this mod'"'"'s own choice applies instead. The reason is in the log. Changing a recipe empties an ",
-    "assembling machine'"'"'s input slots of anything the new list does not use."]'
+    "\nThe stored value of fkrecipes-example-quench-ingredients could not be used, so the game loaded as though that setting had been left alone. The reason is in the log. Changing a ",
+    "recipe empties an assembling machine'"'"'s input slots of anything the new list does not use."]'
 # AND NO ELEMENT OF ANY LOCALISED STRING IN THE WHOLE DUMP IS OVER THE CEILING,
 # base's own prototypes included. This is the general form of the assertion
 # above and the one that does not have to be re-written when a sentence moves: a
@@ -976,13 +977,13 @@ grep -q "fkrecipes: fkrecipes-example-steel-chain takes its ingredients from fkr
 # lines does not collect it while a case-insensitive one still finds it. The
 # sentence inside it is the language's own, verbatim, with the shared
 # "fkrecipes: " prefix trimmed off because the line already opens with one.
-grep -q 'fkrecipes: ERROR: fkrecipes-example-tips-packs, entry 2 ("1 militar-science-pack"): no science pack is named militar-science-pack\. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart\.' "$FLOG" ||
+grep -q 'fkrecipes: ERROR: fkrecipes-example-tips-packs, entry 2 ("1 militar-science-pack"): no science pack is named militar-science-pack\. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart\.' "$FLOG" ||
   fail "the refused pack text logged no ERROR line in the engine's own log"
 # AND THE SAME FOR THE REFUSED INGREDIENT TEXT, which is the RECIPE channel of
 # the same rule. Its sentence carries one clause the pack text's does not: what
 # the engine does to an assembling machine when the recipe it is running
 # changes, which is true of a moved ingredient list and of nothing else.
-grep -q 'fkrecipes: ERROR: fkrecipes-example-quench-ingredients, entry 1 ("2 iron-plat"): no item or fluid is named iron-plat\. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart\. Changing a recipe empties an assembling machine'"'"'s input slots of anything the new list does not use\.' "$FLOG" ||
+grep -q 'fkrecipes: ERROR: fkrecipes-example-quench-ingredients, entry 1 ("2 iron-plat"): no item or fluid is named iron-plat\. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart\. Changing a recipe empties an assembling machine'"'"'s input slots of anything the new list does not use\.' "$FLOG" ||
   fail "the refused ingredient text logged no ERROR line in the engine's own log"
 # AND EXACTLY TWO OF THEM. Two player-controlled values in this row are wrong,
 # one per channel, so two lines are the whole answer: a third would mean a

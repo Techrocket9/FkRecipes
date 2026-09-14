@@ -38,7 +38,7 @@ const (
 	wantTextFormat = `, "` + "\n" +
 		`Write internal names, as the default line above does, in at most 2000 characters. The word none empties the list, so the recipe costs nothing to craft."`
 	wantTextFallback = `, "` + "\n" +
-		`A text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."`
+		`A text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway."`
 	// The switch line a text setting with no dropdown beside it carries.
 	wantSwitchOwn = `, "` + "\n" + `While this says default this mod's own list applies."`
 	// wantTextTail is the whole tail of the commonest shape, an INGREDIENT text
@@ -1251,9 +1251,9 @@ func TestAFallbackNoteJoinsTheAuthorsOwnDescription(t *testing.T) {
 
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: ERROR: steelworks-rivet-ingredients, entry 1 ("2 unobtanium"): no item or fluid is named unobtanium.` +
-			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
+			` The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
 		`log fkrecipes: ERROR: steelworks-rivet-packs, entry 1 ("1 unobtanium"): no science pack is named unobtanium.` +
-			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.`,
+			` The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.`,
 		`log fkrecipes: steelworks-riveting takes its research cost from steelworks-rivet-packs:` +
 			` count 20, time 10, packs 1 automation-science-pack`,
 		`extend {type="item", name="steelworks-steel-rivet",` +
@@ -1283,7 +1283,7 @@ func TestTextSettingThatIsNotTextFallsBack(t *testing.T) {
 
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: ERROR: steelworks-rivet-ingredients is not text.` +
-			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
+			` The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
 		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-steel-rivet-forging", ` +
 			noteIn("steelworks-rivet-ingredients", true) +
@@ -1313,7 +1313,7 @@ func TestTextSettingFallsBackOnTheLanguageRefusal(t *testing.T) {
 
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: ERROR: steelworks-rivet-ingredients, entry 2 ("1 unobtanium"): no item or fluid is named unobtanium.` +
-			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
+			` The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
 		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-steel-rivet-forging", ` +
 			noteIn("steelworks-rivet-ingredients", true) +
@@ -1337,7 +1337,7 @@ func TestRefusedTextFallsBackOntoTheDeclaredLadders(t *testing.T) {
 
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: ERROR: steelworks-rivet-ingredients, entry 1 ("2 unobtanium"): no item or fluid is named unobtanium.` +
-			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
+			` The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
 		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-steel-rivet-forging", ` +
 			noteIn("steelworks-rivet-ingredients", true) +
@@ -1390,7 +1390,7 @@ func TestTextSettingSuggestsThePlansOwnItem(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: ERROR: steelworks-axe-ingredients, entry 1 ("3 Steelworks_Steel_Rivet"):` +
 			` no item or fluid is named Steelworks_Steel_Rivet; did you mean steelworks-steel-rivet.` +
-			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
+			` The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
 		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
 		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-steel-axe-forging", ` +
@@ -1421,7 +1421,7 @@ func TestPackTextNamingAPlanItemIsToldItIsAnItem(t *testing.T) {
 		`log fkrecipes: the setting steelworks-axe-seconds was not readable, so its default applies`,
 		`log fkrecipes: ERROR: steelworks-axe-packs, entry 1 ("1 steelworks-steel-rivet"):` +
 			` steelworks-steel-rivet is an item, not a science pack.` +
-			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.`,
+			` The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.`,
 		`log fkrecipes: steelworks-steel-axes takes its research cost from steelworks-axe-packs:` +
 			` count 20, time 10, packs 1 automation-science-pack`,
 		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
@@ -1587,7 +1587,7 @@ func TestARefusedTextBesideADropdownFallsBackToTheDropdown(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: ERROR: steelworks-quench-ingredients, entry 1 ("4 unobtanium"):` +
 			` no item or fluid is named unobtanium.` +
-			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
+			` The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
 		`extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-plate-quenching", ` +
 			noteIn("steelworks-quench-ingredients", true) +
@@ -1864,7 +1864,7 @@ func TestCustomResearchCostFallsBackOnANumberTheEngineWouldNotTake(t *testing.T)
 
 			assertLines(t, transcript(ops), []string{
 				`log fkrecipes: ERROR: ` + c.want +
-					`. The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.`,
+					`. The mod loaded as though that number had been left alone; fix the number under Settings > Mod settings > Startup, then restart.`,
 				`log fkrecipes: steelworks-chain-forging takes its research cost from steelworks-chain-packs:` +
 					` count 20, time 10, packs 1 automation-science-pack`,
 				`extend {type="technology", name="steelworks-chain-forging", ` +
@@ -1894,7 +1894,7 @@ func TestCustomResearchCostFallsBackOnANumberTheEngineWouldNotTake(t *testing.T)
 // is that the player's stored value was set aside. See resolution.fallbackFact.
 func withFallbackFact(message, setting string) string {
 	return message + ". The stored value of " + setting +
-		" could not be used, so the mod's own declaration applied."
+		" could not be used and was set aside, so what applied is what that field gives when it is left alone."
 }
 
 func TestCustomResearchCostRefusesADeclaredDefaultTheEngineWouldNotTake(t *testing.T) {
@@ -2124,7 +2124,7 @@ func TestARefusedPackTextBesideATierTakesTheTiersPacks(t *testing.T) {
 
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: ERROR: steelworks-tips-packs, entry 1 ("2 unobtainium"): no science pack is named unobtainium.` +
-			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.`,
+			` The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.`,
 		`log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs:` +
 			` count 40, time 30, packs 1 automation-science-pack, 1 logistic-science-pack;` +
 			` the steelworks-tips-tier choice cheap supplies what the settings leave at default`,
@@ -2152,7 +2152,7 @@ func TestABadNumberBesideATierLeavesTheTierDeciding(t *testing.T) {
 
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: ERROR: steelworks-tips-count holds a value that is not a finite number.` +
-			` The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.`,
+			` The mod loaded as though that number had been left alone; fix the number under Settings > Mod settings > Startup, then restart.`,
 		`extend {type="technology", name="steelworks-hardened-tips", ` +
 			noteIn("steelworks-tips-count", false) +
 			`prerequisites=["logistics-2"],` +
@@ -2412,7 +2412,7 @@ func TestTheComposedTextLinesAreTheStatedOnes(t *testing.T) {
 		t.Errorf("\n got: %q\nwant: %q", got, want)
 	}
 	if got, want := textFallbackLine,
-		"\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."; got != want {
+		"\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway."; got != want {
 		t.Errorf("\n got: %q\nwant: %q", got, want)
 	}
 	// A LINE, NOT A SEPARATOR, and the word a player acts on opens it. The
@@ -2623,9 +2623,9 @@ func TestPlayerFieldsFallBackWhileTheAuthorChannelStillRefuses(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: ERROR: the recipe steel-axe-forging reads its crafting time from steelworks-forging-time,` +
 			` which answers at or below the engine floor (energy_required can't be <= 0.001).` +
-			` The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.`,
+			` The mod loaded as though that number had been left alone; fix the number under Settings > Mod settings > Startup, then restart.`,
 		`log fkrecipes: ERROR: steelworks-axe-ingredients, entry 1 ("2 unobtanium"): no item or fluid is named unobtanium.` +
-			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
+			` The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
 		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-steel-axe-forging", ` +
 			noteIn("steelworks-forging-time", false) +
@@ -2993,14 +2993,14 @@ func TestFallbackSentencesCarryThePrefix(t *testing.T) {
 func TestPlayerFallbackLineShape(t *testing.T) {
 	got := playerFallback("fkrecipes: mymod-parts is not text", "text", "")
 	want := "fkrecipes: ERROR: mymod-parts is not text." +
-		" The mod loaded with its own default instead;" +
+		" The mod loaded as though that text had been left alone;" +
 		" fix the text under Settings > Mod settings > Startup, then restart."
 	if got != want {
 		t.Errorf("\n got: %s\nwant: %s", got, want)
 	}
 	got = numberFallback("fkrecipes: mymod-count holds a research count below 1")
 	want = "fkrecipes: ERROR: mymod-count holds a research count below 1." +
-		" The mod loaded with its own default instead;" +
+		" The mod loaded as though that number had been left alone;" +
 		" fix the number under Settings > Mod settings > Startup, then restart."
 	if got != want {
 		t.Errorf("\n got: %s\nwant: %s", got, want)
@@ -3074,7 +3074,7 @@ var recipeFallbackTail = " " + recipeChangeSentence
 // TestPlayerFieldsFallBackWhileTheAuthorChannelStillRefuses for the recipe that proves it end to end.
 func TestFallbackNoteShape(t *testing.T) {
 	head := "The stored value of mymod-parts could not be used," +
-		" so this mod's own choice applies instead. The reason is in the log."
+		" so the game loaded as though that setting had been left alone. The reason is in the log."
 	if got := fallbackNote("mymod-parts", false); got != head {
 		t.Errorf("a fallback that moved no ingredient list\n got: %s\nwant: %s", got, head)
 	}

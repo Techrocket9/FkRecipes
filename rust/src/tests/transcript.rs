@@ -34,7 +34,7 @@ pub(crate) const WANT_TEXT_TAIL: &str = concat!(
     r#", "\nA list too long for one line continues on the next; the continuation is part of the same list.""#,
     r#", "\nWrite internal names, as the default line above does, in at most 2000 characters. The word none empties the list, so the recipe costs nothing to craft.""#,
     r#", "\nWhile this says default this mod's own list applies.""#,
-    r#", "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway.""#
+    r#", "\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway.""#
 );
 
 /// The same tail on a PACKS setting, whose format line stops at the ceiling.
@@ -42,7 +42,7 @@ pub(crate) const WANT_PACKS_TAIL: &str = concat!(
     r#", "\nA list too long for one line continues on the next; the continuation is part of the same list.""#,
     r#", "\nWrite internal names, as the default line above does, in at most 2000 characters.""#,
     r#", "\nWhile this says default this mod's own list applies.""#,
-    r#", "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway.""#
+    r#", "\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway.""#
 );
 
 /// The same tail on a text setting that has a DROPDOWN beside it: the switch
@@ -51,7 +51,7 @@ pub(crate) const WANT_TEXT_TAIL_ABOVE: &str = concat!(
     r#", "\nA list too long for one line continues on the next; the continuation is part of the same list.""#,
     r#", "\nWrite internal names, as the default line above does, in at most 2000 characters. The word none empties the list, so the recipe costs nothing to craft.""#,
     r#", "\nWhile this says default the option chosen above applies; anything else applies instead of it.""#,
-    r#", "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway.""#
+    r#", "\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway.""#
 );
 
 /// The same tail again with the dropdown sorting BELOW the text setting, which
@@ -60,7 +60,7 @@ pub(crate) const WANT_TEXT_TAIL_BELOW: &str = concat!(
     r#", "\nA list too long for one line continues on the next; the continuation is part of the same list.""#,
     r#", "\nWrite internal names, as the default line above does, in at most 2000 characters. The word none empties the list, so the recipe costs nothing to craft.""#,
     r#", "\nWhile this says default the option chosen below applies; anything else applies instead of it.""#,
-    r#", "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway.""#
+    r#", "\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway.""#
 );
 
 /// What a golden writes where [`WANT_TEXT_TAIL`] belongs.
@@ -349,7 +349,7 @@ pub(crate) fn with_recipe_tail(line: &str) -> String {
 /// `Resolution::fallback_fact`.
 pub(crate) fn with_fallback_fact(message: &str, setting: &str) -> String {
     format!(
-        "{}. The stored value of {} could not be used, so the mod's own declaration applied.",
+        "{}. The stored value of {} could not be used and was set aside, so what applied is what that field gives when it is left alone.",
         message, setting
     )
 }

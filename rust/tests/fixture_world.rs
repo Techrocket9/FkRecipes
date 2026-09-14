@@ -136,10 +136,11 @@ fn a_fixture_world_of_your_own_drives_a_plan() {
         .collect();
     assert_eq!(
         logged,
-        ["fkrecipes: ERROR: mymod-parts contains characters that are not text; retype the list. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart. Changing a recipe empties an assembling machine's input slots of anything the new list does not use."]
+        ["fkrecipes: ERROR: mymod-parts contains characters that are not text; retype the list. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart. Changing a recipe empties an assembling machine's input slots of anything the new list does not use."]
     );
-    // The recipe is the AUTHOR'S declared list, which is what "loaded with its
-    // own default instead" means in the prototype rather than only in the line.
+    // The recipe is the AUTHOR'S declared list, because this field has no
+    // dropdown beside it, which is what "loaded as though that text had been
+    // left alone" means in the prototype rather than only in the line.
     let recipe = ops
         .iter()
         .find_map(|op| match op {

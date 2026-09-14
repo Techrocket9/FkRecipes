@@ -215,10 +215,10 @@ in:|2 unobtainium|
 refuse:|fkrecipes: mymod-parts, entry 1 ("2 unobtainium"): no item or fluid is named unobtainium|
 
 in:||
-refuse:|fkrecipes: mymod-parts is empty; write the ingredients as "2 iron-plate, 3 copper-cable", the word default for the mod's own list, or the word none for a recipe with no ingredients|
+refuse:|fkrecipes: mymod-parts is empty; write the ingredients as "2 iron-plate, 3 copper-cable", the word default to leave this field alone, or the word none for a recipe with no ingredients|
 
 in:|   |
-refuse:|fkrecipes: mymod-parts is empty; write the ingredients as "2 iron-plate, 3 copper-cable", the word default for the mod's own list, or the word none for a recipe with no ingredients|
+refuse:|fkrecipes: mymod-parts is empty; write the ingredients as "2 iron-plate, 3 copper-cable", the word default to leave this field alone, or the word none for a recipe with no ingredients|
 
 in:|2 iron-\xff\xfeplate|
 refuse:|fkrecipes: mymod-parts contains characters that are not text; retype the list|
@@ -750,7 +750,7 @@ in:|none, automation-science-pack|
 refuse:|fkrecipes: mymod-packs: none stands alone; remove the other entries or the word|
 
 in:||
-refuse:|fkrecipes: mymod-packs is empty; write the science packs as "1 automation-science-pack, 1 logistic-science-pack", or the word default for the mod's own list|
+refuse:|fkrecipes: mymod-packs is empty; write the science packs as "1 automation-science-pack, 1 logistic-science-pack", or the word default to leave this field alone|
 
 in:|1.5 automation-science-pack|
 refuse:|fkrecipes: mymod-packs, entry 1 ("1.5 automation-science-pack"): automation-science-pack is an item, and items take whole amounts|

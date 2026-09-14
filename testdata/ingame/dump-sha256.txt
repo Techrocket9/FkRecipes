@@ -22,9 +22,9 @@
 # out of the preset its dropdown names, and the log carries exactly two ERROR
 # lines. The pack typo alone was a run that exited 1 and wrote no dump to hash
 # before the fallback decision; the INGREDIENT typo was one again after it,
-# because the note a recipe carries to disclose a fallback was 245 bytes against
-# a 200-byte-per-element ceiling, and the library chunks every composed literal
-# now.
+# because the note a recipe carries to disclose a fallback is 266 bytes as the
+# ELEMENT the engine measures, newline included, against a 200-byte-per-element
+# ceiling, and the library chunks every composed literal now.
 #
 # THE BYTES OF THAT FILE ARE PINNED TOO, beside this one as flipped.golden.dat.
 # The writer belongs to the toolchain now, so the gate compares what it
@@ -46,5 +46,5 @@
 # A mismatch here is ENVIRONMENTAL and reports SKIPPED, not FAILED.
 #
 # Capture both rows with: scripts/run-ingame.sh --update
-2.0.77 default e824cd8302c00fd07c3c3416ad8d9a5eea5612bce5ee455f1cf9669eee1685cd 457e7d68e6fec8ce73cd1c6571112b7813a4b2ad9f3337b71bb3a835f9c690dc base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
-2.0.77 flipped 77af9873b0edc7263477871a19214929486ab0df93485e2fea693b1f051058a4 457e7d68e6fec8ce73cd1c6571112b7813a4b2ad9f3337b71bb3a835f9c690dc base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
+2.0.77 default e824cd8302c00fd07c3c3416ad8d9a5eea5612bce5ee455f1cf9669eee1685cd 0e62073f23d9e904ac54b187651cb44c9a40dee9022d328c93b6e3027d9b923f base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
+2.0.77 flipped 1cd61e0bdf9de34e2e76c9d74103a33636a82d95d6b4fb6584ca78b810aa1644 0e62073f23d9e904ac54b187651cb44c9a40dee9022d328c93b6e3027d9b923f base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77

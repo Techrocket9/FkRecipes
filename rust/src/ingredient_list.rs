@@ -19,15 +19,19 @@
 //!
 //! WHAT THE CALLER DOES WITH THE REFUSAL IS NOT THIS MODULE'S RULE. A refused
 //! text no longer stops the load: `data.rs` logs the sentence written here
-//! inside one ERROR line and takes the author's declared list instead, because
-//! a refusal on a field the player types into locks them out of their save
-//! (the client measurement is in `player_fallback`). That changes nothing
-//! above: this module still refuses rather than guessing, which is what makes
-//! the line the player reads name the real problem.
+//! inside one ERROR line and leaves the field deciding exactly as it does
+//! while it holds the reserved word, which beside a dropdown is the dropdown's
+//! chosen preset and on its own is the author's declared list, because a
+//! refusal on a field the player types into locks them out of their save (the
+//! client measurement is in `player_fallback`). That changes nothing above:
+//! this module still refuses rather than guessing, which is what makes the
+//! line the player reads name the real problem.
 //!
 //! THE RESERVED WORD `default` IS WHAT THE SETTING SHIPS WITH, and it means
-//! the mod's own list with its ladders, in this release and in every later
-//! one. That is why the parse result is a two-armed thing rather than a list:
+//! whatever this field gives when nobody types into it: the dropdown's
+//! currently chosen preset where one sits beside it, the mod's own list with
+//! its ladders where none does, in this release and in every later one. That
+//! is why the parse result is a two-armed thing rather than a list:
 //! a player who never opened the settings screen has the word stored (the
 //! engine writes every setting's current value into mod-settings.dat,
 //! untouched defaults included), and reading it as a list of names would turn
@@ -134,8 +138,10 @@ pub(crate) enum ListKind {
 /// is holding.
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) enum ListText {
-    /// The reserved word `default`: the mod's own declared list, ladders and
-    /// all, whatever the author's list becomes in a later release.
+    /// The reserved word `default`: whatever this field gives when nobody
+    /// types into it, which beside a dropdown is the dropdown's chosen preset
+    /// and on its own is the mod's own declared list, ladders and all,
+    /// whatever the author's list becomes in a later release.
     Default,
     /// A list the player wrote out, resolved. Empty is the word `none`.
     List(IngredientList),
@@ -307,11 +313,11 @@ pub(crate) fn parse(
     if whole.is_empty() {
         return Err(match kind {
             ListKind::Recipe => format!(
-                "fkrecipes: {} is empty; write the ingredients as \"2 iron-plate, 3 copper-cable\", the word default for the mod's own list, or the word none for a recipe with no ingredients",
+                "fkrecipes: {} is empty; write the ingredients as \"2 iron-plate, 3 copper-cable\", the word default to leave this field alone, or the word none for a recipe with no ingredients",
                 setting
             ),
             ListKind::Packs => format!(
-                "fkrecipes: {} is empty; write the science packs as \"1 automation-science-pack, 1 logistic-science-pack\", or the word default for the mod's own list",
+                "fkrecipes: {} is empty; write the science packs as \"1 automation-science-pack, 1 logistic-science-pack\", or the word default to leave this field alone",
                 setting
             ),
         });

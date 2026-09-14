@@ -705,6 +705,23 @@ func (l *Lib) afterResolution(w World, res *resolution, prefix string) error {
 // still the one thing this message can add. So the sentence states it and stops
 // there: no screen, no route, no advice.
 //
+// IT MAY NOT SAY "THE MOD LOADED" IN ANY FORM, and that is why this sentence is
+// worded differently from the three the customize layer writes: this one
+// decorates a REFUSAL, so nothing loaded. What it can say is what happened to
+// the value, and the honest generic for that is the library's own rule: a
+// stored value it cannot use behaves exactly as if the player had left the
+// field alone. It used to say the mod's own declaration applied, which is false
+// on five of six presets: beside a dropdown a set-aside text leaves the
+// dropdown's CURRENTLY CHOSEN preset deciding, and the mod's own declared list
+// is what a field left alone gives only where no dropdown sits beside it. See
+// fallbackNote for the same correction on the prototype side.
+//
+// THE ADVERBIAL BELONGS TO THE OUTCOME AND NOT TO THE SETTING-ASIDE, which is
+// the one way this sentence is built differently from its three siblings.
+// Nothing about the setting-aside is conditional: the value went, full stop.
+// What "left alone" describes is what then APPLIED, so the clause hangs off
+// that and the sentence names the two things in the order they happened.
+//
 // IT APPEARS ONLY WHEN A FALLBACK HAPPENED, and it names the FIRST setting in
 // walk order, so a refusal on a plan nobody typed into carries nothing and a
 // plan with two fallbacks answers the same way every run.
@@ -713,7 +730,7 @@ func (r *resolution) fallbackFact(err error) error {
 		return err
 	}
 	return errors.New(err.Error() + ". The stored value of " + r.fellBack[0] +
-		" could not be used, so the mod's own declaration applied.")
+		" could not be used and was set aside, so what applied is what that field gives when it is left alone.")
 }
 
 // noteOn records the trailing line one prototype's description carries, keeping
@@ -831,9 +848,20 @@ const recipeChangeSentence = "Changing a recipe empties an assembling machine's 
 // THE TAIL IS SCOPED BY WHAT MOVED, not by what kind of prototype carries it:
 // destroysInputs is true only where the ingredient list itself changed. See
 // noteOn.
+//
+// IT NAMES NO TARGET, and that is measured rather than tidy. The sentence used
+// to say this mod's own choice applied instead, and on a recipe whose text sits
+// beside a preset dropdown that is false on every preset but the declared one:
+// the consumer measured all six and got six different ingredient lists under
+// one byte-identical note. What is true on all six, and beside a field with no
+// dropdown at all, and of a NUMBER setting as well as a text one, is the
+// library's own rule: a stored value it cannot use behaves exactly as if the
+// player had left the field alone. Naming the preset instead would mean
+// hoisting readDropdown above the composer, which resolve keeps deliberately
+// late; the generic is true without it.
 func fallbackNote(setting string, destroysInputs bool) string {
 	note := "The stored value of " + setting +
-		" could not be used, so this mod's own choice applies instead. The reason is in the log."
+		" could not be used, so the game loaded as though that setting had been left alone. The reason is in the log."
 	return withDestruction(note, destroysInputs)
 }
 

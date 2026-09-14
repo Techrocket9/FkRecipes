@@ -50,10 +50,12 @@ import (
 //
 // WHAT THE CALLER DOES WITH THE REFUSAL IS NOT THIS FILE'S RULE. A refused text
 // no longer stops the load: customize.go logs the sentence written here inside
-// one ERROR line and takes the author's declared list instead, because a
-// refusal on a field the player types into locks them out of their save (the
-// client measurement is in playerFallback). Nothing above changes for it, and
-// the corpus that pins these sentences is untouched.
+// one ERROR line and leaves the field deciding exactly as it does while it
+// holds the reserved word, which beside a dropdown is the dropdown's chosen
+// preset and on its own is the author's declared list, because a refusal on a
+// field the player types into locks them out of their save (the client
+// measurement is in playerFallback). Nothing above changes for it, and the
+// corpus that pins these sentences is untouched.
 //
 // The parser answers with a message rather than an error: the caller composes
 // it into the line the player reads, and a string keeps this half free of any
@@ -190,11 +192,13 @@ type ingredientList []listEntry
 // parsedList is what one setting's text turned out to say, and it has TWO arms
 // rather than one, because "the mod's own list" is not a list.
 //
-// isDefault is the word default: the caller keeps the author's declared
-// ingredients with their ladders, which is a different thing from any list this
-// parser could hand back, and the difference has to survive as a value the
-// caller can test for rather than as a sentinel list somebody has to remember
-// the meaning of. entries is everything else, the empty list included.
+// isDefault is the word default: the caller keeps whatever this field gives
+// when nobody types into it, which beside a dropdown is the dropdown's chosen
+// preset and on its own is the author's declared ingredients with their
+// ladders. Either is a different thing from any list this parser could hand
+// back, and the difference has to survive as a value the caller can test for
+// rather than as a sentinel list somebody has to remember the meaning of.
+// entries is everything else, the empty list included.
 type parsedList struct {
 	isDefault bool
 	entries   ingredientList
@@ -242,9 +246,9 @@ func parseIngredientList(text string, kind listKind, category string, setting st
 		// inside it. The recipe wording offers none and the pack wording does
 		// not, because research refuses none.
 		if kind == listPacks {
-			return parsedList{}, "fkrecipes: " + setting + ` is empty; write the science packs as "1 automation-science-pack, 1 logistic-science-pack", or the word default for the mod's own list`
+			return parsedList{}, "fkrecipes: " + setting + ` is empty; write the science packs as "1 automation-science-pack, 1 logistic-science-pack", or the word default to leave this field alone`
 		}
-		return parsedList{}, "fkrecipes: " + setting + ` is empty; write the ingredients as "2 iron-plate, 3 copper-cable", the word default for the mod's own list, or the word none for a recipe with no ingredients`
+		return parsedList{}, "fkrecipes: " + setting + ` is empty; write the ingredients as "2 iron-plate, 3 copper-cable", the word default to leave this field alone, or the word none for a recipe with no ingredients`
 	}
 	// The default marker, recognised on the whole text before it is cut into
 	// entries. It is also recognised as an entry below, which is what lets the
