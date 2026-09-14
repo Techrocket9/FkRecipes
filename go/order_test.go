@@ -62,7 +62,7 @@ func TestOrderAfterPlacesGeneratedSettingsUnderALegacyOrder(t *testing.T) {
 		`extend {type="string-setting", name="bbb-tech-cost", setting_type="startup", default_value="logistics", order="b", allowed_values=["logistics", "custom"]}`,
 		`extend {type="string-setting", name="steelworks-tech-packs", setting_type="startup",` +
 			` default_value="default", order="bae", auto_trim=true,` +
-			` localised_description=["", ["?", ["mod-setting-description.steelworks-tech-packs"], "steelworks-tech-packs"], "` + "\n" + `default: 1 automation-science-pack"` + wantTextTail + `]}`,
+			` localised_description=["", ["?", ["mod-setting-description.steelworks-tech-packs"], "steelworks-tech-packs"], "` + "\n" + `default: 1 automation-science-pack"` + wantPacksTail + `]}`,
 		`extend {type="int-setting", name="steelworks-tech-count", setting_type="startup", default_value=20, order="baf", minimum_value=1, maximum_value=1000000,` +
 			` localised_description=["", ["?", ["mod-setting-description.steelworks-tech-count"], "steelworks-tech-count"], "` + "\n" + `A whole number from 1 to 1000000."]}`,
 		`extend {type="int-setting", name="steelworks-tech-seconds", setting_type="startup", default_value=15, order="bag", minimum_value=1, maximum_value=3600,` +

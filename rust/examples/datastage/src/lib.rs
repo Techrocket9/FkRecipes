@@ -130,7 +130,7 @@ mod guest {
             "rivet-ingredients",
             vec![Ingredient::named(1, "iron-plate", &[])],
         );
-        // The water preset, as the text a player switching to `custom` starts
+        // The water preset, as the text a player who edits this field starts
         // from. A ladder renders its FIRST rung and an item this plan declares
         // renders prefixed, which is what the description has to show.
         let quench_list = lib.ingredients_setting(

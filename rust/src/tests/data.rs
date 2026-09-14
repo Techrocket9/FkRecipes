@@ -454,8 +454,8 @@ fn self_product_want(subject: &str, name: &str) -> alloc::string::String {
 /// returns exactly those two of base's 217 recipes. So the shape is legal, a
 /// library that refused it would be wrong, and what was missing was the signal.
 ///
-/// FOUR ARMS ADD A RESOLVED LIST AND ALL FOUR ARE HERE. A player's text through
-/// `ingredients_from`, a player's text through a dropdown's Custom arm, an
+/// FOUR ARMS ADD A RESOLVED LIST AND ALL FOUR ARE HERE. A player's text with no
+/// dropdown beside it, a player's text that takes a dropdown's choice over, an
 /// author's preset behind a dropdown, and a plain declared list: the check sits
 /// in `Resolution::add_recipe`, which every one of them hands its list to, and
 /// this is the witness that none of them goes round it.
@@ -500,8 +500,8 @@ fn a_recipe_whose_list_names_its_own_product_says_so() {
         ],
     );
 
-    // The dropdown's Custom arm: the same text path, reached through a
-    // dropdown the player put on custom.
+    // A TEXT BESIDE A DROPDOWN: the same text path, reached with the dropdown
+    // left on a preset and the text field overriding it.
     let mut custom = Lib::new();
     let plate = custom.item("hardened-steel-plate", ItemSpec::default());
     let style = custom.dropdown_setting_needing_locale("style", "plain", &["plain"]);
@@ -921,9 +921,9 @@ fn a_declared_list_naming_one_thing_twice_is_refused() {
     );
 
     // A PRESET, AT BOTH OF ITS CHECKS. The data planner's own recipe loop owns
-    // a dropdown with no Custom arm; the binding validator, which BOTH planners
-    // run, owns one that has an arm, because the settings stage renders those
-    // presets into the dropdown's description.
+    // a dropdown with no text setting beside it; the binding validator, which
+    // BOTH planners run, owns one that has a text setting beside it, because
+    // the settings stage renders those presets into the dropdown's description.
     let dup = || {
         vec![
             Ingredient::named(4, "iron-plate", &[]),

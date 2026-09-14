@@ -109,7 +109,7 @@ fn plan_settings_text_setting_prototypes() {
         &transcript(&ops),
         &[
             r#"extend {type="string-setting", name="steelworks-rivet-ingredients", setting_type="startup", default_value="default", order="aa", auto_trim=true, localised_description=["", ["?", ["mod-setting-description.steelworks-rivet-ingredients"], "steelworks-rivet-ingredients"], "\ndefault: 2 tungsten-plate, 4 steelworks-steel-rivet, 0.5 [fluid=water]"<text tail>]}"#,
-            r#"extend {type="string-setting", name="steelworks-research-packs", setting_type="startup", default_value="default", order="z", auto_trim=true, localised_description=["", ["?", ["mod-setting-description.steelworks-research-packs"], "steelworks-research-packs"], "\ndefault: 1 military-science-pack"<text tail>]}"#,
+            r#"extend {type="string-setting", name="steelworks-research-packs", setting_type="startup", default_value="default", order="z", auto_trim=true, localised_description=["", ["?", ["mod-setting-description.steelworks-research-packs"], "steelworks-research-packs"], "\ndefault: 1 military-science-pack"<packs tail>]}"#,
             r#"extend {type="int-setting", name="steelworks-tips-count", setting_type="startup", default_value=30, order="ac", minimum_value=1, maximum_value=100000, localised_description=["", ["?", ["mod-setting-description.steelworks-tips-count"], "steelworks-tips-count"], "\nA whole number from 1 to 100000."]}"#,
             r#"extend {type="int-setting", name="steelworks-tips-seconds", setting_type="startup", default_value=15, order="ad", minimum_value=1, maximum_value=600, localised_description=["", ["?", ["mod-setting-description.steelworks-tips-seconds"], "steelworks-tips-seconds"], "\nA whole number from 1 to 600."]}"#,
         ],
@@ -147,15 +147,33 @@ fn an_empty_declared_ingredient_list_reads_as_none() {
 #[test]
 fn the_composed_text_lines_are_the_stated_ones() {
     use crate::ingredient_list::MAX_TEXT;
-    use crate::settings::{text_format_line, INGREDIENT_PRESET_HEAD, TEXT_FALLBACK_LINE};
+    use crate::settings::{
+        text_format_line, INGREDIENT_PRESET_HEAD, LIST_WRAP_LINE, TEXT_FALLBACK_LINE,
+    };
 
     assert_eq!(
         MAX_TEXT, 2000,
         "the sentence below and both halves' docs say 2000"
     );
     assert_eq!(
-        text_format_line(),
+        text_format_line(false),
         "\nWrite internal names, as the default line above does, in at most 2000 characters."
+    );
+    // THE WORD none ON AN INGREDIENT LIST AND NOWHERE ELSE. A packs list
+    // refuses it, so the sentence above is the whole packs line and this is the
+    // whole ingredient one.
+    assert_eq!(
+        text_format_line(true),
+        "\nWrite internal names, as the default line above does, in at most 2000 characters. The word none empties the list, so the recipe costs nothing to craft."
+    );
+    assert!(
+        !text_format_line(false).contains("none"),
+        "a packs setting's format line names the word none: {}",
+        text_format_line(false)
+    );
+    assert_eq!(
+        LIST_WRAP_LINE,
+        "\nA list too long for one line continues on the next; the continuation is part of the same list."
     );
     assert_eq!(
         TEXT_FALLBACK_LINE,
@@ -214,7 +232,7 @@ fn plan_settings_composes_a_dropdown_with_a_custom_arm() {
     assert_composed(
         &transcript(&ops)[..1],
         &[
-            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="aa", allowed_values=["water", "oil"], localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "\n  type: 2 steel-plate, 10 [fluid=water]"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "\n  type: 3 steel-plate"], "\nThe setting below applies instead while it does not say default."]}"#,
+            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="aa", allowed_values=["water", "oil"], localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "\n  type: 2 steel-plate, 10 [fluid=water]"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "\n  type: 3 steel-plate"], "\nA list too long for one line continues on the next; the continuation is part of the same list.", "\nThe setting below applies instead while it does not say default."]}"#,
         ],
     );
 }
@@ -270,7 +288,7 @@ fn the_switch_lines_follow_the_emitted_order() {
         &transcript(&ops),
         &[
             r#"extend {type="string-setting", name="steelworks-quench-ingredients", setting_type="startup", default_value="default", order="aa", auto_trim=true, localised_description=["", ["?", ["mod-setting-description.steelworks-quench-ingredients"], "steelworks-quench-ingredients"], "\ndefault: 2 steel-plate"<text tail below>]}"#,
-            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="z", allowed_values=["water", "oil"], localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "\n  type: 2 steel-plate"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "\n  type: 3 steel-plate"], "\nThe setting above applies instead while it does not say default."]}"#,
+            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="z", allowed_values=["water", "oil"], localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "\n  type: 2 steel-plate"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "\n  type: 3 steel-plate"], "\nA list too long for one line continues on the next; the continuation is part of the same list.", "\nThe setting above applies instead while it does not say default."]}"#,
         ],
     );
 }
@@ -490,10 +508,16 @@ fn a_cost_preset_names_its_source_by_its_localised_name() {
 
 /// MEASURED (2.0.77): a localised string takes at most 20 parameters and 20
 /// levels of nesting, and 21 of either refuses the load naming nothing useful.
-/// The consumer's own description key is the first parameter, so 19 presets
-/// ride at the top level and the twentieth turns the lot into groups of 19.
+/// The consumer's own description key is the first parameter and the last two
+/// are the wrap line and the switch line, so 17 presets ride at the top level
+/// and the eighteenth turns the lot into groups of 19.
+///
+/// SEVENTEEN AND NOT EIGHTEEN IS WHAT THE WRAP LINE COST, and that is the
+/// whole of what it cost: one parameter of the top table, on the one
+/// composition that can reach the ceiling at all. Nesting is a fill rather
+/// than a wall, so past it the description keeps working.
 #[test]
-fn a_composed_description_nests_past_nineteen_presets() {
+fn an_ingredient_description_nests_past_seventeen_presets() {
     let composed = |presets: usize| -> Value {
         let mut lib = Lib::new();
         let values: Vec<String> = (0..presets).map(|i| alloc::format!("p{}", i)).collect();
@@ -526,12 +550,13 @@ fn a_composed_description_nests_past_nineteen_presets() {
         }
     };
 
-    // Eighteen presets: the key plus eighteen lines plus the switch line is
-    // twenty parameters, the measured ceiling, and nothing nests.
-    let Value::Arr(flat) = composed(18) else {
+    // Seventeen presets: the key plus seventeen lines plus the wrap line plus
+    // the switch line is twenty parameters, the measured ceiling, and nothing
+    // nests.
+    let Value::Arr(flat) = composed(17) else {
         panic!("the description is not a localised string")
     };
-    assert_eq!(flat.len(), 21, "eighteen presets did not stay flat");
+    assert_eq!(flat.len(), 21, "seventeen presets did not stay flat");
     assert_eq!(
         flat.last(),
         Some(&Value::string(
@@ -539,25 +564,57 @@ fn a_composed_description_nests_past_nineteen_presets() {
         )),
         "the last parameter is not the switch line"
     );
+    assert_eq!(
+        flat[flat.len() - 2],
+        Value::string(
+            "\nA list too long for one line continues on the next; the continuation is part of the same list."
+        ),
+        "the second to last parameter is not the wrap line"
+    );
 
-    // Nineteen: the level keeps the first nineteen parameters and hands the
+    // Eighteen: the level keeps the first nineteen parameters and hands the
     // rest to a nested group in the twentieth slot.
-    let Value::Arr(nested) = composed(19) else {
+    let Value::Arr(nested) = composed(18) else {
         panic!("the description is not a localised string")
     };
     assert_eq!(nested.len(), 21, "the nested form is not one level wide");
     let Value::Arr(group) = nested.last().expect("no last parameter") else {
         panic!("the last parameter is not a localised string")
     };
-    // The empty key that concatenates, then the two lines that did not fit.
+    // The empty key that concatenates, then the two lines that did not fit,
+    // which are the wrap line and the switch line in that order: the
+    // eighteenth preset takes the last flat slot and the two trailing lines
+    // are what the level hands on.
     assert_eq!(
         group.len(),
         3,
         "the nested group does not hold what the level could not"
     );
+    assert_eq!(
+        group[1],
+        Value::string(
+            "\nA list too long for one line continues on the next; the continuation is part of the same list."
+        ),
+        "the nested group does not open with the wrap line"
+    );
+    assert_eq!(
+        group[2],
+        Value::string("\nThe setting below applies instead while it does not say default."),
+        "the nested group does not end with the switch line"
+    );
+
+    // And one preset further, the group holds a preset LINE as well, which is
+    // what says the fill keeps going rather than stopping at the two lines.
+    let Value::Arr(deeper) = composed(19) else {
+        panic!("the description is not a localised string")
+    };
+    let Value::Arr(group) = deeper.last().expect("no last parameter") else {
+        panic!("the last parameter is not a localised string")
+    };
+    assert_eq!(group.len(), 4, "the nested group is not four elements wide");
     assert!(
         matches!(group[1], Value::Arr(_)),
-        "the nested group's member is not a preset line"
+        "the nested group's first member is not a preset line"
     );
 }
 
@@ -1554,7 +1611,7 @@ fn customizer_refusals() {
 /// composes the very descriptions the rule protects.
 #[test]
 fn a_research_number_serves_exactly_one_declaration() {
-    // A count read by a CostFrom technology and by a Custom arm's technology.
+    // One count read by the CostFrom of two different technologies.
     let shared_count = || {
         let mut lib = Lib::new();
         let count = lib.int_setting("research-count", 30, NumericSpec::between(1.0, 100000.0));

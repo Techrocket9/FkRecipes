@@ -620,7 +620,7 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		// validateTextSettings in front of this walk, and it refuses a text
 		// setting whose language is missing before anything renders.
 		out[i] = textDescription(s.emittedName(prefix), l.lang.render(entries),
-			l.textSwitchLine(i))
+			l.textSwitchLine(i), s.kind == settingIngredients)
 	}
 	// Recipes then technologies, in declaration order, which is the order a
 	// dropdown's own description is built in when two declarations put a text
@@ -648,7 +648,7 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		}
 		i := by.Setting.index - 1
 		full := l.settings[i].emittedName(prefix)
-		params := make([]Value, 0, len(by.Choices)+2)
+		params := make([]Value, 0, len(by.Choices)+3)
 		params = append(params, localeRef("mod-setting-description", full, full))
 		// THE TEXT SETTING IS WHAT GUARANTEES THE LANGUAGE. It is an
 		// IngredientsSettingRef, which only IngredientsSetting issues, and that
@@ -657,6 +657,10 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 			params = append(params, presetLine(full, c.Value,
 				Str(ingredientPresetHead+l.lang.render(l.declaredIngredientEntries(prefix, c.Ingredients)))))
 		}
+		// THE WRAP, DISCLOSED WHERE THE WRAPPED TEXT IS. Every line above this
+		// one is a typeable list, and a list is the only thing in a tooltip a
+		// player copies. See listWrapLine.
+		params = append(params, Str(listWrapLine))
 		params = append(params, Str(dropdownSwitchLine(l.relativeOrder(i, r.spec.IngredientsFrom.index-1))))
 		out[i] = localisedGroup(params)
 	}
@@ -851,22 +855,25 @@ func (l *Lib) researchRangeLine(i int, s settingDecl, dropdown int) string {
 // replaces, against the measured ceilings maxLocalisedParams records (20
 // parameters per table, 20 levels of depth, no global table budget). The
 // library's realistic worst composition loses nothing it can reach: the
-// theoretical preset ceiling drops from 342 to 323, and a 323-preset
-// description carrying 647 wrappers both loads and resolves in full.
+// theoretical preset ceiling drops from 342 to 323 on a COST dropdown, and a
+// 323-preset description carrying 647 wrappers both loads and resolves in
+// full. An INGREDIENT dropdown's is 322 rather than 323, by arithmetic and not
+// by a second measurement: listWrapLine spends one parameter slot a preset
+// would otherwise have, and nothing else about the shape differs.
 func localeRef(section, key, raw string) Value {
 	return Arr(Str("?"), Arr(Str(section+"."+key)), Str(raw))
 }
 
 // textDescription is the whole localised_description a TEXT setting is emitted
-// with: the consumer's own entry, then the three things this library owes the
+// with: the consumer's own entry, then the four things this library owes the
 // player about the field beside it.
 //
-// FIVE PARAMETERS, and none of them a table beyond the consumer's key and the
+// SIX PARAMETERS, and none of them a table beyond the consumer's key and the
 // localeRef wrapper around it, so the twenty-parameter ceiling
 // maxLocalisedParams records is nowhere near reached and the shape needs no
 // nesting rule of its own.
 //
-// THE FOUR LINES ARE THE ANSWER TO WHAT A CLIENT MEASUREMENT FOUND. A player
+// THE FIVE LINES ARE THE ANSWER TO WHAT A CLIENT MEASUREMENT FOUND. A player
 // standing in the Mod Settings screen reads the tooltip whole (measured on
 // 2.0.77 on a DROPDOWN's composed description, one line per preset: seven
 // lines rendered readable and unclipped; the ceilings on a composed
@@ -876,7 +883,9 @@ func localeRef(section, key, raw string) Value {
 // dropdown's LABEL beside it is truncated at about 37 characters, which is why
 // nothing a player needs may live in a label. The default line shows the list
 // the word default stands for, in the internal names the field actually takes;
-// the format line says so in words and states the ceiling; the switch line says
+// the wrap line says that a list too long for the tooltip is still one list,
+// which is the one thing about that line a player cannot see; the format line
+// says so in words and states the ceiling; the switch line says
 // which of the two fields is deciding, which the screen cannot show because it
 // has no conditional visibility at all (measured); and the fallback line says
 // what a text this library cannot use costs, which before it was stated nowhere
@@ -885,12 +894,22 @@ func localeRef(section, key, raw string) Value {
 // ONE COMPOSITION, TWO READERS. The settings planner emits this; CheckLocale
 // asks the same function for the same shape with the list left out, so a line
 // deleted here is a finding rather than a silent loss. See guardedTextDescription.
-func textDescription(full, rendered, switchLine string) Value {
+//
+// THE WRAP LINE SITS DIRECTLY UNDER THE DEFAULT LINE, because the default line
+// is the list it is about and the one a player copies. The format line below it
+// still says "as the default line above does", which two lines up is as true as
+// one.
+//
+// INGREDIENTS SAYS WHICH OF THE TWO TEXT SETTINGS THIS IS, and the only thing
+// it decides is whether the format line names the word none: see
+// textFormatLine.
+func textDescription(full, rendered, switchLine string, ingredients bool) Value {
 	return Arr(
 		Str(""),
 		localeRef("mod-setting-description", full, full),
 		Str("\ndefault: "+rendered),
-		Str(textFormatLine()),
+		Str(listWrapLine),
+		Str(textFormatLine(ingredients)),
 		Str(switchLine),
 		Str(textFallbackLine),
 	)
@@ -926,10 +945,58 @@ func numberDescription(full, rangeLine string) Value {
 // IT NAMES THE DEFAULT LINE ABOVE IT rather than describing internal names in
 // the abstract, because that line is the copyable example, and copying it is
 // exactly what the composition is for.
-func textFormatLine() string {
-	return "\nWrite internal names, as the default line above does, in at most " +
+func textFormatLine(ingredients bool) string {
+	line := "\nWrite internal names, as the default line above does, in at most " +
 		strconv.Itoa(maxListChars) + " characters."
+	if ingredients {
+		line += ingredientNoneClause
+	}
+	return line
 }
+
+// ingredientNoneClause is the word none, disclosed on the one setting kind that
+// takes it.
+//
+// THE WORD IS A FEATURE AND WAS DOCUMENTED NOWHERE A PLAYER LOOKS. none empties
+// an ingredient list, the recipe reaches the game with no ingredients at all,
+// and the recycling recipe the engine derives from it goes with it. That is a
+// legitimate thing for a player to want, so it is kept and said out loud.
+//
+// AND IT IS NOT SAID ON A PACKS SETTING, which is why it is a clause of its own
+// rather than part of the sentence above it. A packs list REFUSES the word,
+// with "research takes at least one science pack": telling a player to type a
+// word the library turns down would be worse than saying nothing at all.
+const ingredientNoneClause = " The word none empties the list, so the recipe costs nothing to craft."
+
+// listWrapLine is what the engine's own wrapping costs a player who copies a
+// line, said where the wrapped line is.
+//
+// THE CONTINUATION STARTS AT THE LEFT MARGIN (measured on the client): a list
+// too long for the tooltip breaks, and the second half is not indented under
+// the first, so it reads as a line of its own and a player who copies what
+// looks like a whole line loses the last ingredient. The wrap is the engine's
+// and no composition can change it; what a composition can do is say that the
+// continuation belongs to the line above it.
+//
+// IT SAYS "THE CONTINUATION" AND NOT "BOTH LINES", AND THAT IS ARITHMETIC AND
+// NOT STYLE. Two is not a bound on anything here. The wrap threshold is near
+// 57 to 60 characters (measured on the client), and the list this line renders
+// is the AUTHOR'S OWN DECLARED LIST, which has no bound short of the
+// language's 2000-character parse ceiling, so three and more visual lines are
+// reachable. On an ingredient dropdown the line above the list is the
+// consumer's LOCALISED LABEL, which can wrap on its own and is not a list at
+// all. A player who trusted "both lines are one list" over a list that wrapped
+// twice would copy two of three lines and drop the tail, which is the exact
+// failure this sentence exists to prevent, so the sentence names the
+// RELATIONSHIP (a continuation belongs to what it continues) instead of
+// counting lines it cannot count.
+//
+// IT GOES WHEREVER A TYPEABLE LIST IS RENDERED AND NOWHERE ELSE: a text
+// setting's default line, and an ingredient dropdown's preset lines. A cost
+// dropdown's preset is a localised label followed by a localised technology
+// name, prose in one vocabulary with nothing in it to copy, so the sentence
+// there would be about a hazard that preset does not carry.
+const listWrapLine = "\nA list too long for one line continues on the next; the continuation is part of the same list."
 
 // textFallbackLine is what happens to a text this library cannot use.
 //
@@ -1025,6 +1092,16 @@ func costPresetTail(c CostChoice) []Value {
 // when there are more than the engine takes. See maxLocalisedParams: each level
 // holds at most twenty parameters, and a level that would need more keeps the
 // first nineteen and hands the rest to a nested group in the twentieth slot.
+//
+// THE FILL POINT IS PER DROPDOWN KIND, because the presets are not the only
+// thing at the top level. Beside them sit the consumer's own description key
+// first and the switch line last, and on an INGREDIENT dropdown the wrap line
+// between them, so an ingredient dropdown stays flat up to SEVENTEEN presets
+// and a cost dropdown up to EIGHTEEN. Both are far above every dropdown anyone
+// has written; the nesting exists so that the one past the fill point is a line
+// in a tooltip rather than a load failure naming nothing useful.
+// TestIngredientDropdownDescriptionNestsPastSeventeenPresets and
+// TestCostDropdownDescriptionNestsPastNineteenPresets pin the two points.
 func localisedGroup(params []Value) Value {
 	items := make([]Value, 0, maxLocalisedParams+1)
 	items = append(items, Str(""))

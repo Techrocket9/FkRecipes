@@ -346,8 +346,9 @@ func gameKeyAdvisory(full, key, raw string) string {
 }
 
 // checkComposedTextLines is the DRIFT GUARD over what this library composes
-// onto a text setting's description: the format line, the switch line and the
-// fallback line, each reported by name when the composition stops carrying it.
+// onto a text setting's description: the wrap line, the format line, the switch
+// line and the fallback line, each reported by name when the composition stops
+// carrying it.
 //
 // IT IS NOT AN AUTHOR FINDING, and that is why it is worded and placed the way
 // it is. The consumer writes the [mod-setting-description] entry and this
@@ -360,10 +361,10 @@ func gameKeyAdvisory(full, key, raw string) string {
 //
 // ONCE PER REPORT, NOT ONCE PER SETTING, and the sentence names the library
 // rather than a setting. What it inspects does not vary with the setting in any
-// way the rule reads: two of the three lines are constants, the third is the
-// switch line the guarded composition was built with and is handed in beside
-// it, and the only per-setting part of the composition, the consumer's own key,
-// is not what it looks at. Run inside the per-setting loop it turned ONE library
+// way the rule reads: two of the four lines are constants, the other two are
+// the switch line and the format line the guarded composition was built with
+// and which are handed in beside it, and the only per-setting part of the
+// composition, the consumer's own key, is not what it looks at. Run inside the per-setting loop it turned ONE library
 // defect into one finding per text setting, five of them on the example guest,
 // and at fifty text settings the sentences alone would fill localeFindingCap and
 // push every author finding out of the report.
@@ -389,15 +390,15 @@ func gameKeyAdvisory(full, key, raw string) string {
 // dereferences an item handle. The checker validates nothing, exactly as the
 // rest of it validates nothing, so a plan the planners would refuse must not
 // panic here: with the list left out neither the language nor l.items is
-// touched, and the three lines under test are the three this function can see.
+// touched, and the four lines under test are the four this function can see.
 // What the rendered list itself says is the settings stage's business and the
 // corpus's.
 func (l *Lib) checkComposedTextLines(prefix string) []string {
-	desc, switchLine, ok := l.guardedTextDescription(prefix)
+	desc, switchLine, ingredients, ok := l.guardedTextDescription(prefix)
 	if !ok {
 		return nil
 	}
-	return composedTextLinesMissing(desc, switchLine)
+	return composedTextLinesMissing(desc, switchLine, ingredients)
 }
 
 // guardedTextDescription is WHICH composition the guard inspects, split out
@@ -405,21 +406,24 @@ func (l *Lib) checkComposedTextLines(prefix string) []string {
 // text setting's in declaration order, with the declared list left out, and no
 // composition at all when the plan declares no text setting.
 //
-// THE SWITCH LINE COMES BACK BESIDE THE COMPOSITION because it is the one line
-// of the three that is not a constant: it names the option above or below when
-// a dropdown is bound to the same declaration and the mod's own list when none
-// is. The rule cannot recompute it without the declaration, so the caller that
-// built the composition hands over the line it built it with, and what the
-// guard then answers is whether textDescription put that line into the table it
+// THE SWITCH LINE AND THE KIND COME BACK BESIDE THE COMPOSITION because they
+// are the two inputs of the four lines that are not constants. The switch line
+// names the option above or below when a dropdown is bound to the same
+// declaration and the mod's own list when none is; the kind decides whether the
+// format line names the word none, which only an ingredient list takes. The
+// rule cannot recompute either without the declaration, so the caller that
+// built the composition hands over what it built it with, and what the guard
+// then answers is whether textDescription put those lines into the table it
 // returned.
-func (l *Lib) guardedTextDescription(prefix string) (Value, string, bool) {
+func (l *Lib) guardedTextDescription(prefix string) (Value, string, bool, bool) {
 	for i, s := range l.settings {
 		if s.kind.isText() {
 			line := l.textSwitchLine(i)
-			return textDescription(s.emittedName(prefix), "", line), line, true
+			ingredients := s.kind == settingIngredients
+			return textDescription(s.emittedName(prefix), "", line, ingredients), line, ingredients, true
 		}
 	}
-	return Value{}, "", false
+	return Value{}, "", false, false
 }
 
 // composedTextLinesMissing is the guard's rule over one composition.
@@ -428,12 +432,13 @@ func (l *Lib) guardedTextDescription(prefix string) (Value, string, bool) {
 // with one line taken out of it, which is the only way to see the finding
 // without editing the source: nothing a consumer can declare produces a
 // composition missing a line.
-func composedTextLinesMissing(desc Value, switchLine string) []string {
+func composedTextLinesMissing(desc Value, switchLine string, ingredients bool) []string {
 	var out []string
-	// THE ORDER IS THE COMPOSITION'S OWN, so a description that lost two lines
-	// reports them in the order a reader would have met them.
+	// THE ORDER IS THE COMPOSITION'S OWN, so a description that lost more than
+	// one of the four reports them in the order a reader would have met them.
 	for _, want := range []struct{ line, missing string }{
-		{textFormatLine(), "no line about the format and the length limit"},
+		{listWrapLine, "no line about a list that continues on the next line"},
+		{textFormatLine(ingredients), "no line about the format and the length limit"},
 		{switchLine, "no line about which field decides while the text says default"},
 		{textFallbackLine, "no line about what happens to a text this mod cannot use"},
 	} {
@@ -451,7 +456,7 @@ func composedTextLinesMissing(desc Value, switchLine string) []string {
 //
 // DEPTH BECAUSE THE QUESTION IS "DOES THE PLAYER READ IT", NOT "WHERE". The
 // composition it is handed is flat past the consumer's own key, which is itself
-// a nested table: textDescription is fixed at five parameters and never reaches
+// a nested table: textDescription is fixed at six parameters and never reaches
 // localisedGroup's nesting rule, and a dropdown's composition is never handed
 // here at all. A top-level scan would therefore be a claim about the shape of
 // the composition rather than about the lines, and it would go quietly wrong

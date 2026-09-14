@@ -10,10 +10,16 @@ use crate::value::{Value, MAX_EXACT_INT};
 // same lines from the same plan, which is what "the two halves agree" means
 // before the packaged mirror harness exists to say it in Lua.
 
-/// The three lines this library composes onto EVERY text setting's
-/// description, after the default list: what to write and how much of it,
-/// which field decides while this one says the reserved word, and what a text
-/// it cannot use costs.
+/// The four lines this library composes onto EVERY text setting's
+/// description, after the default list: that a list too long for the tooltip
+/// is still one list, what to write and how much of it, which field decides
+/// while this one says the reserved word, and what a text it cannot use costs.
+///
+/// THE FORMAT LINE IS TWO SENTENCES ON AN INGREDIENT SETTING AND ONE ON A
+/// PACKS SETTING, which is why there is a `PACKS` tail beside every `TEXT`
+/// one: the word `none` empties an ingredient list and is REFUSED on a pack
+/// list, so naming it there would be telling a player to type a word the
+/// library turns down.
 ///
 /// SPELLED OUT HERE RATHER THAN TAKEN FROM THE SOURCE, which is the whole
 /// point of a golden: `text_format_line` builds the number from `MAX_TEXT`, so
@@ -25,6 +31,15 @@ use crate::value::{Value, MAX_EXACT_INT};
 /// expands it, because a `&[&str]` of raw strings cannot concatenate a
 /// constant the way the Go twin's `+` does.
 pub(crate) const WANT_TEXT_TAIL: &str = concat!(
+    r#", "\nA list too long for one line continues on the next; the continuation is part of the same list.""#,
+    r#", "\nWrite internal names, as the default line above does, in at most 2000 characters. The word none empties the list, so the recipe costs nothing to craft.""#,
+    r#", "\nWhile this says default this mod's own list applies.""#,
+    r#", "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway.""#
+);
+
+/// The same tail on a PACKS setting, whose format line stops at the ceiling.
+pub(crate) const WANT_PACKS_TAIL: &str = concat!(
+    r#", "\nA list too long for one line continues on the next; the continuation is part of the same list.""#,
     r#", "\nWrite internal names, as the default line above does, in at most 2000 characters.""#,
     r#", "\nWhile this says default this mod's own list applies.""#,
     r#", "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway.""#
@@ -33,7 +48,8 @@ pub(crate) const WANT_TEXT_TAIL: &str = concat!(
 /// The same tail on a text setting that has a DROPDOWN beside it: the switch
 /// line names which way the settings screen sorts the two.
 pub(crate) const WANT_TEXT_TAIL_ABOVE: &str = concat!(
-    r#", "\nWrite internal names, as the default line above does, in at most 2000 characters.""#,
+    r#", "\nA list too long for one line continues on the next; the continuation is part of the same list.""#,
+    r#", "\nWrite internal names, as the default line above does, in at most 2000 characters. The word none empties the list, so the recipe costs nothing to craft.""#,
     r#", "\nWhile this says default the option chosen above applies; anything else applies instead of it.""#,
     r#", "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway.""#
 );
@@ -41,13 +57,17 @@ pub(crate) const WANT_TEXT_TAIL_ABOVE: &str = concat!(
 /// The same tail again with the dropdown sorting BELOW the text setting, which
 /// is what a legacy dropdown ordered after a generated setting produces.
 pub(crate) const WANT_TEXT_TAIL_BELOW: &str = concat!(
-    r#", "\nWrite internal names, as the default line above does, in at most 2000 characters.""#,
+    r#", "\nA list too long for one line continues on the next; the continuation is part of the same list.""#,
+    r#", "\nWrite internal names, as the default line above does, in at most 2000 characters. The word none empties the list, so the recipe costs nothing to craft.""#,
     r#", "\nWhile this says default the option chosen below applies; anything else applies instead of it.""#,
     r#", "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway.""#
 );
 
 /// What a golden writes where [`WANT_TEXT_TAIL`] belongs.
 pub(crate) const TEXT_TAIL: &str = "<text tail>";
+
+/// What a golden writes where [`WANT_PACKS_TAIL`] belongs.
+pub(crate) const PACKS_TAIL: &str = "<packs tail>";
 
 /// What a golden writes where [`WANT_TEXT_TAIL_ABOVE`] belongs.
 pub(crate) const TEXT_TAIL_ABOVE: &str = "<text tail above>";
@@ -184,6 +204,7 @@ pub(crate) fn assert_composed(got: &[String], want: &[&str]) {
             w.replace(TEXT_TAIL_ABOVE, WANT_TEXT_TAIL_ABOVE)
                 .replace(TEXT_TAIL_BELOW, WANT_TEXT_TAIL_BELOW)
                 .replace(TEXT_TAIL, WANT_TEXT_TAIL)
+                .replace(PACKS_TAIL, WANT_PACKS_TAIL)
                 .replace("\\n", "\n")
         })
         .collect();

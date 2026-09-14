@@ -606,7 +606,44 @@ jqassert "every composed locale key in the settings dump rides in the alternativ
 # drop. One row per sentence, so a failure names which one went.
 jqassert "the text setting's composed description states the length limit" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-rivet-ingredients") | .localised_description]
-   | length > 0 and all(any(.[]; . == "\nWrite internal names, as the default line above does, in at most 2000 characters."))'
+   | length > 0 and all(any(.[]; . == "\nWrite internal names, as the default line above does, in at most 2000 characters. The word none empties the list, so the recipe costs nothing to craft."))'
+# THE WORD none IS A FEATURE AND IT IS DISCLOSED ON THE ONE KIND THAT TAKES IT.
+# It empties the ingredient list, the recipe reaches the game with no
+# ingredients at all and the engine's derived recycling recipe goes with it, and
+# nothing a player reads used to say so. A PACKS list REFUSES the word
+# ("research takes at least one science pack"), so naming it there would tell a
+# player to type something this library turns down: the row below reads every
+# packs setting in the dump and asserts the clause is absent from all of them.
+jqassert "no packs setting names a word the library refuses there" "$DSDUMP" \
+  '[.. | objects
+    | select((.name? // "") | startswith("fkrecipes-example-") and endswith("-packs"))
+    | .localised_description // []
+    | .. | strings]
+   | length > 0 and all(contains("The word none") | not)'
+# THE WRAP, DISCLOSED WHERE THE WRAPPED TEXT IS. A line too long for the tooltip
+# breaks and the continuation starts at the LEFT MARGIN (measured on the
+# client), so it reads as a line of its own and a player who copies what looks
+# like a whole line loses the last ingredient. The wrap is the engine's and no
+# composition can change it; saying that the continuation belongs to the line
+# above it is what a composition can do. It says "the continuation" and not
+# "both lines" because two is not a bound: the rendered list is the author's own
+# and runs to the language's 2000-character ceiling, so three and more visual
+# lines are reachable, and on a dropdown the line above the list is the
+# consumer's label, which is not a list at all. Both places a typeable list is
+# rendered carry it: the text setting's own default line and an ingredient
+# dropdown's preset lines.
+jqassert "the text setting's composed description discloses the wrap" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-rivet-ingredients") | .localised_description]
+   | length > 0 and all(any(.[]; . == "\nA list too long for one line continues on the next; the continuation is part of the same list."))'
+jqassert "an ingredient dropdown discloses the wrap beside its preset lines" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-quench-medium") | .localised_description]
+   | length > 0 and all(any(.[]; . == "\nA list too long for one line continues on the next; the continuation is part of the same list."))'
+# AND NOT ON A COST DROPDOWN, whose preset is a localised label followed by a
+# localised technology name: one vocabulary, prose throughout, nothing in it to
+# copy. A sentence there would be about a hazard that preset does not carry.
+jqassert "a cost dropdown carries no line about a list it does not render" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-tips-research-tier") | .localised_description | .. | strings]
+   | length > 0 and all(contains("A list too long") | not)'
 jqassert "the text setting's composed description states what an unusable text costs" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-rivet-ingredients") | .localised_description]
    | length > 0 and all(any(.[]; . == "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."))'
