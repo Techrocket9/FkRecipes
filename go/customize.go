@@ -1247,10 +1247,24 @@ const ingredientPresetHead = "\n  type: "
 // source, which is the technology whose unit would be copied. A ladder with no
 // rungs at all falls back, and says so.
 //
-// THE TECHNOLOGY IS NAMED BY ITS LOCALISED NAME, not by its internal one. The
-// line the player reads sits beside a tech tree that shows them "Military 4",
-// and a description saying military-4 names something they cannot see, exactly
-// as the raw value key would.
+// THE TECHNOLOGY IS NAMED THROUGH THE GAME'S OWN KEY, which is as close to its
+// displayed name as this stage can get. The line the player reads sits beside a
+// tech tree that shows them "Military 4", and a description saying military-4
+// names something they cannot see, exactly as the raw value key would.
+//
+// BUT WHERE THE GAME COMPOSES A NAME RATHER THAN KEYING IT, THE PLAYER READS THE
+// INTERNAL NAME AND THAT IS PERMANENT, so this comment does not promise the
+// displayed name. Base defines no technology-name.logistics-2: the ENGINE
+// composes "Logistics 2" at RUNTIME out of a name ending in a level number, and
+// the data-stage prototype carries no localised_name at all (measured on 2.0.77
+// build 84539: null on logistics-2 and on logistics, and 3 technologies of 275
+// carry the field, each of them holding another key table). Copying that field
+// is the repair the consumer's third assessment proposed for its finding 15, and
+// it is UNAVAILABLE rather than unpriced: this line is composed at the SETTINGS
+// stage, where data.raw is an empty table with technology nil, and a setting
+// prototype is not readable at the data stage and cannot be declared there at
+// all. Fix round 3's decision 7 in agents/customizer-design.md has all four
+// measurements.
 //
 // AND IT ADDS NO LOCALE OBLIGATION OF THIS MOD'S: technology-name.<name> is the
 // GAME's entry, for a technology some other mod or the base game declared, so

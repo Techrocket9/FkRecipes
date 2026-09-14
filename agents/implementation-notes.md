@@ -1828,6 +1828,7 @@ A row per finding this commit touched, its grade in the consumer's third migrati
 | 20 | AWKWARD | FkRecipes, closed | added by decision 3. The `CostBy` arm where no source in the chosen ladder carries a unit logged a line, called no note recorder, and emitted a technology with `prerequisites` absent and `localised_description` absent: the research moved to the ROOT of the technology tree, researchable from the first minute. It now records `unpricedSourceNote` / `unpriced_source_note` after the fallback is resolved, so the technology's own tooltip says it has no prerequisite and no copied cost. The three enumerations the finding cited as evidence that the omission was never argued for (`go/data.go`'s note block, `docs/usage.md`'s fenced block, `agents/customizer-design.md` line 56) now carry all ten notes, and the SET is held by a source property, `TestEveryNoteCallSiteIsAccountedFor` / `every_note_call_site_is_accounted_for`, so the enumerations are derived rather than load-bearing. The half of the finding recorded rather than graded, that the consumer's composed `bbb-tech-cost` tooltip renders a renamed technology's base locale key as a name for a prototype that no longer exists, is BBB's and the engine's between them and is untouched here |
 | 21 | AWKWARD | FkRecipes, closed; BBB has nothing it must do | added by decision 4. A note with no declared `Description` was emitted as `{"", "<note>"}`, and a prototype's own `localised_description` field wins over the `[recipe-description]` or `[technology-description]` entry of the same name, so the sentence telling a player what the technology DOES was gone for the whole of that load and the note stood in its place. The composition now opens with a reference to that prototype's own entry followed by a newline, behind an empty alternative, so the engine renders the author's sentence ABOVE the note where they defined the entry and the note alone where they did not. BBB'S HALF IS NOTHING RATHER THAN ONE LINE, which is the difference between this row and the assessment's two proposed repairs: its `[technology-description]` entry survives a fallback with no change on its side, it does not have to move its description into `TechSpec.Description`, and the library does not have to ask. The assessment's other repair, a sentence in `docs/usage.md` telling an author to declare `Description` in the plan if they want it kept, was NOT taken: it would have moved the cost onto every consumer for a defect the library could answer by construction. `docs/usage.md` documents the behaviour instead |
 | 22 | MISLED | FkRecipes, closed; BBB chooses what to do with its own locale entry | added by decision 5. The scope document's scope F sentence was false on three clauses and its own supporting quote named a sentence this library never wrote. Scope F now states the class claim without a total claim, cross-references `CLAUDE.md`'s enumerated refusals rather than copying them, separates an AUTHOR's ladder (disclosed on the settings screen, logs nothing) from an ENVIRONMENT's degradation (disclosed on the prototype and in one `ERROR:` line), and says what CHANGED rather than what was substituted, because two of this round's degradations substitute nothing. The disclosure the design leaned on is composed by the library now, in three vocabularies. BBB MAY KEEP OR DELETE ITS OWN SENTENCE and neither is owed: `bbb-recipe-cost`'s `[mod-setting-description]` entry still renders ABOVE the library's composed lines, so keeping it costs a player one more line saying the same thing in the consumer's words, and deleting it loses nothing, because the rule, the merge and the "can be a shorter list" warning are all in the library's own sentence now. THE MERGE ARRIVED LATE: the sentence this decision first shipped had two clauses and not three, so for as long as that draft stood this row was false on its own middle term, and two ladders landing on `iron-plate` emitted one ingredient of amount 5 with nothing anywhere saying so below the clamp ceiling. What BBB may NOT do any more is treat that entry as load-bearing for the library's design |
+| 15 | CLEAN on the mechanism, NOT REACHABLE on the render, with a cosmetic residual | FkRecipes, DECLINED, which is not the same thing as open | added by decision 7. The mechanism closed two rounds ago and did not move here: every composed key rides in the alternatives form, so `technology-name.logistics-2`, which nothing defines because the engine composes that name itself at runtime, degrades to `logistics-2` and the tooltip survives whole. THE RESIDUAL IS THE RENDER, `Logistics 2: cost of logistics-2` where the game's own name would read `Logistics 2`, and the assessment's remedy (e), copying the technology prototype's own `localised_name`, IS NOT AVAILABLE TO THIS LIBRARY AT ANY PRICE rather than merely unpriced. Measured on 2.0.77 (build 84539, mac-arm64, steam) this round: the settings stage, where the line is composed, sees `data.raw` as an EMPTY table with `technology` nil; a setting prototype is not in `data.raw` at the data stage and declaring one there refuses the load with `No loader found for "string-setting"`; `mod-settings-dump.json` is written during the settings stage, before the data stage runs, and survives a refused data stage; and `logistics-2` carries NO `localised_name` at the data stage at all (3 of 275 technologies do, and all three hold another key table). DECLINED means measured, recorded and not owed: it is not on this round's open list, and a future round that reopens it has to move an engine fact first. The part that stays NOT REACHABLE is the part that always was, whether the row draws an info icon and a tooltip on a client, and that belongs to the owed client round |
 
 ### What this round leaves open on this side
 
@@ -2344,3 +2345,103 @@ AND THE NOTE TABLE WENT RED ON ITS OWN, before its row was written, which is the
 Run at this state, exit codes read directly and never through a pipe, all 0: `gofmt -l .` (no output), `go vet ./...`, `go test ./...`, `go test -race ./...`, `cd go/examples/notext && go vet .`, `cargo fmt --check`, `cargo test`, `RUSTFLAGS=-Dwarnings cargo clippy --workspace --all-targets`, `cargo build --target wasm32-unknown-unknown --workspace`, `scripts/run-mirror.sh` and `scripts/run-ingame.sh`. The wasm build and both scripts ran under `GOTOOLCHAIN=go1.26.6`. The engine gate FAILED first, naming both settings hashes and neither data hash, which is the diff being read before `--update` rather than after it.
 
 THE JUMP ROWS AT THE AMENDMENT. Go's `(*Lib).PlanData` widest span is 994,238 bytes, 152 percent of the 655,355-byte limit, relayed through 13 stations, widest block 13,029 bytes in `copyValue` with 314,648 bytes of block room. Rust's `plan_data` is 399,414 bytes, 61 percent, no relay, widest block 3,800 bytes in `not_text` with 323,877 bytes of block room, unmoved through the whole round. The Lua register ceiling is not approached: the emptied-recipe arm is two statements inside `addRecipe`, and the bare-dropdown arm is inside `PlanSettings`.
+
+### Decision 7: the source technology's own name in a cost line, measured and DECLINED
+
+**THE QUESTION, AND WHOSE IT IS.** A COST dropdown's composed description renders one line per preset, `<value>: cost of <source technology>`, and the source is referenced as `{"?", {"technology-name.<source>"}, "<source>"}` through the single writer `localeRef` / `locale_ref`. Base composes `logistics-2`'s displayed name as `{"", {"technology-name.logistics"}, " 2"}` rather than defining a `technology-name.logistics-2` key, so that key is undefined, the alternatives form falls through to the raw fallback, and the consumer measured this through the engine's own resolver:
+
+```
+Logistics (default): cost of Logistics
+Logistics 2: cost of logistics-2
+Logistics 3: cost of logistics-3
+```
+
+That is finding 15 of the consumer's third assessment, graded CLEAN on the mechanism and NOT REACHABLE on the render, scope B, owner FkRecipes, with a cosmetic residual and a repair the assessment names and calls "the repair that costs nothing": the technology prototype's own `localised_name` is a DATA-STAGE field, and copying it would render `Logistics 2` where the raw key renders `logistics-2`, so the composed reference would become `{"?", {"technology-name.<source>"}, <that localised_name>, "<source>"}`.
+
+**IT IS DECLINED, and the reason is stronger than the one this round expected.** The brief for this item expected the answer to be "it would cost a new `World` question", which is a price rather than a wall. It is a wall. The line is composed by the SETTINGS stage, `PlanSettings` / `plan_settings` through `settingDescriptions`, onto a setting prototype's `localised_description`, and three separate engine facts were re-taken on the binary this round. Each one on its own is enough; together they leave no route at any price this library can pay.
+
+**THE HARNESS.** Every row below is a Lua-only probe mod under a private `config.ini` whose `write-data` points inside a scratch directory and a private `--mod-directory`, exit codes read directly and never through a pipe, and the binary re-asked its version first:
+
+```sh
+"$F" --version | head -1                      # Version: 2.0.77 (build 84539, mac-arm64, steam)
+W=<scratch>/pN
+mkdir -p "$W/mods/fkprobe_0.0.1" "$W/userdir/config"
+printf '[path]\nread-data=__PATH__system-read-data__\nwrite-data=%s\n\n[general]\nlocale=auto\n' "$W/userdir" > "$W/userdir/config/config.ini"
+printf '{"name":"fkprobe","version":"0.0.1","title":"p","author":"a","factorio_version":"2.0","dependencies":["base"]}\n' > "$W/mods/fkprobe_0.0.1/info.json"
+"$F" -c "$W/userdir/config/config.ini" --mod-directory "$W/mods" --dump-data > "$W/run.log" 2>&1; echo "exit=$?"
+```
+
+**ROW ONE: THE SETTINGS STAGE CANNOT SEE `data.raw` AT ALL.** `settings.lua` logs the sorted keys of `data.raw`, the type of three of its sections, and a `pcall` that tries to reach the very field the repair wants. Exit 0, and:
+
+```
+PROBE1 data.raw type=table
+PROBE1 data.raw key count=0
+PROBE1 data.raw keys=[]
+PROBE1 data.raw.technology type=nil
+PROBE1 data.raw.item type=nil
+PROBE1 data.raw.recipe type=nil
+PROBE1 reach logistics-2 localised_name ok=false err=__fkprobe__/settings.lua:11: attempt to index field 'technology' (a nil value)
+```
+
+`data.raw` is a table and it is EMPTY, which is worse than absent for a library that might have hoped to probe defensively: there is nothing to ask and nothing to fail on. This re-takes the first row of this document's own "What can the settings stage see?" table, on the same binary, with `technology` named explicitly.
+
+**ROW TWO: A SETTING PROTOTYPE IS NEITHER READABLE NOR WRITABLE FROM THE DATA STAGE.** `settings.lua` declares a `string-setting` with a `localised_description`; `data.lua` then indexes `data.raw["string-setting"]`, tries `data:extend` with a second one, and tries to rewrite the first one's description. Exit 1, and:
+
+```
+PROBE2 data.raw["string-setting"] type=nil
+PROBE2 index existing setting ok=false err=__fkprobe__/data.lua:2: attempt to index field 'string-setting' (a nil value)
+PROBE2 extend a setting at the data stage ok=true err=nil
+PROBE2 after extend, data.raw["string-setting"] type=table
+PROBE2 string-setting keys after extend=[fkprobe-datastage]
+PROBE2 rewrote existing setting description=false
+```
+
+```
+Error Util.cpp:81: No loader found for "string-setting". "string-setting" is not a valid prototype type.
+```
+
+THREE FACTS IN ONE RUN. The settings-stage declaration is NOT in `data.raw` at the data stage, so there is nothing to rewrite. `data:extend` accepts a setting table at the data stage because `extend` only fills a Lua table, and the LOADER then refuses the whole load by name, so a library that tried to write a setting prototype from the data stage would stop the game rather than improve a tooltip. And the setting the settings stage really did declare is in `mod-settings-dump.json` with its description verbatim, `fkprobe-datastage` nowhere in it, from a run that exited 1.
+
+WHAT THE DATA STAGE CAN SEE OF A SETTING IS ITS VALUE AND NOTHING ELSE, measured in a clean run beside it: `settings.startup["fkprobe-setting"]` is a table whose complete field list is `[value]`. No `localised_description`, no name, no prototype.
+
+**ROW THREE: `mod-settings-dump.json` IS WRITTEN DURING THE SETTINGS STAGE, BEFORE THE DATA STAGE RUNS.** This document already recorded it as a trap; it is the fact the decline turns on, so it was re-taken two ways. A clean run writes both dumps and the settings dump is the earlier file:
+
+```
+-rw-r--r--  27790081 Sep 14 16:03:36 2026 data-raw-dump.json
+-rw-r--r--       294 Sep 14 16:03:34 2026 mod-settings-dump.json
+```
+
+And a run whose `data.lua` refuses deliberately (`error("PROBE3 deliberate data-stage refusal")`) exits 1 with `Failed to load mod "fkprobe": __fkprobe__/data.lua:2: PROBE3 deliberate data-stage refusal`, and leaves behind a `script-output` holding `mod-settings-dump.json` at 294 bytes and NO `data-raw-dump.json` at all. The engine's own refusal in row two leaves the same shape. So whatever the data stage might learn, the settings prototypes are already on disk and already shown.
+
+**ROW FOUR, WHICH WAS NOT ASKED FOR AND KILLS THE REPAIR AT ITS OWN PREMISE.** The repair says the value is a data-stage field. It is not there. From the clean run's own `data-raw-dump.json`, `jq -c '.technology["logistics-2"].localised_name, .technology["logistics"].localised_name'` gives `null` and `null`; `jq -r '[.technology[] | select(.localised_name != null)] | length'` gives `3` against `jq -r '.technology | length'` of `275`, and all three of those carry a KEY TABLE rather than text (`logistic-science-pack -> ["technology-name.logistic-science-pack"]`, `chemical-science-pack -> ["technology-name.chemical-science-pack"]`, `electric-energy-accumulators -> ["technology-name.electric-energy-accumulators-1"]`). The displayed `Logistics 2` is composed by the ENGINE at RUNTIME and not by base at the data stage, measured by a `localised_print` from `on_init` under `--create`, exit 0:
+
+```
+RUNTIME name of logistics -> Logistics
+RUNTIME raw-key alt of logistics -> Logistics
+RUNTIME name of logistics-2 -> Logistics 2
+RUNTIME raw-key alt of logistics-2 -> logistics-2
+RUNTIME name of logistics-3 -> Logistics 3
+RUNTIME raw-key alt of logistics-3 -> logistics-3
+```
+
+`prototypes.technology["logistics-2"].localised_name` renders `Logistics 2` in the same run in which the wrapped key renders `logistics-2`, and the prototype the data stage handed the engine carried no such field. So the consumer's sentence "base composes those names (`{"", {"technology-name.logistics"}, " 2"}`)" is right about the SHAPE and wrong about the AUTHOR: the engine composes it, after the data stage, out of a name that ends in a level number.
+
+**THE CONCLUSION.** All three asked rows came back exactly as this document's own table says, so the repair is not available to this library at any price. The line is composed where the game cannot be asked anything; the value it would need is a data-stage field that the settings stage cannot read, that the data stage cannot write back into a setting prototype, and that on the technology the finding names does not exist at all.
+
+**WHAT IT WOULD COST TO HAVE IT ANYWAY, concretely, and no mechanism named here is one this round did not check.** Three things would have to change and two of them are the engine's.
+
+1. *Where the line is composed.* The line lives on a setting prototype, and a setting prototype can only be declared at the settings stage (row two: the data stage's loader refuses the type by name). So the composition cannot move to the stage where the value lives without the setting moving with it, and the setting cannot move.
+2. *What a setting prototype can hold, and when.* The other direction is to compose the line at the settings stage and REWRITE it at the data stage once `data.raw.technology` is readable. That needs a setting prototype to be reachable from the data stage (row two: `data.raw["string-setting"]` is nil and indexing it is a Lua error) AND the settings dump to be written after the data stage rather than before it (row three). Both are the engine's, not this library's.
+3. *The value itself.* Even with both of the above, `logistics-2` carries no `localised_name`. A library that wanted `Logistics 2` would have to REIMPLEMENT the engine's own runtime composition for a numbered technology: strip a trailing `-<digits>`, reference `technology-name.<stem>`, append a space and the digits. That is a guess about an engine rule dressed as a copy, it is wrong on any technology whose internal name ends in digits for some other reason, and it would put this library in the business of naming other mods' prototypes, which is the same hazard `CheckLocaleAdvisories` / `check_locale_advisories` exists to report. For the three technologies of 275 that do carry the field with base alone (`logistic-science-pack`, `chemical-science-pack`, `electric-energy-accumulators`, re-counted on the engine gate's own dump under base, elevated-rails, quality and space-age, where the only others are this library's own emitted technologies), what is in it is another key table, so copying it buys nothing the alternatives form does not already do.
+
+**WHAT THE LIBRARY DOES INSTEAD, unchanged.** The alternatives form keeps the tooltip alive, the raw internal name is legible, and `CheckLocaleAdvisories` / `check_locale_advisories` says once per composed game key that defining it would rename that technology for every mod in the game. `docs/usage.md` now says the same thing to an AUTHOR beside the cost dropdown's composed description, so nobody reads the residual as something they can fix in their own `.cfg`.
+
+**NO CODE MOVED.** This decision is documentation and two source comments in the two halves that promised the nicer rendering: `costPresetTail`'s "THE TECHNOLOGY IS NAMED BY ITS LOCALISED NAME, not by its internal one" and `cost_preset_tail`'s "named the way the player sees it named everywhere else in the game" are both false of a numbered technology, which is the common base-game case, and they now say what row four measured. No golden moved and no gate's bytes changed.
+
+**THE NUMBERING.** This is decision SEVEN and not decision six in both records, although the round's brief called it six: fix round 3's decision 6 is already taken by the emptied recipe, numbered in `agents/customizer-design.md` and landed here inside the amendment to decision 5 as its item THREE. Two decisions sharing a number in one dated series would be the drift this repository treats as a gate failure.
+
+### Gates, decision 7
+
+Run at this state, exit codes read directly and never through a pipe, all 0: `gofmt -l .` (no output), `go vet ./...`, `go test ./...`, `go test -race ./...`, `cd go/examples/notext && go vet .`, `cargo fmt --check`, `cargo test` (252 + 2 + 0 passed), `RUSTFLAGS=-Dwarnings cargo clippy --workspace --all-targets`, `cargo build --target wasm32-unknown-unknown --workspace`, `scripts/run-mirror.sh` and `scripts/run-ingame.sh`, the wasm build and both scripts under `GOTOOLCHAIN=go1.26.6`. NO GOLDEN MOVED and `git diff --stat -- testdata/` is empty: the change is two documents, one doc page and two comments, and nothing either stage emits is different. Both dump hashes stand where the amendment left them, `e824cd83...` on the default row, `1cd61e0b...` on the flipped one and `21b4a68c...` on both settings rows. The jump rows are unmoved as well, Go's `(*Lib).PlanData` at 994,238 bytes through 13 stations and Rust's `plan_data` at 399,414 with no relay.
+
+THE PROBES THEMSELVES ARE NOT A GATE AND WERE NOT MADE ONE. They ran in a scratch directory with their own `config.ini` and their own `--mod-directory`, nothing was written into a real Factorio user directory, and nothing in this repository re-runs them: a row that must not drift belongs in the engine gate, and none of these four is about what this library emits.

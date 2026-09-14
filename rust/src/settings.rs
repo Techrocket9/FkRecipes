@@ -1531,7 +1531,22 @@ fn preset_element(full: &str, value: &str, tail: Vec<Value>) -> Value {
 pub(crate) const INGREDIENT_PRESET_HEAD: &str = "\n  type: ";
 
 /// What a research preset means: the technology whose cost it copies, named
-/// the way the player sees it named everywhere else in the game.
+/// through the game's own key, which is as close to the name the player sees
+/// everywhere else as this stage can get.
+///
+/// IT IS NOT A PROMISE OF THE DISPLAYED NAME. Where the game composes a name
+/// rather than keying it the player reads the internal name, permanently: base
+/// defines no `technology-name.logistics-2`, the ENGINE composes `Logistics 2`
+/// at RUNTIME out of a name ending in a level number, and the data-stage
+/// prototype carries no `localised_name` at all (measured on 2.0.77 build
+/// 84539: null on `logistics-2` and on `logistics`, and 3 technologies of 275
+/// carry the field, each holding another key table). Copying that field is the
+/// repair the consumer's third assessment proposed for its finding 15, and it
+/// is UNAVAILABLE rather than unpriced: this line is composed at the SETTINGS
+/// stage, where `data.raw` is an empty table with `technology` nil, and a
+/// setting prototype is not readable at the data stage and cannot be declared
+/// there at all. Fix round 3's decision 7 in `agents/customizer-design.md` has
+/// all four measurements.
 ///
 /// The FIRST rung of the ladder, which is the source the author means; the
 /// rest are what a modpack missing it falls back to, and a description that
