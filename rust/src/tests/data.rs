@@ -1364,12 +1364,24 @@ fn a_fluid_ladder_with_no_rung_present_drops_the_ingredient() {
         .plan_data(&base_world().without_fluid("water").without_fluid("steam"))
         .expect("plan refused");
 
+    // AND THE EMPTIED RECIPE SAYS SO. The one entry this plan named was put to
+    // the game and dropped, so what is emitted is a recipe with no ingredients
+    // at all: a free craft nobody chose, which is why it carries a line and a
+    // note of its own rather than riding on the ladder's own disclosure.
     assert_lines(
         &transcript(&ops),
         &[
             "log fkrecipes: sulfuric-mix: none of water, steam is present, so the ingredient is dropped",
+            "log fkrecipes: ERROR: sulfuric-mix: this game has none of the ingredients this recipe names, so it is emitted with no ingredients and costs nothing to craft",
             r#"extend {type="item", name="steelworks-sulfuric-mix", stack_size=50}"#,
-            r#"extend {type="recipe", name="steelworks-sulfuric-mix", category="chemistry", enabled=true, ingredients=[], results=[{type="item", name="steelworks-sulfuric-mix", amount=1}]}"#,
+            &alloc::format!(
+                r#"extend {{type="recipe", name="steelworks-sulfuric-mix", localised_description=["", {}, {}], category="chemistry", enabled=true, ingredients=[], results=[{{type="item", name="steelworks-sulfuric-mix", amount=1}}]}}"#,
+                description_ref_in("recipe", "steelworks-sulfuric-mix"),
+                chunked_params(&alloc::format!(
+                    "{} Changing a recipe empties an assembling machine's input slots of anything the new list does not use.",
+                    crate::data::ingredientless_note()
+                )),
+            ),
         ],
     );
 }

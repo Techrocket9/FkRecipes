@@ -1948,6 +1948,12 @@ const NOTE_COMPOSERS: &[NoteComposer] = &[
         what: "every pack the research names was put to the game and the game had none of them",
     },
     NoteComposer {
+        name: "ingredientless_note",
+        bytes: 112,
+        player: false,
+        what: "every ingredient the recipe names was put to the game and every ladder ran out, so the recipe is emitted with none and costs nothing to craft",
+    },
+    NoteComposer {
         name: "unreadable_source_note",
         bytes: 135,
         player: false,
@@ -2002,6 +2008,7 @@ fn note_at_empty_slot(name: &str) -> Option<String> {
         "packless_source_note" => packless_source_note(""),
         "unpriced_source_note" => unpriced_source_note(),
         "packless_note" => packless_note(),
+        "ingredientless_note" => ingredientless_note(),
         "unreadable_source_note" => unreadable_source_note(""),
         "unreadable_copy_note" => unreadable_copy_note(""),
         "clamped_item_note" => clamped_item_note(""),

@@ -196,12 +196,19 @@ func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, compl
 		if s.kind != settingDropdown {
 			continue
 		}
-		// A dropdown with a text setting beside it has its preset list composed
-		// onto its description, so the description stops being optional there
-		// too.
-		if composed[i] && !localeHas(sections, "mod-setting-description", full) {
+		// A dropdown the library composes anything onto has its description
+		// stop being optional, and WHICH SENTENCE says so is the shape: a
+		// dropdown with a text setting beside it loses a preset list, and a
+		// bare ingredient dropdown loses the one line about the ladder. Saying
+		// "its preset list" of the second would name a list that dropdown
+		// composes nothing of.
+		if composed[i] != composesNothing && !localeHas(sections, "mod-setting-description", full) {
+			lost := "the library composes its preset list onto that entry"
+			if composed[i] == composesLadderOnly {
+				lost = "the library composes onto that entry the line saying what a name this game does not have costs the list"
+			}
 			findings = append(findings, "the dropdown setting "+full+
-				" has no [mod-setting-description] entry, and the library composes its preset list onto that entry")
+				" has no [mod-setting-description] entry, and "+lost)
 		}
 		for _, v := range s.values {
 			key := full + "-" + v
@@ -375,10 +382,11 @@ func gameKeyAdvisory(full, key, raw string) string {
 //
 // ONCE PER REPORT, NOT ONCE PER SETTING, and the sentence names the library
 // rather than a setting. What it inspects does not vary with the setting in any
-// way the rule reads: two of the four lines are constants, the other two are
-// the switch line and the format line the guarded composition was built with
-// and which are handed in beside it, and the only per-setting part of the
-// composition, the consumer's own key, is not what it looks at. Run inside the per-setting loop it turned ONE library
+// way the rule reads: two of the five lines are constants, the other three are
+// the switch line and the kind-dependent pair (the ladder line and the format
+// line) the guarded composition was built with and which are handed in beside
+// it, and the only per-setting part of the composition, the consumer's own key,
+// is not what it looks at. Run inside the per-setting loop it turned ONE library
 // defect into one finding per text setting, five of them on the example guest,
 // and at fifty text settings the sentences alone would fill localeFindingCap and
 // push every author finding out of the report.
@@ -404,7 +412,7 @@ func gameKeyAdvisory(full, key, raw string) string {
 // dereferences an item handle. The checker validates nothing, exactly as the
 // rest of it validates nothing, so a plan the planners would refuse must not
 // panic here: with the list left out neither the language nor l.items is
-// touched, and the four lines under test are the four this function can see.
+// touched, and the five lines under test are the five this function can see.
 // What the rendered list itself says is the settings stage's business and the
 // corpus's.
 func (l *Lib) checkComposedTextLines(prefix string) []string {
@@ -421,10 +429,12 @@ func (l *Lib) checkComposedTextLines(prefix string) []string {
 // composition at all when the plan declares no text setting.
 //
 // THE SWITCH LINE AND THE KIND COME BACK BESIDE THE COMPOSITION because they
-// are the two inputs of the four lines that are not constants. The switch line
-// names the option above or below when a dropdown is bound to the same
-// declaration and the mod's own list when none is; the kind decides whether the
-// format line names the word none, which only an ingredient list takes. The
+// are the two inputs of the three lines of the five that are not constants. The
+// switch line names the option above or below when a dropdown is bound to the
+// same declaration and the mod's own list when none is; the kind decides TWO
+// lines, the ladder line's whole vocabulary (a science pack and a research that
+// takes fewer packs, against a name and a shorter craft) and whether the format
+// line names the word none, which only an ingredient list takes. The
 // rule cannot recompute either without the declaration, so the caller that
 // built the composition hands over what it built it with, and what the guard
 // then answers is whether textDescription put those lines into the table it
@@ -449,9 +459,10 @@ func (l *Lib) guardedTextDescription(prefix string) (Value, string, bool, bool) 
 func composedTextLinesMissing(desc Value, switchLine string, ingredients bool) []string {
 	var out []string
 	// THE ORDER IS THE COMPOSITION'S OWN, so a description that lost more than
-	// one of the four reports them in the order a reader would have met them.
+	// one of the five reports them in the order a reader would have met them.
 	for _, want := range []struct{ line, missing string }{
 		{listWrapLine, "no line about a list that continues on the next line"},
+		{textLadderLine(ingredients), "no line about a name in the list this game does not have"},
 		{textFormatLine(ingredients), "no line about the format and the length limit"},
 		{switchLine, "no line about which field decides while the text says default"},
 		{textFallbackLine, "no line about what happens to a text this mod cannot use"},
@@ -470,7 +481,7 @@ func composedTextLinesMissing(desc Value, switchLine string, ingredients bool) [
 //
 // DEPTH BECAUSE THE QUESTION IS "DOES THE PLAYER READ IT", NOT "WHERE". The
 // composition it is handed is flat past the consumer's own key, which is itself
-// a nested table: textDescription is fixed at six parameters and never reaches
+// a nested table: textDescription is fixed at seven parameters and never reaches
 // localisedGroup's nesting rule, and a dropdown's composition is never handed
 // here at all. A top-level scan would therefore be a claim about the shape of
 // the composition rather than about the lines, and it would go quietly wrong
@@ -543,9 +554,33 @@ func nameListed(handRolled []string, key string) bool {
 	return false
 }
 
-// dropdownsWithComposedDescription marks the dropdown settings a text setting
-// sits beside. The checker needs it because those, and only those, have a
-// composed description and so a required one.
+// dropdownComposition is what a dropdown setting's description is composed of,
+// which decides both WHETHER its [mod-setting-description] entry is required
+// and WHICH sentence says so.
+type dropdownComposition int
+
+const (
+	// composesNothing is a dropdown this library writes no description for at
+	// all: a plain dropdown nothing binds, or one a validator stepped past.
+	composesNothing dropdownComposition = iota
+	// composesLadderOnly is a bare INGREDIENT dropdown: no text setting beside
+	// it, so no language to render a preset in, no wrap line and no switch
+	// line, and the ladder line alone. See settingDescriptions.
+	composesLadderOnly
+	// composesPresetLines is a dropdown with a text setting beside it, whose
+	// description carries its presets written out.
+	composesPresetLines
+)
+
+// dropdownsWithComposedDescription says, per setting, what the library composes
+// onto that dropdown's description.
+//
+// AN INGREDIENT DROPDOWN IS ON THE LIST WHETHER OR NOT A TEXT SETTING SITS
+// BESIDE IT. With one beside it the composition is the preset lines, the wrap
+// line, the ladder line and the switch line; with none it is the ladder line
+// alone, which is still a composition and still loses the consumer's own
+// sentence when the entry is absent. That is a NEW OBLIGATION on a consumer
+// shipping a bare ingredient dropdown and docs/migration.md names it.
 //
 // A handle this plan never issued is SKIPPED rather than followed, exactly as
 // every other walk over the plan skips one: the checker reports on locale, and
@@ -558,18 +593,22 @@ func nameListed(handRolled []string, key string) bool {
 // the condition this mirrors, and on the technology side it does not mirror it
 // but SHARES it: costDropdownComposesPresetLines is the one spelling, read here,
 // there and by composedGameKeyAdvisories.
-func (l *Lib) dropdownsWithComposedDescription() []bool {
-	marks := make([]bool, len(l.settings))
+func (l *Lib) dropdownsWithComposedDescription() []dropdownComposition {
+	marks := make([]dropdownComposition, len(l.settings))
 	for _, r := range l.recipes {
 		by := r.spec.IngredientsBy
-		if by != nil && len(r.spec.Ingredients) == 0 && l.validDropdownSetting(by.Setting) &&
-			l.validIngredientsSetting(r.spec.IngredientsFrom) {
-			marks[by.Setting.index-1] = true
+		if by == nil || len(r.spec.Ingredients) > 0 || !l.validDropdownSetting(by.Setting) {
+			continue
 		}
+		mark := composesLadderOnly
+		if l.validIngredientsSetting(r.spec.IngredientsFrom) {
+			mark = composesPresetLines
+		}
+		marks[by.Setting.index-1] = mark
 	}
 	for _, t := range l.techs {
 		if l.costDropdownComposesPresetLines(&t.spec) {
-			marks[t.spec.CostBy.Setting.index-1] = true
+			marks[t.spec.CostBy.Setting.index-1] = composesPresetLines
 		}
 	}
 	return marks

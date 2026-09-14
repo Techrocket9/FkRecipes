@@ -568,7 +568,12 @@ type resolution struct {
 // a recipe's list names the recipe as the author declared it (see
 // mergedOpening), and the product is a prototype name the game will hold, so it
 // is compared against resolved ingredient names, which are emitted too.
-func (r *resolution) addRecipe(subject, product string, list []resolvedIngredient) {
+//
+// resolvedFrom IS THE DECLARATION THE LIST WAS RESOLVED FROM, and it is EMPTY
+// on the two arms where the player typed the list: nothing walked a ladder
+// there, so nothing could have been dropped by one. It is what lets the
+// emptied-list check below tell an environment's doing from a deliberate one.
+func (r *resolution) addRecipe(tgt noteTarget, subject, product string, resolvedFrom []Ingredient, list []resolvedIngredient) {
 	// EMPTY IS A RECIPE THAT DECLARES NEITHER SHAPE, which validate refuses
 	// before resolution runs. The guard is here so this function answers for
 	// the whole domain of its argument rather than for the domain some caller
@@ -598,6 +603,30 @@ func (r *resolution) addRecipe(subject, product string, list []resolvedIngredien
 			// both guards ever failed, this line appearing twice is a louder
 			// symptom than a quieter one.
 		}
+	}
+	// A RECIPE THE ENVIRONMENT EMPTIED IS A FREE CRAFT, and it says so.
+	// Everything this plan named was put to the game, every ladder ran out,
+	// and what is emitted is a recipe with no ingredients at all: the same
+	// balance change packlessNote covers on a technology, one prototype kind
+	// over. The resolve-or-drop ladder's own disclosure stops short of it,
+	// because "a shorter list than the one shown" reads straight past "there
+	// is nothing left to craft it from".
+	//
+	// IT FIRES ONLY WHERE THE ENVIRONMENT EMPTIED THE LIST, never where the
+	// list was MEANT to be empty, and the two are different in kind rather
+	// than in degree. A declared empty list and the word none a player typed
+	// are DELIBERATE: somebody chose a free craft and is told so where they
+	// chose it, by ingredientNoneClause on the setting's own description and
+	// by the author's own declaration. Both of those arrive here with
+	// resolvedFrom empty, because nothing was resolved from anything; this
+	// arm is the one where a non-empty declaration came in and nothing came
+	// out.
+	//
+	// THE DESTRUCTION TAIL RIDES ON IT for the reason clampedItemNote's does:
+	// the ingredient list itself is what moved, and it moved as far as it can.
+	if len(resolvedFrom) > 0 && len(list) == 0 {
+		r.logs = append(r.logs, ingredientlessLine(subject))
+		r.noteOn(tgt, withDestruction(ingredientlessNote(), true))
 	}
 	r.recipes = append(r.recipes, list)
 }
@@ -886,7 +915,7 @@ func withDestruction(note string, destroysInputs bool) string {
 // description, in the voice fallbackNote established and for the same reason:
 // THE LOG IS NOT A DISCLOSURE.
 //
-// TEN OF THEM, AND THIS IS THE WHOLE LIST. Eight are below, in the order this
+// ELEVEN OF THEM, AND THIS IS THE WHOLE LIST. Nine are below, in the order this
 // file defines them; the last two are cycle.go's, beside the cycle LINES they
 // go with, because the cycle walk runs after resolution. (The Rust half keeps
 // that pair in data.rs, which is the one placement difference between the two
@@ -904,6 +933,8 @@ func withDestruction(note string, destroysInputs bool) string {
 //	                      answered
 //	packlessNote          every pack the research names was put to the game and
 //	                      the game had none of them
+//	ingredientlessNote    every ingredient the RECIPE names was put to the game
+//	                      and every ladder ran out, so it costs nothing to craft
 //	unreadableSourceNote  the chosen source's pack list is in neither engine
 //	                      form, and a declared cost sits behind it
 //	unreadableCopyNote    the same list with nothing declared behind it, so the
@@ -919,13 +950,27 @@ func withDestruction(note string, destroysInputs bool) string {
 // is what is missing and what the library did instead. That is also why they do
 // not go through playerFallback on the log side.
 //
-// SCOPED TO THE DEGRADATIONS AND NOT TO THE LADDER. A resolve-or-drop
-// ingredient ladder is the library's advertised contract and the dropdown's own
-// composed description already discloses it ("where one names something your
-// mods do not have, the nearest thing they do have is used instead"); a clamped
-// amount, a dropped science pack, an emptied unit, a dropped prerequisite and a
-// technology left hanging off nothing are arithmetic and presence a player
-// cannot check anywhere.
+// SCOPED TO THE DEGRADATIONS AND NOT TO THE LADDER, AND THE SCOPE IS NARROWER
+// THAN IT READS. A resolve-or-drop ingredient ladder THAT LEAVES THE RECIPE
+// WITH SOMETHING TO CRAFT is the library's advertised contract, and the
+// SETTINGS SCREEN is where that contract is disclosed: dropdownLadderLine on an
+// ingredient dropdown's composed description and textLadderLine on a text
+// setting's, both composed by this library. A ladder that leaves it with
+// NOTHING is not that contract and carries ingredientlessNote, because "a
+// shorter list than the one shown" reads straight past a recipe there is
+// nothing left to craft. A clamped amount, a dropped science pack, an emptied
+// unit, an emptied recipe, a dropped prerequisite and a technology left hanging
+// off nothing are arithmetic and presence a player cannot check anywhere, so
+// those get a note on the prototype instead.
+//
+// THAT JUSTIFICATION USED TO REST ON A SENTENCE THIS LIBRARY DID NOT WRITE. It
+// quoted "the dropdown's own composed description already discloses it (where
+// one names something your mods do not have, the nearest thing they do have is
+// used instead)", and no composition here wrote that: the live text was the
+// pilot consumer's own locale entry, which a consumer is free to write
+// differently or not at all (their third migration assessment, finding 22). The
+// three lines named above are that sentence, composed here, so the exclusion is
+// now backed by the library's own output.
 func packDroppedNote(name string) string {
 	return "This game has no " + name + ", so this research was priced without it. The reason is in the log."
 }
@@ -1016,6 +1061,32 @@ func unpricedSourceNote() string {
 // does not have.
 func packlessNote() string {
 	return "This game has none of the science packs this research names, so it takes no science pack at all." +
+		" The reason is in the log."
+}
+
+// ingredientlessNote is packlessNote one prototype kind over: a RECIPE whose
+// every declared entry was put to the game and dropped, so what is emitted is a
+// recipe with no ingredients at all.
+//
+// A FREE CRAFT IS A BALANCE CHANGE NOBODY CHOSE, which is the whole of why it
+// is here. The resolve-or-drop ladder is disclosed on the settings screen and
+// its closing clause stops one step short of this: "a shorter list than the one
+// shown" is true of a list that lost an entry and reads straight past a list
+// that lost all of them.
+//
+// IT IS NOT THE DELIBERATE EMPTY LIST, and the distinction is the one
+// unreadableCopyNote already draws against packlessNote. A list an author
+// declared empty and the word none a player typed are both somebody's choice,
+// and both are disclosed where the choice was made; this sentence is about a
+// list that was NOT empty and became one. See addRecipe, which is the one place
+// that can tell them apart.
+//
+// IT TAKES NO ARGUMENT, for the reason packlessNote takes none: the names the
+// walk asked the game about are in the ERROR line, where an author reading a
+// log can use them, and a player hovering a recipe cannot act on a list of
+// prototype names their mod set does not have.
+func ingredientlessNote() string {
+	return "This game has none of the ingredients this recipe names, so it costs nothing to craft." +
 		" The reason is in the log."
 }
 
@@ -1142,7 +1213,10 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 				res.logs = append(res.logs, l.ingredientsFromLine(r.emittedName(prefix),
 					l.settings[r.spec.IngredientsFrom.index-1].emittedName(prefix),
 					setting.emittedName(prefix), chosen, parsed))
-				res.addRecipe(r.name, product, typedIngredients(parsed))
+				// NOTHING WAS RESOLVED FROM ANYTHING: the list is the
+				// player's own, already resolved by the language, so no
+				// ladder could have emptied it. See addRecipe.
+				res.addRecipe(tgt, r.name, product, nil, typedIngredients(parsed))
 				continue
 			}
 			declared = choiceFor(by.Choices, chosen)
@@ -1153,15 +1227,22 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 			if len(declared) > 0 && len(list) == 0 && chosen != setting.defStr {
 				res.logs = append(res.logs, "fkrecipes: "+r.name+": the "+chosen+
 					" ingredients name nothing this game has, so the "+setting.defStr+" ingredients apply")
-				list = l.resolveIngredients(w, &res, tgt, prefix, r.name, choiceFor(by.Choices, setting.defStr))
+				// AND THE DECLARATION MOVES WITH THE LIST. What addRecipe is
+				// handed has to be the declaration the FINAL list came from:
+				// a default preset an author declared empty is a free craft
+				// by choice, and reporting the chosen preset's entries there
+				// would call it the environment's doing.
+				declared = choiceFor(by.Choices, setting.defStr)
+				list = l.resolveIngredients(w, &res, tgt, prefix, r.name, declared)
 			}
-			res.addRecipe(r.name, product, list)
+			res.addRecipe(tgt, r.name, product, declared, list)
 		} else if usedText {
 			res.logs = append(res.logs, l.ingredientsFromLine(r.emittedName(prefix),
 				l.settings[r.spec.IngredientsFrom.index-1].emittedName(prefix), "", "", parsed))
-			res.addRecipe(r.name, product, typedIngredients(parsed))
+			res.addRecipe(tgt, r.name, product, nil, typedIngredients(parsed))
 		} else {
-			res.addRecipe(r.name, product, l.resolveIngredients(w, &res, tgt, prefix, r.name, declared))
+			res.addRecipe(tgt, r.name, product, declared,
+				l.resolveIngredients(w, &res, tgt, prefix, r.name, declared))
 		}
 	}
 
@@ -1975,6 +2056,21 @@ func unreadableCopyLine(tech, source string) string {
 func packlessLine(tech string, names []string) string {
 	return messagePrefix + "ERROR: " + tech + ": none of " + strings.Join(names, ", ") +
 		" is a science pack this game has, so the research is emitted with no science pack and completes for free"
+}
+
+// ingredientlessLine is packlessLine's recipe twin: every entry this recipe
+// declared was put to the game and every ladder ran out.
+//
+// IT NAMES NO RUNG, and that is the one place it differs from packlessLine.
+// Each entry that dropped already logged its own line naming every candidate it
+// tried ("none of a, b is present, so the ingredient is dropped"), so the rungs
+// are directly above this line in the same stream; repeating them here would
+// print the same names twice. What this line adds is the thing no per-entry
+// line can say, that NOTHING was left.
+func ingredientlessLine(recipe string) string {
+	return messagePrefix + "ERROR: " + recipe +
+		": this game has none of the ingredients this recipe names," +
+		" so it is emitted with no ingredients and costs nothing to craft"
 }
 
 // packlessSourceLine is what a copied cost that named no science pack this game

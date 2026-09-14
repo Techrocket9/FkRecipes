@@ -81,7 +81,7 @@ impl Lib {
                 // the value they had (the settings stage sees no stored value,
                 // measured), so the next best thing is showing them what each
                 // preset means in the language they are about to type.
-                if let Some(presets) = self.presets_beside_text(i + 1) {
+                if let Some(presets) = self.composed_dropdown_presets(i + 1) {
                     pairs.push(kv(
                         "localised_description",
                         self.dropdown_description(&prefix, &full, &presets),
@@ -715,14 +715,18 @@ impl Lib {
         }
     }
 
-    /// The presets a dropdown setting composes into its description, if a text
-    /// setting sits beside it, decided by the same two walks the binding
-    /// validator decides with: a declaration those step past has nothing
-    /// composed for it here either.
+    /// What a dropdown setting composes into its description, decided by the
+    /// same two walks the binding validator decides with: a declaration those
+    /// step past has nothing composed for it here either.
     ///
-    /// A DROPDOWN WITH NO TEXT SETTING BESIDE IT COMPOSES NOTHING, because
-    /// there is nothing the presets have to be read in the language of and
-    /// nothing to say the text overrides them.
+    /// AN INGREDIENT DROPDOWN WITH NO TEXT SETTING BESIDE IT STILL COMPOSES
+    /// ONE LINE, which is why the text index is an `Option` rather than a
+    /// reason to answer `None`. Without a text setting there is no language to
+    /// read a preset out in and no second field to name, so the preset lines,
+    /// the wrap line and the switch line all go; the LADDER line stays,
+    /// because the ladder is what that dropdown's presets do on a mod set that
+    /// lacks a name, and that is true whether or not anybody can type over
+    /// them. See [`DROPDOWN_LADDER_LINE`].
     ///
     /// RECIPES THEN TECHNOLOGIES, in declaration order, and the LAST one wins.
     /// Two recipes cannot reach one dropdown, and neither can two
@@ -730,7 +734,7 @@ impl Lib {
     /// dropdown a recipe and a technology both put a text setting beside,
     /// which the two text settings' own "read by exactly one" rule does not
     /// forbid; the technology's presets are the ones composed.
-    pub(crate) fn presets_beside_text(&self, index: usize) -> Option<Presets<'_>> {
+    pub(crate) fn composed_dropdown_presets(&self, index: usize) -> Option<Presets<'_>> {
         let mut found = None;
         for r in &self.recipes {
             let by = match &r.spec.ingredients_by {
@@ -741,8 +745,8 @@ impl Lib {
                 continue;
             }
             let text = match r.spec.ingredients_from {
-                Some(h) if self.valid_ingredients_setting(h) => h.index,
-                _ => continue,
+                Some(h) if self.valid_ingredients_setting(h) => Some(h.index),
+                _ => None,
             };
             if by.setting.index == index {
                 found = Some(Presets::Ingredients(&by.choices, text));
@@ -767,7 +771,7 @@ impl Lib {
 
     /// The ONE SPELLING of "this technology's cost dropdown has a preset list
     /// composed onto its description". Two readers need exactly this predicate
-    /// and neither may spell it again: `presets_beside_text`, which is what
+    /// and neither may spell it again: `composed_dropdown_presets`, which is what
     /// composes the lines AND what makes that dropdown's
     /// `[mod-setting-description]` entry required, and
     /// `composed_game_key_advisories`, which says the one thing this library
@@ -929,10 +933,37 @@ impl Lib {
 
     /// The dropdown's composed description: the consumer's own entry, then one
     /// line per preset, its LOCALISED label followed by what it means.
+    ///
+    /// THREE SHAPES AND NOT TWO. An INGREDIENT dropdown with a text setting
+    /// beside it carries the preset lines, the wrap line, the ladder line and
+    /// the switch line; one with NO text setting beside it carries the ladder
+    /// line alone and returns early, because every other line needs either a
+    /// language or a second field; a COST dropdown carries the preset lines and
+    /// the switch line, and neither the wrap nor the ladder, because its
+    /// presets render no list of internal names.
     fn dropdown_description(&self, prefix: &str, full: &str, presets: &Presets<'_>) -> Value {
         let mut params = alloc::vec![locale_ref("mod-setting-description", full, full)];
         let text = match *presets {
-            Presets::Ingredients(choices, text) => {
+            // A DROPDOWN WITH NO TEXT SETTING BESIDE IT COMPOSES THE LADDER
+            // LINE AND NOTHING ELSE. There is no preset to read out, because
+            // rendering one needs a language and only `ingredients_setting`
+            // installs one; no wrap line, because nothing typeable is rendered
+            // for it to be about; and no switch line, because there is no
+            // second field to name. The LADDER is the one thing that is still
+            // true of this shape, and it is true of every plan: a preset whose
+            // entry this mod set does not have resolves onto the next name the
+            // entry offers or is left out. See [`DROPDOWN_LADDER_LINE`].
+            //
+            // IT IS A CONSTANT AND IT LINKS NOTHING. The whole of what this arm
+            // composes is the consumer's own key and one string literal, so a
+            // plan with no text setting still links no parser, no renderer, no
+            // amount formatter and no custom-cost resolver: see
+            // `rust/examples/notext`, which is that plan and is measured.
+            Presets::Ingredients(_, None) => {
+                params.push(Value::string(DROPDOWN_LADDER_LINE));
+                return localised_group(&params);
+            }
+            Presets::Ingredients(choices, Some(text)) => {
                 for c in choices {
                     let list = self.declared_list(prefix, &c.ingredients);
                     let rendered = (self.installed_language().render)(&ListText::List(list));
@@ -949,6 +980,12 @@ impl Lib {
                 // above this one is a typeable list, and a list is the only
                 // thing in a tooltip a player copies. See [`LIST_WRAP_LINE`].
                 params.push(Value::string(LIST_WRAP_LINE));
+                // THEN THE LADDER, WHICH IS THE OTHER THING THE LINES ABOVE DO
+                // NOT SAY: a preset is what the author wrote, and what the game
+                // builds from it is what this mod set could resolve. See
+                // [`DROPDOWN_LADDER_LINE`] for why it sits UNDER the wrap line
+                // rather than over it.
+                params.push(Value::string(DROPDOWN_LADDER_LINE));
                 text
             }
             Presets::Cost(choices, text) => {
@@ -972,10 +1009,16 @@ impl Lib {
     }
 }
 
-/// What a dropdown with a text setting beside it offers, and which setting that
-/// is: a 1-BASED index, the shape every handle in this crate carries.
+/// What a dropdown composes its description from, and which text setting sits
+/// beside it: a 1-BASED index, the shape every handle in this crate carries.
+///
+/// THE INGREDIENT ARM'S INDEX IS OPTIONAL AND THE COST ARM'S IS NOT. An
+/// ingredient dropdown with no text setting beside it still composes one line,
+/// the ladder; a cost dropdown with no pack setting beside it composes nothing
+/// at all and never reaches here, because `cost_dropdown_composes_preset_lines`
+/// is what lets it through.
 pub(crate) enum Presets<'a> {
-    Ingredients(&'a [IngredientChoice], usize),
+    Ingredients(&'a [IngredientChoice], Option<usize>),
     Cost(&'a [CostChoice], usize),
 }
 
@@ -1057,10 +1100,10 @@ fn validate_declared_packs(at: &str, who: &str, packs: &[Pack]) -> Result<(), St
 }
 
 /// The whole `localised_description` a TEXT setting is emitted with: the
-/// consumer's own entry, then the four things this library owes the player
+/// consumer's own entry, then the five things this library owes the player
 /// about the field beside it.
 ///
-/// SIX PARAMETERS, and none of them a table beyond the consumer's key and the
+/// SEVEN PARAMETERS, and none of them a table beyond the consumer's key and the
 /// [`locale_ref`] wrapper around it, so the twenty-parameter ceiling
 /// [`MAX_LOCALISED_PARAMS`] records is nowhere near reached and this shape
 /// needs no nesting rule of its own.
@@ -1077,21 +1120,25 @@ fn validate_declared_packs(at: &str, who: &str, packs: &[Pack]) -> Result<(), St
 /// the list the word `default` stands for, in the internal names the field
 /// actually takes; the wrap line says that a list too long for the tooltip is
 /// still one list, which is the one thing about that line a player cannot see;
-/// the format line says so in words and states the ceiling; the
-/// switch line says which of the two fields is deciding, which the screen
-/// cannot show because it has no conditional visibility at all (measured); and
-/// the fallback line says what a text this library cannot use costs, which
-/// before it was stated nowhere a player looks.
+/// the ladder line says that the list the game builds from it can be shorter
+/// than the list shown, which is the other; the format line says so in words
+/// and states the ceiling; the switch line says which of the two fields is
+/// deciding, which the screen cannot show because it has no conditional
+/// visibility at all (measured); and the fallback line says what a text this
+/// library cannot use costs, which before it was stated nowhere a player
+/// looks.
 ///
 /// ONE COMPOSITION, TWO READERS. The settings planner emits this;
 /// [`Lib::check_locale`](crate::Lib) asks the same function for the same shape
 /// with the list left out, so a line deleted here is a finding rather than a
 /// silent loss. See `check_text_description`.
 ///
-/// THE WRAP LINE SITS DIRECTLY UNDER THE DEFAULT LINE, because the default line
-/// is the list it is about and the one a player copies. The format line below
-/// it still says "as the default line above does", which two lines up is as
-/// true as one.
+/// THE WRAP LINE AND THE LADDER LINE SIT DIRECTLY UNDER THE DEFAULT LINE, in
+/// that order, because both are about that line and the default line is the one
+/// a player copies: the wrap line says a continuation belongs to what it
+/// continues, and the ladder line says the list the game builds from it can be
+/// shorter than the list shown. The format line under them still says "as the
+/// default line above does", which three lines up is as true as one.
 ///
 /// `ingredients` SAYS WHICH OF THE TWO TEXT SETTINGS THIS IS, and the only
 /// thing it decides is whether the format line names the word `none`: see
@@ -1107,6 +1154,7 @@ pub(crate) fn text_description(
         locale_ref("mod-setting-description", full, full),
         Value::Str(format!("\ndefault: {}", rendered)),
         Value::string(LIST_WRAP_LINE),
+        Value::string(text_ladder_line(ingredients)),
         Value::Str(text_format_line(ingredients)),
         Value::string(switch_line),
         Value::string(TEXT_FALLBACK_LINE),
@@ -1162,9 +1210,10 @@ pub(crate) fn number_description(full: &str, range_line: &str) -> Value {
 /// library's realistic worst composition loses nothing it can reach: the
 /// theoretical preset ceiling drops from 342 to 323 on a COST dropdown, and a
 /// 323-preset description carrying 647 wrappers both loads and resolves in
-/// full. An INGREDIENT dropdown's is 322 rather than 323, by arithmetic and
-/// not by a second measurement: [`LIST_WRAP_LINE`] spends one parameter slot a
-/// preset would otherwise have, and nothing else about the shape differs.
+/// full. An INGREDIENT dropdown's is 321 rather than 323, by arithmetic and
+/// not by a second measurement: [`LIST_WRAP_LINE`] and
+/// [`DROPDOWN_LADDER_LINE`] spend two parameter slots two presets would
+/// otherwise have, and nothing else about the shape differs.
 pub(crate) fn locale_ref(section: &str, key: &str, raw: &str) -> Value {
     Value::Arr(alloc::vec![
         Value::string("?"),
@@ -1311,6 +1360,103 @@ pub(crate) const INGREDIENT_NONE_CLAUSE: &str =
 pub(crate) const LIST_WRAP_LINE: &str =
     "\nA list too long for one line continues on the next; the continuation is part of the same list.";
 
+/// What a RESOLVE-OR-DROP ladder costs the list a text setting renders, said on
+/// the field that renders it, and packs and ingredients get different words for
+/// the same rule.
+///
+/// THE LIBRARY COMPOSES THIS ITSELF, WHICH IS THE WHOLE OF WHY IT EXISTS. The
+/// ladder gets no note on the emitted recipe or technology, deliberately, and
+/// every place that says so used to justify it by quoting a disclosure "the
+/// dropdown's own composed description already discloses it". No composition in
+/// this library wrote that sentence: the live text was the PILOT CONSUMER'S own
+/// locale entry, which a consumer is free to write differently or not at all,
+/// so the library's reason for staying silent on the prototype rested on
+/// somebody else's string (the consumer's third migration assessment, finding
+/// 22). These three lines are that sentence, composed here, on every plan that
+/// renders a list.
+///
+/// THREE CLAUSES AND NOT ONE, BECAUSE THE LADDER DOES THREE THINGS. A rung that
+/// exists is SUBSTITUTED, a ladder that runs out is DROPPED, and two entries
+/// that land on one name are MERGED with their amounts added. A sentence
+/// promising only the substitution would be false on every plan that can reach
+/// the second: `Ingredient::named(2, "a", &["b"])` with neither name in the
+/// game leaves the entry out with a log line, a declared pack whose every rung
+/// is absent is left out of the unit, and a research left with no pack at all
+/// is emitted with none. THE MERGE IS DISCLOSED NOWHERE ELSE below a ceiling:
+/// two entries whose ladders both land on `iron-plate` emit one ingredient of
+/// the summed amount, a number in no tooltip and in no declaration, and
+/// `merge_ingredient` records a note only where that sum crosses the engine's
+/// own wall. The closing clause is what tells a player what to expect on the
+/// screen they are looking at: a shorter list than the one this tooltip shows.
+///
+/// AND IT STOPS SHORT OF AN EMPTIED RECIPE, deliberately. A ladder that leaves
+/// the recipe with NOTHING is a free craft rather than a shorter list, and it
+/// carries [`ingredientless_note`](crate::data::ingredientless_note) on the
+/// prototype instead.
+///
+/// IT IS NOT CONDITIONAL ON A DECLARED LADDER, and that is a deliberate
+/// deviation from the narrower shape this round was asked for. A list with no
+/// fallbacks anywhere in it still DROPS an entry the game does not have, which
+/// is the half of the sentence that is always true, so conditioning on a
+/// declared ladder would leave exactly the plans that can ONLY drop saying
+/// nothing at all.
+///
+/// IT SITS UNDER THE WRAP LINE AND NOT OVER IT. [`LIST_WRAP_LINE`] names a
+/// RELATIONSHIP between a rendered list and the line under it, so the lines
+/// directly above it have to be the lists it is about; a sentence wedged
+/// between the last list and the wrap line would leave "the continuation is
+/// part of the same list" pointing at prose. The order is list, wrap, ladder in
+/// both compositions that carry it.
+pub(crate) fn text_ladder_line(ingredients: bool) -> &'static str {
+    if ingredients {
+        INGREDIENT_LADDER_LINE
+    } else {
+        PACKS_LADDER_LINE
+    }
+}
+
+/// [`text_ladder_line`]'s INGREDIENT arm: the entry goes, and what the player
+/// crafts is shorter than what they read.
+pub(crate) const INGREDIENT_LADDER_LINE: &str =
+    "\nWhere a list this mod chose names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown.";
+
+/// [`text_ladder_line`]'s PACKS arm, in the packs vocabulary: a science pack
+/// rather than a name, and a research that takes fewer of them rather than a
+/// craft that costs less.
+///
+/// THE CLOSING CLAUSE IS NOT THE INGREDIENT ONE WITH A WORD CHANGED. A research
+/// unit is priced in packs and a recipe is crafted from a list, so "what you
+/// craft" names nothing on a technology; and a research that loses every pack
+/// it names is emitted with no pack at all, which "fewer packs than the list
+/// shows" covers and "shorter than the list shown" reads past.
+pub(crate) const PACKS_LADDER_LINE: &str =
+    "\nWhere a list this mod chose names a science pack your mods do not have, the next name it offers is used instead; a pack it offers nothing for is left out, and two that land on one pack have their amounts added, so the research can take fewer packs than the list shows.";
+
+/// The same disclosure on an INGREDIENT DROPDOWN, where the lists it is about
+/// are the author's PRESETS rather than one default list.
+///
+/// IT SAYS "AN OPTION" BECAUSE THE LISTS IT IS ABOUT ARE OPTIONS, and the
+/// player reading it is choosing between them: every preset on that dropdown
+/// renders a list, and the ladder applies to whichever one they land on. The
+/// text setting's arm says "a list this mod chose" instead, because there the
+/// list it is about is the one the field falls back to, on the DEFAULT LINE.
+///
+/// THE LINE DIRECTLY ABOVE IT IS [`LIST_WRAP_LINE`], in the composition that
+/// has presets; in the BARE composition, where no text setting sits beside the
+/// dropdown, this line is the whole of what the library composes and the line
+/// above it is the consumer's own entry. Naming the neighbour by name rather
+/// than by a row count is deliberate: the count has moved twice.
+///
+/// AND A COST DROPDOWN CARRIES NEITHER THIS NOR THE WRAP LINE, for
+/// [`LIST_WRAP_LINE`]'s own reason: its preset is a localised label followed by
+/// a localised technology name, so there is no rendered list of internal names
+/// for a ladder to shorten. What a copied cost's own packs do when this game
+/// lacks them is disclosed where it happens, on the technology's tooltip, by
+/// `pack_dropped_note` and `packless_source_note`; a sentence on the dropdown
+/// would be about a list that dropdown does not render.
+pub(crate) const DROPDOWN_LADDER_LINE: &str =
+    "\nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown.";
+
 /// What happens to a text this library cannot use.
 ///
 /// IT IS THE ONE THING THE SCREEN CANNOT SHOW. The text is set aside and the
@@ -1322,14 +1468,15 @@ pub(crate) const LIST_WRAP_LINE: &str =
 /// "BEHAVES AS THOUGH IT SAID DEFAULT" POINTS AT THE SWITCH LINE, and the
 /// wording is chosen for where it lands on the screen. The line used to read
 /// "that default applies instead", which is deictic, and its nearest antecedent
-/// three rows above is the DEFAULT LINE, which renders the author's declared
-/// list and nothing else; beside a dropdown that is a contradiction a player
-/// can read in one glance (measured: the tooltip said one list, the recipe the
-/// game built was another). `text_switch_line` composes the row immediately
-/// above this one and already says what the word default does in THIS field:
-/// the option chosen above or below where there is a dropdown, this mod's own
-/// list where there is not. Pointing at that row is what makes this line true
-/// on every preset.
+/// is the DEFAULT LINE at the head of the composition, which renders the
+/// author's declared list and nothing else; beside a dropdown that is a
+/// contradiction a player can read in one glance (measured: the tooltip said
+/// one list, the recipe the game built was another). `text_switch_line`
+/// composes the row immediately above this one and already says what the word
+/// default does in THIS field: the option chosen above or below where there is
+/// a dropdown, this mod's own list where there is not. Pointing at that row is
+/// what makes this line true on every preset. The two are named rather than
+/// counted, because the rows between them have moved once already.
 ///
 /// IT PROMISES THE NARROW CLAIM AND NOT A LOAD, which is what the wording is
 /// for. Setting a text aside is not the same as loading: the list that then

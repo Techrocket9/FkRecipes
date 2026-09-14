@@ -140,15 +140,16 @@ fn an_empty_declared_ingredient_list_reads_as_none() {
     );
 }
 
-/// THE TWO LINES, BYTE FOR BYTE, and the number in the first one comes from
-/// the same constant the parser refuses on. A sentence promising a limit the
+/// THE COMPOSED LINES, BYTE FOR BYTE, and the number in the first one comes
+/// from the same constant the parser refuses on. A sentence promising a limit the
 /// parser does not keep is the drift this pins; the Go twin carries the same
 /// bytes and the mirror compares the two transcripts.
 #[test]
 fn the_composed_text_lines_are_the_stated_ones() {
     use crate::ingredient_list::MAX_TEXT;
     use crate::settings::{
-        text_format_line, INGREDIENT_PRESET_HEAD, LIST_WRAP_LINE, TEXT_FALLBACK_LINE,
+        text_format_line, text_ladder_line, DROPDOWN_LADDER_LINE, INGREDIENT_PRESET_HEAD,
+        LIST_WRAP_LINE, TEXT_FALLBACK_LINE,
     };
 
     assert_eq!(
@@ -179,11 +180,141 @@ fn the_composed_text_lines_are_the_stated_ones() {
         TEXT_FALLBACK_LINE,
         "\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway."
     );
+    // THE LADDER, IN ITS THREE VOCABULARIES, and every one of them carries ALL
+    // THREE clauses: the next name the entry offers where there is one, the
+    // entry left out where there is not, and two entries landing on one name
+    // having their amounts added. A sentence promising only the substitution
+    // would be false on every plan whose ladder can run out, which is every
+    // plan, because a bare name with no ladder behind it is a ladder of one;
+    // and one promising only those two says nothing about a merge, which is a
+    // number in no tooltip and in no declaration.
+    assert_eq!(
+        text_ladder_line(true),
+        "\nWhere a list this mod chose names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."
+    );
+    assert_eq!(
+        text_ladder_line(false),
+        "\nWhere a list this mod chose names a science pack your mods do not have, the next name it offers is used instead; a pack it offers nothing for is left out, and two that land on one pack have their amounts added, so the research can take fewer packs than the list shows."
+    );
+    assert_eq!(
+        DROPDOWN_LADDER_LINE,
+        "\nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."
+    );
+    // AND THE PACKS ARM SAYS "science pack" WHERE THE INGREDIENT ARM SAYS
+    // "something", because a packs field takes nothing else and a player
+    // reading "something" there would be told a wider rule than the field has.
+    assert!(
+        !text_ladder_line(true).contains("science pack"),
+        "an ingredient setting's ladder line names a science pack: {}",
+        text_ladder_line(true)
+    );
+    assert!(
+        text_ladder_line(false).contains("science pack"),
+        "a packs setting's ladder line names no science pack: {}",
+        text_ladder_line(false)
+    );
     // A LINE, NOT A SEPARATOR, and the word a player acts on opens it. The
     // dropdown label beside this is the consumer's prose and the client
     // truncates it at about 37 characters; the internal names are on their own
     // line so the copyable half of the tooltip is never the truncated half.
     assert_eq!(INGREDIENT_PRESET_HEAD, "\n  type: ");
+}
+
+/// THE ORDER OF THE THREE LINES ABOUT THE RENDERED LIST, in both compositions
+/// that carry them, because the order is what makes two of the doc comments
+/// true rather than a preference.
+///
+/// `LIST_WRAP_LINE` NAMES A RELATIONSHIP ("the continuation is part of the same
+/// list"), so the line directly above it has to be a rendered list; a ladder
+/// sentence wedged between the last list and the wrap line would leave that
+/// sentence pointing at prose. And `text_format_line` says "as the default line
+/// above does", which is true three lines up and would stop being true if the
+/// ladder line were moved above the default line instead. So the order is the
+/// list, the wrap line, the ladder line, in both places, and a reordering that
+/// keeps every line is caught here and nowhere else: every other assertion in
+/// this file compares whole transcripts built from the same constants and would
+/// move with the source. The Go half holds the same test.
+#[test]
+fn the_ladder_line_sits_under_the_wrap_line() {
+    use crate::settings::{
+        text_description, text_format_line, text_ladder_line, DROPDOWN_LADDER_LINE, LIST_WRAP_LINE,
+    };
+
+    // The TEXT composition: default line, wrap line, ladder line, format line.
+    for ingredients in [true, false] {
+        let Value::Arr(desc) = text_description(
+            "steelworks-axe-parts",
+            "1 iron-plate",
+            "\nswitch",
+            ingredients,
+        ) else {
+            panic!("the description is not a localised string")
+        };
+        assert_eq!(
+            &desc[2..6],
+            &[
+                Value::string("\ndefault: 1 iron-plate"),
+                Value::string(LIST_WRAP_LINE),
+                Value::string(text_ladder_line(ingredients)),
+                Value::Str(text_format_line(ingredients)),
+            ],
+            "ingredients={}: the four lines about the rendered list are out of order",
+            ingredients
+        );
+    }
+
+    // The DROPDOWN composition: the last preset line, the wrap line, the ladder
+    // line, the switch line.
+    let mut lib = Lib::new();
+    let medium = lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "oil"]);
+    let text = lib.ingredients_setting(
+        "quench-ingredients",
+        vec![Ingredient::named(2, "steel-plate", &[])],
+    );
+    let plate = lib.item("hardened-steel-plate", ItemSpec::default());
+    lib.recipe(
+        plate,
+        RecipeSpec {
+            ingredients_by: Some(IngredientChoices {
+                setting: medium,
+                choices: vec![
+                    IngredientChoice {
+                        value: "water".into(),
+                        ingredients: vec![Ingredient::named(2, "steel-plate", &[])],
+                    },
+                    IngredientChoice {
+                        value: "oil".into(),
+                        ingredients: vec![Ingredient::named(3, "steel-plate", &[])],
+                    },
+                ],
+            }),
+            ingredients_from: Some(text),
+            ..Default::default()
+        },
+    );
+    let ops = lib.plan_settings(&settings_world()).expect("plan refused");
+    let crate::op::Op::Extend(proto) = &ops[0] else {
+        panic!("the first op is not the dropdown")
+    };
+    let Value::Arr(desc) = field(proto, "localised_description").expect("no description") else {
+        panic!("the description is not a localised string")
+    };
+    let n = desc.len();
+    // The preset line before the three: a table, not a string, which is what
+    // says the wrap line still sits directly under a rendered list.
+    assert!(
+        matches!(desc[n - 4], Value::Arr(_)),
+        "the parameter above the wrap line is not a preset line"
+    );
+    assert_eq!(
+        &desc[n - 3..],
+        &[
+            Value::string(LIST_WRAP_LINE),
+            Value::string(DROPDOWN_LADDER_LINE),
+            Value::string("\nThe setting below applies instead while it does not say default."),
+        ],
+        "the three trailing lines are out of order"
+    );
 }
 
 /// THE DROPDOWN'S DESCRIPTION IS COMPOSED, because the engine will not let the
@@ -232,8 +363,68 @@ fn plan_settings_composes_a_dropdown_with_a_custom_arm() {
     assert_composed(
         &transcript(&ops)[..1],
         &[
-            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="aa", allowed_values=["water", "oil"], localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "\n  type: 2 steel-plate, 10 [fluid=water]"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "\n  type: 3 steel-plate"], "\nA list too long for one line continues on the next; the continuation is part of the same list.", "\nThe setting below applies instead while it does not say default."]}"#,
+            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="aa", allowed_values=["water", "oil"], localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "\n  type: 2 steel-plate, 10 [fluid=water]"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "\n  type: 3 steel-plate"], "\nA list too long for one line continues on the next; the continuation is part of the same list.", "\nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown.", "\nThe setting below applies instead while it does not say default."]}"#,
         ],
+    );
+}
+
+/// A BARE INGREDIENT DROPDOWN COMPOSES THE LADDER LINE AND NOTHING ELSE, and
+/// that one line is what makes its description required and what its finding
+/// names. Saying "its preset list" here would name a list this dropdown
+/// composes nothing of: there is no text setting beside it, so there is no
+/// language to render a preset in.
+///
+/// THE COMPOSITION IS PINNED BESIDE THE FINDING, because a finding about a line
+/// nothing emits is the defect the two rules are meant to prevent between them.
+/// It is the consumer's own key and the ladder line, in that order, and no wrap
+/// line and no switch line: nothing typeable is rendered for a wrap to be about
+/// and there is no second field to name. The Go half holds the same test.
+#[test]
+fn a_bare_ingredient_dropdown_composes_the_ladder_line_alone() {
+    let mut lib = Lib::new();
+    let plate = lib.item("hardened-steel-plate", ItemSpec::default());
+    let medium = lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "oil"]);
+    lib.recipe(
+        plate,
+        RecipeSpec {
+            ingredients_by: Some(IngredientChoices {
+                setting: medium,
+                choices: vec![
+                    IngredientChoice {
+                        value: "water".into(),
+                        ingredients: vec![Ingredient::named(1, "iron-plate", &[])],
+                    },
+                    IngredientChoice {
+                        value: "oil".into(),
+                        ingredients: vec![Ingredient::named(1, "copper-plate", &[])],
+                    },
+                ],
+            }),
+            ..Default::default()
+        },
+    );
+
+    let ops = lib.plan_settings(&settings_world()).expect("plan refused");
+    assert_composed(
+        &transcript(&ops)[..1],
+        &[
+            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="aa", allowed_values=["water", "oil"], localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"], "
+Where an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."]}"#,
+        ],
+    );
+
+    let cfg = "[mod-setting-name]\nsteelworks-quench-medium=Quenching medium\n\n[string-mod-setting]\nsteelworks-quench-medium-water=Water\nsteelworks-quench-medium-oil=Oil\n";
+    assert_eq!(
+        lib.check_locale("steelworks", cfg),
+        ["the dropdown setting steelworks-quench-medium has no [mod-setting-description] entry, and the library composes onto that entry the line saying what a name this game does not have costs the list"]
+    );
+    let full = alloc::format!(
+        "{}\n[mod-setting-description]\nsteelworks-quench-medium=Which medium.\n",
+        cfg
+    );
+    assert_eq!(
+        lib.check_locale("steelworks", &full),
+        Vec::<alloc::string::String>::new()
     );
 }
 
@@ -288,7 +479,7 @@ fn the_switch_lines_follow_the_emitted_order() {
         &transcript(&ops),
         &[
             r#"extend {type="string-setting", name="steelworks-quench-ingredients", setting_type="startup", default_value="default", order="aa", auto_trim=true, localised_description=["", ["?", ["mod-setting-description.steelworks-quench-ingredients"], "steelworks-quench-ingredients"], "\ndefault: 2 steel-plate"<text tail below>]}"#,
-            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="z", allowed_values=["water", "oil"], localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "\n  type: 2 steel-plate"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "\n  type: 3 steel-plate"], "\nA list too long for one line continues on the next; the continuation is part of the same list.", "\nThe setting above applies instead while it does not say default."]}"#,
+            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="z", allowed_values=["water", "oil"], localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "\n  type: 2 steel-plate"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "\n  type: 3 steel-plate"], "\nA list too long for one line continues on the next; the continuation is part of the same list.", "\nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown.", "\nThe setting above applies instead while it does not say default."]}"#,
         ],
     );
 }
@@ -296,6 +487,14 @@ fn the_switch_lines_follow_the_emitted_order() {
 /// A RESEARCH preset is a technology whose cost is copied, so what the line
 /// says is which one, in the technology's own localised name: the internal
 /// name rides inside the name key and is not shown to the player.
+///
+/// AND THE WHOLE VALUE IS PINNED, WHICH IS WHERE THE TWO NEGATIVES LIVE. A cost
+/// dropdown carries neither `LIST_WRAP_LINE` nor `DROPDOWN_LADDER_LINE`: its
+/// presets render no typeable list of internal names, so there is nothing for a
+/// wrap to cut and nothing for a ladder to shorten. Comparing the composition
+/// whole is what makes a line added to the wrong dropdown a failure here rather
+/// than a silent gain, so this expectation may not be loosened to a contains
+/// check.
 #[test]
 fn plan_settings_composes_a_cost_dropdown_with_a_custom_arm() {
     let mut lib = Lib::new();
@@ -508,16 +707,21 @@ fn a_cost_preset_names_its_source_by_its_localised_name() {
 
 /// MEASURED (2.0.77): a localised string takes at most 20 parameters and 20
 /// levels of nesting, and 21 of either refuses the load naming nothing useful.
-/// The consumer's own description key is the first parameter and the last two
-/// are the wrap line and the switch line, so 17 presets ride at the top level
-/// and the eighteenth turns the lot into groups of 19.
+/// The consumer's own description key is the first parameter and the last
+/// three are the wrap line, the ladder line and the switch line, so 16 presets
+/// ride at the top level and the seventeenth turns the lot into groups of 19.
 ///
-/// SEVENTEEN AND NOT EIGHTEEN IS WHAT THE WRAP LINE COST, and that is the
-/// whole of what it cost: one parameter of the top table, on the one
-/// composition that can reach the ceiling at all. Nesting is a fill rather
-/// than a wall, so past it the description keeps working.
+/// SIXTEEN AND NOT EIGHTEEN IS WHAT THE WRAP LINE AND THE LADDER LINE COST,
+/// and that is the whole of what they cost: two parameters of the top table,
+/// on the one composition that can reach the ceiling at all. Nesting is a fill
+/// rather than a wall, so past it the description keeps working.
+///
+/// AND THE ORDER OF THE THREE IS PINNED HERE, because it is what keeps two doc
+/// comments true: [`LIST_WRAP_LINE`] names a relationship to the list directly
+/// above it, so the ladder line goes under it rather than between it and the
+/// last preset.
 #[test]
-fn an_ingredient_description_nests_past_seventeen_presets() {
+fn an_ingredient_description_nests_past_sixteen_presets() {
     let composed = |presets: usize| -> Value {
         let mut lib = Lib::new();
         let values: Vec<String> = (0..presets).map(|i| alloc::format!("p{}", i)).collect();
@@ -550,31 +754,29 @@ fn an_ingredient_description_nests_past_seventeen_presets() {
         }
     };
 
-    // Seventeen presets: the key plus seventeen lines plus the wrap line plus
-    // the switch line is twenty parameters, the measured ceiling, and nothing
-    // nests.
-    let Value::Arr(flat) = composed(17) else {
+    // Sixteen presets: the key plus sixteen lines plus the wrap line plus the
+    // ladder line plus the switch line is twenty parameters, the measured
+    // ceiling, and nothing nests.
+    let Value::Arr(flat) = composed(16) else {
         panic!("the description is not a localised string")
     };
-    assert_eq!(flat.len(), 21, "seventeen presets did not stay flat");
+    assert_eq!(flat.len(), 21, "sixteen presets did not stay flat");
+    // THE THREE TRAILING LINES IN THE ORDER THE DOC COMMENTS CLAIM: the wrap
+    // line under the last list, the ladder line under it, and the switch line
+    // last.
     assert_eq!(
-        flat.last(),
-        Some(&Value::string(
-            "\nThe setting below applies instead while it does not say default."
-        )),
-        "the last parameter is not the switch line"
-    );
-    assert_eq!(
-        flat[flat.len() - 2],
-        Value::string(
-            "\nA list too long for one line continues on the next; the continuation is part of the same list."
-        ),
-        "the second to last parameter is not the wrap line"
+        &flat[flat.len() - 3..],
+        &[
+            Value::string("\nA list too long for one line continues on the next; the continuation is part of the same list."),
+            Value::string("\nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."),
+            Value::string("\nThe setting below applies instead while it does not say default."),
+        ],
+        "the three trailing lines are not the wrap line, the ladder line and the switch line"
     );
 
-    // Eighteen: the level keeps the first nineteen parameters and hands the
+    // Seventeen: the level keeps the first nineteen parameters and hands the
     // rest to a nested group in the twentieth slot.
-    let Value::Arr(nested) = composed(18) else {
+    let Value::Arr(nested) = composed(17) else {
         panic!("the description is not a localised string")
     };
     assert_eq!(nested.len(), 21, "the nested form is not one level wide");
@@ -582,9 +784,9 @@ fn an_ingredient_description_nests_past_seventeen_presets() {
         panic!("the last parameter is not a localised string")
     };
     // The empty key that concatenates, then the two lines that did not fit,
-    // which are the wrap line and the switch line in that order: the
-    // eighteenth preset takes the last flat slot and the two trailing lines
-    // are what the level hands on.
+    // which are the ladder line and the switch line in that order: the
+    // seventeenth preset and the wrap line take the last flat slots and the
+    // two trailing lines are what the level hands on.
     assert_eq!(
         group.len(),
         3,
@@ -592,10 +794,8 @@ fn an_ingredient_description_nests_past_seventeen_presets() {
     );
     assert_eq!(
         group[1],
-        Value::string(
-            "\nA list too long for one line continues on the next; the continuation is part of the same list."
-        ),
-        "the nested group does not open with the wrap line"
+        Value::string("\nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."),
+        "the nested group does not open with the ladder line"
     );
     assert_eq!(
         group[2],
@@ -603,15 +803,15 @@ fn an_ingredient_description_nests_past_seventeen_presets() {
         "the nested group does not end with the switch line"
     );
 
-    // And one preset further, the group holds a preset LINE as well, which is
-    // what says the fill keeps going rather than stopping at the two lines.
+    // And two presets further, the group holds a preset LINE as well, which is
+    // what says the fill keeps going rather than stopping at the three lines.
     let Value::Arr(deeper) = composed(19) else {
         panic!("the description is not a localised string")
     };
     let Value::Arr(group) = deeper.last().expect("no last parameter") else {
         panic!("the last parameter is not a localised string")
     };
-    assert_eq!(group.len(), 4, "the nested group is not four elements wide");
+    assert_eq!(group.len(), 5, "the nested group is not five elements wide");
     assert!(
         matches!(group[1], Value::Arr(_)),
         "the nested group's first member is not a preset line"
@@ -2201,6 +2401,105 @@ fn a_language_refusal_becomes_a_fallback_line() {
             &(String::from(r#"extend {type="recipe", name="steelworks-steel-rivet", "#)
                 + &note_in("recipe", "steelworks-steel-rivet", "steelworks-rivet-ingredients", true)
                 + r#"enabled=true, ingredients=[{type="item", name="iron-plate", amount=2}], results=[{type="item", name="steelworks-steel-rivet", amount=1}]}"#),
+        ],
+    );
+}
+
+/// A RECIPE THE ENVIRONMENT EMPTIED SAYS SO, AND A RECIPE SOMEBODY EMPTIED ON
+/// PURPOSE SAYS NOTHING, which is one degradation and two negatives.
+///
+/// THE TWO CASES ARE DIFFERENT IN KIND RATHER THAN IN DEGREE. A free craft
+/// nobody chose is a balance change nobody was told about, so it carries an
+/// ERROR line and a trailing note exactly as a research the game left with no
+/// science pack does. A free craft SOMEBODY chose is a declaration or a typed
+/// word, and both are disclosed where the choice was made: the author's own
+/// declaration, and `INGREDIENT_NONE_CLAUSE` on the field the player typed into.
+/// Writing the note there would be telling a player their own instruction had
+/// degraded.
+///
+/// THE NEGATIVES ARE THE HALF THAT CAN ROT. A trigger written as "the emitted
+/// list is empty" passes the positive here and fires on both negatives, so the
+/// positive alone would not see it. The Go half holds the same test.
+#[test]
+fn an_emptied_recipe_says_so_and_a_deliberate_one_does_not() {
+    let plan = || {
+        let mut lib = Lib::new();
+        let plate = lib.item("hardened-steel-plate", ItemSpec::default());
+        let from = lib.ingredients_setting(
+            "quench-ingredients",
+            vec![Ingredient::named(2, "titanium-plate", &["unobtanium"])],
+        );
+        lib.recipe(
+            plate,
+            RecipeSpec {
+                ingredients_from: Some(from),
+                ..Default::default()
+            },
+        );
+        lib
+    };
+
+    let note = alloc::format!(
+        r#"localised_description=["", {}, {}], "#,
+        description_ref_in("recipe", "steelworks-hardened-steel-plate"),
+        chunked_params(&alloc::format!(
+            "{} Changing a recipe empties an assembling machine's input slots of anything the new list does not use.",
+            crate::data::ingredientless_note()
+        )),
+    );
+
+    // THE ENVIRONMENT EMPTIED IT: the declared entry's whole ladder was put to
+    // the game and neither rung is there.
+    let ops = plan().plan_data(&base_world()).expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: the setting steelworks-quench-ingredients was not readable, so its default applies",
+            "log fkrecipes: hardened-steel-plate: none of titanium-plate, unobtanium is present, so the ingredient is dropped",
+            "log fkrecipes: ERROR: hardened-steel-plate: this game has none of the ingredients this recipe names, so it is emitted with no ingredients and costs nothing to craft",
+            r#"extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}"#,
+            &alloc::format!(
+                r#"extend {{type="recipe", name="steelworks-hardened-steel-plate", {}enabled=true, ingredients=[], results=[{{type="item", name="steelworks-hardened-steel-plate", amount=1}}]}}"#,
+                note
+            ),
+        ],
+    );
+
+    // THE PLAYER EMPTIED IT, by typing the one word that means an empty list.
+    // The same recipe, the same world, and neither the line nor the note.
+    let ops = plan()
+        .plan_data(
+            &base_world().with_setting("steelworks-quench-ingredients", Value::string("none")),
+        )
+        .expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: steelworks-hardened-steel-plate takes its ingredients from steelworks-quench-ingredients: none",
+            r#"extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-hardened-steel-plate", enabled=true, ingredients=[], results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}"#,
+        ],
+    );
+
+    // AND THE AUTHOR EMPTIED IT, by declaring no ingredients at all. Nothing
+    // was resolved from anything, so nothing was dropped.
+    let mut author = Lib::new();
+    let axe = author.item("steel-axe", ItemSpec::default());
+    let empty = author.ingredients_setting("axe-ingredients", vec![]);
+    author.recipe(
+        axe,
+        RecipeSpec {
+            ingredients_from: Some(empty),
+            ..Default::default()
+        },
+    );
+    let ops = author.plan_data(&base_world()).expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: the setting steelworks-axe-ingredients was not readable, so its default applies",
+            r#"extend {type="item", name="steelworks-steel-axe", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-steel-axe", enabled=true, ingredients=[], results=[{type="item", name="steelworks-steel-axe", amount=1}]}"#,
         ],
     );
 }

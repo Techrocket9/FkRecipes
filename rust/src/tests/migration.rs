@@ -13,8 +13,9 @@ use crate::plan::{
 };
 use crate::tests::data::{LOGISTICS_2_UNIT, STEEL_PROCESSING_UNIT};
 use crate::tests::{
-    assert_composed, assert_has_line, assert_lines, base_world, description_ref_in, packless_log,
-    settings_world, transcript, unit_of, unreadable_source_log, PACKLESS_TOOLTIP, UNPRICED_TOOLTIP,
+    assert_composed, assert_has_line, assert_lines, base_world, chunked_params, description_ref_in,
+    packless_log, settings_world, transcript, unit_of, unreadable_source_log, PACKLESS_TOOLTIP,
+    UNPRICED_TOOLTIP,
 };
 use crate::value::{kv, Value};
 
@@ -647,6 +648,12 @@ fn ingredients_by_falls_back_to_the_default_plan() {
 /// When the default resolves to nothing either, the recipe is emitted with no
 /// ingredients and every drop is on the record. The load completes and says
 /// what happened rather than breaking.
+///
+/// AND THE LAST WORD IS THE RECIPE'S OWN TOOLTIP, because a free craft is a
+/// balance change nobody chose. The per-entry lines above it are an author's
+/// evidence and the log is not a disclosure; the note is what a player hovering
+/// the recipe reads. It is written ONCE even though two presets emptied, because
+/// the note is about the list that was emitted and only one was.
 #[test]
 fn ingredients_by_emits_nothing_when_no_plan_resolves() {
     let choices = vec![
@@ -667,8 +674,16 @@ fn ingredients_by_emits_nothing_when_no_plan_resolves() {
         "log fkrecipes: hardened-steel-plate: none of tungsten-carbide is present, so the ingredient is dropped",
         "log fkrecipes: hardened-steel-plate: the oil ingredients name nothing this game has, so the water ingredients apply",
         "log fkrecipes: hardened-steel-plate: none of titanium-plate is present, so the ingredient is dropped",
+        "log fkrecipes: ERROR: hardened-steel-plate: this game has none of the ingredients this recipe names, so it is emitted with no ingredients and costs nothing to craft",
         r#"extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}"#,
-        r#"extend {type="recipe", name="steelworks-hardened-steel-plate", enabled=true, ingredients=[], results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}"#,
+        &alloc::format!(
+            r#"extend {{type="recipe", name="steelworks-hardened-steel-plate", localised_description=["", {}, {}], enabled=true, ingredients=[], results=[{{type="item", name="steelworks-hardened-steel-plate", amount=1}}]}}"#,
+            description_ref_in("recipe", "steelworks-hardened-steel-plate"),
+            chunked_params(&alloc::format!(
+                "{} Changing a recipe empties an assembling machine's input slots of anything the new list does not use.",
+                crate::data::ingredientless_note()
+            )),
+        ),
     ]);
 }
 

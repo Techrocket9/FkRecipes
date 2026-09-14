@@ -200,6 +200,12 @@ func TestIngredientsByFallsBackToTheDefaultPlan(t *testing.T) {
 // When the default resolves to nothing either, the recipe is emitted with no
 // ingredients and every drop is on the record. The load completes and says
 // what happened rather than breaking.
+//
+// AND THE LAST WORD IS THE RECIPE'S OWN TOOLTIP, because a free craft is a
+// balance change nobody chose. The per-entry lines above it are an author's
+// evidence and the log is not a disclosure; the note is what a player hovering
+// the recipe reads. It is written ONCE even though two presets emptied, because
+// the note is about the list that was emitted and only one was.
 func TestIngredientsByEmitsNothingWhenNoPlanResolves(t *testing.T) {
 	choices := []IngredientChoice{
 		{Value: "water", Ingredients: []Ingredient{IngredientNamed(2, "titanium-plate")}},
@@ -213,8 +219,12 @@ func TestIngredientsByEmitsNothingWhenNoPlanResolves(t *testing.T) {
 		`log fkrecipes: hardened-steel-plate: none of tungsten-carbide is present, so the ingredient is dropped`,
 		`log fkrecipes: hardened-steel-plate: the oil ingredients name nothing this game has, so the water ingredients apply`,
 		`log fkrecipes: hardened-steel-plate: none of titanium-plate is present, so the ingredient is dropped`,
+		`log fkrecipes: ERROR: hardened-steel-plate: this game has none of the ingredients this recipe names, so it is emitted with no ingredients and costs nothing to craft`,
 		`extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}`,
-		`extend {type="recipe", name="steelworks-hardened-steel-plate", enabled=true, ingredients=[], results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}`,
+		`extend {type="recipe", name="steelworks-hardened-steel-plate", ` +
+			`localised_description=["", ` + descriptionRefIn("recipe", "steelworks-hardened-steel-plate") + `, ` +
+			chunkedParams(ingredientlessNote()+` Changing a recipe empties an assembling machine's input slots of anything the new list does not use.`) + `], ` +
+			`enabled=true, ingredients=[], results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}`,
 	})
 }
 

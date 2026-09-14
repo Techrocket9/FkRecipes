@@ -3,7 +3,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::plan::{Lib, SettingKind};
-use crate::settings::{text_description, text_format_line, LIST_WRAP_LINE, TEXT_FALLBACK_LINE};
+use crate::settings::{
+    text_description, text_format_line, text_ladder_line, Presets, LIST_WRAP_LINE,
+    TEXT_FALLBACK_LINE,
+};
 use crate::value::Value;
 
 /// How many problems a report names before it stops. A generated or badly
@@ -212,11 +215,24 @@ impl Lib {
             if s.kind != SettingKind::Dropdown {
                 continue;
             }
-            if missing_description && self.presets_beside_text(i + 1).is_some() {
-                findings.push(format!(
-                    "the dropdown setting {} has no [mod-setting-description] entry, and the library composes its preset list onto that entry",
-                    full
-                ));
+            // A dropdown the library composes anything onto has its
+            // description stop being optional, and WHICH SENTENCE says so is
+            // the shape: a dropdown with a text setting beside it loses a
+            // preset list, and a bare ingredient dropdown loses the one line
+            // about the ladder. Saying "its preset list" of the second would
+            // name a list that dropdown composes nothing of.
+            if missing_description {
+                match self.composed_dropdown_presets(i + 1) {
+                    None => {}
+                    Some(Presets::Ingredients(_, None)) => findings.push(format!(
+                        "the dropdown setting {} has no [mod-setting-description] entry, and the library composes onto that entry the line saying what a name this game does not have costs the list",
+                        full
+                    )),
+                    Some(_) => findings.push(format!(
+                        "the dropdown setting {} has no [mod-setting-description] entry, and the library composes its preset list onto that entry",
+                        full
+                    )),
+                }
             }
             for v in &s.values {
                 let key = format!("{}-{}", full, v);
@@ -369,7 +385,7 @@ impl Lib {
     ///
     /// THE ORDER IS THE COMPOSITION'S, technology by technology in declaration
     /// order and choice by choice within one, and it steps past exactly what
-    /// `presets_beside_text` steps past, because it asks the same function:
+    /// `composed_dropdown_presets` steps past, because it asks the same function:
     /// `cost_dropdown_composes_preset_lines` is the composition's own condition
     /// and the only spelling of it. One dropdown naming one key twice says the
     /// same sentence twice, so it is said once.
@@ -444,11 +460,11 @@ impl Lib {
     ///
     /// ONCE PER REPORT, NOT ONCE PER SETTING, and the sentence names the library
     /// rather than a setting. What it inspects does not vary with the setting in
-    /// any way the rule reads: two of the four lines are constants, the other
-    /// two are the switch line and the format line the guarded composition was
-    /// built with and which are handed in beside it, and the only per-setting
-    /// part of the composition, the consumer's own key, is not what it looks
-    /// at. Run inside the per-setting loop it turned
+    /// any way the rule reads: two of the five lines are constants, the other
+    /// three are the switch line and the kind-dependent pair (the ladder line
+    /// and the format line) the guarded composition was built with and which
+    /// are handed in beside it, and the only per-setting part of the
+    /// composition, the consumer's own key, is not what it looks at. Run inside the per-setting loop it turned
     /// ONE library defect into one finding per text setting, five of them on the
     /// example guest, and at fifty text settings the sentences alone would fill
     /// [`LOCALE_FINDING_CAP`] and push every author finding out of the report.
@@ -472,7 +488,7 @@ impl Lib {
     /// part that indexes `self.items`. The checker validates nothing, exactly as
     /// the rest of it validates nothing, so a plan the planners would refuse must
     /// not panic here: with the list left out neither the language nor the item
-    /// table is touched, and the four lines under test are the four this
+    /// table is touched, and the five lines under test are the five this
     /// function can see. What the rendered list itself says is the settings
     /// stage's business and the corpus's.
     pub(crate) fn check_composed_text_lines(&self, prefix: &str) -> Vec<String> {
@@ -490,11 +506,13 @@ impl Lib {
     /// at all when the plan declares no text setting.
     ///
     /// THE SWITCH LINE AND THE KIND COME BACK BESIDE THE COMPOSITION because
-    /// they are the two inputs of the four lines that are not constants. The
-    /// switch line names the option above or below when a dropdown is bound to
-    /// the same declaration and the mod's own list when none is; the kind
-    /// decides whether the format line names the word `none`, which only an
-    /// ingredient list takes. The rule cannot recompute either without the
+    /// they are the two inputs of the three lines of the five that are not
+    /// constants. The switch line names the option above or below when a
+    /// dropdown is bound to the same declaration and the mod's own list when
+    /// none is; the kind decides TWO lines, the ladder line's whole vocabulary
+    /// (a science pack and a research that takes fewer packs, against a name
+    /// and a shorter craft) and whether the format line names the word `none`,
+    /// which only an ingredient list takes. The rule cannot recompute either without the
     /// declaration, so the caller that built the composition hands over what it
     /// built it with, and what the guard then answers is whether
     /// [`text_description`] put those lines into the table it returned.
@@ -528,11 +546,15 @@ pub(crate) fn composed_text_lines_missing(
 ) -> Vec<String> {
     let mut out = Vec::new();
     // THE ORDER IS THE COMPOSITION'S OWN, so a description that lost more than
-    // one of the four reports them in the order a reader would have met them.
+    // one of the five reports them in the order a reader would have met them.
     for (line, missing) in [
         (
             String::from(LIST_WRAP_LINE),
             "no line about a list that continues on the next line",
+        ),
+        (
+            String::from(text_ladder_line(ingredients)),
+            "no line about a name in the list this game does not have",
         ),
         (
             text_format_line(ingredients),
@@ -562,7 +584,7 @@ pub(crate) fn composed_text_lines_missing(
 ///
 /// DEPTH BECAUSE THE QUESTION IS "DOES THE PLAYER READ IT", NOT "WHERE". The
 /// composition it is handed is flat past the consumer's own key, which is
-/// itself a nested table: [`text_description`] is fixed at six parameters and
+/// itself a nested table: [`text_description`] is fixed at seven parameters and
 /// never reaches the nesting rule, and a dropdown's composition is never handed
 /// here at all. A top-level scan would therefore be a claim about the shape of
 /// the composition rather than about the lines, and it would go quietly wrong
@@ -1204,7 +1226,7 @@ military-4=Military 4
     /// CLAUSES. `cost_dropdown_composes_preset_lines` decides, for a
     /// technology, whether its cost dropdown has a preset list composed onto
     /// its description, and THREE readers ask it: the composition in
-    /// `presets_beside_text`, the checker's required-description rule through
+    /// `composed_dropdown_presets`, the checker's required-description rule through
     /// the same function, and the advisory walk. One spelling means one place
     /// to break, and this is the test that notices.
     ///
@@ -1531,18 +1553,18 @@ fkrecipes-example-quench-medium-water=Water
     }
 
     /// THE DRIFT GUARD OVER WHAT THE LIBRARY ITSELF COMPOSES. The consumer's
-    /// entry is checked above; these four lines are this library's, so no
+    /// entry is checked above; these five lines are this library's, so no
     /// locale file can put one back and no plan can leave one out. What the
     /// rule can see is a composition that stopped carrying a line, which is
     /// why the composition is what it is handed.
     ///
     /// THE SENTENCE NAMES THE LIBRARY AND NOT A SETTING, because the rule's
     /// input does not vary with the setting in any way the rule reads: two
-    /// lines are constants, the other two are the switch line and the format
-    /// line the composition was built with and which are handed in beside it,
-    /// and the only per-setting part of a text description is the consumer's
-    /// key, which the rule does not look at. One defect is therefore one
-    /// finding.
+    /// lines are constants, the other three are the switch line and the two
+    /// the KIND decides, the ladder line and the format line, all of which the
+    /// composition was built with and which are handed in beside it, and the
+    /// only per-setting part of a text description is the consumer's key, which
+    /// the rule does not look at. One defect is therefore one finding.
     ///
     /// THE HEALTHY PATH FIRST, so a rule that fired on everything would be
     /// caught here rather than in a golden somewhere: the real composition
@@ -1551,7 +1573,8 @@ fkrecipes-example-quench-medium-water=Water
     fn composed_text_lines_missing_guards_the_composed_lines() {
         use crate::locale::composed_text_lines_missing;
         use crate::settings::{
-            text_description, text_format_line, LIST_WRAP_LINE, TEXT_FALLBACK_LINE,
+            text_description, text_format_line, text_ladder_line, LIST_WRAP_LINE,
+            TEXT_FALLBACK_LINE,
         };
         use crate::value::Value;
 
@@ -1562,10 +1585,10 @@ fkrecipes-example-quench-medium-water=Water
             composed_text_lines_missing(&whole, SWITCH, true),
             Vec::<String>::new()
         );
-        // AND THE PACKS COMPOSITION IS CLEAN UNDER THE PACKS RULE. The format
-        // line is the one line of the four whose bytes depend on the kind, so
-        // a rule asked about the wrong kind reports a healthy description as
-        // broken.
+        // AND THE PACKS COMPOSITION IS CLEAN UNDER THE PACKS RULE. The ladder
+        // line and the format line are the two lines of the five whose bytes
+        // depend on the kind, so a rule asked about the wrong kind reports a
+        // healthy description as broken.
         let packs = text_description(
             "steelworks-axe-packs",
             "1 automation-science-pack",
@@ -1595,6 +1618,10 @@ fkrecipes-example-quench-medium-water=Water
             ["the library composes no line about a list that continues on the next line onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file"]
         );
         assert_eq!(
+            composed_text_lines_missing(&without(text_ladder_line(true)), SWITCH, true),
+            ["the library composes no line about a name in the list this game does not have onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file"]
+        );
+        assert_eq!(
             composed_text_lines_missing(&without(&text_format_line(true)), SWITCH, true),
             ["the library composes no line about the format and the length limit onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file"]
         );
@@ -1606,15 +1633,19 @@ fkrecipes-example-quench-medium-water=Water
             composed_text_lines_missing(&without(TEXT_FALLBACK_LINE), SWITCH, true),
             ["the library composes no line about what happens to a text this mod cannot use onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file"]
         );
-        // THE FORMAT LINE IS PER KIND, and the rule asked about the wrong kind
-        // sees a line it does not recognise: an ingredient composition read as
-        // a packs one is missing the packs format line, exactly as if it had
-        // been deleted.
+        // THE LADDER LINE AND THE FORMAT LINE ARE PER KIND, and the rule asked
+        // about the wrong kind sees two lines it does not recognise: an
+        // ingredient composition read as a packs one is missing the packs
+        // ladder line and the packs format line, exactly as if both had been
+        // deleted.
         assert_eq!(
             composed_text_lines_missing(&whole, SWITCH, false),
-            ["the library composes no line about the format and the length limit onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file"]
+            [
+                "the library composes no line about a name in the list this game does not have onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
+                "the library composes no line about the format and the length limit onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
+            ]
         );
-        // All four gone: all four reported, in the order the lines sit in,
+        // All five gone: all five reported, in the order the lines sit in,
         // which is the order every other rule here reports in.
         let stripped = Value::Arr(alloc::vec![
             Value::string(""),
@@ -1627,6 +1658,7 @@ fkrecipes-example-quench-medium-water=Water
             composed_text_lines_missing(&stripped, SWITCH, true),
             [
                 "the library composes no line about a list that continues on the next line onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
+                "the library composes no line about a name in the list this game does not have onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
                 "the library composes no line about the format and the length limit onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
                 "the library composes no line about which field decides while the text says default onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
                 "the library composes no line about what happens to a text this mod cannot use onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",

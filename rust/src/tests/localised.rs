@@ -128,8 +128,8 @@ fn no_composition_reaches_the_element_ceiling() {
         }
     }
     assert_eq!(
-        described, 30,
-        "the fixture emitted {} localised_description fields, not the 30 it declares; \
+        described, 32,
+        "the fixture emitted {} localised_description fields, not the 32 it declares; \
          the walk below would prove nothing about the ones it lost",
         described
     );
@@ -245,12 +245,13 @@ fn walk_value_for_ceilings(where_: &str, path: &str, v: &Value, localised: bool)
 /// reached from the PUBLIC surface and each one with the longest legal name in
 /// the slot its sentence names.
 ///
-/// THIRTY DESCRIPTIONS, and the count is asserted above:
+/// THIRTY-TWO DESCRIPTIONS, and the count is asserted above:
 ///
 /// - an item with a display name and a description;
 /// - a recipe carrying the FALLBACK note, with a description and without;
 /// - a recipe carrying the clamped ITEM note, with and without;
 /// - a recipe carrying the clamped FLUID note, with and without;
+/// - a recipe carrying the INGREDIENTLESS note, with and without;
 /// - a technology carrying the FALLBACK note, with and without;
 /// - a technology carrying the DROPPED-PACK note, with and without;
 /// - a technology carrying the PACKLESS-SOURCE note, with and without;
@@ -389,6 +390,29 @@ fn worst_case_plan() -> (Lib, FixtureWorld) {
                     Ingredient::fluid(5e300, &fluid, &[]),
                     Ingredient::fluid(6e300, &existing_name("steam"), &[&fluid]),
                 ],
+                ..Default::default()
+            },
+        );
+    }
+
+    // THE INGREDIENTLESS NOTE: every entry the recipe declares is a ladder this
+    // game has no rung of, so the emitted list is empty.
+    for (i, describe) in [false, true].into_iter().enumerate() {
+        let stem = format!("ingredientless-recipe-{}", i);
+        let result = lib.item(
+            &declared_name(&format!("{}-item", stem)),
+            ItemSpec::default(),
+        );
+        lib.recipe(
+            result,
+            RecipeSpec {
+                name: declared_name(&stem),
+                description: described_prose(describe, &fixture_prose(400)),
+                ingredients: alloc::vec![Ingredient::named(
+                    1,
+                    &existing_name("nothing-has-this-item"),
+                    &[]
+                )],
                 ..Default::default()
             },
         );

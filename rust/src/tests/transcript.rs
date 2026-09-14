@@ -10,16 +10,18 @@ use crate::value::{Value, MAX_EXACT_INT};
 // same lines from the same plan, which is what "the two halves agree" means
 // before the packaged mirror harness exists to say it in Lua.
 
-/// The four lines this library composes onto EVERY text setting's
+/// The five lines this library composes onto EVERY text setting's
 /// description, after the default list: that a list too long for the tooltip
-/// is still one list, what to write and how much of it, which field decides
-/// while this one says the reserved word, and what a text it cannot use costs.
+/// is still one list, what a name this game does not have costs the list, what
+/// to write and how much of it, which field decides while this one says the
+/// reserved word, and what a text it cannot use costs.
 ///
-/// THE FORMAT LINE IS TWO SENTENCES ON AN INGREDIENT SETTING AND ONE ON A
-/// PACKS SETTING, which is why there is a `PACKS` tail beside every `TEXT`
-/// one: the word `none` empties an ingredient list and is REFUSED on a pack
-/// list, so naming it there would be telling a player to type a word the
-/// library turns down.
+/// THE FORMAT LINE AND THE LADDER LINE ARE PER KIND, which is why there is a
+/// `PACKS` tail beside every `TEXT` one: the word `none` empties an ingredient
+/// list and is REFUSED on a pack list, so naming it there would be telling a
+/// player to type a word the library turns down, and a packs ladder is about a
+/// science pack and a research that takes fewer of them rather than about a
+/// craft.
 ///
 /// SPELLED OUT HERE RATHER THAN TAKEN FROM THE SOURCE, which is the whole
 /// point of a golden: `text_format_line` builds the number from `MAX_TEXT`, so
@@ -32,6 +34,7 @@ use crate::value::{Value, MAX_EXACT_INT};
 /// constant the way the Go twin's `+` does.
 pub(crate) const WANT_TEXT_TAIL: &str = concat!(
     r#", "\nA list too long for one line continues on the next; the continuation is part of the same list.""#,
+    r#", "\nWhere a list this mod chose names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown.""#,
     r#", "\nWrite internal names, as the default line above does, in at most 2000 characters. The word none empties the list, so the recipe costs nothing to craft.""#,
     r#", "\nWhile this says default this mod's own list applies.""#,
     r#", "\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway.""#
@@ -40,6 +43,7 @@ pub(crate) const WANT_TEXT_TAIL: &str = concat!(
 /// The same tail on a PACKS setting, whose format line stops at the ceiling.
 pub(crate) const WANT_PACKS_TAIL: &str = concat!(
     r#", "\nA list too long for one line continues on the next; the continuation is part of the same list.""#,
+    r#", "\nWhere a list this mod chose names a science pack your mods do not have, the next name it offers is used instead; a pack it offers nothing for is left out, and two that land on one pack have their amounts added, so the research can take fewer packs than the list shows.""#,
     r#", "\nWrite internal names, as the default line above does, in at most 2000 characters.""#,
     r#", "\nWhile this says default this mod's own list applies.""#,
     r#", "\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway.""#
@@ -49,6 +53,7 @@ pub(crate) const WANT_PACKS_TAIL: &str = concat!(
 /// line names which way the settings screen sorts the two.
 pub(crate) const WANT_TEXT_TAIL_ABOVE: &str = concat!(
     r#", "\nA list too long for one line continues on the next; the continuation is part of the same list.""#,
+    r#", "\nWhere a list this mod chose names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown.""#,
     r#", "\nWrite internal names, as the default line above does, in at most 2000 characters. The word none empties the list, so the recipe costs nothing to craft.""#,
     r#", "\nWhile this says default the option chosen above applies; anything else applies instead of it.""#,
     r#", "\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway.""#
@@ -58,6 +63,7 @@ pub(crate) const WANT_TEXT_TAIL_ABOVE: &str = concat!(
 /// is what a legacy dropdown ordered after a generated setting produces.
 pub(crate) const WANT_TEXT_TAIL_BELOW: &str = concat!(
     r#", "\nA list too long for one line continues on the next; the continuation is part of the same list.""#,
+    r#", "\nWhere a list this mod chose names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown.""#,
     r#", "\nWrite internal names, as the default line above does, in at most 2000 characters. The word none empties the list, so the recipe costs nothing to craft.""#,
     r#", "\nWhile this says default the option chosen below applies; anything else applies instead of it.""#,
     r#", "\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway.""#

@@ -83,10 +83,18 @@ func TestFluidLadderIgnoresAnItemOfTheSameName(t *testing.T) {
 	ops, err := lib.PlanData(baseWorld().withoutFluid("water").withItem("water"))
 	assertNoError(t, err)
 
+	// AND THE EMPTIED RECIPE SAYS SO. The one entry this plan named was put to
+	// the game and dropped, so what is emitted is a recipe with no ingredients
+	// at all: a free craft nobody chose, which is why it carries a line and a
+	// note of its own rather than riding on the ladder's own disclosure.
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: hardened-steel-plate: none of water is present, so the ingredient is dropped`,
+		`log fkrecipes: ERROR: hardened-steel-plate: this game has none of the ingredients this recipe names, so it is emitted with no ingredients and costs nothing to craft`,
 		`extend {type="item", name="steelworks-hardened-steel-plate", icon="__steelworks__/graphics/icons/plate.png", stack_size=50}`,
-		`extend {type="recipe", name="steelworks-hardened-steel-plate", category="chemistry", enabled=true, ingredients=[], results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}`,
+		`extend {type="recipe", name="steelworks-hardened-steel-plate", ` +
+			`localised_description=["", ` + descriptionRefIn("recipe", "steelworks-hardened-steel-plate") + `, ` +
+			chunkedParams(ingredientlessNote()+` Changing a recipe empties an assembling machine's input slots of anything the new list does not use.`) + `], ` +
+			`category="chemistry", enabled=true, ingredients=[], results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}`,
 	})
 }
 

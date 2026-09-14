@@ -1200,6 +1200,11 @@ var noteComposers = []noteComposer{
 		empty: packlessNote,
 	},
 	{
+		name: "ingredientlessNote", bytes: 112,
+		what:  "every ingredient the recipe names was put to the game and every ladder ran out, so the recipe is emitted with none and costs nothing to craft",
+		empty: ingredientlessNote,
+	},
+	{
 		name: "unreadableSourceNote", bytes: 135,
 		what:  "the chosen source's pack list is in neither engine form, and a declared cost sits behind it",
 		empty: func() string { return unreadableSourceNote("") },

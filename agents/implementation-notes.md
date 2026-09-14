@@ -1191,7 +1191,7 @@ Two ingredients resolved onto <name> and the total was above the largest amount 
 
 **A RECIPE CLAMP CARRIES THE DESTRUCTION SENTENCE AND A PACK CLAMP DOES NOT**, through the `destroysInputs` / `destroys_inputs` argument commit A's amendment installed: a clamped ingredient changes the ingredient LIST, and repricing a research empties no assembling machine.
 
-**THE LADDER GETS NO NOTE, DELIBERATELY**, and the reason is in the design record and in `docs/usage.md`: a resolve-or-drop ingredient ladder is the library's advertised contract and the dropdown's own composed description already discloses it ("where one names something your mods do not have, the nearest thing they do have is used instead"), whereas a clamped amount and a dropped science pack are arithmetic and presence a player cannot check anywhere.
+**THE LADDER GETS NO NOTE, DELIBERATELY**, and the reason is in the design record and in `docs/usage.md`: a resolve-or-drop ingredient ladder is the library's advertised contract and the SETTINGS SCREEN is where that contract is disclosed, whereas a clamped amount and a dropped science pack are arithmetic and presence a player cannot check anywhere. **[AMENDED by fix round 3's decision 5, 2026-09-14: this paragraph quoted "the dropdown's own composed description already discloses it (where one names something your mods do not have, the nearest thing they do have is used instead)", and the library composed no such sentence. That was the PILOT CONSUMER'S own locale entry, quoted verbatim in the build report as if it were the library's output, which is the exact defect finding 22 was about. The library composes it now, in three vocabularies, through `dropdownLadderLine` / `DROPDOWN_LADDER_LINE` and `textLadderLine` / `text_ladder_line`. And the exclusion is narrower than this sentence says: a ladder that empties the recipe COMPLETELY carries `ingredientlessNote` / `ingredientless_note` on the prototype, because a recipe with nothing to craft it from is a balance change rather than a shorter list.]**
 
 **`withFallbackNote`'S ROUTE IS GONE AND ITS FACT IS NOT**, and the composer is now `fallbackFact` / `fallback_fact` at the same four post-resolution exits (the carried refusal, the craft-time post-condition, the packless refusal, the cycle walk; the Rust side is one `map_err` over three checks plus the carried refusal). The old sentence named Settings > Mod settings > Startup, and finding 14 re-measured on the client that the `Error loading mods` dialog cannot reach that screen: it offers Disable listed mods, Disable all mods, Manage mods, Restart, Exit and a Reset mod settings checkbox; `Manage mods` has no Mod settings button and its `Back` returns to the same dialog; `Restart` relaunches into an identical dialog over a file whose sha256 has not moved; and the one escape resets every startup preference and disables the mod. That measurement condemns the ROUTE. It does not touch the FACT beside it, which is still the only thing a refused load can say about a value the player typed, because the accumulated log ops never reach the host at all; and the composed description of every text setting PROMISES that fact in its own tooltip ("the reason is in the log, or in the load error if the load stops anyway"), so deleting the composer outright made a settings-screen sentence false. What a refusal adds is therefore `. The stored value of <setting> could not be used, so the mod's own declaration applied.` and nothing more: no screen, no route, no advice. (That outcome clause is as THIS round wrote it; fix round 3's decision 2 found it false beside a preset dropdown and it now reads `and was set aside, so what applied is what that field gives when it is left alone.`) `res.fellBack` / `fell_back` has TWO readers and always did, which an earlier draft of this section got backwards: it is the per-setting dedupe that keeps ONE log line per field however many declarations read it (`go/data.go`'s `noteFallback` says so), and its first element is the setting `fallbackFact` names. Decision C's note is written UNCONDITIONALLY, before that dedupe, and reads the field not at all: two recipes bound to one crafting-time setting are two tooltips.
 
@@ -1400,7 +1400,7 @@ Finding 18, graded MISLED: the word `none` empties an ingredient list (`go/ingre
 | an ingredient dropdown's | 5 | 4 | 4 and 4 |
 | a cost dropdown's | 4 | 4 | 4 and 4 |
 
-Against the measured ceilings (20 parameters PER TABLE, 20 LEVELS of depth, no global table count) the only shape that can reach a ceiling is a dropdown with many presets, and there the cost is exactly one preset: an INGREDIENT dropdown is flat up to 17 presets where it was 18, and nests past that exactly as it did before, since `localisedGroup` / `localised_group` keeps 19 and hands the rest to a nested group in slot 20. A COST dropdown is unchanged at 18. A text setting's description spends 6 of 20 and is nowhere near anything. Both halves now pin the ingredient dropdown's fill point (`TestIngredientDropdownDescriptionNestsPastSeventeenPresets` / `an_ingredient_description_nests_past_seventeen_presets`), including which parameters the level hands on first: at eighteen presets the nested group holds exactly the wrap line and the switch line, and at nineteen it holds a preset line as well.
+Against the measured ceilings (20 parameters PER TABLE, 20 LEVELS of depth, no global table count) the only shape that can reach a ceiling is a dropdown with many presets, and there the cost is exactly one preset: an INGREDIENT dropdown is flat up to 17 presets where it was 18, and nests past that exactly as it did before, since `localisedGroup` / `localised_group` keeps 19 and hands the rest to a nested group in slot 20. A COST dropdown is unchanged at 18. A text setting's description spends 6 of 20 and is nowhere near anything. Both halves now pin the ingredient dropdown's fill point, including which parameters the level hands on first: at eighteen presets the nested group holds exactly the wrap line and the switch line, and at nineteen it holds a preset line as well. **[AMENDED by fix round 3's decision 5, 2026-09-14: the ladder line spends a second slot, so an ingredient dropdown is flat up to 16 presets and the seventeenth nests; the two tests are `TestIngredientDropdownDescriptionNestsPastSixteenPresets` / `an_ingredient_description_nests_past_sixteen_presets` under those names now, and the nested group at seventeen holds the ladder line and the switch line.]**
 
 **THE DRIFT GUARD HAS A FOURTH ROW, AND THE FORMAT LINE IS NOW PER KIND.** `composedTextLinesMissing` / `composed_text_lines_missing` reports `the library composes no line about a list that continues on the next line onto a text setting's description; ...` first, in the composition's own order, and asks for `textFormatLine(ingredients)` rather than a constant. A rule handed the wrong kind sees a line it does not recognise and reports the format line missing, which is what the new per-kind test asserts in both halves; a guard that recomputed the kind instead of being handed it would have agreed with itself and seen nothing.
 
@@ -1409,7 +1409,7 @@ Against the measured ceilings (20 parameters PER TABLE, 20 LEVELS of depth, no g
 | What was broken | What went red |
 |---|---|
 | `listWrapLine` / `LIST_WRAP_LINE` dropped out of `textDescription` / `text_description` | Go 19 tests: five prototype goldens, the order test, the guard's own (`the real composition reported [the library composes no line about a list that continues on the next line ...]`) and twelve `CheckLocale` ones, because the guard's finding goes first in every report. Rust 12, the same shape: seven locale tests, three prototype goldens and two order tests |
-| the wrap line dropped from the INGREDIENT dropdown's composition | Go `TestPlanSettingsComposesADropdownDescription`, `TestTheSwitchLinesFollowTheEmittedOrder` and `TestIngredientDropdownDescriptionNestsPastSeventeenPresets` (`seventeen presets did not stay flat`); Rust the three twins |
+| the wrap line dropped from the INGREDIENT dropdown's composition | Go `TestPlanSettingsComposesADropdownDescription`, `TestTheSwitchLinesFollowTheEmittedOrder` and `TestIngredientDropdownDescriptionNestsPastSixteenPresets`, named `...PastSeventeenPresets` when this row was written (`sixteen presets did not stay flat`); Rust the three twins |
 | the `none` clause never appended, so an ingredient text loses it | Go 8: the five prototype goldens, the order test, the guard's own and `TestTheComposedTextLinesAreTheStatedOnes`. Rust 7, the same shape |
 | the `none` clause appended to EVERY text setting, so a packs text gains it | Go 4: `TestPlanSettingsEmitsAPacksSettingAndAnEmptyList`, `TestOrderAfterPlacesGeneratedSettingsUnderALegacyOrder`, the guard's own and `TestTheComposedTextLinesAreTheStatedOnes` (`a packs setting's format line names the word none: ...`). Rust 4, the same shape. THE TWO BREAKS ARE EACH OTHER'S CONTROL: dropping the clause reddens the ingredient goldens and adding it everywhere reddens the packs ones, so no single edit satisfies both |
 | the wrap line ALSO pushed onto a COST dropdown | Go `TestPlanSettingsComposesACostDropdownDescription` and `TestCostDropdownDescriptionNestsPastNineteenPresets`; Rust `plan_settings_composes_a_cost_dropdown_with_a_custom_arm` and `a_cost_preset_with_no_source_reads_as_the_fallback` |
@@ -1463,7 +1463,7 @@ The BEFORE row reproduces the two module figures `README.md` carried before this
 
 | What was broken | What went red |
 |---|---|
-| `listWrapLine` / `LIST_WRAP_LINE` changed in the source alone, before any pin was updated | Go 7: `TestPlanSettingsEmitsATextSetting`, `TestPlanSettingsEmitsAPacksSettingAndAnEmptyList`, `TestPlanSettingsEmitsALegacyTextSetting`, `TestPlanSettingsComposesADropdownDescription`, `TestTheSwitchLinesFollowTheEmittedOrder`, `TestTheComposedTextLinesAreTheStatedOnes`, `TestOrderAfterPlacesGeneratedSettingsUnderALegacyOrder`. Rust 8, the same shape plus `an_empty_declared_ingredient_list_reads_as_none` and `an_ingredient_description_nests_past_seventeen_presets`. THIS IS THE PROOF THAT THE PINS ARE PINS: the sentence is a constant in one place per half and nineteen assertions across the two suites see it move |
+| `listWrapLine` / `LIST_WRAP_LINE` changed in the source alone, before any pin was updated | Go 7: `TestPlanSettingsEmitsATextSetting`, `TestPlanSettingsEmitsAPacksSettingAndAnEmptyList`, `TestPlanSettingsEmitsALegacyTextSetting`, `TestPlanSettingsComposesADropdownDescription`, `TestTheSwitchLinesFollowTheEmittedOrder`, `TestTheComposedTextLinesAreTheStatedOnes`, `TestOrderAfterPlacesGeneratedSettingsUnderALegacyOrder`. Rust 8, the same shape plus `an_empty_declared_ingredient_list_reads_as_none` and `an_ingredient_description_nests_past_sixteen_presets`, named `...seventeen...` when this row was written. THIS IS THE PROOF THAT THE PINS ARE PINS: the sentence is a constant in one place per half and nineteen assertions across the two suites see it move |
 | the drift guard's kind inverted INSIDE `guardedTextDescription` / the Rust accessor | Go `TestTheDriftGuardInspectsTheFirstTextSettingOnly` alone; Rust `the_drift_guard_inspects_the_first_text_setting_only` alone |
 | the same kind DESYNCED, `composedTextLinesMissing` / `composed_text_lines_missing` handed the opposite flag | Go 12 `CheckLocale` tests including `TestCheckLocaleMatchesTheGolden` and `TestCheckLocaleAcceptsACompleteFile`; Rust 6 including `check_locale_matches_the_golden`. Both breaks reverted |
 
@@ -1827,6 +1827,7 @@ A row per finding this commit touched, its grade in the consumer's third migrati
 | 19 | MISLED | FkRecipes, closed | added by decision 2. The recipe tooltip, the settings tooltip, the ERROR line and the refusal's added sentence all said a set-aside value fell back to the mod's own default, choice, list or declaration, which the assessment measured false on five of six presets. All four now say the field behaved as though it had been left alone, which is the library's own rule and is true beside a dropdown, on every preset, where no dropdown exists and of a number setting as well as a text one. The BEHAVIOUR is unchanged: the fallback still lands on the dropdown's currently chosen preset, and the two tests that pin that were already there |
 | 20 | AWKWARD | FkRecipes, closed | added by decision 3. The `CostBy` arm where no source in the chosen ladder carries a unit logged a line, called no note recorder, and emitted a technology with `prerequisites` absent and `localised_description` absent: the research moved to the ROOT of the technology tree, researchable from the first minute. It now records `unpricedSourceNote` / `unpriced_source_note` after the fallback is resolved, so the technology's own tooltip says it has no prerequisite and no copied cost. The three enumerations the finding cited as evidence that the omission was never argued for (`go/data.go`'s note block, `docs/usage.md`'s fenced block, `agents/customizer-design.md` line 56) now carry all ten notes, and the SET is held by a source property, `TestEveryNoteCallSiteIsAccountedFor` / `every_note_call_site_is_accounted_for`, so the enumerations are derived rather than load-bearing. The half of the finding recorded rather than graded, that the consumer's composed `bbb-tech-cost` tooltip renders a renamed technology's base locale key as a name for a prototype that no longer exists, is BBB's and the engine's between them and is untouched here |
 | 21 | AWKWARD | FkRecipes, closed; BBB has nothing it must do | added by decision 4. A note with no declared `Description` was emitted as `{"", "<note>"}`, and a prototype's own `localised_description` field wins over the `[recipe-description]` or `[technology-description]` entry of the same name, so the sentence telling a player what the technology DOES was gone for the whole of that load and the note stood in its place. The composition now opens with a reference to that prototype's own entry followed by a newline, behind an empty alternative, so the engine renders the author's sentence ABOVE the note where they defined the entry and the note alone where they did not. BBB'S HALF IS NOTHING RATHER THAN ONE LINE, which is the difference between this row and the assessment's two proposed repairs: its `[technology-description]` entry survives a fallback with no change on its side, it does not have to move its description into `TechSpec.Description`, and the library does not have to ask. The assessment's other repair, a sentence in `docs/usage.md` telling an author to declare `Description` in the plan if they want it kept, was NOT taken: it would have moved the cost onto every consumer for a defect the library could answer by construction. `docs/usage.md` documents the behaviour instead |
+| 22 | MISLED | FkRecipes, closed; BBB chooses what to do with its own locale entry | added by decision 5. The scope document's scope F sentence was false on three clauses and its own supporting quote named a sentence this library never wrote. Scope F now states the class claim without a total claim, cross-references `CLAUDE.md`'s enumerated refusals rather than copying them, separates an AUTHOR's ladder (disclosed on the settings screen, logs nothing) from an ENVIRONMENT's degradation (disclosed on the prototype and in one `ERROR:` line), and says what CHANGED rather than what was substituted, because two of this round's degradations substitute nothing. The disclosure the design leaned on is composed by the library now, in three vocabularies. BBB MAY KEEP OR DELETE ITS OWN SENTENCE and neither is owed: `bbb-recipe-cost`'s `[mod-setting-description]` entry still renders ABOVE the library's composed lines, so keeping it costs a player one more line saying the same thing in the consumer's words, and deleting it loses nothing, because the rule, the merge and the "can be a shorter list" warning are all in the library's own sentence now. THE MERGE ARRIVED LATE: the sentence this decision first shipped had two clauses and not three, so for as long as that draft stood this row was false on its own middle term, and two ladders landing on `iron-plate` emitted one ingredient of amount 5 with nothing anywhere saying so below the clamp ceiling. What BBB may NOT do any more is treat that entry as load-bearing for the library's design |
 
 ### What this round leaves open on this side
 
@@ -1839,6 +1840,8 @@ A row per finding this commit touched, its grade in the consumer's third migrati
 - **Whether a recipe's own `localised_description` suppresses the client's item-description fallback.** Decision 4 below composes `[recipe-description].<emitted name>` beside `[technology-description].<emitted name>`, and the technology arm is measured while the recipe arm is not. `[recipe-description]` is NOT where a Factorio author normally writes a recipe's description: a crafting tooltip's description comes from the RESULT ITEM, through a fallback in the client's tooltip builder rather than through the prototype. On 2.0.77 (build 84539, mac-arm64, steam) `base/locale/en/base.cfg` defines ZERO `[recipe-description]` entries against 29 `[item-description]` ones (`awk '/^\[recipe-description\]/{f=1;next} /^\[/{f=0} f&&NF' base.cfg | wc -l` gives 0; the same awk over `[item-description]` gives 29), the consumer's `mod-data/locale/en/better-belt-balancer.cfg` is the same shape with no `[recipe-description]` section at all, and a `localised_print` probe on a recipe prototype with only `[item-description]` defined renders `Unknown key: "recipe-description.probe-widget"`, so the RUNTIME PROTOTYPE VALUE carries no item fallback of its own. WHETHER THE CLIENT'S OWN FALLBACK IS SKIPPED ONCE THE PROTOTYPE HAS A `localised_description` AT ALL IS NOT MEASURABLE HEADLESS AND WAS NOT MEASURED. If it is skipped, the recipe arm closes nothing for the very consumer that raised finding 21, and that consumer's own sentence, "the recipe has nothing to lose, because this mod ships no `[recipe-description]` entry", rests on the same unmeasured assumption. It is PRE-EXISTING rather than created here: a recipe carrying a note has emitted a `localised_description` since fix round 2, so at the prototype layer the recipe arm can only HELP (an author who does write the entry keeps it) or be NEUTRAL (the empty alternative and the note alone, byte for byte the old shape). It joins the owed client round.
 - **A ring that only a second pass can find is unwitnessed on an engine.** `TestTwoRingsAreBothResolved` and its twin hold the loop in both host suites, and neither gate reaches a cycle at all: the mirror's stand-in and both in-game guests declare trees with no ring in them. Adding one would mean example content whose whole purpose is to be wrong, which is a decision rather than an amendment, and it is the same shape as the five gaps fix round 2 recorded.
 - **The demote arm walks one shape of degradation and not three.** It measures the packless pair on two technologies and the copied-unit drop line beside them. The unreadable-pack-list arms and the cycle drops are held by unit tests in both halves and by nothing on an engine, because reaching them needs a fixture that rewrites another mod's `unit.ingredients` into a shape the copier cannot read, or a fixture that closes a ring through the guest's own splice.
+- **A recipe with NO SETTING AT ALL has nowhere a player looks to carry the ladder's disclosure.** Added by the amendment to decision 5. The sentence is composed onto a setting's description, so a recipe declared with a plain `Ingredients` list, no `IngredientsFrom` and no `IngredientsBy`, has no field for it: on that plan the resolve-or-drop contract is disclosed to the AUTHOR in `docs/usage.md` and nowhere else. It is bounded rather than open, which is why it is a recorded gap and not a finding: a ladder that leaves the recipe with SOMETHING to craft is the advertised contract and the emitted ingredient rows are what the game shows, and a ladder that empties the recipe completely says so on the recipe's own tooltip on every plan, through decision 6. What is left uncovered is a substitution or a drop a player cannot compare against anything, on a plan whose author chose to offer no setting. Closing it would mean a note on a prototype for the contract itself, which decision 5 argues against and which would fire on every modpack that renames one item. Not fixed here.
+- **No gate reaches either new shape on a packaged guest.** Neither example guest declares a bare ingredient dropdown, so the mirror and the engine gate walk the ladder line on the with-text shape only; and neither declares a recipe whose every ladder can run out on the gate's mod set, so the engine gate's DATA hashes cannot move on decision 6 and did not. Both are held by unit tests in both halves. Adding either to an example guest is content whose purpose is to be wrong on a real mod set, which is a decision rather than an amendment, and it is the same shape as the gaps above.
 - **The FkLua checkout drift.** Carried forward unchanged: `rust/Cargo.lock` pins the fkdata dependency at `b88965d` while both gate scripts build the `fklua` binary out of whatever `FKLUA_CHECKOUT` holds. Every measurement in this round used that sibling checkout, and syncing this repository onto the newer head is still owed as its own round.
 
 ### Decision 2: every sentence about a set-aside value says the field behaved as though it had been left alone
@@ -2079,3 +2082,265 @@ Run at this commit, exit codes read directly and never through a pipe, all 0: `g
 `LOCALISED_ELEMENT_CEILING` LOST ITS `#[cfg(test)]` GATE in the Rust half, because `description_ref` is a production reader of it now: the constant was test-only while the only thing comparing against it was the ceiling walk. The doc comment says so, and clippy with `-Dwarnings` over every target is what would have caught leaving the gate on.
 
 THE JUMP ROWS. Go's `(*Lib).PlanData` widest span is 993,867 bytes, 152 percent of the 655,355-byte limit, relayed through 13 stations, with the widest block 13,029 bytes in `copyValue` and 314,648 bytes of block room; up 1,226 bytes from decision 3. Rust's `plan_data` is 399,414 bytes, 61 percent, no relay, widest block 3,800 bytes in `not_text` with 323,877 bytes of block room. The Lua register ceiling fix round 2 hit is not approached: the new arm adds one `if` and one prepend to `appendLocalised` and nothing to `PlanData` itself.
+
+### Decision 5: the ladder's disclosure is a sentence this library composes
+
+**THE DEFECT HAD TWO HALVES AND ONE CAUSE.** (This section is written as of the AMENDMENT that followed the adversarial review of the first draft: the sentences carry three clauses rather than two, a bare ingredient dropdown composes the ladder line where it used to compose nothing, and scope F opens on what was closed rather than on a universal. Each of those is marked where it lands.) The consumer's third assessment, finding 22, MISLED, scope F. Half one: the resolve-or-drop ingredient ladder gets no note on the emitted prototype, deliberately, and `agents/customizer-design.md` line 56, `docs/usage.md`, `go/data.go`'s note block and `rust/src/data.rs`'s twin all justified that by quoting a disclosure, "the dropdown's own composed description already discloses it (where one names something your mods do not have, the nearest thing they do have is used instead)". Grepping this repository for that sentence finds comments and documents and no literal. The live text was `mod-data/locale/en/better-belt-balancer.cfg:203`, the PILOT CONSUMER'S own entry, which a consumer may write differently or not at all. Half two: `agents/threat-model.md`'s scope F sentence was false on three clauses at once. One cause under both: a design decision whose evidence was outside the repository, written down as if it were inside it.
+
+**THE THREE SENTENCES, AND WHERE EACH SITS.** All three are plain-string parameters, no table and no depth.
+
+```
+dropdownLadderLine  \nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown.
+textLadderLine(t)   \nWhere a list this mod chose names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown.
+textLadderLine(f)   \nWhere a list this mod chose names a science pack your mods do not have, the next name it offers is used instead; a pack it offers nothing for is left out, and two that land on one pack have their amounts added, so the research can take fewer packs than the list shows.
+```
+
+256, 268 and 269 bytes with the newline. An INGREDIENT dropdown's composition is now the consumer's key, the preset lines, `listWrapLine`, `dropdownLadderLine`, `dropdownSwitchLine`. A TEXT setting's is the consumer's key, the default line, `listWrapLine`, `textLadderLine`, `textFormatLine`, the switch line, `textFallbackLine`: seven parameters where it was six. A COST dropdown is unchanged.
+
+**THE MERGE WAS THE THIRD CLAUSE AND THE FIRST DRAFT HAD TWO.** The sentences above are the amended ones. The draft this decision first shipped ended `and where it offers none that entry is left out, so what you craft can be shorter than the list shown`, which says what the ladder SUBSTITUTES and what it DROPS and nothing about what it MERGES. Measured on the amendment: two declared entries whose ladders both land on `iron-plate` emit ONE ingredient of amount 5, a number in no tooltip and in no declaration, and `mergeIngredient` / `merge_ingredient` records a note only where the sum crosses a ceiling, so below the ceiling the merge was disclosed nowhere at all. The consumer's own entry had it (`and where that leaves one item named twice the two amounts are added`), which made the ownership row above false for as long as the two-clause draft stood. The three sentences each carry all three clauses now, and each is over 200 bytes for it.
+
+**AN INGREDIENT DROPDOWN WITH NO TEXT SETTING BESIDE IT WAS THE SHAPE THE FIRST DRAFT MISSED ENTIRELY.** `settingDescriptions` / `composed_dropdown_presets` stepped past it with the comment "A DROPDOWN WITH NO TEXT SETTING BESIDE IT COMPOSES NOTHING", so every claim this decision wrote into `go/data.go`, `rust/src/data.rs`, `agents/threat-model.md` and `docs/usage.md` was unqualified and false on it. It is a first-class shape here: `go/examples/notext` and `rust/examples/notext` are exactly it, with a three-rung ladder in the plan. It composes `{"", <the consumer's own description key, wrapped>, dropdownLadderLine}` now and nothing else. No preset lines, because rendering one needs a language and only `IngredientsSetting` / `ingredients_setting` installs one; the ladder line is a CONSTANT and links nothing, so "a plan with no text setting links no PARSER, no RENDERER, no AMOUNT FORMATTER and no CUSTOM-COST RESOLVER" still holds and `cd go/examples/notext && go vet .` still passes. No wrap line, because nothing typeable is rendered. No switch line, because there is no second field to name. In Rust the shape change is `Presets::Ingredients`'s text index becoming an `Option<usize>` and `presets_beside_text` being renamed `composed_dropdown_presets`, because a function named for a text setting beside the dropdown now answers for the case where there is none.
+
+**THE LOCALE CHECKER GAINED THE SHAPE AND A SECOND SENTENCE.** A composed description makes the `[mod-setting-description]` entry REQUIRED, so `dropdownsWithComposedDescription` / `composed_dropdown_presets` marks a bare ingredient dropdown too. Its finding may not be the existing one, because "the library composes its preset list onto that entry" would name a list that dropdown composes nothing of; it is `the dropdown setting <name> has no [mod-setting-description] entry, and the library composes onto that entry the line saying what a name this game does not have costs the list`. The Go half's `dropdownsWithComposedDescription` returns a three-valued `dropdownComposition` for it rather than a `bool`. That is a NEW OBLIGATION on a consumer shipping a bare ingredient dropdown and `docs/migration.md`'s upgrade list names it with its one-line remedy. THE PILOT CONSUMER IS NOT AFFECTED: both of BetterBeltBalancer's dropdowns have a text setting beside them (`bbb-recipe-cost` beside `better-belt-balancer-recipe-ingredients`, `bbb-tech-cost` beside `better-belt-balancer-tech-packs`), so both were already on the required list and neither finding changes for it.
+
+**THE HOLE THAT REMAINS.** A recipe declared with a plain `Ingredients` list and no setting at all has NO setting anywhere to carry the sentence, so on that plan the ladder is disclosed to the AUTHOR in `docs/usage.md` and nowhere a player looks. Every claim is scoped to "wherever this library composes a description" for that reason, and the shape is named in `agents/threat-model.md` scope F, in `docs/usage.md` and on this round's open list. It is bounded rather than open: a recipe whose ladders empty it COMPLETELY says so on its own tooltip on every plan, which is decision 6.
+
+**THE PLACEMENT, AND WHY IT IS NOT WHAT THE BRIEF'S FIRST CLAUSE ASKED FOR.** The brief asked for the dropdown's line "after the last preset line and BEFORE the wrap line", and in the same sentence said the ladder line "must not come between a preset and the sentence about copying it" and to place it so `listWrapLine`'s doc comment stays true. Those two are not both satisfiable and the second is the operative one: `listWrapLine` names a RELATIONSHIP between a rendered list and the line under it ("the continuation is part of the same list"), so the lines directly above it have to be the lists it is about. A ladder sentence wedged between the last preset and the wrap line would leave that sentence pointing at prose. So the ladder line goes UNDER the wrap line, in both compositions, which is also literally what the brief asked for on the text side ("directly under the `default:` line's wrap line") and makes the two shapes read the same way: list, wrap, ladder. `textFormatLine`'s "as the default line above does" is now three lines up rather than two, which is as true; its doc comment says three.
+
+**THE DEVIATION, RECORDED.** The brief asked for the dropdown line only where a choice carries `Fallbacks`. It is unconditional instead. A list with no ladder anywhere in it still DROPS an entry the game does not have, which is the half of the sentence that is always true, so conditioning would leave exactly the plans that can ONLY drop saying nothing at all. It is also what lets the locale checker's guard ask one composition function for one shape, as it already does for the other four lines, rather than having to know which choices carry ladders.
+
+**A COST DROPDOWN GETS NOTHING, AND THE SOURCE LADDER WAS ASKED ABOUT SEPARATELY.** The dropdown is `listWrapLine`'s own case: a cost preset is a localised label followed by a localised technology name, so there is no rendered list of internal names for a ladder to shorten. The SOURCE ladder gets no sentence either, and not by inheritance: a preset line names ONE technology, the head of its `Sources` ladder, so a settings-screen sentence about the next rung would be about rungs the tooltip never rendered. What a source ladder actually does to a player is already disclosed where it happens, on the technology's own tooltip, by `packDroppedNote`, `packlessSourceNote`, `unreadableSourceNote` and `unpricedSourceNote`. The ingredient case is the opposite shape, which is why it is the one that gets a line: there the tooltip renders the whole list, and the list is what moves.
+
+**THE 200-BYTE QUESTION, ANSWERED BY THE EXEMPTION AND THEN MEASURED.** All three sentences are over the engine's 200-byte-per-element ceiling. That ceiling is a DATA-STAGE prototype's, and a SETTING prototype is exempt, which fix round 3's chunking work measured at 201, 400, 1000, 2000 and 5000 bytes. Nothing here is chunked, and nothing may be: `localisedCarries` / `localised_carries` looks for a whole composed line inside ONE `Str` element, so chunking a settings line would make `CheckLocale` report every composed line as missing. The engine gate now emits a 269-byte setting element on a real 2.0.77 and reads it back whole out of `mod-settings-dump.json`; the two `utf8bytelength > 200` walks in `run-ingame.sh` are over `$FDUMP` and `$DDUMP`, the DATA dumps, and are untouched by this. THE CLAIM IS ABOUT THE LIBRARY'S OWN COMPOSED CONSTANTS AND NOT ABOUT SETTING ELEMENTS IN GENERAL: a consumer's declared list has always been able to render a default line past 200 bytes, with no ceiling short of the language's own 2000 characters, so "the first setting element over 200 bytes this library has shipped" would have been false. What is true is that these are the widest elements this library's own composed constants produce.
+
+### The red proofs, decision 5
+
+Each break was applied, run, observed and reverted. The Go half first.
+
+DROPPING `Str(textLadderLine(ingredients))` FROM `textDescription`:
+
+```
+--- FAIL: TestPlanSettingsEmitsATextSetting (0.00s)
+--- FAIL: TestPlanSettingsEmitsAPacksSettingAndAnEmptyList (0.00s)
+--- FAIL: TestPlanSettingsComposesADropdownDescription (0.00s)
+--- FAIL: TestComposedTextLinesMissingGuardsTheComposedLines (0.00s)
+    customize_test.go:2331: the real composition reported [the library composes no line about a name in the list this game does not have onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file]
+--- FAIL: TestTheLadderLineSitsUnderTheWrapLine (0.00s)
+    customize_test.go:2524: ingredients=true: parameter 4 is "\nWrite internal names, ..." , want "\nWhere a list this mod chose names something your mods do not have, ..."
+```
+
+DROPPING `params = append(params, Str(dropdownLadderLine))` FROM THE DROPDOWN COMPOSITION:
+
+```
+--- FAIL: TestIngredientDropdownDescriptionNestsPastSixteenPresets (0.00s)
+    customize_test.go:455: sixteen presets did not stay flat: [...]
+--- FAIL: TestTheLadderLineSitsUnderTheWrapLine (0.00s)
+    customize_test.go:2560: trailing parameter 0 is ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "\n  type: 3 steel-plate"], want "\nA list too long for one line continues on the next; the continuation is part of the same list."
+```
+
+SWAPPING THE WRAP LINE AND THE LADDER LINE IN BOTH COMPOSITIONS, which is the break nothing else can see, because every line is still present:
+
+```
+--- FAIL: TestTheLadderLineSitsUnderTheWrapLine (0.00s)
+    customize_test.go:2524: ingredients=true: parameter 3 is "\nWhere a list this mod chose names something your mods do not have, ...", want "\nA list too long for one line continues on the next; the continuation is part of the same list."
+    customize_test.go:2560: trailing parameter 0 is "\nWhere an option names something your mods do not have, ...", want "\nA list too long for one line continues on the next; the continuation is part of the same list."
+```
+
+RETURNING THE INGREDIENT ARM FROM `textLadderLine`'s PACKS BRANCH:
+
+```
+--- FAIL: TestTheComposedTextLinesAreTheStatedOnes (0.00s)
+    customize_test.go:2474:
+         got: "\nWhere a list this mod chose names something your mods do not have, ..."
+        want: "\nWhere a list this mod chose names a science pack your mods do not have, ..."
+    customize_test.go:2487: a packs setting's ladder line names no science pack: "\nWhere a list this mod chose names something your mods do not have, ..."
+```
+
+CUTTING `dropdownLadderLine` BACK TO ONE CLAUSE, which is the shape the consumer's own entry has and the shape a sentence promising only the substitution would take:
+
+```
+--- FAIL: TestTheComposedTextLinesAreTheStatedOnes (0.00s)
+    customize_test.go:2478:
+         got: "\nWhere an option names something your mods do not have, the nearest thing they do have is used instead."
+        want: "\nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."
+```
+
+The Rust half, the same five breaks. DROPPING `Value::string(text_ladder_line(ingredients))` reaches SIX tests rather than four, and the sixth is the one that answers the golden question below:
+
+```
+---- locale::tests::check_locale_matches_the_golden stdout ----
+assertion `left == right` failed: the findings do not match the golden
+  left: "the library composes no line about a name in the list this game does not have onto a text setting's description; ...\nthe dropdown setting fkrecipes-example-quench-medium has no [string-mod-setting] entry for its value oil\n..."
+ right: "the dropdown setting fkrecipes-example-quench-medium has no [string-mod-setting] entry for its value oil\n..."
+---- locale::tests::check_locale_accepts_a_complete_customizer_file stdout ----
+a complete file produced findings:
+the library composes no line about a name in the list this game does not have onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file
+```
+
+DROPPING `Value::string(DROPDOWN_LADDER_LINE)`:
+
+```
+---- tests::customize::an_ingredient_description_nests_past_sixteen_presets stdout ----
+---- tests::customize::plan_settings_composes_a_dropdown_with_a_custom_arm stdout ----
+---- tests::customize::the_ladder_line_sits_under_the_wrap_line stdout ----
+assertion `left == right` failed: the three trailing lines are out of order
+```
+
+SWAPPING THE TWO IN `text_description`:
+
+```
+assertion `left == right` failed: ingredients=true: the four lines about the rendered list are out of order
+  left: [Str("\ndefault: 1 iron-plate"), Str("\nWhere a list this mod chose names something your mods do not have, ..."), Str("\nA list too long for one line continues on the next; ..."), Str("\nWrite internal names, ...")]
+ right: [Str("\ndefault: 1 iron-plate"), Str("\nA list too long for one line continues on the next; ..."), Str("\nWhere a list this mod chose names something your mods do not have, ..."), Str("\nWrite internal names, ...")]
+```
+
+RETURNING `INGREDIENT_LADDER_LINE` FROM THE PACKS BRANCH, and CUTTING `DROPDOWN_LADDER_LINE` BACK TO ONE CLAUSE:
+
+```
+---- tests::customize::the_composed_text_lines_are_the_stated_ones stdout ----
+assertion `left == right` failed
+  left: "\nWhere a list this mod chose names something your mods do not have, ..."
+ right: "\nWhere a list this mod chose names a science pack your mods do not have, ..."
+
+assertion `left == right` failed
+  left: "\nWhere an option names something your mods do not have, the nearest thing they do have is used instead."
+ right: "\nWhere an option names something your mods do not have, the next name it offers is used instead, ..."
+```
+
+### What moved in the goldens, decision 5
+
+(These three paragraphs are AS OF THE FIRST DRAFT. The amendment below moved two of the three again; the section after it says how.)
+
+`testdata/mirror/transcript.golden` gained the ladder line on SEVEN settings, twice each (once in the `TRANSCRIPT extend` line and once in the `FINAL` `data.raw` dump), for fourteen occurrences where there were none: two ingredient dropdowns (`quench-medium`, `chain-links`), three ingredient text settings (`rivet-ingredients`, `quench-ingredients`, `chain-ingredients`) and two packs text settings (`tips-packs`, `chain-packs`). The cost dropdown `tips-research-tier` gained nothing, which is the negative the gate now asserts by name. The switch line's parameter index moved from 6 to 7 on a text setting and from 6 to 7 on an ingredient dropdown, and the fallback line's from 7 to 8; nothing else in the file moved.
+
+`testdata/ingame/dump-sha256.txt`: the SETTINGS hash moved on both rows, `0e62073f23d9e904ac54b187651cb44c9a40dee9022d328c93b6e3027d9b923f` to `5cf08473463bfa8363e9f541cc395d82488fd619ee9c43f09394d9a7f5dadff5`, and NEITHER DATA HASH MOVED: `e824cd8302c00fd07c3c3416ad8d9a5eea5612bce5ee455f1cf9669eee1685cd` on the default row and `1cd61e0bdf9de34e2e76c9d74103a33636a82d95d6b4fb6584ca78b810aa1644` on the flipped one, both byte-identical to the previous commit's. That is the shape this change is supposed to have: nothing the data stage emits changed, only what the settings stage says about it. `testdata/ingame/flipped.golden.dat` did not move either (the gate reported "byte golden unchanged"), because no stored value changed.
+
+`testdata/locale/findings.golden` DID NOT MOVE, and that is the right outcome rather than a missing update. `composedTextLinesMissing` / `composed_text_lines_missing` gained a fifth row in the same commit as the composition gained its fifth line, so a healthy plan reports nothing new. The proof that the golden is live rather than blind is the red proof above: dropping the line from the composition alone puts the new finding at the head of `check_locale_matches_the_golden`'s output. `testdata/locale/example.cfg` did not move, because the new line is the library's own prose and composes no locale key.
+
+### The two gates, and what each gained
+
+(As of the first draft; the amendment adds one more negative to `run-ingame.sh` and re-records both hash rows.)
+
+`scripts/run-mirror.sh` pins the whole text description and the whole packs description as single `grep -qF` strings, so both grew their new parameter in place and the switch and fallback indices moved with them. Added beside them: one grep per vocabulary asserting the line is in the transcript at all, the dropdown's wrap-line pin extended to `5=wrap,6=ladder,7=switch` so the ORDER is pinned on a packaged guest as well as in the suites, a per-setting negative that no packs setting carries the ingredient vocabulary and no ingredient setting the packs one, and a second negative beside the existing one that the cost dropdown carries no ladder line.
+
+`scripts/run-ingame.sh` gained the same shape in jq, against the SETTINGS dump: one `jqassert` per vocabulary naming the exact string, a walk over every `-packs` setting asserting the ingredient vocabulary is absent, and the cost dropdown negative beside the wrap one it already had. Read out of a real dump after the run, the three lines are present on `fkrecipes-example-rivet-ingredients`, `fkrecipes-example-chain-packs` and `fkrecipes-example-quench-medium`, and absent from `fkrecipes-example-tips-research-tier`.
+
+### Gates, decision 5 (the first draft)
+
+Run at the first draft, exit codes read directly and never through a pipe, all 0: `gofmt -l .` (no output), `go vet ./...`, `go test ./...`, `go test -race ./...`, the `go/examples/notext` vet, `cargo fmt --check`, `cargo test`, `RUSTFLAGS=-Dwarnings cargo clippy --workspace --all-targets`, `cargo build --target wasm32-unknown-unknown --workspace`, `scripts/run-mirror.sh` and `scripts/run-ingame.sh`. The wasm build and both scripts ran under `GOTOOLCHAIN=go1.26.6`.
+
+THE JUMP ROWS. Go's `(*Lib).PlanData` widest span is 996,354 bytes, 152 percent of the 655,355-byte limit, relayed through 13 stations, widest block 13,029 bytes in `copyValue` with 314,648 bytes of block room; up 2,487 bytes from decision 4. Rust's `plan_data` is 399,414 bytes, 61 percent, no relay, widest block 3,800 bytes in `not_text` with 323,877 bytes of block room, unmoved. Nothing was added to `PlanData` itself: the three constants are read by `PlanSettings`.
+
+
+### The amendment: what the adversarial review of decision 5 changed
+
+Four must-fixes and nine smaller ones, applied to the uncommitted change rather than after it, so what ships is the amended shape and the paragraphs above are marked where they describe the draft.
+
+**ONE: THE DISCLOSURE DID NOT EXIST ON A DROPDOWN WITH NO TEXT SETTING BESIDE IT.** `settingDescriptions` stepped past that shape with the comment "A DROPDOWN WITH NO TEXT SETTING BESIDE IT COMPOSES NOTHING", so the new claims in `go/data.go`, `rust/src/data.rs`, `agents/threat-model.md` and `docs/usage.md` were unqualified and false on it, and `go/examples/notext` and `rust/examples/notext` are exactly that shape with a three-rung ladder in the plan. It composes `{"", <the consumer's key, wrapped>, dropdownLadderLine}` now: no preset lines, no wrap line, no switch line. The size property holds, because the ladder line is a constant and links nothing (`cd go/examples/notext && go vet .` exits 0, and `cargo build --target wasm32-unknown-unknown --workspace` builds the Rust twin). In Rust the shape change is `Presets::Ingredients`'s text index becoming `Option<usize>` and `presets_beside_text` being RENAMED `composed_dropdown_presets`, because a name about a text setting beside the dropdown now answers for the case where there is none. The locale checker follows the existing rule and the finding is a second sentence rather than the existing one: `and the library composes onto that entry the line saying what a name this game does not have costs the list`, because "its preset list" would name a list that dropdown composes nothing of. `dropdownsWithComposedDescription` returns a three-valued `dropdownComposition` for that. THE PILOT CONSUMER IS NOT AFFECTED: BetterBeltBalancer's two dropdowns both have a text setting beside them (`guest/go/tune/plan.go`: `IngredientsBy` with `IngredientsFrom`, `CostBy` with `CostFrom`), so both were already required and neither finding changes.
+
+**TWO: THE MERGE WAS NOT IN THE SENTENCE AND THE OWNERSHIP ROW SAID IT WAS.** Row 22 above told the consumer that deleting their own locale sentence loses nothing "because the rule, the merge and the can-be-a-shorter-list warning are all in the library's own sentence now", and the draft's sentence had two clauses. All three now carry the merge, and the byte lengths with the leading newline are 256 (the dropdown arm), 268 (the ingredient text arm) and 269 (the packs arm). Nothing chunks a settings line and nothing may: `localisedCarries` / `localised_carries` looks for a whole composed line inside ONE `Str` element.
+
+**THREE: A RECIPE THE ENVIRONMENT EMPTIED WAS A FREE CRAFT THAT SAID NOTHING.** That is decision 6 above: `ingredientlessLine` / `ingredientless_line` and `ingredientlessNote` / `ingredientless_note`, fired from `addRecipe` / `add_recipe` where the resolved list is settled, with a row in the note table and two rows in each half's `worstCasePlan` / `worst_case_plan` (30 composed descriptions to 32).
+
+**FOUR: SCOPE F OPENED WITH A TOTAL CLAIM AND CONTRADICTED ITSELF TWICE.** "For everything in this class the load does not stop on this mod's account" is a total claim, the next sentence said it was not, and the paragraph said it would not restate the enumeration while restating it. It now opens on what the third assessment's own paths measured, lists what a mod set can still stop the load over as FOUR rows rather than three, and says it is copying rather than pointing. The fourth row is the one the three-row summary got wrong: "a bare name with no declared ladder behind it" does not cover the five `CostOf` sentences about a technology that IS there whose unit cannot be copied, so those are a row of their own. `CLAUDE.md`'s own three-row summary carried the same imprecision and is corrected with it.
+
+**THE NINE SMALLER ONES.** Three doc comments in each half now name the line above or below by NAME rather than by a row count that has moved twice (`textFallbackLine`'s antecedent, `dropdownLadderLine`'s neighbours). The "four lines, two of them constants" counts in `go/locale.go`, `rust/src/locale.rs` and both suites are five lines, three of them not constants, and the KIND decides two of them rather than one. `agents/customizer-design.md`'s "7 parameters of 20 to 8" is 6 to 7, which is the 7-element `Arr` to the 8-element one. Its shape spec, its parameter table and its two "322" figures carry `[AMENDED by]` markers, and the client-round size measurement says it is that round's delta rather than a current figure. Its "first time this library has shipped a setting element over 200 bytes" is narrowed to the library's own composed constants, because a consumer's declared list has always been able to render one. `agents/implementation-notes.md`'s finding-22 discussion no longer quotes the consumer's entry as the library's output and names the nesting tests under the names they carry. The Go nesting test's doc comment says sixteen and seventeen and names its Rust twin correctly. `scripts/run-ingame.sh` gained the twin negative the mirror already had, that no ingredient setting carries the packs vocabulary. And the design record states the ladder MECHANISM precisely: `resolveIngredients` and `resolvePackLadders` take the FIRST PRESENT rung rather than the next one after the last answer, which the composed sentence is true of read recursively and which a player cannot observe.
+
+### The red proofs, the amendment
+
+Each break was applied, run, observed and reverted.
+
+GO, REVERTING THE BARE DROPDOWN'S COMPOSITION TO `continue`:
+
+```
+--- FAIL: TestABareIngredientDropdownComposesTheLadderLineAlone (0.00s)
+    customize_test.go:2727: line 0
+         got: extend {type="string-setting", name="steelworks-quench-medium", ... allowed_values=["water", "oil"]}
+        want: extend {type="string-setting", ... localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"], "
+        Where an option names something your mods do not have, ..."]}
+```
+
+GO, PUTTING THE `validIngredientsSetting` CLAUSE BACK INTO `dropdownsWithComposedDescription`, which is the half of the fix the composition alone cannot prove:
+
+```
+--- FAIL: TestABareIngredientDropdownComposesTheLadderLineAlone (0.00s)
+    customize_test.go:2741: findings
+         got:
+        want:
+        the dropdown setting steelworks-quench-medium has no [mod-setting-description] entry, and the library composes onto that entry the line saying what a name this game does not have costs the list
+```
+
+RUST, DROPPING THE `DROPDOWN_LADDER_LINE` PUSH FROM THE BARE ARM, then RETURNING `_ => continue` TO THE TEXT-INDEX MATCH:
+
+```
+---- tests::customize::a_bare_ingredient_dropdown_composes_the_ladder_line_alone stdout ----
+line 0
+ got: ... allowed_values=["water", "oil"], localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"]]}
+want: ... localised_description=["", ["?", [...], "steelworks-quench-medium"], "
+Where an option names something your mods do not have, ..."]}
+```
+
+```
+---- tests::customize::a_bare_ingredient_dropdown_composes_the_ladder_line_alone stdout ----
+line 0
+ got: extend {type="string-setting", name="steelworks-quench-medium", ... allowed_values=["water", "oil"]}
+want: ... localised_description=["", ["?", [...], "steelworks-quench-medium"], "
+Where an option names something your mods do not have, ..."]}
+```
+
+GO, DISABLING THE EMPTIED-RECIPE ARM IN `addRecipe` (`if false`), and then WIDENING ITS TRIGGER TO `len(list) == 0`, which is the break the positive alone cannot see:
+
+```
+--- FAIL: TestAnEmptiedRecipeSaysSoAndADeliberateOneDoesNot (0.00s)
+    customize_test.go:1332: line 2
+         got: extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}
+        want: log fkrecipes: ERROR: hardened-steel-plate: this game has none of the ingredients this recipe names, so it is emitted with no ingredients and costs nothing to craft
+    customize_test.go:1332: got 4 lines, want 5
+```
+
+```
+--- FAIL: TestAnEmptiedRecipeSaysSoAndADeliberateOneDoesNot (0.00s)
+    customize_test.go:1346: line 1
+         got: log fkrecipes: ERROR: hardened-steel-plate: this game has none of the ingredients this recipe names, ...
+        want: extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}
+    customize_test.go:1346: got 4 lines, want 3
+    customize_test.go:1359: line 1
+         got: log fkrecipes: ERROR: steel-axe: this game has none of the ingredients this recipe names, ...
+        want: extend {type="item", name="steelworks-steel-axe", stack_size=50}
+```
+
+The second of those is the whole point of the negatives: the player who typed `none` and the author who declared an empty list BOTH earned a line and a note under the widened trigger, and neither should.
+
+RUST, THE SAME TWO BREAKS:
+
+```
+---- tests::customize::an_emptied_recipe_says_so_and_a_deliberate_one_does_not stdout ----
+line 2
+ got: extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}
+want: log fkrecipes: ERROR: hardened-steel-plate: this game has none of the ingredients this recipe names, ...
+got 4 lines, want 5
+```
+
+```
+---- tests::customize::an_emptied_recipe_says_so_and_a_deliberate_one_does_not stdout ----
+line 1
+ got: log fkrecipes: ERROR: hardened-steel-plate: this game has none of the ingredients this recipe names, ...
+want: extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}
+got 4 lines, want 3
+```
+
+AND THE NOTE TABLE WENT RED ON ITS OWN, before its row was written, which is the property doing its job: `ingredientlessNote is handed to noteOn and noteComposers does not carry it; add a row with the sentence's byte length at an empty argument slot and one line saying what the degradation is, and add the composition to worstCasePlan, docs/usage.md and the design record in the same commit`. Two existing behavioural tests in each half went red on the same commit without being touched, which is what says the arm was reachable all along: `TestFluidLadderIgnoresAnItemOfTheSameName` and `TestIngredientsByEmitsNothingWhenNoPlanResolves` in Go, `a_fluid_ladder_with_no_rung_present_drops_the_ingredient` and `ingredients_by_emits_nothing_when_no_plan_resolves` in Rust.
+
+### What moved in the goldens, the amendment
+
+`testdata/mirror/transcript.golden` moved on the THREE SENTENCES and on nothing else: each of the fourteen ladder-line occurrences the first draft added is the amended sentence now. No parameter index moved, because no line was added or removed. The mirror gate was run against the hand-edited golden and reported OK, so the file matches what the two packaged guests emit byte for byte and `--update` was not needed.
+
+`testdata/ingame/dump-sha256.txt`: the SETTINGS hash moved again, `5cf08473463bfa8363e9f541cc395d82488fd619ee9c43f09394d9a7f5dadff5` to `21b4a68cac3386ae3ff7ccca766da6a581ba1829d3f4a87ddb08a8f3603293cc`, on both rows, because a settings dump holds prototypes and the three prototypes' descriptions changed. NEITHER DATA HASH MOVED: `e824cd8302c00fd07c3c3416ad8d9a5eea5612bce5ee455f1cf9669eee1685cd` on the default row and `1cd61e0bdf9de34e2e76c9d74103a33636a82d95d6b4fb6584ca78b810aa1644` on the flipped one, both byte-identical to the previous commit's and to the first draft's. THAT IS THE EXPECTED SHAPE AND IT IS A FACT ABOUT THE EXAMPLE GUESTS RATHER THAN ABOUT THE CHANGE: the new recipe degradation is reached only where every ladder on a recipe runs out, and neither example guest declares a recipe that can do that on the mod set the gate runs (base plus space-age, quality and elevated-rails), so nothing the data stage emits moved. A guest that did reach it would move the default row's data hash. `testdata/ingame/flipped.golden.dat` did not move, because no stored value changed. Verified before re-recording by reading the ladder line back out of `tmp/ingame/raw-settings-go-2.json`, which holds the amended 268-byte sentence as element 4 of `fkrecipes-example-rivet-ingredients`'s description.
+
+`testdata/locale/findings.golden` did not move again, and for a second reason on top of the first: the new bare-dropdown finding needs a bare ingredient dropdown to fire on, and the fixture plan has none, both of its dropdowns having a text setting beside them. The finding is pinned by a unit test in each half instead.
+
+### Gates, the amendment
+
+Run at this state, exit codes read directly and never through a pipe, all 0: `gofmt -l .` (no output), `go vet ./...`, `go test ./...`, `go test -race ./...`, `cd go/examples/notext && go vet .`, `cargo fmt --check`, `cargo test`, `RUSTFLAGS=-Dwarnings cargo clippy --workspace --all-targets`, `cargo build --target wasm32-unknown-unknown --workspace`, `scripts/run-mirror.sh` and `scripts/run-ingame.sh`. The wasm build and both scripts ran under `GOTOOLCHAIN=go1.26.6`. The engine gate FAILED first, naming both settings hashes and neither data hash, which is the diff being read before `--update` rather than after it.
+
+THE JUMP ROWS AT THE AMENDMENT. Go's `(*Lib).PlanData` widest span is 994,238 bytes, 152 percent of the 655,355-byte limit, relayed through 13 stations, widest block 13,029 bytes in `copyValue` with 314,648 bytes of block room. Rust's `plan_data` is 399,414 bytes, 61 percent, no relay, widest block 3,800 bytes in `not_text` with 323,877 bytes of block room, unmoved through the whole round. The Lua register ceiling is not approached: the emptied-recipe arm is two statements inside `addRecipe`, and the bare-dropdown arm is inside `PlanSettings`.

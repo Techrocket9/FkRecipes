@@ -46,5 +46,5 @@
 # A mismatch here is ENVIRONMENTAL and reports SKIPPED, not FAILED.
 #
 # Capture both rows with: scripts/run-ingame.sh --update
-2.0.77 default e824cd8302c00fd07c3c3416ad8d9a5eea5612bce5ee455f1cf9669eee1685cd 0e62073f23d9e904ac54b187651cb44c9a40dee9022d328c93b6e3027d9b923f base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
-2.0.77 flipped 1cd61e0bdf9de34e2e76c9d74103a33636a82d95d6b4fb6584ca78b810aa1644 0e62073f23d9e904ac54b187651cb44c9a40dee9022d328c93b6e3027d9b923f base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
+2.0.77 default e824cd8302c00fd07c3c3416ad8d9a5eea5612bce5ee455f1cf9669eee1685cd 21b4a68cac3386ae3ff7ccca766da6a581ba1829d3f4a87ddb08a8f3603293cc base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
+2.0.77 flipped 1cd61e0bdf9de34e2e76c9d74103a33636a82d95d6b4fb6584ca78b810aa1644 21b4a68cac3386ae3ff7ccca766da6a581ba1829d3f4a87ddb08a8f3603293cc base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77

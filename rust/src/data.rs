@@ -850,10 +850,13 @@ impl Lib {
                             setting.emitted_name(prefix),
                             chosen
                         ));
-                        res.add_recipe(&r.name, &product, typed_ingredients(&list));
+                        // NOTHING WAS RESOLVED FROM ANYTHING: the list is the
+                        // player's own, already resolved by the language, so no
+                        // ladder could have emptied it. See `add_recipe`.
+                        res.add_recipe(tgt, &r.name, &product, &[], typed_ingredients(&list));
                         continue;
                     }
-                    let declared = choice_for(&by.choices, &chosen);
+                    let mut declared = choice_for(&by.choices, &chosen);
                     let mut list =
                         self.resolve_ingredients(w, &mut res, tgt, prefix, &r.name, declared);
                     // A plan that named things and got none of them is a
@@ -865,16 +868,17 @@ impl Lib {
                             "fkrecipes: {}: the {} ingredients name nothing this game has, so the {} ingredients apply",
                             r.name, chosen, setting.def_str
                         ));
-                        list = self.resolve_ingredients(
-                            w,
-                            &mut res,
-                            tgt,
-                            prefix,
-                            &r.name,
-                            choice_for(&by.choices, &setting.def_str),
-                        );
+                        // AND THE DECLARATION MOVES WITH THE LIST. What
+                        // `add_recipe` is handed has to be the declaration the
+                        // FINAL list came from: a default preset an author
+                        // declared empty is a free craft by choice, and
+                        // reporting the chosen preset's entries there would call
+                        // it the environment's doing.
+                        declared = choice_for(&by.choices, &setting.def_str);
+                        list =
+                            self.resolve_ingredients(w, &mut res, tgt, prefix, &r.name, declared);
                     }
-                    res.add_recipe(&r.name, &product, list);
+                    res.add_recipe(tgt, &r.name, &product, declared, list);
                 }
                 None => match typed {
                     Some(list) => {
@@ -885,7 +889,7 @@ impl Lib {
                             text_full,
                             rendered
                         ));
-                        res.add_recipe(&r.name, &product, typed_ingredients(&list));
+                        res.add_recipe(tgt, &r.name, &product, &[], typed_ingredients(&list));
                     }
                     None => {
                         // Where there is no dropdown, the word `default` means
@@ -895,7 +899,7 @@ impl Lib {
                         let declared: Vec<Ingredient> = text_default.to_vec();
                         let list =
                             self.resolve_ingredients(w, &mut res, tgt, prefix, &r.name, &declared);
-                        res.add_recipe(&r.name, &product, list);
+                        res.add_recipe(tgt, &r.name, &product, &declared, list);
                     }
                 },
             }
@@ -1589,7 +1593,20 @@ impl Resolution {
     /// `merged_opening`), and the product is a prototype name the game will
     /// hold, so it is compared against resolved ingredient names, which are
     /// emitted too.
-    fn add_recipe(&mut self, subject: &str, product: &str, list: Vec<ResolvedIngredient>) {
+    ///
+    /// `resolved_from` IS THE DECLARATION THE LIST WAS RESOLVED FROM, and it is
+    /// EMPTY on the two arms where the player typed the list: nothing walked a
+    /// ladder there, so nothing could have been dropped by one. It is what lets
+    /// the emptied-list check below tell an environment's doing from a
+    /// deliberate one.
+    fn add_recipe(
+        &mut self,
+        tgt: NoteTarget,
+        subject: &str,
+        product: &str,
+        resolved_from: &[Ingredient],
+        list: Vec<ResolvedIngredient>,
+    ) {
         // EMPTY IS A RECIPE THAT DECLARES NEITHER SHAPE, which `validate`
         // refuses before resolution runs. The guard is here so this function
         // answers for the whole domain of its argument rather than for the
@@ -1626,6 +1643,31 @@ impl Resolution {
                 // that. If both guards ever failed, this line appearing twice
                 // is a louder symptom than a quieter one.
             }
+        }
+        // A RECIPE THE ENVIRONMENT EMPTIED IS A FREE CRAFT, and it says so.
+        // Everything this plan named was put to the game, every ladder ran out,
+        // and what is emitted is a recipe with no ingredients at all: the same
+        // balance change [`packless_note`] covers on a technology, one prototype
+        // kind over. The resolve-or-drop ladder's own disclosure stops short of
+        // it, because "a shorter list than the one shown" reads straight past
+        // "there is nothing left to craft it from".
+        //
+        // IT FIRES ONLY WHERE THE ENVIRONMENT EMPTIED THE LIST, never where the
+        // list was MEANT to be empty, and the two are different in kind rather
+        // than in degree. A declared empty list and the word `none` a player
+        // typed are DELIBERATE: somebody chose a free craft and is told so where
+        // they chose it, by `INGREDIENT_NONE_CLAUSE` on the setting's own
+        // description and by the author's own declaration. Both of those arrive
+        // here with `resolved_from` empty, because nothing was resolved from
+        // anything; this arm is the one where a non-empty declaration came in
+        // and nothing came out.
+        //
+        // THE DESTRUCTION TAIL RIDES ON IT for the reason
+        // [`clamped_item_note`]'s does: the ingredient list itself is what
+        // moved, and it moved as far as it can.
+        if !resolved_from.is_empty() && list.is_empty() {
+            self.logs.push(ingredientless_line(subject));
+            self.note_on(tgt, with_destruction(ingredientless_note(), true));
         }
         self.recipes.push(list);
     }
@@ -2121,7 +2163,7 @@ pub(crate) fn with_destruction(note: String, destroys_inputs: bool) -> String {
 /// description, in the voice [`fallback_note`] established and for the same
 /// reason: THE LOG IS NOT A DISCLOSURE.
 ///
-/// TEN OF THEM, AND THIS IS THE WHOLE LIST. Eight are immediately below, in the
+/// ELEVEN OF THEM, AND THIS IS THE WHOLE LIST. Nine are immediately below, in the
 /// order this file defines them; the last two sit further down beside the cycle
 /// LINES they go with, because the cycle walk runs after resolution and reads
 /// both from `cycle.rs`. (The Go half keeps that pair in `cycle.go` itself,
@@ -2141,6 +2183,9 @@ pub(crate) fn with_destruction(note: String, destroys_inputs: bool) -> String {
 ///                         never answered
 /// packless_note           every pack the research names was put to the game
 ///                         and the game had none of them
+/// ingredientless_note     every ingredient the RECIPE names was put to the
+///                         game and every ladder ran out, so it costs nothing
+///                         to craft
 /// unreadable_source_note  the chosen source's pack list is in neither engine
 ///                         form, and a declared cost sits behind it
 /// unreadable_copy_note    the same list with nothing declared behind it, so
@@ -2157,13 +2202,27 @@ pub(crate) fn with_destruction(note: String, destroys_inputs: bool) -> String {
 /// is what is missing and what the library did instead. That is also why they
 /// do not go through `player_fallback` on the log side.
 ///
-/// SCOPED TO THE DEGRADATIONS AND NOT TO THE LADDER. A resolve-or-drop
-/// ingredient ladder is the library's advertised contract and the dropdown's
-/// own composed description already discloses it ("where one names something
-/// your mods do not have, the nearest thing they do have is used instead"); a
-/// clamped amount, a dropped science pack, an emptied unit, a dropped
-/// prerequisite and a technology left hanging off nothing are arithmetic and
-/// presence a player cannot check anywhere.
+/// SCOPED TO THE DEGRADATIONS AND NOT TO THE LADDER, AND THE SCOPE IS NARROWER
+/// THAN IT READS. A resolve-or-drop ingredient ladder THAT LEAVES THE RECIPE
+/// WITH SOMETHING TO CRAFT is the library's advertised contract, and the
+/// SETTINGS SCREEN is where that contract is disclosed: `DROPDOWN_LADDER_LINE`
+/// on an ingredient dropdown's composed description and `text_ladder_line` on a
+/// text setting's, both composed by this library. A ladder that leaves it with
+/// NOTHING is not that contract and carries [`ingredientless_note`], because "a
+/// shorter list than the one shown" reads straight past a recipe there is
+/// nothing left to craft. A clamped amount, a dropped science pack, an emptied
+/// unit, an emptied recipe, a dropped prerequisite and a technology left
+/// hanging off nothing are arithmetic and presence a player cannot check
+/// anywhere, so those get a note on the prototype instead.
+///
+/// THAT JUSTIFICATION USED TO REST ON A SENTENCE THIS LIBRARY DID NOT WRITE. It
+/// quoted "the dropdown's own composed description already discloses it (where
+/// one names something your mods do not have, the nearest thing they do have is
+/// used instead)", and no composition here wrote that: the live text was the
+/// pilot consumer's own locale entry, which a consumer is free to write
+/// differently or not at all (their third migration assessment, finding 22).
+/// The three lines named above are that sentence, composed here, so the
+/// exclusion is now backed by the library's own output.
 pub(crate) fn pack_dropped_note(name: &str) -> String {
     format!(
         "This game has no {}, so this research was priced without it. The reason is in the log.",
@@ -2262,6 +2321,33 @@ pub(crate) fn unpriced_source_note() -> String {
 pub(crate) fn packless_note() -> String {
     String::from(
         "This game has none of the science packs this research names, so it takes no science pack at all. The reason is in the log.",
+    )
+}
+
+/// [`packless_note`] one prototype kind over: a RECIPE whose every declared
+/// entry was put to the game and dropped, so what is emitted is a recipe with
+/// no ingredients at all.
+///
+/// A FREE CRAFT IS A BALANCE CHANGE NOBODY CHOSE, which is the whole of why it
+/// is here. The resolve-or-drop ladder is disclosed on the settings screen and
+/// its closing clause stops one step short of this: "a shorter list than the
+/// one shown" is true of a list that lost an entry and reads straight past a
+/// list that lost all of them.
+///
+/// IT IS NOT THE DELIBERATE EMPTY LIST, and the distinction is the one
+/// [`unreadable_copy_note`] already draws against [`packless_note`]. A list an
+/// author declared empty and the word `none` a player typed are both somebody's
+/// choice, and both are disclosed where the choice was made; this sentence is
+/// about a list that was NOT empty and became one. See `add_recipe`, which is
+/// the one place that can tell them apart.
+///
+/// IT TAKES NO ARGUMENT, for the reason [`packless_note`] takes none: the names
+/// the walk asked the game about are in the ERROR line, where an author reading
+/// a log can use them, and a player hovering a recipe cannot act on a list of
+/// prototype names their mod set does not have.
+pub(crate) fn ingredientless_note() -> String {
+    String::from(
+        "This game has none of the ingredients this recipe names, so it costs nothing to craft. The reason is in the log.",
     )
 }
 
@@ -4598,6 +4684,22 @@ fn packless_line(tech: &str, names: &[String]) -> String {
         MESSAGE_PREFIX,
         tech,
         names.join(", ")
+    )
+}
+
+/// [`packless_line`]'s recipe twin: every entry this recipe declared was put to
+/// the game and every ladder ran out.
+///
+/// IT NAMES NO RUNG, and that is the one place it differs from
+/// [`packless_line`]. Each entry that dropped already logged its own line
+/// naming every candidate it tried ("none of a, b is present, so the ingredient
+/// is dropped"), so the rungs are directly above this line in the same stream;
+/// repeating them here would print the same names twice. What this line adds is
+/// the thing no per-entry line can say, that NOTHING was left.
+fn ingredientless_line(recipe: &str) -> String {
+    format!(
+        "{}ERROR: {}: this game has none of the ingredients this recipe names, so it is emitted with no ingredients and costs nothing to craft",
+        MESSAGE_PREFIX, recipe
     )
 }
 

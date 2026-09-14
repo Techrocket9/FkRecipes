@@ -106,8 +106,8 @@ func TestNoCompositionReachesTheElementCeiling(t *testing.T) {
 			described += localisedDescriptions(op.Proto)
 		}
 	}
-	if described != 30 {
-		t.Fatalf("the fixture emitted %d localised_description fields, not the 30 it declares;"+
+	if described != 32 {
+		t.Fatalf("the fixture emitted %d localised_description fields, not the 32 it declares;"+
 			" the walk below would prove nothing about the ones it lost", described)
 	}
 
@@ -204,12 +204,13 @@ func walkValueForCeilings(t *testing.T, where, path string, v Value, localised b
 // prototype, each one reached from the PUBLIC surface and each one with the
 // longest legal name in the slot its sentence names.
 //
-// THIRTY DESCRIPTIONS, and the count is asserted above:
+// THIRTY-TWO DESCRIPTIONS, and the count is asserted above:
 //
 //	an item with a display name and a description;
 //	a recipe carrying the FALLBACK note, with a Description and without;
 //	a recipe carrying the clamped ITEM note, with and without;
 //	a recipe carrying the clamped FLUID note, with and without;
+//	a recipe carrying the INGREDIENTLESS note, with and without;
 //	a technology carrying the FALLBACK note, with and without;
 //	a technology carrying the DROPPED-PACK note, with and without;
 //	a technology carrying the PACKLESS-SOURCE note, with and without;
@@ -316,6 +317,18 @@ func worstCasePlan() (*Lib, *fixtureWorld) {
 				FluidIngredient(5e300, fluid),
 				FluidIngredient(6e300, existingName("steam"), fluid),
 			},
+		})
+	}
+
+	// THE INGREDIENTLESS NOTE: every entry the recipe declares is a ladder
+	// this game has no rung of, so the emitted list is empty.
+	for i, describe := range []bool{false, true} {
+		stem := "ingredientless-recipe-" + strconv.Itoa(i)
+		result := lib.Item(declaredName(stem+"-item"), ItemSpec{})
+		lib.Recipe(result, RecipeSpec{
+			Name:        declaredName(stem),
+			Description: describedProse(describe, fixtureProse(400)),
+			Ingredients: []Ingredient{IngredientNamed(1, existingName("nothing-has-this-item"))},
 		})
 	}
 
