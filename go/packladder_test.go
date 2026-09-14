@@ -529,10 +529,13 @@ func fallbackTierPlan(fallbackPack string, sources []string) *Lib {
 // way, and what this holds up is that the World was never asked about a pack in
 // a cost nothing reaches.
 func TestFallbackPacksAreProbedOnlyWhenTheFallbackApplies(t *testing.T) {
-	t.Run("a source answers, so the fallback is never asked about", func(t *testing.T) {
+	t.Run("a source answers and keeps a pack, so the fallback is never asked about", func(t *testing.T) {
 		w := &toolProbeWorld{fixtureWorld: baseWorld()}
-		// steel-processing carries a unit, so the ladder settles there and the
-		// fallback is unreachable. Its pack is one this world does not have.
+		// steel-processing carries a unit AND keeps its own pack through the
+		// tool probe, so the ladder settles there and the fallback is
+		// unreachable. A source that answered and then lost every pack would
+		// reach the fallback after all, which is the packless-source arm and
+		// not this one. The fallback's pack is one this world does not have.
 		ops, err := fallbackTierPlan("space-science-pack", []string{"steel-processing"}).PlanData(w)
 		assertNoError(t, err)
 

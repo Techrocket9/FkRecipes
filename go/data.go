@@ -994,10 +994,19 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 				break
 			}
 			if source == "" {
-				// THE FALLBACK IS RESOLVED ONLY HERE, which is the point: its
-				// packs are probed when the fallback is what applies, and never
-				// when a source answered. The line saying why comes first, so
-				// the drops that follow read as consequences of it.
+				// THE FALLBACK IS RESOLVED IN TWO ARMS AND THIS IS THE
+				// FIRST, which is the point of resolving it at resolution
+				// rather than eagerly: its packs are probed when the fallback
+				// is what applies and never otherwise. The SECOND arm is the
+				// packless-source case below, where a source DID answer and
+				// then lost every pack to the tool probe, so "a source
+				// answered" does not end the pack question and a game with no
+				// tool in it at all reaches the fallback either way. An
+				// earlier reading of this comment said "only here" and "never
+				// when a source answered", and a consumer's test built on it
+				// went from green to a refused load; docs/migration.md states
+				// the rule for consumers now. The line saying why comes first,
+				// so the drops that follow read as consequences of it.
 				res.logs = append(res.logs, "fkrecipes: "+t.name+": no source for the "+chosen+
 					" cost carries a unit, so the fallback cost applies and the technology has no prerequisite")
 				rt.unit = resolveUnit(w, &res, tgt, t.name, &by.Fallback, nil)

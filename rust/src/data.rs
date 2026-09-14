@@ -1010,10 +1010,18 @@ impl Lib {
                         "fkrecipes: {}: no source for the {} cost carries a unit, so the fallback cost applies and the technology has no prerequisite",
                         t.name, chosen
                     ));
-                    // THE FALLBACK IS RESOLVED ONLY HERE, which is the whole
-                    // point of doing it at resolution: a fallback nobody
-                    // reaches asks the game nothing and so can refuse
-                    // nothing.
+                    // THE FALLBACK IS RESOLVED IN TWO ARMS AND THIS IS THE
+                    // FIRST, which is the whole point of doing it at
+                    // resolution: a fallback nobody reaches asks the game
+                    // nothing and so can refuse nothing. The SECOND arm is
+                    // the packless-source case below, where a source DID
+                    // answer and then lost every pack to the tool probe, so
+                    // "a source answered" does not end the pack question and
+                    // a game with no tool in it at all reaches the fallback
+                    // either way. An earlier reading of this comment said
+                    // "only here", and a consumer's test built on it went
+                    // from green to a refused load; docs/migration.md states
+                    // the rule for consumers now.
                     let (packs, tried) =
                         resolve_packs(w, &mut res, tgt, &t.name, &by.fallback.packs);
                     if packs.is_empty() {

@@ -854,9 +854,16 @@ fn cost_by_falls_back_with_no_prerequisite() {
 }
 
 /// A FALLBACK NOBODY REACHES ASKS THE GAME NOTHING. The chosen ladder settles
-/// on a real source, so the fallback's own packs are never walked: no rung is
-/// probed, no drop is logged, and the load is not refused over a price that
-/// could never apply.
+/// on a source that carries a copyable unit AND keeps at least one pack
+/// through the tool probe, so the fallback's own packs are never walked: no
+/// rung is probed, no drop is logged, and the load is not refused over a price
+/// that could never apply.
+///
+/// BOTH HALVES OF THAT CONDITION MATTER and the second one is easy to lose. A
+/// source answering is not on its own the end of the pack question: a copied
+/// unit whose every pack the game lacks takes the packless-source arm and
+/// reaches the fallback after all, which is exactly what a fixture with no
+/// tool in it produces. This one keeps logistics-2's own pack in the game.
 ///
 /// This is the pilot's finding turned into a test. The fallback here is
 /// priced entirely in packs no vanilla install has, which under the old order
