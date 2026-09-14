@@ -3,17 +3,22 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::ingredient_list::{IngredientList, Language, ListEntry, ListKind, ListText, DEFAULT};
+use crate::ingredient_list::{IngredientList, ListEntry, ListKind, ListText, DEFAULT};
 use crate::op::{path_key, Op};
 use crate::plan::{
-    custom_value, Amount, CostChoice, CustomCost, Ingredient, IngredientChoice,
-    IngredientsSettingRef, ItemDecl, Lib, Pack, RecipeDecl, SettingDecl, TechDecl, UnitSpec,
+    Amount, CostChoice, CustomCost, Ingredient, IngredientChoice, ItemDecl, Lib, Pack, RecipeDecl,
+    SettingDecl, TechDecl, UnitSpec,
 };
+use crate::settings::named_cost_sources;
 use crate::value::{
     finite, kv, localised, str_arr, Value, CRAFT_TIME_FLOOR, MAX_EXACT_INT, MAX_FLUID_AMOUNT,
     MAX_ITEM_AMOUNT,
 };
 use crate::world::World;
+
+/// Which rule a number is held to, named because the pair below is two of them
+/// and clippy calls the tuple complex otherwise.
+pub(crate) type FaultFn = fn(f64) -> NumberFault;
 
 /// The custom-cost resolver's type, so the plan can hold one without spelling
 /// seven parameters. See [`CUSTOM_COST`].
@@ -25,7 +30,28 @@ pub(crate) type CustomCostFn = fn(
     &str,
     &TechDecl,
     &CustomCost,
-) -> (Value, bool);
+    &CostTier,
+    NoteTarget,
+) -> Option<(Value, Option<bool>)>;
+
+/// What a technology's `cost_by` dropdown settled on, handed to a custom cost
+/// so the fields the player left at their default can come from it.
+///
+/// `None` IS NO TIER AT ALL, which is [`crate::TechSpec::cost_from`] on its
+/// own: there is nothing to defer to, so the three settings are the whole price
+/// and the cost is built fresh from them exactly as it always was.
+pub(crate) enum CostTier {
+    None,
+    Chosen {
+        /// The tier's own unit map, whatever it holds: a count_formula, a
+        /// max_level, fields no version of this library knows about.
+        /// Overriding a field rather than rebuilding the map is what keeps
+        /// every one of them.
+        unit: Value,
+        dropdown: String,
+        chosen: String,
+    },
+}
 
 /// THE RESOLVER AS A POINTER, for the same reason the ingredient language is
 /// one: a plan that declares no packs setting can never reach a custom cost,
@@ -115,10 +141,18 @@ impl Lib {
                 &res.recipes[i],
                 &res.craft_times[i],
                 unlocked[i],
+                &res.recipe_notes[i],
             )));
         }
         for (i, t) in self.techs.iter().enumerate() {
-            ops.push(Op::Extend(tech_proto(&prefix, self, w, t, &res.techs[i])));
+            ops.push(Op::Extend(tech_proto(
+                &prefix,
+                self,
+                w,
+                t,
+                &res.techs[i],
+                &res.tech_notes[i],
+            )));
         }
         for rt in &res.techs {
             if rt.rewrite == 0 {
@@ -155,7 +189,7 @@ impl Lib {
 
         // THE BINDINGS FIRST, and the text settings after them, both shared
         // with the settings planner. They come before the three declaration
-        // loops because a Custom arm that does not line up with its dropdown
+        // loops because a declaration that does not line up with its dropdown
         // would otherwise be answered by the ordinary allowed-values
         // comparison, which says "offers nothing for the value custom" and
         // points at the wrong thing. Neither of them asks the World anything.
@@ -360,11 +394,11 @@ impl Lib {
                     ));
                 }
                 let setting = &self.settings[by.setting.index - 1];
-                // A CUSTOM ARM'S VALUE IS NOT A CHOICE, so it comes out of the
-                // comparison: the arm is the plan for it, and validate_bindings
-                // has already proved the dropdown offers it exactly once.
-                let allowed =
-                    presets_of(&setting.values, &by.custom, custom_value(&by.custom_value));
+                // THE CHOICES COVER THE ALLOWED VALUES EXACTLY, with nothing
+                // subtracted: this library adds no value of its own to a
+                // dropdown, so every value the author declared needs a plan
+                // behind it.
+                let allowed = setting.values.clone();
                 let offered: Vec<String> = by.choices.iter().map(|c| c.value.clone()).collect();
                 matches_allowed_values(
                     at,
@@ -475,15 +509,13 @@ impl Lib {
                     t.emitted_name(prefix)
                 ));
             }
-            let has_cost = !t.spec.cost_of.is_empty();
-            let has_unit = t.spec.unit.is_some();
             let has_cost_by = t.spec.cost_by.is_some();
-            let has_cost_from = t.spec.cost_from.is_some();
-            let named = [has_cost, has_unit, has_cost_by, has_cost_from]
-                .iter()
-                .filter(|x| **x)
-                .count();
-            if named != 1 {
+            // `cost_by` AND `cost_from` ARE ONE COST, which is why this asks
+            // `named_cost_sources` rather than counting the four fields: the
+            // dropdown is the tier and the three settings overwrite it field by
+            // field. Every other pairing is still two sources and still
+            // refused.
+            if named_cost_sources(&t.spec) != 1 {
                 return Err(format!(
                     "{}the technology {} must name exactly one of CostOf, Unit, CostBy or CostFrom",
                     at, t.name
@@ -510,8 +542,7 @@ impl Lib {
                     ));
                 }
                 let setting = &self.settings[by.setting.index - 1];
-                let allowed =
-                    presets_of(&setting.values, &by.custom, custom_value(&by.custom_value));
+                let allowed = setting.values.clone();
                 let offered: Vec<String> = by.choices.iter().map(|c| c.value.clone()).collect();
                 matches_allowed_values(
                     at,
@@ -581,7 +612,7 @@ impl Lib {
                 // resolution, where a source that cannot be used is stepped
                 // past rather than refused. A CostFrom one names no source at
                 // all: its whole unit comes from the player's settings.
-                None if has_cost_by || has_cost_from => {}
+                None if has_cost_by || t.spec.cost_from.is_some() => {}
                 None => {
                     if !w.tech_exists(&t.spec.cost_of) {
                         return Err(format!(
@@ -661,13 +692,26 @@ impl Lib {
     /// technologies in declaration order, and within a technology its
     /// enablement before its tree placement.
     fn resolve(&self, w: &dyn World, prefix: &str) -> Resolution {
-        let mut res = Resolution::default();
+        // THE NOTE SLOTS ARE SIZED FROM THE DECLARATIONS, before the walk, so
+        // every index the walk hands to `note_on` is in range by construction
+        // and the emit loop can read one per prototype without asking whether
+        // it exists.
+        let mut res = Resolution {
+            recipe_notes: vec![String::new(); self.recipes.len()],
+            tech_notes: vec![String::new(); self.techs.len()],
+            ..Default::default()
+        };
+
         // THE PLAN'S OWN ITEMS, BEFORE ANY TEXT IS PARSED. See [`PlanItems`]:
         // the names this plan is about to emit are the ones its own setting
         // descriptions show the player, so the language has to know them.
         let own = self.plan_items(w, prefix);
 
-        for r in &self.recipes {
+        for (ri, r) in self.recipes.iter().enumerate() {
+            let tgt = NoteTarget {
+                tech: false,
+                index: ri,
+            };
             // The crafting time first, then the ingredients: a recipe's own
             // field before what it is made of, mirroring a technology's
             // enablement before its tree placement.
@@ -702,8 +746,16 @@ impl Lib {
                         let f = craft_time_fault(n);
                         if f != NumberFault::None {
                             res.note_fallback(
+                                tgt,
                                 &full,
                                 number_fallback(&stored_craft_time_problem(&r.name, &full, f)),
+                                // A CRAFTING TIME DESTROYS NOTHING: the
+                                // ingredient list this recipe emits is byte for
+                                // byte what it would have been and only
+                                // `energy_required` moves, so the note carries
+                                // no recipe-change sentence. See
+                                // `Resolution::note_on`.
+                                false,
                             );
                             ct.value = setting.def_num;
                         }
@@ -723,32 +775,41 @@ impl Lib {
             // remember to compute it. See `Resolution::add_recipe`.
             let product = recipe_product(prefix, self, r);
 
+            // THE TEXT IS THE SWITCH, so it is read first and its answer
+            // decides whether anything else is consulted at all. A text that
+            // says the reserved word, and a text this library cannot use, both
+            // leave the decision exactly where a player who typed nothing left
+            // it.
+            let mut typed = None;
+            let mut text_full = String::new();
+            let mut text_default: &[Ingredient] = &r.spec.ingredients;
+            if let Some(h) = r.spec.ingredients_from {
+                let s = &self.settings[h.index - 1];
+                text_full = s.emitted_name(prefix);
+                text_default = &s.def_ings;
+                typed = self.read_text_ingredients(w, &own, &mut res, r, &text_full, tgt);
+            }
+
             match &r.spec.ingredients_by {
                 Some(by) => {
                     let setting = &self.settings[by.setting.index - 1];
+                    // READ WHATEVER THE TEXT SAID, because the line that sets
+                    // the choice aside has to name it. It is also the read that
+                    // refuses a stored value the dropdown does not offer, and a
+                    // text in force is no reason to stop asking that question.
                     let chosen = res.read_dropdown(w, setting, prefix);
-                    let cv = custom_value(&by.custom_value);
-                    if let Some(h) = by.custom {
-                        if chosen == cv {
-                            let list =
-                                self.resolve_text_ingredients(w, &own, &mut res, prefix, r, h);
-                            res.add_recipe(&r.name, &product, list);
-                            continue;
-                        }
-                        // THE PLAYER IS TOLD THEIR TEXT IS BEING IGNORED. A
-                        // list typed into the field while the dropdown sits on
-                        // a preset is a preference nothing reads, and silence
-                        // there is the report "my ingredients did nothing".
-                        note_ignored_text(
-                            self.installed_language(),
-                            &own,
-                            &mut res,
-                            &self.settings[h.index - 1].emitted_name(prefix),
-                            ListKind::Recipe,
-                            &r.spec.category,
-                            &setting.emitted_name(prefix),
-                            cv,
-                        );
+                    if let Some(list) = typed {
+                        let rendered = (self.installed_language().render_list)(&list);
+                        res.logs.push(format!(
+                            "fkrecipes: {} takes its ingredients from {}: {}; the {} choice {} is set aside",
+                            r.emitted_name(prefix),
+                            text_full,
+                            rendered,
+                            setting.emitted_name(prefix),
+                            chosen
+                        ));
+                        res.add_recipe(&r.name, &product, typed_ingredients(&list));
+                        continue;
                     }
                     let declared = choice_for(&by.choices, &chosen);
                     let mut list = self.resolve_ingredients(w, &mut res, prefix, &r.name, declared);
@@ -771,27 +832,37 @@ impl Lib {
                     }
                     res.add_recipe(&r.name, &product, list);
                 }
-                None => match r.spec.ingredients_from {
-                    Some(h) => {
-                        let list = self.resolve_text_ingredients(w, &own, &mut res, prefix, r, h);
-                        res.add_recipe(&r.name, &product, list);
+                None => match typed {
+                    Some(list) => {
+                        let rendered = (self.installed_language().render_list)(&list);
+                        res.logs.push(format!(
+                            "fkrecipes: {} takes its ingredients from {}: {}",
+                            r.emitted_name(prefix),
+                            text_full,
+                            rendered
+                        ));
+                        res.add_recipe(&r.name, &product, typed_ingredients(&list));
                     }
                     None => {
-                        let list = self.resolve_ingredients(
-                            w,
-                            &mut res,
-                            prefix,
-                            &r.name,
-                            &r.spec.ingredients,
-                        );
+                        // Where there is no dropdown, the word `default` means
+                        // the SETTING's own declared list rather than the
+                        // recipe's `ingredients`, which `validate_bindings`
+                        // refused beside it anyway.
+                        let declared: Vec<Ingredient> = text_default.to_vec();
+                        let list =
+                            self.resolve_ingredients(w, &mut res, prefix, &r.name, &declared);
                         res.add_recipe(&r.name, &product, list);
                     }
                 },
             }
         }
 
-        for t in &self.techs {
+        for (ti, t) in self.techs.iter().enumerate() {
             let mut rt = ResolvedTech::default();
+            let tgt = NoteTarget {
+                tech: true,
+                index: ti,
+            };
 
             if t.spec.enabled_by.index != 0 {
                 let s = &self.settings[t.spec.enabled_by.index - 1];
@@ -817,69 +888,33 @@ impl Lib {
             }
 
             // THE PLAYER'S OWN UNIT, in the same place a hand-rolled one is
-            // resolved: what the technology COSTS before where it sits.
-            if let Some(cc) = &t.spec.cost_from {
-                let (unit, no_packs) =
-                    (self.installed_custom_cost())(self, w, &own, &mut res, prefix, t, cc);
-                rt.unit = Some(unit);
-                rt.no_packs = no_packs;
+            // resolved: what the technology COSTS before where it sits. With no
+            // tier the answer is always the custom cost, because the three
+            // settings are the whole price.
+            if t.spec.cost_by.is_none() {
+                if let Some(cc) = &t.spec.cost_from {
+                    if let Some((unit, no_packs)) = (self.installed_custom_cost())(
+                        self,
+                        w,
+                        &own,
+                        &mut res,
+                        prefix,
+                        t,
+                        cc,
+                        &CostTier::None,
+                        tgt,
+                    ) {
+                        rt.unit = Some(unit);
+                        if let Some(v) = no_packs {
+                            rt.no_packs = v;
+                        }
+                    }
+                }
             }
 
             if let Some(by) = &t.spec.cost_by {
                 let setting = &self.settings[by.setting.index - 1];
                 let chosen = res.read_dropdown(w, setting, prefix);
-                let cv = custom_value(&by.custom_value);
-                if let Some(cc) = &by.custom {
-                    if chosen == cv {
-                        let (unit, no_packs) =
-                            (self.installed_custom_cost())(self, w, &own, &mut res, prefix, t, cc);
-                        rt.unit = Some(unit);
-                        rt.no_packs = no_packs;
-                        // THE PREREQUISITE STILL MOVES WITH THE UNIT, and the
-                        // unit is the player's, so the ladder the author wrote
-                        // is what says where the technology hangs. No rung
-                        // present is the same answer a ladder that finds
-                        // nothing gives anywhere else: say so, and place the
-                        // technology nowhere.
-                        rt.prereqs = custom_prereqs(w, &mut res, &t.name, &cc.position);
-                        res.techs.push(rt);
-                        continue;
-                    }
-                    // ONE LINE PER EDITED SETTING, and the numbers are as
-                    // invisible as the text: a count or a seconds moved while
-                    // the dropdown sits on a preset is a preference nothing
-                    // reads either, and silence there is the same field report
-                    // the text line exists to answer. They come in the order
-                    // the unit carries them and the order the custom-cost log
-                    // line names them: count, seconds, packs.
-                    let dropdown = setting.emitted_name(prefix);
-                    note_ignored_number(
-                        w,
-                        &mut res,
-                        &self.settings[cc.count.index - 1],
-                        prefix,
-                        &dropdown,
-                        cv,
-                    );
-                    note_ignored_number(
-                        w,
-                        &mut res,
-                        &self.settings[cc.seconds.index - 1],
-                        prefix,
-                        &dropdown,
-                        cv,
-                    );
-                    note_ignored_text(
-                        self.installed_language(),
-                        &own,
-                        &mut res,
-                        &self.settings[cc.packs.index - 1].emitted_name(prefix),
-                        ListKind::Packs,
-                        "",
-                        &dropdown,
-                        cv,
-                    );
-                }
                 let mut source = String::new();
                 for name in sources_for(&by.choices, &chosen) {
                     if w.tech_has_research_trigger(name) {
@@ -929,8 +964,32 @@ impl Lib {
                     rt.no_packs = packs.is_empty();
                     rt.unit = Some(unit_value(by.fallback.count, by.fallback.seconds, &packs));
                 } else {
-                    // THE PREREQUISITE MOVES WITH THE UNIT.
+                    // THE PREREQUISITE MOVES WITH THE UNIT, and it still does
+                    // when the player has written over one of the tier's
+                    // numbers: the tier is what named a source, and the
+                    // settings beside it price the same rung rather than
+                    // choosing another one.
                     rt.prereqs = vec![source];
+                }
+                // THE THREE SETTINGS OVER THE TIER, where the technology
+                // declares them.
+                if let Some(cc) = &t.spec.cost_from {
+                    let tier = CostTier::Chosen {
+                        unit: rt
+                            .unit
+                            .clone()
+                            .expect("a CostBy technology settled on a unit"),
+                        dropdown: setting.emitted_name(prefix),
+                        chosen: chosen.clone(),
+                    };
+                    if let Some((unit, no_packs)) = (self.installed_custom_cost())(
+                        self, w, &own, &mut res, prefix, t, cc, &tier, tgt,
+                    ) {
+                        rt.unit = Some(unit);
+                        if let Some(v) = no_packs {
+                            rt.no_packs = v;
+                        }
+                    }
                 }
                 res.techs.push(rt);
                 continue;
@@ -1156,6 +1215,27 @@ pub(crate) struct CraftTime {
     pub(crate) value: f64,
 }
 
+/// The prototype whose emitted `localised_description` carries the trailing
+/// line a fallback owes the player, THREADED FROM THE WALK rather than derived
+/// from anything the callee can see.
+///
+/// A DERIVED ONE WOULD BE WRONG IN BOTH DIRECTIONS. The index cannot be read
+/// off `res.recipes.len()`, because a recipe's list is handed over at the END
+/// of its arm and every read that can fall back happens before it; and it
+/// cannot be a cursor the walk sets, because a cursor left stale by one arm
+/// silently writes a note onto the previous declaration. The parameter is what
+/// makes a caller that forgot it a compile error.
+///
+/// A RECIPE IS ALSO WHAT SAYS WHICH SENTENCES THE NOTE CARRIES. See
+/// [`fallback_note`]: a recipe's note names the engine's input-slot cost and a
+/// technology's does not, and the text setting a recipe target reaches is
+/// always its ingredient list.
+#[derive(Clone, Copy)]
+pub(crate) struct NoteTarget {
+    pub(crate) tech: bool,
+    pub(crate) index: usize,
+}
+
 #[derive(Default)]
 pub(crate) struct Resolution {
     pub(crate) logs: Vec<String>,
@@ -1163,6 +1243,21 @@ pub(crate) struct Resolution {
     pub(crate) recipes: Vec<Vec<ResolvedIngredient>>,
     pub(crate) techs: Vec<ResolvedTech>,
     pub(crate) rewrites: Vec<RewriteRec>,
+
+    /// The trailing line each emitted prototype's description carries, indexed
+    /// by DECLARATION ORDER rather than by the order the walk filled them, and
+    /// empty for a declaration nothing fell back on.
+    ///
+    /// ONE NOTE PER PROTOTYPE, THE FIRST IN WALK ORDER, so the sentence a
+    /// player hovers is the same string every run. Two settings bound to one
+    /// recipe can both fall back in one load; the second adds nothing, exactly
+    /// as the refusal's added sentence names only the first.
+    ///
+    /// A VECTOR SIZED UP FRONT, not a map keyed by name: the emit loop reads it
+    /// by the same index it reads `recipes` and `craft_times` by, and a map
+    /// would be an iteration order this library does not allow anywhere.
+    pub(crate) recipe_notes: Vec<String>,
+    pub(crate) tech_notes: Vec<String>,
     /// The FIRST answer resolution could not degrade. Every producer left is
     /// an AUTHOR's declaration rather than a player's typing: a stored
     /// dropdown value the setting does not offer (the engine resets one before
@@ -1206,8 +1301,9 @@ impl Resolution {
     /// bare push anywhere else.
     ///
     /// FOUR ARMS REACH IT AND A FIFTH WOULD. `resolve` answers a recipe's
-    /// ingredients through a dropdown's Custom arm, through a dropdown on a
-    /// preset, through `ingredients_from` and through a plain declared list; a
+    /// ingredients through a text that takes a dropdown's choice over, through
+    /// a dropdown on a preset, through a text with no dropdown beside it and
+    /// through a plain declared list; a
     /// check written into any one of them would be missing from the other
     /// three, and from whichever arm is added next. So the check lives here,
     /// where the list is handed over.
@@ -1272,14 +1368,65 @@ impl Resolution {
         self.recipes.push(list);
     }
 
-    /// Records one player-controlled setting falling back and logs the line,
-    /// unless that setting already fell back in this walk.
-    fn note_fallback(&mut self, setting: &str, line: String) {
+    /// Records one player-controlled setting falling back: the note the
+    /// prototype's own description will carry, and the log line, which is
+    /// written once per SETTING however many declarations read it.
+    ///
+    /// THE NOTE COMES FIRST AND IS NOT DEDUPED BY SETTING, and the two rules
+    /// are different on purpose. One bad field on the settings screen is one
+    /// problem and gets one line; but two recipes bound to one crafting-time
+    /// setting are two tooltips, and a player hovering the second one is owed
+    /// the same sentence as the first. So the dedupe below guards the line and
+    /// not the note.
+    ///
+    /// `destroys_inputs` is the caller's answer to "does this fallback change
+    /// what the recipe is made of", and it is passed rather than derived: see
+    /// [`Resolution::note_on`].
+    fn note_fallback(
+        &mut self,
+        tgt: NoteTarget,
+        setting: &str,
+        line: String,
+        destroys_inputs: bool,
+    ) {
+        self.note_on(tgt, setting, destroys_inputs);
         if self.fell_back.iter().any(|seen| seen == setting) {
             return;
         }
         self.fell_back.push(String::from(setting));
         self.logs.push(line);
+    }
+
+    /// Records the trailing line one prototype's description carries, keeping
+    /// the FIRST in walk order so the sentence is the same every run.
+    ///
+    /// `destroys_inputs` IS THE CALLER'S TO ANSWER AND IS NOT THE PROTOTYPE
+    /// KIND. Which prototype the note lands on says nothing about whether the
+    /// ingredient list moved: a recipe whose crafting time fell back keeps a
+    /// byte-identical ingredients list and only its `energy_required` changes,
+    /// so telling that player their assemblers are about to be emptied would be
+    /// false where they look. The sentence belongs to a fallback that changes
+    /// what the recipe is MADE OF, which is the recipe ingredient text and
+    /// nothing else, so every caller says which it is. It is the same predicate
+    /// [`text_fallback_for`] picks the ERROR line's tail with, named once in
+    /// [`moves_ingredients`] so the tooltip and the log cannot disagree about
+    /// which fallbacks destroy anything.
+    ///
+    /// THE INDEX IS NEVER CHECKED, deliberately. Both vectors are sized from
+    /// the declaration counts at the top of `resolve` and every index comes
+    /// from the walk's own loop, so an out-of-range one is this file having
+    /// gone wrong rather than anything a consumer can reach, and a panic naming
+    /// the line is a better answer than a note silently dropped.
+    fn note_on(&mut self, tgt: NoteTarget, setting: &str, destroys_inputs: bool) {
+        let notes = if tgt.tech {
+            &mut self.tech_notes
+        } else {
+            &mut self.recipe_notes
+        };
+        if !notes[tgt.index].is_empty() {
+            return;
+        }
+        notes[tgt.index] = fallback_note(setting, destroys_inputs);
     }
 
     /// Adds the ONE sentence a refusal owes a player whose stored value was set
@@ -1319,88 +1466,6 @@ impl Resolution {
             }
         }
         w.tech_prereqs(tech)
-    }
-}
-
-/// Says out loud that a text nothing is reading was edited.
-///
-/// EDITED MEANS "THE LANGUAGE DOES NOT READ IT AS THE WORD", decided by the
-/// same parse the data path decides with: a text this planner would have taken
-/// as the mod's own list is not an edit, tolerated trailing comma and all, and
-/// a second trimmer here would be a second answer to the same question. A text
-/// that does not parse at all IS an edit and is still only a line: the dropdown
-/// sits on a preset, so nothing was going to read the list, and refusing a load
-/// over it would be the worse answer.
-///
-/// `own` is the overlay World the language reads a typed list under; its
-/// `startup_setting` is the game's own, so the value read here is the value the
-/// data path would read. The KIND and the CATEGORY come from the call site
-/// rather than from the setting, because each caller knows both: a recipe's
-/// dropdown hands over an ingredient list in that recipe's category, and a
-/// technology's hands over science packs, which have no category at all.
-// EIGHT PARAMETERS. Seven are facts only the call site has: which list the
-// dropdown hands over, in which recipe's category, under which value. The
-// first is the language table, which this function reaches the way everything
-// outside its module does.
-#[allow(clippy::too_many_arguments)]
-fn note_ignored_text(
-    lang: &Language,
-    own: &dyn World,
-    res: &mut Resolution,
-    full: &str,
-    kind: ListKind,
-    category: &str,
-    dropdown: &str,
-    cv: &str,
-) {
-    // Both string shapes are looked at, for the reason `read_text_setting`
-    // gives: what counts as an edit is the parser's answer over the same bytes
-    // the data path would have read, and a stored value whose bytes are not
-    // text is an edit like any other rather than something to pass over in
-    // silence.
-    let stored = match own.startup_setting(full) {
-        Some(Value::Str(text)) => text.into_bytes(),
-        Some(Value::Bytes(b)) => b,
-        _ => return,
-    };
-    if (lang.is_edited)(&stored, kind, category, full, own) {
-        res.logs.push(format!(
-            "fkrecipes: {} is edited, but {} is not on {}, so the text is ignored",
-            full, dropdown, cv
-        ));
-    }
-}
-
-/// Says out loud that a NUMBER nothing is reading was moved.
-///
-/// EDITED MEANS "NOT THE NUMBER THE MOD DECLARED", which is the whole question
-/// a number can be asked: nothing stands in for the mod's own answer here the
-/// way the word `default` stands for a list, so the declared default IS the
-/// untouched value and a player who never moved the field hears nothing.
-///
-/// A setting that is not readable, or that answers with something other than a
-/// number, draws nothing either, the same tolerance the text line has: the
-/// dropdown sits on a preset, so nothing was going to read this number, and a
-/// value this planner cannot read is not a value the player set.
-///
-/// THE GAME'S OWN WORLD ANSWERS HERE, not the own-items overlay the texts are
-/// read under: no list is parsed, so there is nothing for the overlay to add.
-fn note_ignored_number(
-    w: &dyn World,
-    res: &mut Resolution,
-    s: &SettingDecl,
-    prefix: &str,
-    dropdown: &str,
-    cv: &str,
-) {
-    let full = s.emitted_name(prefix);
-    if let Some(Value::Num(v)) = w.startup_setting(&full) {
-        if v != s.def_num {
-            res.logs.push(format!(
-                "fkrecipes: {} is edited, but {} is not on {}, so the number is ignored",
-                full, dropdown, cv
-            ));
-        }
     }
 }
 
@@ -1450,22 +1515,117 @@ pub(crate) const MESSAGE_PREFIX: &str = "fkrecipes: ";
 ///
 /// FIELD is the word the player looks for on the settings screen: the text of a
 /// list, or the number of a slider.
-pub(crate) fn player_fallback(reason: &str, field: &str) -> String {
+/// TAIL is what the field costs beyond being wrong, and it is a parameter
+/// rather than a branch on the reason so that no sentence here is chosen by
+/// reading another sentence. Only a recipe's ingredient text has one: see
+/// [`recipe_text_fallback`].
+pub(crate) fn player_fallback(reason: &str, field: &str, tail: &str) -> String {
     format!(
-        "{}ERROR: {}. The mod loaded with its own default instead; fix the {} under Settings > Mod settings > Startup, then restart.",
+        "{}ERROR: {}. The mod loaded with its own default instead; fix the {} under Settings > Mod settings > Startup, then restart.{}",
         MESSAGE_PREFIX,
         reason.strip_prefix(MESSAGE_PREFIX).unwrap_or(reason),
-        field
+        field,
+        tail
     )
 }
 
 /// The two fields that exist, named once so no caller spells the word.
 pub(crate) fn text_fallback(reason: &str) -> String {
-    player_fallback(reason, "text")
+    player_fallback(reason, "text", "")
 }
 
 pub(crate) fn number_fallback(reason: &str) -> String {
-    player_fallback(reason, "number")
+    player_fallback(reason, "number", "")
+}
+
+/// [`text_fallback`] for a RECIPE'S INGREDIENT LIST, which is the one fallback
+/// whose fix costs the player something the engine will not give back.
+///
+/// THE PACK TEXT AND THE TWO NUMBERS DO NOT CARRY IT. Repricing a research
+/// destroys nothing; changing a recipe empties every assembling machine holding
+/// ingredients the new list does not use, measured and irreversible. See
+/// [`RECIPE_CHANGE_SENTENCE`], which the recipe's own tooltip note carries too.
+pub(crate) fn recipe_text_fallback(reason: &str) -> String {
+    player_fallback(reason, "text", &format!(" {}", RECIPE_CHANGE_SENTENCE))
+}
+
+/// Whether a TEXT setting bound to this target decides a recipe's ingredient
+/// list, which is the one fallback in the library that changes what a recipe is
+/// made of.
+///
+/// ONE PREDICATE, TWO READERS, and that is the whole reason it has a name. The
+/// ERROR line's tail and the prototype tooltip's tail are the same measured
+/// sentence about the same engine cost, so they must be true of exactly the
+/// same set of fallbacks. Deriving either one from the prototype KIND instead
+/// would put the sentence on a crafting-time fallback, which moves
+/// `energy_required` and leaves the ingredient list byte for byte.
+///
+/// IT IS ASKED OF A TEXT SETTING ONLY. A crafting time and a research number
+/// never move an ingredient list whatever they are bound to, so those callers
+/// pass `false` outright rather than asking.
+pub(crate) fn moves_ingredients(tgt: NoteTarget) -> bool {
+    !tgt.tech
+}
+
+/// Which of the two a text setting's fallback line is, decided by whether the
+/// text moves a recipe's ingredient list.
+pub(crate) fn text_fallback_for(tgt: NoteTarget, reason: &str) -> String {
+    if moves_ingredients(tgt) {
+        recipe_text_fallback(reason)
+    } else {
+        text_fallback(reason)
+    }
+}
+
+/// What changing a recipe costs a player who has already built with it, and it
+/// is the engine's doing rather than this library's.
+///
+/// MEASURED on 2.0.77 by the consumer's second migration assessment: an
+/// assembling machine whose recipe changes has its input slots emptied of
+/// anything the new ingredient list does not use, up to eighty items destroyed
+/// outright rather than spilled on the ground, with no line anywhere. Nothing a
+/// mod emits can change it, so the only thing left is to say so before the
+/// player acts.
+///
+/// ONE CONSTANT, TWO READERS. It is the tail of a recipe's tooltip note and the
+/// tail of the ERROR line an ingredient text falls back with, and the two must
+/// not drift apart.
+pub(crate) const RECIPE_CHANGE_SENTENCE: &str = "Changing a recipe empties an assembling machine's input slots of anything the new list does not use.";
+
+/// The trailing line a prototype whose stored value was set aside carries in
+/// its own `localised_description`.
+///
+/// THE LOG IS NOT A DISCLOSURE, which is the whole reason this exists. A player
+/// reads the settings screen, the recipe or technology tooltip and the
+/// changelog; a `fkrecipes: ` line in factorio-current.log is evidence for a
+/// maintainer and a courtesy for the curious. Until this line, a player who
+/// typed something the library could not use had nothing where they look saying
+/// the game is not what they asked for.
+///
+/// ENGLISH LITERALS, NEVER A LOCALE KEY, and that is measured rather than
+/// preferred. On 2.0.77 a localised string holding an UNDEFINED key drops the
+/// whole prototype description silently: no `Unknown key` marker, no empty
+/// line, the title and the ingredients still drawn, exit 0, and the engine's
+/// own dump holding the description verbatim, so no gate in this repository
+/// could see it. A key wrapped as `{"?", {key}, "literal"}` survives, but the
+/// library has no localisation channel for prototype prose at all:
+/// `append_localised` wraps a consumer's own `description` as a literal too,
+/// and inventing a key would make every consumer owe an entry whose absence
+/// deletes the sentence it was meant to carry. Every sentence this library
+/// composes onto a SETTING is already an English literal for the same reason.
+///
+/// THE TAIL IS SCOPED BY WHAT MOVED, not by what kind of prototype carries it:
+/// `destroys_inputs` is true only where the ingredient list itself changed. See
+/// [`Resolution::note_on`].
+pub(crate) fn fallback_note(setting: &str, destroys_inputs: bool) -> String {
+    let note = format!(
+        "The stored value of {} could not be used, so this mod's own choice applies instead. The reason is in the log.",
+        setting
+    );
+    if destroys_inputs {
+        return format!("{} {}", note, RECIPE_CHANGE_SENTENCE);
+    }
+    note
 }
 
 /// The one sentence a stored value that is not text is answered with, built in
@@ -1530,6 +1690,31 @@ pub(crate) fn seconds_fault(v: f64) -> NumberFault {
         NumberFault::TimeAtOrBelowZero
     } else {
         NumberFault::None
+    }
+}
+
+/// `deferrable_count_fault` and `deferrable_seconds_fault` are the same two
+/// rules with 0 let through, which is what a research number beside a `cost_by`
+/// dropdown means by 0: the dropdown decides. Everything else the engine would
+/// refuse is still refused, so a number that IS in force is one the engine
+/// takes.
+///
+/// A SEPARATE PAIR RATHER THAN A FLAG ON THE ORIGINALS, because the originals
+/// are also the AUTHOR-side post-condition over a built unit, where 0 is a
+/// research nobody can finish and has to stay a fault.
+pub(crate) fn deferrable_count_fault(v: f64) -> NumberFault {
+    if v == 0.0 {
+        NumberFault::None
+    } else {
+        count_fault(v)
+    }
+}
+
+pub(crate) fn deferrable_seconds_fault(v: f64) -> NumberFault {
+    if v == 0.0 {
+        NumberFault::None
+    } else {
+        seconds_fault(v)
     }
 }
 
@@ -1648,7 +1833,7 @@ fn item_proto(prefix: &str, it: &ItemDecl) -> Value {
         kv("type", Value::string("item")),
         kv("name", Value::Str(it.emitted_name(prefix))),
     ];
-    append_localised(&mut pairs, &it.spec.display_name, &it.spec.description);
+    append_localised(&mut pairs, &it.spec.display_name, &it.spec.description, "");
     if !it.spec.icon.is_empty() {
         pairs.push(kv("icon", Value::string(&it.spec.icon)));
     }
@@ -1699,12 +1884,13 @@ fn recipe_proto(
     ings: &[ResolvedIngredient],
     ct: &CraftTime,
     unlocked: bool,
+    note: &str,
 ) -> Value {
     let mut pairs = vec![
         kv("type", Value::string("recipe")),
         kv("name", Value::Str(r.emitted_name(prefix))),
     ];
-    append_localised(&mut pairs, &r.spec.display_name, &r.spec.description);
+    append_localised(&mut pairs, &r.spec.display_name, &r.spec.description, note);
     if !r.spec.category.is_empty() {
         pairs.push(kv("category", Value::string(&r.spec.category)));
     }
@@ -1768,12 +1954,19 @@ fn recipe_proto(
     Value::Map(pairs)
 }
 
-fn tech_proto(prefix: &str, l: &Lib, w: &dyn World, t: &TechDecl, rt: &ResolvedTech) -> Value {
+fn tech_proto(
+    prefix: &str,
+    l: &Lib,
+    w: &dyn World,
+    t: &TechDecl,
+    rt: &ResolvedTech,
+    note: &str,
+) -> Value {
     let mut pairs = vec![
         kv("type", Value::string("technology")),
         kv("name", Value::Str(t.emitted_name(prefix))),
     ];
-    append_localised(&mut pairs, &t.spec.display_name, &t.spec.description);
+    append_localised(&mut pairs, &t.spec.display_name, &t.spec.description, note);
     if !t.spec.icon.is_empty() {
         pairs.push(kv("icon", Value::string(&t.spec.icon)));
     }
@@ -1857,12 +2050,52 @@ fn tech_unit(w: &dyn World, t: &TechDecl, rt: &ResolvedTech) -> Value {
     }
 }
 
-fn append_localised(pairs: &mut Vec<(String, Value)>, display_name: &str, description: &str) {
+/// The ONE writer of `localised_name` and `localised_description` on every
+/// prototype this library emits, and the note is the trailing line a recipe or
+/// a technology carries when a stored value was set aside.
+///
+/// THREE SHAPES AND NOT FOUR. An author's description with no note is
+/// `{"", "<description>"}` byte for byte as it always was, so a golden taken
+/// before this line existed does not move for a load nothing fell back on; a
+/// description with a note adds the note as a third parameter opening with a
+/// newline; and a note with no description is the note alone in the same
+/// two-element shape. Nothing is emitted when there is neither.
+///
+/// AN ITEM NEVER CARRIES A NOTE, so `item_proto` passes the empty string. The
+/// fallback is about what a recipe makes or what a technology costs, and an
+/// item prototype is neither.
+///
+/// THE FLAT HELPER RATHER THAN THE GROUPING ONE, deliberately.
+/// `localised_group` and `MAX_LOCALISED_PARAMS` live on the settings side, and
+/// the ceiling they answer to is 20 PARAMETERS PER TABLE and 20 LEVELS OF
+/// NESTING DEPTH (measured on 2.0.77: the 21st of either refuses the load by
+/// name, and a description holding 421 tables at depth 3 loads, so there is no
+/// global table budget). This composition is at most three parameters at one
+/// level and two tables deep, so there is nothing for a nesting rule to do
+/// here; moving the grouping helper across for it would put the settings side's
+/// ceiling constant in front of a data-side source property that polices what
+/// this side may name.
+fn append_localised(
+    pairs: &mut Vec<(String, Value)>,
+    display_name: &str,
+    description: &str,
+    note: &str,
+) {
     if !display_name.is_empty() {
         pairs.push(kv("localised_name", localised(display_name)));
     }
-    if !description.is_empty() {
-        pairs.push(kv("localised_description", localised(description)));
+    match (description.is_empty(), note.is_empty()) {
+        (false, false) => pairs.push(kv(
+            "localised_description",
+            Value::Arr(vec![
+                Value::string(""),
+                Value::string(description),
+                Value::Str(format!("\n{}", note)),
+            ]),
+        )),
+        (false, true) => pairs.push(kv("localised_description", localised(description))),
+        (true, false) => pairs.push(kv("localised_description", localised(note))),
+        (true, true) => {}
     }
 }
 
@@ -2082,6 +2315,7 @@ impl Lib {
         at: &str,
         who: &str,
         cc: &CustomCost,
+        has_tier: bool,
     ) -> Result<(), String> {
         if !self.valid_packs_setting(cc.packs) {
             return Err(format!(
@@ -2095,29 +2329,45 @@ impl Lib {
                 at, who
             ));
         }
-        if !self.valid_double_setting(cc.seconds) {
+        if !self.valid_int_setting(cc.seconds) {
             return Err(format!(
                 "{}{} reads its research time from a setting that this plan never declared",
                 at, who
             ));
         }
         let count = &self.settings[cc.count.index - 1];
-        if count.spec.min.map(|m| m < 1.0).unwrap_or(true) {
+        if has_tier {
+            if count.def_num != 0.0 || count.spec.min.map(|m| m != 0.0).unwrap_or(true) {
+                return Err(format!(
+                    "{}the setting {} backs a research count beside a research dropdown, so its declared default and its minimum must both be 0 (0 means the dropdown decides)",
+                    at, count.name
+                ));
+            }
+        } else if count.spec.min.map(|m| m < 1.0).unwrap_or(true) {
             return Err(format!(
                 "{}the setting {} backs a research count but declares no minimum of at least 1 (the engine refuses a unit count of 0)",
                 at, count.name
             ));
         }
+        research_number_maximum(at, count)?;
         let seconds = &self.settings[cc.seconds.index - 1];
-        if seconds.spec.min.map(|m| m <= 0.0).unwrap_or(true) {
+        if has_tier {
+            if seconds.def_num != 0.0 || seconds.spec.min.map(|m| m != 0.0).unwrap_or(true) {
+                return Err(format!(
+                    "{}the setting {} backs a research time beside a research dropdown, so its declared default and its minimum must both be 0 (0 means the dropdown decides)",
+                    at, seconds.name
+                ));
+            }
+        } else if seconds.spec.min.map(|m| m < 1.0).unwrap_or(true) {
             return Err(format!(
-                "{}the setting {} backs a research time but declares no minimum above 0 (the engine refuses a unit time of 0)",
+                "{}the setting {} backs a research time but declares no minimum of at least 1 (the engine refuses a unit time of 0)",
                 at, seconds.name
             ));
         }
-        Ok(())
+        research_number_maximum(at, seconds)
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn validate_unit(&self, at: &str, name: &str, u: &UnitSpec) -> Result<(), String> {
         if u.count < 1 {
             return Err(format!(
@@ -2229,17 +2479,23 @@ pub(crate) fn validate_no_duplicate_packs(
     Ok(())
 }
 
-/// The dropdown values a Choices list has to cover: all of them, minus the one
-/// the Custom arm answers to.
-fn presets_of<T>(values: &[String], custom: &Option<T>, cv: &str) -> Vec<String> {
-    if custom.is_none() {
-        return values.to_vec();
+/// The ceiling both research numbers need, written once because the sentence is
+/// one sentence: the count and the time are the same kind of field to a player
+/// and the same kind of hole to a modpack.
+///
+/// THE SENTENCE NAMES THE WHOLE PREDICATE, which is not "no maximum": a
+/// declaration of `between(0.0, 0.0)` carries one and it is a ceiling no legal
+/// value can sit under, so a sentence that said the maximum was missing would
+/// be untrue of half the declarations that reach this line. "No maximum of at
+/// least 1" is true of both arms, and the Go half carries it byte for byte.
+fn research_number_maximum(at: &str, s: &SettingDecl) -> Result<(), String> {
+    if s.spec.max.map(|m| m < 1.0).unwrap_or(true) {
+        return Err(format!(
+            "{}the setting {} backs a research number but declares no maximum of at least 1; a number the player types needs a ceiling it can reach",
+            at, s.name
+        ));
     }
-    values
-        .iter()
-        .filter(|v| v.as_str() != cv)
-        .cloned()
-        .collect()
+    Ok(())
 }
 
 fn matches_allowed_values(
@@ -2438,12 +2694,30 @@ impl Lib {
     /// of its parse and answered the same way in both halves; a second answer
     /// taken here, by treating `Value::Bytes` as "not a string", would say the
     /// wrong sentence and would be a rule only this half has.
-    fn read_text_setting(&self, w: &dyn World, res: &mut Resolution, full: &str) -> Vec<u8> {
+    ///
+    /// THE TARGET IS WHAT PICKS THE SENTENCE, not the list kind the caller went
+    /// on to parse with, and the two agree by construction: a recipe target
+    /// reaches this function only for its own ingredient list and a technology
+    /// target only for its pack text. Choosing off the target is what keeps the
+    /// ERROR line and the prototype note the target also fills saying the same
+    /// thing about the same prototype.
+    fn read_text_setting(
+        &self,
+        w: &dyn World,
+        res: &mut Resolution,
+        full: &str,
+        tgt: NoteTarget,
+    ) -> Vec<u8> {
         match w.startup_setting(full) {
             Some(Value::Str(text)) => text.into_bytes(),
             Some(Value::Bytes(b)) => b,
             Some(_) => {
-                res.note_fallback(full, text_fallback(&not_text_sentence(full)));
+                res.note_fallback(
+                    tgt,
+                    full,
+                    text_fallback_for(tgt, &not_text_sentence(full)),
+                    moves_ingredients(tgt),
+                );
                 Vec::from(DEFAULT.as_bytes())
             }
             None => {
@@ -2456,63 +2730,51 @@ impl Lib {
         }
     }
 
-    /// One recipe's ingredients, from the text the player wrote.
+    /// One recipe's ingredient text, read and parsed, or `None` when the
+    /// answer is the reserved word.
     ///
-    /// THE WORD `default` IS THE PRE-EXISTING PATH, ladders and all, and it
-    /// logs nothing of its own: the player who never typed gets exactly the
-    /// recipe the author declared, drops included. Anything else is taken as
-    /// written, and one line records what was read. A TEXT THE LANGUAGE CANNOT
-    /// READ TAKES THE SAME PRE-EXISTING PATH, with one line of its own saying
-    /// so: see `player_fallback`.
+    /// THE WORD `default` IS THE PRE-EXISTING PATH and it logs nothing of its
+    /// own: the player who never typed gets exactly what the declaration says,
+    /// which beside a dropdown is the dropdown's chosen preset and on its own
+    /// is the setting's declared list. A TEXT THE LANGUAGE CANNOT READ TAKES
+    /// THE SAME PATH, with one line of its own saying so: see
+    /// `player_fallback`. Anything else is taken as written, and the CALLER
+    /// writes the line, because only the caller knows whether a choice was set
+    /// aside.
     ///
     /// TWO WORLDS, AND THE SPLIT IS THE POINT. What the PLAYER typed is read
     /// against `own`, which knows this plan's own item names; the author's own
     /// ladders behind the word `default` are walked against the game as it
     /// stands, exactly as they were before, because a ladder is a tolerance
     /// for a modpack rather than a lookup of this plan's own prototypes.
-    fn resolve_text_ingredients(
+    fn read_text_ingredients(
         &self,
         w: &dyn World,
         own: &dyn World,
         res: &mut Resolution,
-        prefix: &str,
         r: &RecipeDecl,
-        h: IngredientsSettingRef,
-    ) -> Vec<ResolvedIngredient> {
-        let s = &self.settings[h.index - 1];
-        let full = s.emitted_name(prefix);
-        let text = self.read_text_setting(w, res, &full);
+        full: &str,
+        tgt: NoteTarget,
+    ) -> Option<IngredientList> {
+        let text = self.read_text_setting(w, res, full, tgt);
         let lang = self.installed_language();
-        match (lang.parse)(&text, ListKind::Recipe, &r.spec.category, &full, own) {
+        match (lang.parse)(&text, ListKind::Recipe, &r.spec.category, full, own) {
             // THE MESSAGE IS THE WHOLE DIAGNOSIS, verbatim: the language wrote
             // it for the player, naming the setting, the entry and the problem,
             // and there is nothing this layer can add to it. It rides inside
             // ONE fallback line with the shared prefix trimmed off, because the
-            // line it sits in already opens with one, and the list that reaches
-            // the recipe is the AUTHOR'S own with its ladders: a refused text
-            // takes exactly the path the reserved word takes.
+            // line it sits in already opens with one.
             Err(message) => {
-                res.note_fallback(&full, text_fallback(&message));
-                self.resolve_ingredients(w, res, prefix, &r.name, &s.def_ings)
-            }
-            Ok(ListText::Default) => self.resolve_ingredients(w, res, prefix, &r.name, &s.def_ings),
-            Ok(ListText::List(list)) => {
-                let out: Vec<ResolvedIngredient> = list
-                    .entries
-                    .iter()
-                    .map(|e| ResolvedIngredient {
-                        name: e.name.clone(),
-                        amount: e.amount,
-                    })
-                    .collect();
-                res.logs.push(format!(
-                    "fkrecipes: {} takes its ingredients from {}: {}",
-                    r.emitted_name(prefix),
+                res.note_fallback(
+                    tgt,
                     full,
-                    (lang.render_list)(&list)
-                ));
-                out
+                    text_fallback_for(tgt, &message),
+                    moves_ingredients(tgt),
+                );
+                None
             }
+            Ok(ListText::Default) => None,
+            Ok(ListText::List(list)) => Some(list),
         }
     }
 
@@ -2520,6 +2782,18 @@ impl Lib {
     ///
     /// The three are read in the order the log line names them and the order
     /// the unit carries them: count, time, packs.
+    ///
+    /// THE THREE ARE ALWAYS READ, whatever the tier says, because reading them
+    /// is how this finds out whether any of them is in force. Each one that is
+    /// not at its declared default overrides the tier; each one that is comes
+    /// FROM the tier, or from the setting's own declared default where there is
+    /// no tier. Nothing is ever edited and ignored, which is the whole point of
+    /// the shape.
+    ///
+    /// IT ANSWERS `None` WHEN THE CUSTOM COST DOES NOT APPLY, which is a tier
+    /// with nothing non-default beside it: the caller then emits the tier byte
+    /// for byte, which is the load a player who never opened the settings
+    /// screen gets.
     ///
     /// THE TWO NUMBERS ARE FACTS ABOUT THE WORLD, not about the declaration,
     /// so they are asked the finiteness question the resolved crafting time is
@@ -2529,6 +2803,7 @@ impl Lib {
     /// is reset to that setting's default), but a fixture World can answer
     /// anything at all, and a NaN reaching the decimal rule is a unit rendered
     /// as `NaN` in this half and a trap in the Go mirror.
+    #[allow(clippy::too_many_arguments)]
     fn resolve_custom_cost(
         &self,
         w: &dyn World,
@@ -2537,105 +2812,251 @@ impl Lib {
         prefix: &str,
         t: &TechDecl,
         cc: &CustomCost,
-    ) -> (Value, bool) {
+        tier: &CostTier,
+        tgt: NoteTarget,
+    ) -> Option<(Value, Option<bool>)> {
         let lang = self.installed_language();
+        let has_tier = matches!(tier, CostTier::Chosen { .. });
         // EACH NUMBER IS HELD TO WHAT THE ENGINE TAKES WHERE IT IS READ, and
         // one that is not takes the setting's DECLARED DEFAULT with a line
-        // naming it. All three fields here are the player's, so all three
-        // follow the same rule; the lines come out in the order the values are
-        // read, which is the order the cost line below names them.
+        // naming it, which is also how it stops being in force. The rules
+        // differ by one value: beside a tier, 0 is the number's reserved word
+        // and is legal, and every other number still has to be one the engine
+        // would take.
+        let (count_rule, seconds_rule): (FaultFn, FaultFn) = if has_tier {
+            (deferrable_count_fault, deferrable_seconds_fault)
+        } else {
+            (count_fault, seconds_fault)
+        };
         let (count, count_setting) =
-            self.read_cost_number(w, res, prefix, cc.count.index, count_fault);
+            self.read_cost_number(w, res, prefix, cc.count.index, count_rule, tgt);
         let (seconds, seconds_setting) =
-            self.read_cost_number(w, res, prefix, cc.seconds.index, seconds_fault);
+            self.read_cost_number(w, res, prefix, cc.seconds.index, seconds_rule, tgt);
         let s = &self.settings[cc.packs.index - 1];
         let full = s.emitted_name(prefix);
-        let text = self.read_text_setting(w, res, &full);
-        let packs = match (lang.parse)(&text, ListKind::Packs, "", &full, own) {
-            // ONE LINE AND THE AUTHOR'S OWN PACKS, the same shape the recipe
-            // path takes: a refused text lands on the path the reserved word
-            // takes, ladders and drop lines and all.
+        let text = self.read_text_setting(w, res, &full, tgt);
+        let typed = match (lang.parse)(&text, ListKind::Packs, "", &full, own) {
+            // ONE LINE AND THE PATH THE RESERVED WORD TAKES, the same shape the
+            // recipe path takes: a refused text lands where a player who typed
+            // nothing lands.
             Err(message) => {
-                res.note_fallback(&full, text_fallback(&message));
-                resolve_packs(w, res, &t.name, &s.def_packs)
+                res.note_fallback(
+                    tgt,
+                    &full,
+                    text_fallback_for(tgt, &message),
+                    moves_ingredients(tgt),
+                );
+                None
             }
-            // THE LADDERS ARE THE AUTHOR'S, so the word walks them and a
-            // pack the game does not have is dropped with its line, the
-            // way it is for a hand-rolled unit.
-            Ok(ListText::Default) => resolve_packs(w, res, &t.name, &s.def_packs),
-            Ok(ListText::List(list)) => list
-                .entries
-                .iter()
-                .map(|e| ResolvedPack {
-                    name: e.name.clone(),
-                    // A pack list resolves through tool_exists and a tool
-                    // is an item, so every entry the parser returns here
-                    // carries an item amount: `resolve_for_packs` answers
-                    // "not a fluid" for every name it accepts, and the
-                    // fluid arm of an entry is reached only behind that
-                    // answer. A 0 here would be a research the engine
-                    // refuses with a message naming nothing of this
-                    // library's, so the impossible case says so instead.
-                    amount: match e.amount {
-                        Amount::Item(n) => n,
-                        Amount::Fluid(_) => {
-                            unreachable!("a science pack list parsed a fluid entry")
-                        }
-                    },
-                })
-                .collect(),
+            Ok(ListText::Default) => None,
+            Ok(ListText::List(list)) => Some(
+                list.entries
+                    .iter()
+                    .map(|e| ResolvedPack {
+                        name: e.name.clone(),
+                        // A pack list resolves through tool_exists and a tool
+                        // is an item, so every entry the parser returns here
+                        // carries an item amount: `resolve_for_packs` answers
+                        // "not a fluid" for every name it accepts, and the
+                        // fluid arm of an entry is reached only behind that
+                        // answer.
+                        amount: match e.amount {
+                            Amount::Item(n) => n,
+                            Amount::Fluid(_) => {
+                                unreachable!("a science pack list parsed a fluid entry")
+                            }
+                        },
+                    })
+                    .collect::<Vec<ResolvedPack>>(),
+            ),
         };
-        // AND THE POST-CONDITION, on whatever the two reads settled on. After a
-        // fallback the value IS the declared default, so the only world this
-        // can still refuse is a plan whose declared default is itself outside
-        // what the engine takes. That is an AUTHOR bug: `validate_settings`
-        // refuses it at the settings stage, which the engine runs before the
-        // data stage, so it reaches here only through a host test that calls
-        // `plan_data` on its own. It refuses, because an author's declaration
-        // is not a player's typing, and it SAYS declared default: the stored
-        // value is gone by here, so the sentence a fallback line quoted would
-        // be describing a number nothing is holding any more. Count then
-        // seconds, one arm answering, because the first refusal is the one a
-        // Resolution keeps.
-        let count_bad = count_fault(count);
-        let seconds_bad = seconds_fault(seconds);
-        if count_bad != NumberFault::None {
-            res.refuse(declared_number_problem(&count_setting, count_bad));
-        } else if seconds_bad != NumberFault::None {
-            res.refuse(declared_number_problem(&seconds_setting, seconds_bad));
+
+        let count_set = count != self.settings[cc.count.index - 1].def_num;
+        let seconds_set = seconds != self.settings[cc.seconds.index - 1].def_num;
+        let (tier_unit, dropdown, chosen) = match tier {
+            CostTier::Chosen {
+                unit,
+                dropdown,
+                chosen,
+            } => (Some(unit), dropdown.as_str(), chosen.as_str()),
+            CostTier::None => (None, "", ""),
+        };
+        if has_tier && !count_set && !seconds_set && typed.is_none() {
+            return None;
         }
-        // ONE LINE WHATEVER THE TEXT SAID, unlike the ingredients path: the
-        // count and the seconds come from their settings on every load, so
-        // there is always something the player set that this records.
-        res.logs.push(format!(
+
+        // THE PACKS, and the three sources in the order the rule names them:
+        // what the player typed, then the tier's own ingredients, then the
+        // author's declared list with its ladders walked and its drops logged.
+        //
+        // A TIER'S OWN PACKS ARE NOT THIS LIBRARY'S BUSINESS, so the mark is
+        // left exactly as the tier left it: `None` here means "do not touch
+        // it". They are another technology's declaration, and a reader of this
+        // library that failed to recognise a shape would otherwise refuse a
+        // load over packs that are perfectly there.
+        let mut no_packs = Some(false);
+        let packs: Vec<ResolvedPack> = match (&typed, tier_unit) {
+            (Some(list), _) => {
+                // A TYPED PACK LIST IS WHAT THIS TECHNOLOGY IS PRICED IN, so it
+                // is not packless any more. The only way the mark is here
+                // already is the CostBy fallback having lost every pack it
+                // declared a moment ago, and that unit's ingredients are about
+                // to be written over: refusing the load over packs nothing
+                // emits would be a refusal a player's own text had removed. The
+                // drop lines stay, because they are true.
+                list.iter()
+                    .map(|p| ResolvedPack {
+                        name: p.name.clone(),
+                        amount: p.amount,
+                    })
+                    .collect()
+            }
+            (None, Some(unit)) => {
+                no_packs = None;
+                tier_pack_list(unit)
+            }
+            (None, None) => {
+                let packs = resolve_packs(w, res, &t.name, &s.def_packs);
+                no_packs = Some(packs.is_empty());
+                packs
+            }
+        };
+
+        // AND THE POST-CONDITION, on whatever the two reads settled on, and
+        // ONLY where the unit is built fresh. After a fallback the value IS the
+        // declared default, so the only world this can still refuse is a plan
+        // whose declared default is itself outside what the engine takes. That
+        // is an AUTHOR bug: `validate_settings` refuses it at the settings
+        // stage, which the engine runs before the data stage, so it reaches
+        // here only through a host test that calls `plan_data` on its own.
+        //
+        // BESIDE A TIER THERE IS NOTHING FOR IT TO ANSWER: a number that is in
+        // force there has already cleared the same rule with 0 excluded, and a
+        // number that is not in force is the tier's own, which belongs to
+        // whoever declared that technology.
+        if !has_tier {
+            let count_bad = count_fault(count);
+            let seconds_bad = seconds_fault(seconds);
+            if count_bad != NumberFault::None {
+                res.refuse(declared_number_problem(&count_setting, count_bad));
+            } else if seconds_bad != NumberFault::None {
+                res.refuse(declared_number_problem(&seconds_setting, seconds_bad));
+            }
+        }
+
+        // THE NUMBERS THE LINE AND THE UNIT CARRY, which are the settings'
+        // where they are in force and the tier's where they are not. A tier
+        // that carries no count at all (a count_formula prices it instead)
+        // leaves the tier's own field alone in the unit.
+        //
+        // COUNT BY FORMULA IS A PRICE WITH NO NUMBER IN IT, and the line says
+        // so rather than printing one. A count setting that DEFERS beside such
+        // a tier leaves nothing for the line to name: printing the setting's
+        // declared default there (0, beside a dropdown) is a number nothing in
+        // the emitted unit is using. Both terms are load-bearing. The formula
+        // test is what keeps the phrase true: a unit with neither field is one
+        // the engine refuses outright (measured on 2.0.77: `Key "count_formula"
+        // not found in property tree`), so it is reachable only from a fixture
+        // World, and there the honest answer is the number rather than a
+        // formula that is not there.
+        let mut count = count;
+        let mut seconds = seconds;
+        let mut by_formula = false;
+        if let Some(unit) = tier_unit {
+            if !count_set {
+                match tier_number(unit, "count") {
+                    Some(v) => count = v,
+                    None => by_formula = has_unit_field(unit, "count_formula"),
+                }
+            }
+            if !seconds_set {
+                if let Some(v) = tier_number(unit, "time") {
+                    seconds = v;
+                }
+            }
+        }
+
+        let count_text = if by_formula {
+            String::from("by formula")
+        } else {
+            (lang.format_amount)(count)
+        };
+        let mut line = format!(
             "fkrecipes: {} takes its research cost from {}: count {}, time {}, packs {}",
             t.emitted_name(prefix),
             full,
-            (lang.format_amount)(count),
+            count_text,
             (lang.format_amount)(seconds),
             (lang.render_list)(&resolved_pack_list(&packs))
-        ));
-        // The count is emitted as the NUMBER the setting answered with, not as
-        // an integer this library rounded: the engine's own field is a double
-        // like every other, and the setting's declared bounds are what keep it
-        // a whole one.
-        let ings: Vec<Value> = packs
-            .iter()
-            .map(|p| {
-                Value::Arr(vec![
-                    Value::Str(p.name.clone()),
-                    Value::Num(p.amount as f64),
+        );
+        if has_tier {
+            line.push_str(&format!(
+                "; the {} choice {} supplies what the settings leave at default",
+                dropdown, chosen
+            ));
+        }
+
+        let unit = match tier_unit {
+            // The count is emitted as the NUMBER the setting answered with, not
+            // as an integer this library rounded: the engine's own field is a
+            // double like every other, and the setting's declared bounds are
+            // what keep it a whole one.
+            None => {
+                let ings: Vec<Value> = packs
+                    .iter()
+                    .map(|p| {
+                        Value::Arr(vec![
+                            Value::Str(p.name.clone()),
+                            Value::Num(p.amount as f64),
+                        ])
+                    })
+                    .collect();
+                Value::Map(vec![
+                    kv("count", Value::Num(count)),
+                    kv("time", Value::Num(seconds)),
+                    kv("ingredients", Value::Arr(ings)),
                 ])
-            })
-            .collect();
-        (
-            Value::Map(vec![
-                kv("count", Value::Num(count)),
-                kv("time", Value::Num(seconds)),
-                kv("ingredients", Value::Arr(ings)),
-            ]),
-            packs.is_empty(),
-        )
+            }
+            // THE TIER'S UNIT WITH THE PLAYER'S FIELDS WRITTEN OVER IT, so a
+            // count_formula, a max_level and anything else it carried survive a
+            // player who moved one slider.
+            Some(tier_unit) => {
+                let mut unit = tier_unit.clone();
+                if count_set {
+                    unit = set_unit_field(unit, "count", Value::Num(count));
+                    // ONE WRINKLE, AND THE ENGINE DECIDES IT: a unit carrying
+                    // both a count and a count_formula is priced by the
+                    // FORMULA, so the number the player typed would be read by
+                    // nobody and nothing would say so. The formula goes, and
+                    // the line says which setting took it.
+                    if has_unit_field(&unit, "count_formula") {
+                        unit = without_unit_field(unit, "count_formula");
+                        res.logs.push(format!(
+                            "fkrecipes: {}: {} replaces the count_formula the {} cost carries",
+                            t.name, count_setting, chosen
+                        ));
+                    }
+                }
+                if seconds_set {
+                    unit = set_unit_field(unit, "time", Value::Num(seconds));
+                }
+                if typed.is_some() {
+                    let ings: Vec<Value> = packs
+                        .iter()
+                        .map(|p| {
+                            Value::Arr(vec![
+                                Value::Str(p.name.clone()),
+                                Value::Num(p.amount as f64),
+                            ])
+                        })
+                        .collect();
+                    unit = set_unit_field(unit, "ingredients", Value::Arr(ings));
+                }
+                unit
+            }
+        };
+        res.logs.push(line);
+        Some((unit, no_packs))
     }
 
     /// One of a custom cost's two numbers, held to what the engine takes,
@@ -2667,6 +3088,7 @@ impl Lib {
         prefix: &str,
         index: usize,
         fault: fn(f64) -> NumberFault,
+        tgt: NoteTarget,
     ) -> (f64, String) {
         let (v, full, held) = self.read_num_setting(w, res, prefix, index);
         if !held {
@@ -2674,7 +3096,14 @@ impl Lib {
         }
         let f = fault(v);
         if f != NumberFault::None {
-            res.note_fallback(&full, number_fallback(&stored_number_problem(&full, f)));
+            res.note_fallback(
+                tgt,
+                &full,
+                number_fallback(&stored_number_problem(&full, f)),
+                // A REPRICED RESEARCH DESTROYS NOTHING, so the note carries no
+                // recipe-change sentence. See `Resolution::note_on`.
+                false,
+            );
             return (self.settings[index - 1].def_num, full);
         }
         (v, full)
@@ -3053,27 +3482,153 @@ fn resolved_pack_list(packs: &[ResolvedPack]) -> IngredientList {
     IngredientList { entries }
 }
 
-/// Walks a Custom arm's Position ladder. The first technology the game has
-/// becomes the sole prerequisite, exactly as a chosen tier's source would; a
-/// ladder with no rung present leaves the technology unattached and says so, in
-/// the shape every other dropped ladder uses.
-fn custom_prereqs(
-    w: &dyn World,
-    res: &mut Resolution,
-    tech: &str,
-    position: &[String],
-) -> Vec<String> {
-    for name in position {
-        if w.tech_exists(name) {
-            return vec![name.clone()];
+/// A list the player wrote, in the typed order, ready for a recipe. The
+/// language has already resolved every name against the overlay, so nothing
+/// here walks a ladder or drops an entry.
+fn typed_ingredients(list: &IngredientList) -> Vec<ResolvedIngredient> {
+    list.entries
+        .iter()
+        .map(|e| ResolvedIngredient {
+            name: e.name.clone(),
+            amount: e.amount,
+        })
+        .collect()
+}
+
+/// One numeric field of a tier's unit map.
+///
+/// A SLICE AND A SCAN, like every other lookup in this crate: a unit is a
+/// handful of fields and nothing here may depend on an iteration order.
+fn tier_number(unit: &Value, key: &str) -> Option<f64> {
+    let pairs = match unit {
+        Value::Map(pairs) => pairs,
+        _ => return None,
+    };
+    for (k, v) in pairs {
+        if k == key {
+            if let Value::Num(n) = v {
+                return Some(*n);
+            }
         }
     }
-    res.logs.push(format!(
-        "fkrecipes: {}: none of {} is present, so the technology has no prerequisite",
-        tech,
-        join_names(position, ", ")
-    ));
-    Vec::new()
+    None
+}
+
+/// Whether a tier's unit carries a field at all, whatever its shape.
+/// `count_formula` is a STRING in every unit the engine ships, so the numeric
+/// reader above cannot answer this question.
+fn has_unit_field(unit: &Value, key: &str) -> bool {
+    match unit {
+        Value::Map(pairs) => pairs.iter().any(|(k, _)| k == key),
+        _ => false,
+    }
+}
+
+/// Replaces a field of a tier's unit IN PLACE IN THE ORDER IT ALREADY HAD, or
+/// appends it at the end when the unit does not carry one.
+///
+/// THE ORDER IS PART OF THE EMITTED VALUE, so a field that moved would be a
+/// prototype that differs between a plan that overrode it and one that did not,
+/// and the two halves would have to agree about the move as well as about the
+/// value.
+fn set_unit_field(unit: Value, key: &str, val: Value) -> Value {
+    let pairs = match unit {
+        Value::Map(pairs) => pairs,
+        other => {
+            let _ = other;
+            return Value::Map(vec![kv(key, val)]);
+        }
+    };
+    let mut out = Vec::with_capacity(pairs.len() + 1);
+    let mut replaced = false;
+    for (k, v) in pairs {
+        if k == key {
+            out.push((String::from(key), val.clone()));
+            replaced = true;
+            continue;
+        }
+        out.push((k, v));
+    }
+    if !replaced {
+        out.push((String::from(key), val));
+    }
+    Value::Map(out)
+}
+
+/// Drops a field of a tier's unit, keeping the rest in order.
+fn without_unit_field(unit: Value, key: &str) -> Value {
+    match unit {
+        Value::Map(pairs) => Value::Map(pairs.into_iter().filter(|(k, _)| k != key).collect()),
+        other => other,
+    }
+}
+
+/// A tier unit's science packs, so a cost line can say what the tier is paying
+/// with.
+///
+/// BOTH SPELLINGS, because a unit this library copies is somebody else's
+/// declaration: the engine takes the short tuple `{"name", amount}` and the
+/// long `{name = ..., amount = ...}` alike, and base writes the short one. An
+/// entry in neither shape is skipped rather than guessed at; it is the tier's
+/// own ingredients that are emitted, so nothing this reader misses changes the
+/// prototype, only the line that describes it.
+fn tier_pack_list(unit: &Value) -> Vec<ResolvedPack> {
+    let mut out = Vec::new();
+    let pairs = match unit {
+        Value::Map(pairs) => pairs,
+        _ => return out,
+    };
+    for (k, v) in pairs {
+        if k != "ingredients" {
+            continue;
+        }
+        let items = match v {
+            Value::Arr(items) => items,
+            _ => continue,
+        };
+        for item in items {
+            if let Some(p) = tier_pack(item) {
+                out.push(p);
+            }
+        }
+    }
+    out
+}
+
+fn tier_pack(v: &Value) -> Option<ResolvedPack> {
+    if let Value::Arr(items) = v {
+        if items.len() >= 2 {
+            if let (Value::Str(name), Value::Num(amount)) = (&items[0], &items[1]) {
+                return Some(ResolvedPack {
+                    name: name.clone(),
+                    amount: *amount as i64,
+                });
+            }
+        }
+        return None;
+    }
+    let pairs = match v {
+        Value::Map(pairs) => pairs,
+        _ => return None,
+    };
+    let mut name = None;
+    let mut amount = None;
+    for (k, val) in pairs {
+        if k == "name" {
+            if let Value::Str(n) = val {
+                name = Some(n.clone());
+            }
+        }
+        if k == "amount" {
+            if let Value::Num(n) = val {
+                amount = Some(*n as i64);
+            }
+        }
+    }
+    match (name, amount) {
+        (Some(name), Some(amount)) => Some(ResolvedPack { name, amount }),
+        _ => None,
+    }
 }
 
 /// A pack's rungs as the drop line names them, first choice first.

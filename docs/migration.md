@@ -239,54 +239,59 @@ One behaviour to expect when a hand-rolled cost copied three fields by hand: `Co
 
 ## Adding a customizer to a dropdown you already ship
 
-A mod that ships a dropdown of preset recipes can let the player write their own without losing anybody's stored choice. The dropdown stays, under its legacy name, and gains one value; a text setting arrives beside it; the text applies only while the dropdown says `custom`. See [The ingredient list](ingredient-list.md) for what the player types.
+**Adopting the customizer on a dropdown you already ship is an identity.** The dropdown keeps its exact option list, so no stored choice is reset and none changes meaning; the text setting is purely additive, so a player who never opens the settings screen sees the load they always had; a rollback to an older release loses nothing, because the release that does not declare the text setting simply leaves that setting alone (the engine keeps every setting a release does not declare, measured on Factorio 2.0.77); and a return to the new release restores everything, because the value the rollback did not touch is still in `mod-settings.dat`.
+
+That property rests on one rule: **the text is the switch.** While the text setting says the word `default` the dropdown decides exactly as it always did, and anything else is what applies instead. The library adds no value to the dropdown and reserves none. See [The ingredient list](ingredient-list.md) for what the player types.
 
 ```go
 cost := lib.LegacyDropdownSettingNeedingLocale("bbb-recipe-cost", "vanilla",
-	[]string{"vanilla", "cheap", "belt-fast", "belt-express", "splitter", "splitter-express", "custom"}, "a")
-custom := lib.IngredientsSetting("balancer-part-ingredients", vanillaIngredients)
+	[]string{"vanilla", "cheap", "belt-fast", "belt-express", "splitter", "splitter-express"}, "a")
+parts := lib.IngredientsSetting("balancer-part-ingredients", vanillaIngredients)
 lib.LegacyRecipe(part, "bbb-balancer-part", fkrecipes.RecipeSpec{
-	IngredientsBy: &fkrecipes.IngredientChoices{Setting: cost, Choices: presets, Custom: custom},
-	CraftTime:     1,
+	IngredientsBy:   &fkrecipes.IngredientChoices{Setting: cost, Choices: presets},
+	IngredientsFrom: parts,
+	CraftTime:       1,
 })
 ```
 
 ```rust
 let cost = lib.legacy_dropdown_setting_needing_locale("bbb-recipe-cost", "vanilla",
-    &["vanilla", "cheap", "belt-fast", "belt-express", "splitter", "splitter-express", "custom"], "a");
-let custom = lib.ingredients_setting("balancer-part-ingredients", vanilla_ingredients);
+    &["vanilla", "cheap", "belt-fast", "belt-express", "splitter", "splitter-express"], "a");
+let parts = lib.ingredients_setting("balancer-part-ingredients", vanilla_ingredients);
 lib.legacy_recipe(part, "bbb-balancer-part", RecipeSpec {
-    ingredients_by: Some(IngredientChoices { setting: cost, choices: presets, custom: Some(custom), ..Default::default() }),
+    ingredients_by: Some(IngredientChoices { setting: cost, choices: presets }),
+    ingredients_from: Some(parts),
     craft_time: 1.0,
     ..Default::default()
 });
 ```
 
-Every value a player has stored is still one of the dropdown's values, so every preference survives the update untouched; the only players who see anything new are the ones who open the settings screen. The text setting is a new name, so it carries the generated prefix and the word `default` as its text. Where it lands in the settings screen is a separate decision: a generated setting's order string comes from its declaration index, and next to legacy orders such as `a` and `b` that puts it between the two whatever you meant. `OrderAfter("a")` (`order_after("a")`) before the declaration places it behind the dropdown it belongs to, under the order `aab`; see [Using FkRecipes](usage.md) for the rule.
+The text setting is a new name, so it carries the generated prefix and the word `default` as its text. Where it lands in the settings screen is a separate decision: a generated setting's order string comes from its declaration index, and next to legacy orders such as `a` and `b` that puts it between the two whatever you meant. `OrderAfter("a")` (`order_after("a")`) before the declaration places it behind the dropdown it belongs to, under the order `aab`; see [Using FkRecipes](usage.md) for the rule.
 
-What the engine does not allow is filling that text from the player's old choice. The settings stage, where defaults are declared, cannot see any stored value (measured on Factorio 2.0.77: `data.raw` is empty there), and nothing at the data stage or at runtime can write a startup setting. A default is therefore one text for every player. What the library does instead is compose the dropdown's description: your own `[mod-setting-description]` entry, then two lines per preset, its localised label and then an indented line opening with `type:` carrying the preset rendered as an ingredient list, so a player on `cheap` who picks `custom` can see what `cheap` was and copy it.
+What the engine does not allow is filling that text from the player's old choice. The settings stage, where defaults are declared, cannot see any stored value (measured on Factorio 2.0.77: `data.raw` is empty there), and nothing at the data stage or at runtime can write a startup setting. A default is therefore one text for every player. What the library does instead is compose the dropdown's description: your own `[mod-setting-description]` entry, then two lines per preset, its localised label and then an indented line opening with `type:` carrying the preset rendered as an ingredient list, so a player on `cheap` who starts typing can see what `cheap` was and copy it. A last line says that the text setting above or below it applies while it does not say `default`, and the text setting's own description carries the mirror of that sentence. The settings screen has no conditional visibility at all (measured on 2.0.77), so those two lines are the only place the pairing can be stated.
 
-Two locale entries are new: `[string-mod-setting]` for the `custom` value under the dropdown's name, and `[mod-setting-name]` and `[mod-setting-description]` for the text setting, where your description says what the setting is for. The format, the 2000-character limit and what happens to a text the library cannot use are composed under it for you, so the entry does not have to teach the syntax. `CheckLocaleWith` reports all three when they are missing. If a preset of yours is already named `custom`, give the arm another value with `CustomValue` rather than renaming the preset.
+Two locale entries are new: `[mod-setting-name]` and `[mod-setting-description]` for the text setting, where your description says what the setting is for. The format, the 2000-character limit, the switch line and what happens to a text the library cannot use are composed under it for you, so the entry does not have to teach the syntax. `CheckLocaleWith` reports both when they are missing, and the dropdown's own description becomes required at the same time, since the preset list is composed onto it.
 
 One thing to know about the labels you already ship: a dropdown label such as `Default: 4 iron plates, 2 gears, 2 transport belts` speaks display names, while the text field beside it takes internal names, so a player who copies the label into the field gets your own list back with an error line in the log. The composition keeps the two apart. Each preset is two lines in the tooltip, your label and then an indented line opening with `type:` holding that preset in internal names, and that second line is the only one in the tooltip a player is invited to copy. You can leave your labels in display names.
 
 ```
-[string-mod-setting]
-bbb-recipe-cost-custom=Custom (edit the ingredients below)
-
 [mod-setting-name]
 better-belt-balancer-balancer-part-ingredients=Balancer part ingredients
 [mod-setting-description]
-better-belt-balancer-balancer-part-ingredients=Used when the recipe above is set to Custom. Write the amount, then the item name, and separate ingredients with commas: 2 iron-plate, 3 copper-cable
+better-belt-balancer-balancer-part-ingredients=What a balancer part is made of while this is not on default. Write the amount, then the item name, and separate ingredients with commas: 2 iron-plate, 3 copper-cable
 ```
 
-This is the step whose settings hash is expected to move, because the dropdown's `allowed_values` grows and its description becomes a composed value, while the data hash stays where it was for every preset: the presets are the same plans as before, and the custom path is only taken by a player who chose it.
+This is the step whose settings hash is expected to move, because the dropdown's description becomes a composed value and three new setting prototypes arrive, while the data hash stays where it was for every preset: the presets are the same plans as before, and a typed list is only read for a player who typed one.
 
-**Adding a value to a dropdown costs a player who ever runs an older release that choice, silently and for good.** Factorio resets a stored dropdown value that is not in the running release's `allowed_values` to that release's default, before any stage runs, with no line in the log, and writes the reset back to `mod-settings.dat`. Measured on Factorio 2.0.77 against a migrated mod: choose `custom`, edit the text, launch the last published release once, then return to the new one. The published release, which does not know `custom`, reset both dropdowns to their defaults and persisted them; the four settings it does not declare came through untouched. What makes it worse than a plain reset is that the typed text survives, because it belongs to a setting the old release does not declare: the field still shows the player's own recipe while the dropdown beside it has gone back to a preset, so the screen looks like nothing was lost. Any rollback does this, and so does a modpack pinned to an older version, and so does a second machine still on the last public release. Say it in your changelog: a player who runs an older release once loses their `custom` choice and has to pick it again.
+**Why the option list may not grow.** Factorio resets a stored dropdown value that is not in the running release's `allowed_values` to that release's default, before any stage runs, with no line in the log, and writes the reset back to `mod-settings.dat`; every setting a release does not declare comes through untouched. Both measured on Factorio 2.0.77. So a release that answered "the text is in force" with a dropdown value would lose that answer the first time a player ran an older release, on any rollback, in a modpack pinned to an older version, or on a second machine still on the last public release, and would lose it silently: the typed text survives, because it belongs to a setting the old release does not declare, so the field still shows the player's own recipe while the dropdown beside it has gone back to a preset and the screen looks like nothing was lost. Keeping the state in the TEXT is what makes the whole step an identity instead.
 
-**A `Custom` cost arm moves the technology in the tree even when the numbers are untouched.** Picking `custom` and leaving the count, the seconds and the pack text alone makes `prerequisites` the first entry of the arm's `Position` ladder that exists, rather than the source technology's own prerequisites. That is a fact about the code: a custom cost has no source technology to take a position from, so the ladder is the only answer, and the settings screen has no way to say so. Whether the COST changes depends on you. Measured on Factorio 2.0.77 against a migrated mod whose `CustomCost` settings declare the source technology's own count, seconds and packs as their defaults, the emitted `unit` was byte for byte identical to that technology's, so nothing about the cost moved; nothing in the library ties a `Custom` arm's declared defaults to any source technology's unit, so if yours differ, the cost moves with them. Put both halves in the changelog beside the arm.
+**And why withdrawing a value costs the same.** The engine's rule is about the running release's `allowed_values` and nothing else, so removing a value a release already shipped is the same defect run backwards: a player who stored that value and updates has it reset to the default, silently and permanently, exactly as a player who stored a new value and rolls back does. Nothing in the library can tell the two directions apart, because a declaration says which values exist now and never says which ones existed before. If you have already shipped a dropdown value and want it gone, the withdrawal belongs in your release notes, naming the value and what a player who was on it will find instead.
 
-One rule that reaches a migrated `CostBy` whether or not it takes a `Custom` arm: a `Fallback` unit must name at least one science pack, because a unit declared with none is refused at plan time even when no ladder ever reaches it. The pack is a ladder, so a fallback that names `automation-science-pack` with a rung behind it survives a modpack that renames the pack. A `CostBy` dropdown takes a `Custom` arm the same way, with a `PacksSetting`, an int setting for the count, a double setting for the seconds and a `Position` ladder for the prerequisite. Those three settings want to sit under their dropdown, and with a legacy order `b` on the dropdown they would not: their generated orders would sort between `a` and `b`, above it. `OrderAfter("b")` before the three declarations gives them `bad`, `bae` and `baf`, under `b` and before `c`.
+## A research cost the player can reprice
+
+A `CostBy` dropdown takes the same treatment, with `CostFrom` beside it: the dropdown chooses a tier and the three settings overwrite that tier's numbers one field at a time, so a field left at its declared default comes from the tier and a player who touches nothing gets the tier byte for byte. Beside a dropdown, 0 is what a number says instead of the reserved word, so the count and the seconds settings each declare a default of 0, a minimum of 0 and a maximum. **The tier still places the technology**, so nothing about the tree moves when a player reprices the research: the source whose cost the tier names is the prerequisite whatever the settings say.
+
+One rule reaches a migrated `CostBy` either way: a `Fallback` unit must name at least one science pack, because a unit declared with none is refused at plan time even when no ladder ever reaches it. The pack is a ladder, so a fallback that names `automation-science-pack` with a rung behind it survives a modpack that renames the pack. The three settings want to sit under their dropdown, and with a legacy order `b` on the dropdown they would not: their generated orders would sort between `a` and `b`, above it. `OrderAfter("b")` before the three declarations gives them `bad`, `bae` and `baf`, under `b` and before `c`.
 
 ## A worked example: BetterBeltBalancer
 
@@ -321,32 +326,32 @@ Given the hand-rolled list, the checker knows every setting name the mod has and
 
 The two startup dropdowns are what `IngredientsBy` and `CostBy` are for. `bbb-recipe-cost` selects the ingredients of the balancer recipes, which is an ingredient plan per value. `bbb-tech-cost` selects which vanilla logistics technology the balancer research is priced from, which is a one-rung ladder per value, and under `CostBy` it also makes that technology the prerequisite, so the research lands where its price says it should.
 
-The customizer arrived in the mod's third round on this library, and its four settings are where the ordering rule bites. `bbb-recipe-cost` gained a seventh value, `custom`, and a text setting beside it; `bbb-tech-cost` gained a fourth, with a pack text, a count and a seconds setting beside it, a `Position` ladder of `logistics-3`, `logistics-2`, `logistics`, and the three fields defaulting to the fallback unit so an untouched `custom` is the base game's Logistics cost. The mod shipped those four as `Legacy` settings under hand-written `bbb-` names and orders (`aa`, `ba`, `bb`, `bc`), because at the time a generated setting's order came only from its declaration index and no ordering of the declarations could put the three research fields under their dropdown. With `OrderAfter` the same layout is reached with generated names:
+The customizer arrived in the mod's third round on this library, and its four settings are where the ordering rule bites. `bbb-recipe-cost` gained a text setting beside it, its own option list untouched; `bbb-tech-cost` gained a pack text, a count and a seconds setting beside it, the two numbers defaulting to 0 so that an untouched pair leaves the chosen tier deciding. The mod shipped those four as `Legacy` settings under hand-written `bbb-` names and orders (`aa`, `ba`, `bb`, `bc`), because at the time a generated setting's order came only from its declaration index and no ordering of the declarations could put the three research fields under their dropdown. With `OrderAfter` the same layout is reached with generated names:
 
 ```go
 recipeCost := lib.LegacyDropdownSettingNeedingLocale("bbb-recipe-cost", "vanilla",
-	[]string{"vanilla", "cheap", "belt-fast", "belt-express", "splitter", "splitter-express", "custom"}, "a")
+	[]string{"vanilla", "cheap", "belt-fast", "belt-express", "splitter", "splitter-express"}, "a")
 lib.OrderAfter("a")
 recipeIngredients := lib.IngredientsSetting("recipe-ingredients", vanillaIngredients) // aab
 techCost := lib.LegacyDropdownSettingNeedingLocale("bbb-tech-cost", "logistics",
-	[]string{"logistics", "logistics-2", "logistics-3", "custom"}, "b")
+	[]string{"logistics", "logistics-2", "logistics-3"}, "b")
 lib.OrderAfter("b")
 techPacks := lib.PacksSetting("tech-packs", []fkrecipes.Pack{{Name: "automation-science-pack", Amount: 1}}) // bad
-techCount := lib.IntSetting("tech-count", 20, fkrecipes.Between(1, 1000000))                                  // bae
-techSeconds := lib.DoubleSetting("tech-seconds", 15, fkrecipes.Between(1, 3600))                              // baf
+techCount := lib.IntSetting("tech-count", 0, fkrecipes.Between(0, 1000000))                                   // bae
+techSeconds := lib.IntSetting("tech-seconds", 0, fkrecipes.Between(0, 3600))                                  // baf
 ```
 
 ```rust
 let recipe_cost = lib.legacy_dropdown_setting_needing_locale("bbb-recipe-cost", "vanilla",
-    &["vanilla", "cheap", "belt-fast", "belt-express", "splitter", "splitter-express", "custom"], "a");
+    &["vanilla", "cheap", "belt-fast", "belt-express", "splitter", "splitter-express"], "a");
 lib.order_after("a");
 let recipe_ingredients = lib.ingredients_setting("recipe-ingredients", vanilla_ingredients); // aab
 let tech_cost = lib.legacy_dropdown_setting_needing_locale("bbb-tech-cost", "logistics",
-    &["logistics", "logistics-2", "logistics-3", "custom"], "b");
+    &["logistics", "logistics-2", "logistics-3"], "b");
 lib.order_after("b");
 let tech_packs = lib.packs_setting("tech-packs", vec![Pack::new("automation-science-pack", 1)]); // bad
-let tech_count = lib.int_setting("tech-count", 20, NumericSpec::between(1.0, 1000000.0));        // bae
-let tech_seconds = lib.double_setting("tech-seconds", 15.0, NumericSpec::between(1.0, 3600.0));  // baf
+let tech_count = lib.int_setting("tech-count", 0, NumericSpec::between(0.0, 1000000.0));         // bae
+let tech_seconds = lib.int_setting("tech-seconds", 0, NumericSpec::between(0.0, 3600.0));       // baf
 ```
 
 The screen then reads `a`, `aab`, `b`, `bad`, `bae`, `baf`: the recipe dropdown, its text, the research dropdown, its three fields. The names are `better-belt-balancer-recipe-ingredients` and so on, prefixed from the packaged mod name, and the locale entries follow those names. The `Legacy` text and numeric constructors remain the way to keep both a name and an order a mod already ships; for a setting no player has stored yet, the generated name with `OrderAfter` costs nothing to rename later. One rule reaches a mixed plan whether or not it calls `OrderAfter`: a generated order equal to a legacy one is refused by name, so a mod whose legacy orders happen to be two letters (`aa` beside a first declaration, or `ba` beside a twenty-seventh) meets that refusal on updating and gives one side an order of its own.
@@ -360,21 +365,47 @@ Nothing forces an all-at-once move. A plan may mix legacy and generated settings
 3. Use `IngredientsBy` and `CostBy` where a setting was driving a hand-rolled branch. This is the step that changes something, so it is the step whose hash is expected to move.
 4. Run `CheckLocaleWith` from your own test suite against the `.cfg` you already ship, passing the settings you still declare by hand. It should be clean, because the names have not moved, and anything it does report is a leftover the migration created. `LocaleEntries` reads the same file for assertions of your own, such as the entity name entry this library knows nothing about.
 5. Add new settings and prototypes with the generated constructors. Those get the prefix and a derived order, and they cost nothing to rename later because no save has ever seen them. Call `OrderAfter` first when the new settings must sit under a legacy one, because a derived order sorts among legacy orders by the alphabet, not by the declaration.
-6. Give a dropdown of presets a `custom` arm, as described above, when the mod is ready to let the player write the recipe. Stored preferences survive because the dropdown keeps its name and every value it had.
+6. Put a text setting beside a dropdown of presets, as described above, when the mod is ready to let the player write the recipe. Stored preferences survive untouched, because the dropdown keeps its name and its exact option list.
 
 Steps 1 and 2 are meant to be hash-neutral, which is what makes them safe to ship on their own. Steps 3 and 6 are where behaviour changes, and separating them is what lets a bisect say which one did it.
 
+## Changing a setting's type under a name you already ship
+
+A name is what Factorio preserves, and it preserves the name whatever type the declaration gives it. So redeclaring an existing setting as a different type is not a rename and does not reset anybody: the stored value is read back through the new type's rules, and what happens next is silent in every path.
+
+Measured on Factorio 2.0.77, with an `int-setting` declared under a name whose stored value is a double, minimum 0, maximum 600 and a declared default of 100:
+
+| Stored value | What the engine logged | Exit | What the mod read | The file after the load |
+|---|---|---|---|---|
+| `45.0` | nothing | 0 | `45` | rewritten, now encoded as a signed int |
+| `7.5` | nothing | 0 | `7` | rewritten as `7` |
+| `-0.5`, below the new minimum | nothing | 0 | `0` | rewritten as `0` |
+| `1200.5`, above the new maximum | nothing | 0 | `100`, the declared default | rewritten as `100` |
+
+The rule behind those four rows: the double is truncated toward zero (`-5.5` becomes `-5`, `599.5` becomes `599`), then range checked; in range it is kept and out of range the declared default applies. Nothing is logged in any path and the load always succeeds, so the first successful load rewrites the file and the fractional part is gone for good.
+
+The library cannot warn about this and neither can you. By the time the data stage runs it is handed `7`, with nothing marking it as having been `7.5`, and the engine's own type-mismatch check fires only on a genuine kind mismatch (a string stored under a number), not on a double stored under an int. What an author can do is say so: a whole number survives the change, a fractional one is truncated silently and permanently, and that belongs in the release note for the version that makes the change.
+
+The reverse direction is safe by comparison: an `int-setting` redeclared as a `double-setting` reads every stored value back unchanged.
+
 ## Upgrading a mod that has already adopted the library
 
-What compiles is not what passes. The declaration surface is stable across a library upgrade, so your declarations compile unchanged and a green build tells you nothing about what moved; your own test suite is where an upgrade lands, because a suite pins the messages the library writes and the prototypes it emits rather than the API it offers. A suite written against an older version can go red in a number, in a whole assertion, and in the name of the test itself.
+What compiles is not what passes, and with this version, what compiles is not everything either.
 
-Five behaviours are the ones a suite is most likely to have pinned. Each is stated as the failure it produces, so a red test can be matched against it:
+**Six declarations no longer compile**, and the break is intended: the state "the player's own list is in force" moved out of a dropdown value and into the text setting itself, so the arm that used to carry it is gone. In Go: `IngredientChoices.Custom`, `IngredientChoices.CustomValue`, `CostChoices.Custom`, `CostChoices.CustomValue` and `CustomCost.Position` are removed, and `CustomCost.Seconds` takes an `IntSettingRef` where it took a `DoubleSettingRef`. In Rust the same six, under `custom`, `custom_value`, `position` and `seconds`; the three struct literals fail with `E0560: struct has no field named 'custom'`. [Adding a customizer to a dropdown you already ship](#adding-a-customizer-to-a-dropdown-you-already-ship) has the shape that replaces them, and the dropdown keeps its exact option list through the change.
+
+**One locale entry becomes an orphan.** With no `custom` value in the dropdown, `CheckLocaleWith` no longer requires `string-mod-setting.<dropdown>-custom`, and an entry you already ship for it is reported as matching no dropdown value this plan declares. Delete the line rather than debugging the report.
+
+Past those, the declaration surface is stable across a library upgrade, so the rest of your declarations compile unchanged and a green build tells you nothing about what moved; your own test suite is where an upgrade lands, because a suite pins the messages the library writes and the prototypes it emits rather than the API it offers. A suite written against an older version can go red in a number, in a whole assertion, and in the name of the test itself.
+
+Six behaviours are the ones a suite is most likely to have pinned. Each is stated as the failure it produces, so a red test can be matched against it:
 
 - **A stored text the library cannot use falls back instead of refusing the load.** The whole typed list is set aside, your declared list applies, and one `fkrecipes: ERROR: ` line names the setting and the reason, so a test named for a refusal is asserting the opposite of what happens. [Ingredients the player writes](usage.md#ingredients-the-player-writes) has the rule and the one case that still stops the load.
 - **A ladder that lands twice on one name merges rather than emitting a list the engine refuses.** The amounts are added into the first occurrence, which keeps its place, and a line records it: an item line names both amounts, a fluid line names the ladder that landed on the name. A test expecting a duplicate entry, a dropped second landing or a failed load therefore sees a shorter list and one more log line. [Ingredients, and the resolve-or-drop contract](usage.md#ingredients-and-the-resolve-or-drop-contract) has both lines and the added-amount ceilings that do still refuse.
 - **Nothing is deleted from a text.** Spaces, tabs, line breaks and the four spaces a word processor produces separate words; every other character with no visible shape of its own is refused by its code point wherever it sits, and every message that quotes a piece of a player's text writes each invisible character in it as `U+XXXX`, so a test asserting that a text was silently stripped, or expecting a quoted blank, moves. [The ingredient list](ingredient-list.md) has the whole set and the message shape.
 - **The reserved words `default` and `none` are matched without regard to ASCII case.** `Default` and `DEFAULT` are the word rather than an item name, so a test that read a capitalised spelling as a name moves. [The ingredient list](ingredient-list.md) also says how to name an item that really is called one of them.
-- **A composed description carries more than the entry you wrote.** A text setting's description holds two library sentences under the default line, and an ingredient dropdown's preset is two lines, your localised label and then an indented line opening with `type:`. A test that transcribes a setting prototype moves with them, and so does any hash you keep over the engine's settings dump; a hash over `data.raw` does not move, because no preset's ingredient plan changed.
+- **A recipe or technology whose stored setting value could not be used carries a `localised_description` it did not carry before.** One trailing line names the setting and points at the log, joined onto your own description when you declared one and standing alone when you did not, so the player hovering the recipe or the technology in the game reads why it is not what they typed. A test that transcribes such a prototype moves, and so does a hash over `data.raw` taken in a state where something falls back; a prototype nothing fell back on is byte for byte what it was. A fallback on a recipe's ingredient text carries one sentence more, because changing a recipe empties an assembling machine's input slots of anything the new list does not use and that is worth saying before a player acts on it; a crafting time, a pack text and a research number carry the first sentence alone, because none of them changes what the recipe is made of.
+- **A composed description carries more than the entry you wrote.** A text setting's description holds three library sentences under the default line, and an ingredient dropdown's preset is two lines, your localised label and then an indented line opening with `type:`. A test that transcribes a setting prototype moves with them, and so does any hash you keep over the engine's settings dump; a hash over `data.raw` does not move, because no preset's ingredient plan changed.
 
 One more line joins the log stream and belongs on the same list: a recipe whose resolved ingredient list names its own product is emitted as it resolved and logs one line saying that nothing can craft the first one, so a suite asserting a transcript line by line gains a line. The wording and the three shapes that produce it are under [Ingredients, and the resolve-or-drop contract](usage.md#ingredients-and-the-resolve-or-drop-contract).
 

@@ -81,7 +81,7 @@ type Lib struct {
 	// customCost is resolveCustomCost held the same way, and packsSetting
 	// alone installs it: a CustomCost names a PacksSettingRef, so a plan that
 	// never called that constructor can never reach a custom cost.
-	customCost func(l *Lib, w, text World, res *resolution, prefix string, t techDecl, c *CustomCost) Value
+	customCost func(l *Lib, w, text World, res *resolution, prefix string, t techDecl, c *CustomCost, tier costTier, tgt noteTarget) (Value, bool)
 
 	// orderPrefix is the order string OrderAfter last named, and it is the
 	// one every GENERATED setting declared from here on extends. It is
@@ -374,10 +374,9 @@ func (l *Lib) DropdownSettingNeedingLocale(name string, def string, values []str
 // declares, with its ladders" across releases, and the declared list is
 // written out in the setting's description so the player can copy it.
 //
-// The list is bound to exactly one recipe, through RecipeSpec.IngredientsFrom
-// or as the Custom arm of an IngredientChoices dropdown. A setting nothing
-// reads is refused: a field the player can edit that changes nothing is a
-// declaration mistake, not a feature.
+// The list is bound to exactly one recipe, through RecipeSpec.IngredientsFrom.
+// A setting nothing reads is refused: a field the player can edit that changes
+// nothing is a declaration mistake, not a feature.
 func (l *Lib) IngredientsSetting(name string, def []Ingredient) IngredientsSettingRef {
 	return l.ingredientsSetting(name, false, def, "")
 }
@@ -413,9 +412,8 @@ func (l *Lib) ingredientsSetting(name string, legacy bool, def []Ingredient, ord
 // the word none is refused: a research with no packs is not something this
 // library emits on an author's behalf.
 //
-// It is bound through TechSpec.CostFrom or as the Custom arm of a CostChoices
-// dropdown, together with an int setting for the count and a double setting
-// for the seconds. See CustomCost.
+// It is bound through TechSpec.CostFrom, together with an int setting for the
+// count and one for the seconds. See CustomCost.
 func (l *Lib) PacksSetting(name string, def []Pack) PacksSettingRef {
 	return l.packsSetting(name, false, def, "")
 }
@@ -448,29 +446,34 @@ func (l *Lib) packsSetting(name string, legacy bool, def []Pack, order string) P
 }
 
 // CustomCost is a research cost with its three numbers in the PLAYER's hands:
-// the science packs as a text setting, the count as an int setting and the
-// seconds as a double setting.
+// the science packs as a text setting, the count and the seconds as int
+// settings.
 //
-// THE TWO NUMERIC SETTINGS MUST DECLARE MINIMA, and the library refuses a
-// CustomCost whose settings do not: the engine refuses a unit with a count of
-// 0 ("ResearchIngredient's amount must not be 0" for a pack, "time must be
+// EVERY NON-DEFAULT FIELD IS LIVE, ONE FIELD AT A TIME. The cost is the
+// player's whenever any of the three is not at its declared default; the ones
+// left at their default come from the technology's CostBy tier where there is
+// one, and from the settings' own declared defaults where there is not.
+// Nothing here is ever "edited but ignored".
+//
+// WHAT THE TWO NUMERIC SETTINGS MUST DECLARE DEPENDS ON WHETHER THERE IS A
+// TIER, and the library refuses a CustomCost whose settings do not. Beside a
+// CostBy dropdown each of them declares a default of 0, a minimum of 0 and a
+// maximum: 0 is the word default of a number, and it means the dropdown
+// decides. With no dropdown there is nothing to defer to, so each declares a
+// minimum of at least 1 and a maximum. The engine refuses a unit with a count
+// of 0 ("ResearchIngredient's amount must not be 0" for a pack, "time must be
 // positive" for the time, both measured), and a numeric setting whose stored
 // value falls outside its own bounds is RESET to the default rather than
-// clamped (measured). A minimum of at least 1 on the count and above 0 on the
-// seconds is therefore what makes every value the data stage can read legal,
-// without the data stage having to guess what to do with an illegal one.
+// clamped (measured), so those bounds are what make every value the data stage
+// can read a legal one.
 //
-// Position is the prerequisite ladder, and it belongs to a Custom arm: under
-// CostChoices.Custom the chosen tier's source technology would have been the
-// prerequisite, so the custom arm names its own ladder and the first rung the
-// game has becomes the sole prerequisite. Under TechSpec.CostFrom the ordinary
-// placement fields say where the technology goes, and a Position there is
-// refused rather than quietly ignored.
+// THE SECONDS ARE AN INT SETTING and not a double, because the field carries a
+// research time in whole seconds and a slider the player drags is easier to
+// land on a whole number than on a fraction.
 type CustomCost struct {
-	Packs    PacksSettingRef
-	Count    IntSettingRef
-	Seconds  DoubleSettingRef
-	Position []string
+	Packs   PacksSettingRef
+	Count   IntSettingRef
+	Seconds IntSettingRef
 }
 
 // ItemSpec describes a generated item prototype. The integer fields are
@@ -629,30 +632,19 @@ type IngredientChoice struct {
 // things another mod provides. A chosen plan that resolves to nothing falls
 // back to the DEFAULT option's plan, with a line saying so, rather than
 // emitting a recipe made of nothing.
+//
+// THE DROPDOWN'S OPTION LIST IS EXACTLY WHAT THE AUTHOR DECLARED, and this
+// library adds no value of its own to it. A recipe that also names
+// IngredientsFrom hands the list to the player whenever that text does not say
+// default, and the dropdown decides whenever it does; see RecipeSpec.
+// IngredientsFrom. That is what makes adopting the customizer on a dropdown a
+// mod already ships an identity: no stored choice changes meaning, and a
+// release that drops the text setting again loses nothing, because the engine
+// RESETS a stored value a dropdown no longer offers and keeps a setting no
+// release declares (both measured on 2.0.77).
 type IngredientChoices struct {
 	Setting DropdownSettingRef
 	Choices []IngredientChoice
-
-	// CustomValue is the dropdown value that hands the ingredients to a text
-	// setting the player writes. Empty means the word custom.
-	//
-	// IT IS A FIELD RATHER THAN A CONSTANT because a mod that already ships a
-	// dropdown may already have a value literally named custom, and Factorio
-	// keys a stored choice by its value: renaming one discards what every
-	// player had chosen, which is exactly the loss the migration path exists to
-	// avoid. This commit declares the field and copies it; the commit that
-	// binds a text setting is where it starts selecting anything.
-	CustomValue string
-
-	// Custom hands the ingredients to a text setting the player writes, under
-	// the value CustomValue names. The dropdown lists that value and Choices
-	// do NOT cover it: it is the one value with no author-written plan behind
-	// it.
-	//
-	// The zero handle is no custom arm at all, and then the dropdown may not
-	// list a value named custom: a player choosing it would get a recipe made
-	// of nothing.
-	Custom IngredientsSettingRef
 }
 
 // CostChoice is one dropdown value and the technologies whose cost it selects,
@@ -672,22 +664,15 @@ type CostChoice struct {
 // Fallback is what applies when no source in the chosen ladder carries a unit
 // this library can copy. It is a hand-rolled cost, validated exactly like one,
 // and a technology that falls back has no prerequisite at all.
+//
+// THE OPTION LIST IS EXACTLY WHAT THE AUTHOR DECLARED, as IngredientChoices'
+// is. A technology that also names CostFrom lets the player overwrite the
+// tier's three numbers one field at a time, and the tier supplies whatever is
+// left at its default; see TechSpec.CostFrom and CustomCost.
 type CostChoices struct {
 	Setting  DropdownSettingRef
 	Choices  []CostChoice
 	Fallback UnitSpec
-
-	// CustomValue is the dropdown value that hands the research cost to
-	// settings the player writes. Empty means the word custom, and it is a
-	// field for the same reason IngredientChoices.CustomValue is one.
-	CustomValue string
-
-	// Custom hands the research cost to settings the player writes, under the
-	// value CustomValue names, exactly as IngredientChoices.Custom does for a
-	// recipe. Its Position is REQUIRED, because a chosen tier's source
-	// technology would have been the prerequisite and the custom arm has no
-	// source to take one from.
-	Custom *CustomCost
 }
 
 // RecipeSpec describes a generated recipe prototype.
@@ -705,11 +690,11 @@ type RecipeSpec struct {
 	CraftTime     float64
 	CraftTimeFrom DoubleSettingRef
 
-	// Exactly one of Ingredients, IngredientsBy and IngredientsFrom, or none
-	// of them. Ingredients is one fixed list; IngredientsBy lets a dropdown
-	// setting choose between several; IngredientsFrom hands the whole list to
-	// a text setting the PLAYER writes, in the language
-	// docs/ingredient-list.md describes.
+	// Ingredients is one fixed list and combines with neither of the other
+	// two. IngredientsBy lets a dropdown setting choose between several;
+	// IngredientsFrom hands the whole list to a text setting the PLAYER
+	// writes, in the language docs/ingredient-list.md describes; and the two
+	// of them TOGETHER is the ordinary customizable recipe.
 	IngredientsBy *IngredientChoices
 	Ingredients   []Ingredient
 
@@ -717,6 +702,13 @@ type RecipeSpec struct {
 	// handle means absent. See IngredientsSetting: the setting's text starts
 	// out as the word default, which means the list declared there with its
 	// ladders.
+	//
+	// THE TEXT IS THE SWITCH. Whenever it does not say default the list the
+	// player wrote is what the recipe is made of, and the dropdown beside it,
+	// if there is one, is set aside with a line saying so. Whenever it does
+	// say default the dropdown decides, or the setting's own declared list
+	// applies where there is no dropdown. A text the language refuses behaves
+	// exactly as default does, with one ERROR line naming the setting.
 	IngredientsFrom IngredientsSettingRef
 	ResultCount     int64 // zero means 1
 	Category        string
@@ -843,12 +835,17 @@ type TechSpec struct {
 	Icon     string
 	IconSize int64
 
-	// Exactly one of CostOf, Unit, CostBy and CostFrom. CostOf copies a named
-	// technology's whole unit verbatim, count_formula and all. CostBy lets a
-	// dropdown setting choose between several sources, and places the
-	// technology as well: see CostChoices. CostFrom is Unit with its three
-	// numbers in the player's hands, placed by the ordinary placement fields:
-	// see CustomCost.
+	// CostOf copies a named technology's whole unit verbatim, count_formula
+	// and all. Unit is the hand-rolled cost. CostBy lets a dropdown setting
+	// choose between several sources, and places the technology as well: see
+	// CostChoices. CostFrom puts the cost's three numbers in the player's
+	// hands: see CustomCost.
+	//
+	// CostOf, Unit and the CostBy/CostFrom pair are EXCLUSIVE, and CostBy and
+	// CostFrom are the one combination: the dropdown is the tier and the three
+	// settings overwrite it field by field. CostFrom alone is placed by the
+	// ordinary placement fields; beside a CostBy the tier's own source
+	// technology is the prerequisite, as it is for every other CostBy.
 	CostOf   string
 	Unit     *UnitSpec
 	CostBy   *CostChoices
@@ -1163,19 +1160,17 @@ func copyCostChoices(in *CostChoices) *CostChoices {
 		out.Choices[i] = c
 	}
 	out.Fallback.Packs = copyPacks(in.Fallback.Packs)
-	out.Custom = copyCustomCost(in.Custom)
 	return &out
 }
 
 // copyCustomCost snapshots a custom research cost. The three handles are flat
-// values; Position is the caller's slice and is copied for the same reason
-// every other declared slice is.
+// values, so the pointer is what is copied: the caller keeps their own struct
+// after Technology returns.
 func copyCustomCost(in *CustomCost) *CustomCost {
 	if in == nil {
 		return nil
 	}
 	out := *in
-	out.Position = copyStrings(in.Position)
 	return &out
 }
 
@@ -1204,71 +1199,4 @@ func (l *Lib) validIngredientsSetting(r IngredientsSettingRef) bool {
 func (l *Lib) validPacksSetting(r PacksSettingRef) bool {
 	return r.lib == l.id && r.index >= 1 && r.index <= len(l.settings) &&
 		l.settings[r.index-1].kind == settingPacks
-}
-
-// customValue is the dropdown value a Custom arm answers to. Empty means the
-// word custom, which is what almost every mod will use; the field exists for
-// the mod that already ships a preset under that name and would lose every
-// stored preference by renaming it.
-func (c *IngredientChoices) customValue() string {
-	if c.CustomValue == "" {
-		return defaultCustomValue
-	}
-	return c.CustomValue
-}
-
-func (c *CostChoices) customValue() string {
-	if c.CustomValue == "" {
-		return defaultCustomValue
-	}
-	return c.CustomValue
-}
-
-// defaultCustomValue is the dropdown value a Custom arm takes when the author
-// names none, and the value a dropdown WITHOUT an arm may not offer.
-const defaultCustomValue = "custom"
-
-// coversValue reports whether an author-written choice already claims a value.
-func coversIngredientValue(choices []IngredientChoice, value string) bool {
-	for _, c := range choices {
-		if c.Value == value {
-			return true
-		}
-	}
-	return false
-}
-
-func coversCostValue(choices []CostChoice, value string) bool {
-	for _, c := range choices {
-		if c.Value == value {
-			return true
-		}
-	}
-	return false
-}
-
-// countValue is how many times a dropdown offers a value. The Custom arm needs
-// exactly one: none is an arm nothing can select, and two is an allowed_values
-// list the engine would keep the last of.
-func countValue(values []string, want string) int {
-	n := 0
-	for _, v := range values {
-		if v == want {
-			n++
-		}
-	}
-	return n
-}
-
-// withoutValue is the allowed-value list a Custom arm's Choices are compared
-// against: every value but the one the arm answers to.
-func withoutValue(values []string, drop string) []string {
-	out := make([]string, 0, len(values))
-	for _, v := range values {
-		if v == drop {
-			continue
-		}
-		out = append(out, v)
-	}
-	return out
 }

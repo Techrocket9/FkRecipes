@@ -1,14 +1,15 @@
 {
-  "comment": "The FLIPPED row of the in-game gate: what a player who opened the Mod Settings screen and typed did. Every name here but one is a stock base 2.0 item, fluid or science pack, so the row loads on an install with no other mod. quench-medium goes to custom and its text names a FLUID, which is legal only because the quenching recipe is crafting-with-fluid; tips-research-tier goes to custom, which is the arm that prices a research out of three settings and places it by its own Position ladder; and chain-links goes to the long PRESET while chain-ingredients is left untouched, so the row also covers a text nobody edited. tips-count is spelled whole and tips-seconds with a fraction, so the file carries the signed 64-bit encoding and the double encoding into the same engine run. rivet-ingredients is the whole list of a recipe with no dropdown in front of it, taken as written. tips-packs is THE TYPO: a science pack the game does not have. A refused player text no longer stops the load, so this row is what says so on a real engine: it must exit 0, price the research on the packs the mod declared, and carry one ERROR line naming the setting. Before that decision this file could hold no such text at all, because the run it produced was a failed load. The mirror puts its refused text in an INGREDIENT list and its accepted pack list in the other pack setting, so between the two gates both of the language's list kinds are covered on both sides of the fallback.",
+  "comment": "The FLIPPED row of the in-game gate: what a player who opened the Mod Settings screen and typed did. Every name here but one is a stock base 2.0 item, fluid or science pack, so the row loads on an install with no other mod. It is the COMPLEMENT of the mirror's stand-in table, field by field: quench-medium sits on the oil PRESET with its text left alone, where the mirror types into that text and sets the same choice aside; chain-links sits on the long preset with a text that OVERRIDES it, carrying a fluid and a fractional amount, where the mirror leaves that text alone; and the research cost is overridden WHOLE here, count, time and pack text together, where the mirror moves one field and lets the military tier supply the other two. rivet-ingredients is the whole list of a recipe with no dropdown in front of it, taken as written, where the mirror puts a text the language refuses in the same field. tips-count is spelled whole and forging-time with a fraction, so the file carries the signed 64-bit encoding and the double encoding into the same engine run. tips-packs is THE TYPO: a science pack the game does not have. A refused player text no longer stops the load, so this row is what says so on a real engine: it must exit 0, price the research on the packs the MILITARY TIER carries, and carry one ERROR line naming the setting. Before that decision this file could hold no such text at all, because the run it produced was a failed load.",
   "version": [2, 0, 77, 0],
   "startup": {
-    "fkrecipes-example-quench-medium": "custom",
-    "fkrecipes-example-quench-ingredients": "1 steel-plate, 10 water",
-    "fkrecipes-example-tips-research-tier": "custom",
+    "fkrecipes-example-forging-time": 7.5,
+    "fkrecipes-example-quench-medium": "oil",
+    "fkrecipes-example-tips-research-tier": "military",
     "fkrecipes-example-tips-packs": "2 automation-science-pack, 1 militar-science-pack",
     "fkrecipes-example-tips-count": 40,
-    "fkrecipes-example-tips-seconds": 20.0,
+    "fkrecipes-example-tips-seconds": 20,
     "fkrecipes-example-rivet-ingredients": "2 iron-stick, 1 steel-plate",
-    "fkrecipes-example-chain-links": "long"
+    "fkrecipes-example-chain-links": "long",
+    "fkrecipes-example-chain-ingredients": "2 fkrecipes-example-steel-rivet, [fluid=water] x0.5"
   }
 }

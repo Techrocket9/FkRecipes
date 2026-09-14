@@ -10,8 +10,9 @@ use crate::value::{Value, MAX_EXACT_INT};
 // same lines from the same plan, which is what "the two halves agree" means
 // before the packaged mirror harness exists to say it in Lua.
 
-/// The two lines this library composes onto EVERY text setting's description,
-/// after the default list: what to write and how much of it, then what a text
+/// The three lines this library composes onto EVERY text setting's
+/// description, after the default list: what to write and how much of it,
+/// which field decides while this one says the reserved word, and what a text
 /// it cannot use costs.
 ///
 /// SPELLED OUT HERE RATHER THAN TAKEN FROM THE SOURCE, which is the whole
@@ -25,11 +26,34 @@ use crate::value::{Value, MAX_EXACT_INT};
 /// constant the way the Go twin's `+` does.
 pub(crate) const WANT_TEXT_TAIL: &str = concat!(
     r#", "\nWrite internal names, as the default line above does, in at most 2000 characters.""#,
+    r#", "\nWhile this says default this mod's own list applies.""#,
+    r#", "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway.""#
+);
+
+/// The same tail on a text setting that has a DROPDOWN beside it: the switch
+/// line names which way the settings screen sorts the two.
+pub(crate) const WANT_TEXT_TAIL_ABOVE: &str = concat!(
+    r#", "\nWrite internal names, as the default line above does, in at most 2000 characters.""#,
+    r#", "\nWhile this says default the option chosen above applies; anything else applies instead of it.""#,
+    r#", "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway.""#
+);
+
+/// The same tail again with the dropdown sorting BELOW the text setting, which
+/// is what a legacy dropdown ordered after a generated setting produces.
+pub(crate) const WANT_TEXT_TAIL_BELOW: &str = concat!(
+    r#", "\nWrite internal names, as the default line above does, in at most 2000 characters.""#,
+    r#", "\nWhile this says default the option chosen below applies; anything else applies instead of it.""#,
     r#", "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway.""#
 );
 
 /// What a golden writes where [`WANT_TEXT_TAIL`] belongs.
 pub(crate) const TEXT_TAIL: &str = "<text tail>";
+
+/// What a golden writes where [`WANT_TEXT_TAIL_ABOVE`] belongs.
+pub(crate) const TEXT_TAIL_ABOVE: &str = "<text tail above>";
+
+/// What a golden writes where [`WANT_TEXT_TAIL_BELOW`] belongs.
+pub(crate) const TEXT_TAIL_BELOW: &str = "<text tail below>";
 
 pub(crate) fn transcript(ops: &[Op]) -> Vec<String> {
     let mut lines = Vec::with_capacity(ops.len());
@@ -156,7 +180,12 @@ pub(crate) fn field(v: &Value, key: &str) -> Option<Value> {
 pub(crate) fn assert_composed(got: &[String], want: &[&str]) {
     let want: Vec<String> = want
         .iter()
-        .map(|w| w.replace(TEXT_TAIL, WANT_TEXT_TAIL).replace("\\n", "\n"))
+        .map(|w| {
+            w.replace(TEXT_TAIL_ABOVE, WANT_TEXT_TAIL_ABOVE)
+                .replace(TEXT_TAIL_BELOW, WANT_TEXT_TAIL_BELOW)
+                .replace(TEXT_TAIL, WANT_TEXT_TAIL)
+                .replace("\\n", "\n")
+        })
         .collect();
     let refs: Vec<&str> = want.iter().map(|s| s.as_str()).collect();
     assert_lines(got, &refs);
@@ -241,4 +270,25 @@ fn format_num_matches_the_go_mirror() {
     for (input, want) in cases {
         assert_eq!(format_num(input), want, "format_num({})", input);
     }
+}
+
+/// The `localised_description` one fallen-back prototype carries, in the shape
+/// a transcript shows it.
+///
+/// EVERY TRANSCRIPT COMPOSES IT RATHER THAN RETYPING THE SENTENCE, exactly as
+/// the fallback LINES are composed through `player_fallback`. The sentence
+/// itself is pinned by `fallback_note_shape` and the line by
+/// `player_fallback_line_shape`, so a drift in either is one failure with the
+/// whole text in it rather than thirty.
+pub(crate) fn note_in(setting: &str, destroys_inputs: bool) -> String {
+    format!(
+        r#"localised_description=["", "{}"], "#,
+        crate::data::fallback_note(setting, destroys_inputs)
+    )
+}
+
+/// One ERROR line with the tail a RECIPE'S INGREDIENT TEXT carries and no other
+/// fallback does.
+pub(crate) fn with_recipe_tail(line: &str) -> String {
+    format!("{} {}", line, crate::data::RECIPE_CHANGE_SENTENCE)
 }

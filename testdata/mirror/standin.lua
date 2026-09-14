@@ -318,13 +318,11 @@ data:extend{
              ingredients = { { "automation-science-pack", 1 },
                              { "logistic-science-pack", 1 },
                              { "military-science-pack", 1 } } } },
-  -- THE CUSTOM ARM'S PREREQUISITE LADDER. hardened-tips carries the ladder
-  -- military-2 then military under its Custom cost, because an arm with no
-  -- source technology has nowhere else to take a position from. This mirror
-  -- leaves that dropdown on the military PRESET, so the ladder is not walked
-  -- here (the flipped in-game row walks it); the rungs are present so the
-  -- stand-in can answer the question rather than answering "absent" by
-  -- accident the day the mirror does flip it.
+  -- TWO MORE MILITARY TECHNOLOGIES, present so the stand-in answers the
+  -- question rather than answering "absent" by accident: nothing in either
+  -- gate hangs hardened-tips off them now that the tier places it, and a
+  -- data.raw missing them would make a future ladder rung look absent when it
+  -- is only unmodelled.
   { type = "technology", name = "military",
     icon = "__base__/military.png", icon_size = 128,
     unit = { count = 10, time = 15,
@@ -353,33 +351,39 @@ print("--- DATA ---")
 -- has to come out hidden rather than absent, which is the design decision this
 -- golden pins. rivet-batch is left unset, which is a setting nothing reads.
 --
--- EVERY TEXT HERE IS AN EDITED ONE, never the reserved word default: the
--- in-game gate's default row already covers what default means, and a text
--- equal to it takes the author's declared list and leaves no line behind. What
--- this table is for is the other side of every one of those branches, and one
--- of them is a text the language REFUSES: that is a log line and the author's
--- own list rather than a load failure, and the composed line is pinned here.
+-- THIS TABLE IS THE COMPLEMENT OF THE IN-GAME GATE'S FLIPPED ROW, field by
+-- field: where that row leaves a text alone this one types into it, where that
+-- row types this one leaves the dropdown deciding, and the research cost that
+-- is overridden whole there is overridden by ONE FIELD here. Between the two
+-- gates every side of the switch is walked, and one of the two texts here is a
+-- list the language REFUSES: that is a log line and the author's own list
+-- rather than a load failure, and the composed line is pinned here.
 settings = { startup = {
   ["fkrecipes-example-hardened-tools"] = { value = false },
   ["fkrecipes-example-forging-time"] = { value = 7.5 },
+  -- THE TEXT WINS OVER A PRESET. The dropdown is on oil and the text setting
+  -- beside it says something else, so the list the player wrote is what the
+  -- recipe is made of and the log line carries the clause that says which
+  -- choice was set aside. The in-game gate leaves this same text ALONE with the
+  -- same dropdown on oil, so between the two gates both sides of one pair are
+  -- covered.
   ["fkrecipes-example-quench-medium"] = { value = "oil" },
-  -- EDITED, AND IGNORED, and that pair is the point. The dropdown above is on
-  -- a preset, so this text is not live; the library says so in the log rather
-  -- than letting a player edit a field and watch nothing happen. The flipped
-  -- in-game row puts the same dropdown on custom and reads the same setting
-  -- for real, so between the two gates both sides of the arm are covered.
   ["fkrecipes-example-quench-ingredients"] = { value = "2 steel-plate, 6 iron-stick" },
   -- Left ON, so the technology it gates comes out enabled with no hidden
   -- field at all: the other side of the switched-off branch above.
   ["fkrecipes-example-bonus-research"] = { value = true },
-  -- The MILITARY ladder, which the game's own default does not take: the
-  -- in-game gate runs on declared defaults and walks the projectile ladder
-  -- instead, so the two gates cover one branch each.
+  -- A PARTIAL CUSTOM COST. The MILITARY ladder is chosen, which the game's own
+  -- default does not take, and the count alone is moved: the time and the packs
+  -- come from that tier, and the line carries the clause that says so. The
+  -- in-game gate moves all three of tips-count, tips-seconds and tips-packs on
+  -- the same technology, so between the two gates the merge is covered whole
+  -- and per field.
+  --
+  -- tips-seconds and tips-packs are ABSENT here on purpose, which the stand-in
+  -- answers with nothing at all: an unreadable setting takes its declared
+  -- default and says so, and the two lines that say it are what the engine
+  -- never writes, because mod-settings.dat carries every setting's value.
   ["fkrecipes-example-tips-research-tier"] = { value = "military" },
-  -- A NUMBER MOVED UNDER A TIER. tips-research-tier stays on military, so
-  -- the custom cost is not live; the count is edited (its declared default is
-  -- 30) and the seconds and the pack text are left alone, so the transcript
-  -- carries exactly one ignored-number line and nothing for the other two.
   ["fkrecipes-example-tips-count"] = { value = 45 },
   -- Above the declared minimum of 0.5, so it is the value the player chose
   -- that reaches the recipe rather than any bound.
@@ -396,36 +400,21 @@ settings = { startup = {
   -- carries a list the language accepts, so one gate covers the refusal and the
   -- other the success on exactly the arm with no dropdown in front of it.
   ["fkrecipes-example-rivet-ingredients"] = { value = "3 steel-plate, 2 iron-stik" },
-  -- THE CUSTOM ARM OF A DROPDOWN, with a FLUID and a FRACTION in it. The chain
-  -- recipe is crafting-with-fluid, which is what makes the fluid legal
-  -- (measured: the crafting category refuses one), and the fraction is what
-  -- says a fluid amount is a double all the way through rather than an item
-  -- count wearing a decimal point.
-  --
-  -- AND IT NAMES THIS MOD'S OWN ITEM, which is the name the setting's own
-  -- composed description offers the player to copy. That text used to refuse,
-  -- because a player's text was resolved against data.raw and the plan's own
-  -- items are not extended yet; the planner resolves one against an overlay
-  -- that knows this plan's item names now, so the name the description shows is
-  -- a name the field takes.
-  --
-  -- THE ITEM IS PASTED VERBATIM out of that description, "4 fkrecipes-example-
-  -- steel-rivet", and the FLUID beside it is written in two of the forms the
-  -- language accepts that a mod author would never write: a rich-text tag and a
-  -- trailing amount. The canonical rendering in the log line is what says the
-  -- pasted name and both forms were understood.
-  ["fkrecipes-example-chain-links"] = { value = "custom" },
-  ["fkrecipes-example-chain-ingredients"] = { value = "4 fkrecipes-example-steel-rivet, [fluid=water] x0.5" },
-  -- A RESEARCH COST THE PLAYER PRICED AND THE LIBRARY TOOK: two packs in the
-  -- text, so the unit carries two short tuples that came out of a TYPED list
-  -- rather than out of a declaration, and the count and the seconds from their
-  -- own numeric settings, one of them fractional so the seconds are not an
-  -- integer that any formatter would agree on. The in-game gate puts a refused
-  -- text in a PACK list instead, so between the two gates both of the
-  -- language's list kinds are covered on both sides of the fallback.
+  -- THE DROPDOWN DECIDES, because the text setting beside it is untouched. The
+  -- long links are what the chain comes out of and nothing is logged about the
+  -- text at all; the in-game gate types into this same field with the same
+  -- dropdown on long, so between the two gates both sides of the switch are
+  -- covered on one pair.
+  ["fkrecipes-example-chain-links"] = { value = "long" },
+  -- A RESEARCH COST THE PLAYER PRICED AND THE LIBRARY TOOK, with no dropdown in
+  -- front of it: two packs in the text, so the unit carries two short tuples
+  -- that came out of a TYPED list rather than out of a declaration, and the
+  -- count and the seconds from their own numeric settings. The in-game gate
+  -- puts a refused text in a PACK list instead, so between the two gates both
+  -- of the language's list kinds are covered on both sides of the fallback.
   ["fkrecipes-example-chain-packs"] = { value = "2 automation-science-pack, 1 logistic-science-pack" },
   ["fkrecipes-example-chain-count"] = { value = 25 },
-  ["fkrecipes-example-chain-seconds"] = { value = 12.5 },
+  ["fkrecipes-example-chain-seconds"] = { value = 12 },
 } }
 require("data")
 

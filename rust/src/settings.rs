@@ -5,8 +5,7 @@ use alloc::vec::Vec;
 use crate::ingredient_list::{IngredientList, ListEntry, ListKind, ListText, DEFAULT, MAX_TEXT};
 use crate::op::Op;
 use crate::plan::{
-    custom_value, Amount, CostChoice, CostChoices, Ingredient, IngredientChoice, IngredientChoices,
-    Lib, Pack, RecipeDecl, SettingDecl, SettingKind, TechDecl, TechSpec,
+    Amount, CostChoice, Ingredient, IngredientChoice, Lib, Pack, SettingDecl, SettingKind, TechSpec,
 };
 use crate::value::{finite, kv, str_arr, Value, CRAFT_TIME_FLOOR, MAX_EXACT_INT};
 use crate::world::{Named, World};
@@ -41,13 +40,15 @@ impl Lib {
         self.validate_settings(&prefix, &bound)?;
         // THE SETTINGS STAGE VALIDATES BINDINGS TOO, and it has to: a text
         // setting's default is rendered into its description here, and a
-        // dropdown with a Custom arm has its whole preset list composed here.
+        // dropdown with a text setting beside it has its whole preset list
+        // composed here, and a research number its range.
         // Both read the recipes and technologies, so both need them well
         // formed. The two validators are shared with the data planner rather
         // than written twice.
         self.validate_bindings(&prefix)?;
         self.validate_text_settings(&prefix)?;
 
+        let numbers = self.research_number_settings();
         let mut ops = Vec::with_capacity(self.settings.len());
         for (i, s) in self.settings.iter().enumerate() {
             // A legacy setting carries the name and the order the mod
@@ -73,18 +74,26 @@ impl Lib {
             }
             if s.kind == SettingKind::Dropdown {
                 pairs.push(kv("allowed_values", str_arr(&s.values)));
-                // THE PRESETS, WRITTEN OUT, on the dropdown that offers the
-                // player a text of their own. The engine cannot pre-fill that
-                // text from the value they had (the settings stage sees no
-                // stored value, measured), so the next best thing is showing
-                // them what each preset means in the language they are about
-                // to type.
-                if let Some(arm) = self.custom_arm_for(&prefix, i + 1) {
+                // THE PRESETS, WRITTEN OUT, on the dropdown that has a text
+                // setting beside it. The engine cannot pre-fill that text from
+                // the value they had (the settings stage sees no stored value,
+                // measured), so the next best thing is showing them what each
+                // preset means in the language they are about to type.
+                if let Some(presets) = self.presets_beside_text(i + 1) {
                     pairs.push(kv(
                         "localised_description",
-                        self.dropdown_description(&prefix, &full, &arm),
+                        self.dropdown_description(&prefix, &full, &presets),
                     ));
                 }
+            }
+            // A RESEARCH NUMBER STATES ITS RANGE, and beside a research
+            // dropdown it states what 0 means: the settings screen shows a
+            // numeric field with no visible bounds and no way to guess that.
+            if numbers[i].bound {
+                pairs.push(kv(
+                    "localised_description",
+                    number_description(&full, &self.research_range_line(i, s, numbers[i].dropdown)),
+                ));
             }
             if is_text(s.kind) {
                 // MEASURED: auto_trim is a GUI behaviour and does not touch
@@ -95,7 +104,11 @@ impl Lib {
                 pairs.push(kv("auto_trim", Value::Bool(true)));
                 pairs.push(kv(
                     "localised_description",
-                    text_description(&full, &self.rendered_default(&prefix, s)),
+                    text_description(
+                        &full,
+                        &self.rendered_default(&prefix, s),
+                        &self.text_switch_line(i),
+                    ),
                 ));
             }
             ops.push(Op::Extend(Value::Map(pairs)));
@@ -352,118 +365,10 @@ impl Lib {
         Ok(())
     }
 
-    /// THE ONE WALK over a recipe's `IngredientsBy`, so the three readers of a
-    /// Custom arm cannot drift: [`Lib::validate_bindings`] raises the `Err` as
-    /// its refusal, [`Lib::custom_arm_for`] composes a description for exactly
-    /// the arms this answers `Some` for, and the locale checker asks for a
-    /// description for exactly those.
-    ///
-    /// `Ok(None)` is a recipe with no arm to compose from, INCLUDING one the
-    /// binding walk steps past. A recipe naming `Ingredients` beside
-    /// `IngredientsBy` is one of those: the data planner answers it with "pick
-    /// one", so nothing validates its choices, and rendering an unvalidated
-    /// choice would dereference an item handle nobody proved. That
-    /// dereference is a panic in the consumer's settings stage, which is why
-    /// this condition is written once instead of three times.
-    fn ingredients_arm<'a>(
-        &self,
-        prefix: &str,
-        r: &'a RecipeDecl,
-    ) -> Result<Option<&'a IngredientChoices>, String> {
-        let at = "fkrecipes: ";
-        let by = match &r.spec.ingredients_by {
-            Some(by) => by,
-            None => return Ok(None),
-        };
-        // The dropdown's own exclusivity with Ingredients is the data
-        // planner's sentence; nothing here may fire in front of it.
-        if !r.spec.ingredients.is_empty() {
-            return Ok(None);
-        }
-        if !self.valid_dropdown_setting(by.setting) {
-            return Err(format!(
-                "{}the recipe {} names an ingredients setting that this plan never declared",
-                at, r.name
-            ));
-        }
-        let setting = &self.settings[by.setting.index - 1];
-        let cv = custom_value(&by.custom_value);
-        let custom = match by.custom {
-            Some(h) => h,
-            None => {
-                // A VALUE WITH NOTHING BEHIND IT is the pilot's own defect: the
-                // player picks it and gets a recipe made of nothing, with no
-                // line in the log saying why. A value the Choices DO cover is
-                // an ordinary preset that happens to be spelled `custom`, and a
-                // mod that already ships one keeps it: renaming it would reset
-                // every player who had chosen it.
-                if count_value(&setting.values, cv) > 0 && !by.choices.iter().any(|c| c.value == cv)
-                {
-                    return Err(format!(
-                        "{}the setting {} offers {}, and the recipe {} names no Custom arm for it",
-                        at,
-                        setting.emitted_name(prefix),
-                        cv,
-                        r.name
-                    ));
-                }
-                return Ok(None);
-            }
-        };
-        if !self.valid_ingredients_setting(custom) {
-            return Err(format!(
-                "{}the recipe {} names a Custom ingredients setting that this plan never declared",
-                at, r.name
-            ));
-        }
-        Ok(Some(by))
-    }
-
-    /// The technology twin of [`Lib::ingredients_arm`], and the same contract:
-    /// one condition, three readers.
-    ///
-    /// THE "EXACTLY ONE COST SOURCE" STEP-PAST STAYS WITH THE VALIDATOR rather
-    /// than moving in here, and the difference is deliberate: that skip guards
-    /// the CostFrom branch as well, and a cost description composes nothing but
-    /// the choices' own strings, so a technology naming two cost sources has no
-    /// handle here to dereference.
-    fn cost_arm<'a>(
-        &self,
-        prefix: &str,
-        t: &'a TechDecl,
-    ) -> Result<Option<&'a CostChoices>, String> {
-        let at = "fkrecipes: ";
-        let by = match &t.spec.cost_by {
-            Some(by) => by,
-            None => return Ok(None),
-        };
-        if !self.valid_dropdown_setting(by.setting) {
-            return Err(format!(
-                "{}the technology {} names a cost setting that this plan never declared",
-                at, t.name
-            ));
-        }
-        let setting = &self.settings[by.setting.index - 1];
-        let cv = custom_value(&by.custom_value);
-        if by.custom.is_none() {
-            if count_value(&setting.values, cv) > 0 && !by.choices.iter().any(|c| c.value == cv) {
-                return Err(format!(
-                    "{}the setting {} offers {}, and the technology {} names no Custom arm for it",
-                    at,
-                    setting.emitted_name(prefix),
-                    cv,
-                    t.name
-                ));
-            }
-            return Ok(None);
-        }
-        Ok(Some(by))
-    }
-
     /// Every rule about how a text setting is BOUND, and both planners run
     /// it: the settings stage composes a dropdown's description out of a
-    /// Custom arm, so it needs the arm to be well formed just as much as the
-    /// data stage does.
+    /// text setting beside one, so it needs that pairing to be well formed just
+    /// as much as the data stage does.
     ///
     /// IT REFUSES NOTHING THE OTHER TWO VALIDATORS ALREADY OWN. Where a recipe
     /// or a technology names two ingredient sources or two costs that this
@@ -475,11 +380,11 @@ impl Lib {
         let at = "fkrecipes: ";
 
         // ONE DROPDOWN COMPOSES ONE DESCRIPTION. A setting carries a single
-        // localised_description, so a second arm's presets would silently
-        // replace the first's; the recipes and the technologies count
+        // localised_description, so a second declaration's presets would
+        // silently replace the first's; the recipes and the technologies count
         // separately, because each loop names what it walked. Counted in the
-        // two walks below, where an arm is proved, and refused after both of
-        // them so the sentence names the first such setting in declaration
+        // two walks below, where the pairing is proved, and refused after both
+        // of them so the sentence names the first such setting in declaration
         // order rather than whichever walk noticed first.
         let mut armed_by_recipe = alloc::vec![0usize; self.settings.len()];
         let mut armed_by_tech = alloc::vec![0usize; self.settings.len()];
@@ -493,12 +398,6 @@ impl Lib {
                         at, who
                     ));
                 }
-                if r.spec.ingredients_by.is_some() {
-                    return Err(format!(
-                        "{}{} names both IngredientsBy and IngredientsFrom; pick one",
-                        at, who
-                    ));
-                }
                 if !self.valid_ingredients_setting(h) {
                     return Err(format!(
                         "{}{} reads its ingredients from a setting that this plan never declared",
@@ -506,22 +405,24 @@ impl Lib {
                     ));
                 }
             }
-            let by = match self.ingredients_arm(prefix, r)? {
+            let by = match &r.spec.ingredients_by {
                 Some(by) => by,
                 None => continue,
             };
-            let setting = &self.settings[by.setting.index - 1];
-            let full = setting.emitted_name(prefix);
-            armed_by_recipe[by.setting.index - 1] += 1;
-            let cv = custom_value(&by.custom_value);
-            custom_arm_values(
-                at,
-                &who,
-                &full,
-                cv,
-                by.choices.iter().any(|c| c.value == cv),
-                &setting.values,
-            )?;
+            // The dropdown's own exclusivity with Ingredients is the data
+            // planner's sentence; nothing here may fire in front of it.
+            if !r.spec.ingredients.is_empty() {
+                continue;
+            }
+            if !self.valid_dropdown_setting(by.setting) {
+                return Err(format!(
+                    "{}{} names an ingredients setting that this plan never declared",
+                    at, who
+                ));
+            }
+            if r.spec.ingredients_from.is_some() {
+                armed_by_recipe[by.setting.index - 1] += 1;
+            }
             // The presets are RENDERED into the dropdown's description at the
             // settings stage, so they have to be renderable there. The data
             // planner checks the same thing in its own loop with the same
@@ -541,49 +442,24 @@ impl Lib {
             if named_cost_sources(&t.spec) != 1 {
                 continue;
             }
-            if let Some(cc) = &t.spec.cost_from {
-                if !cc.position.is_empty() {
+            if let Some(by) = &t.spec.cost_by {
+                if !self.valid_dropdown_setting(by.setting) {
                     return Err(format!(
-                        "{}{} names CostFrom with a Position; Position belongs to a Custom arm, and CostFrom is placed by After, Before and AfterTech",
+                        "{}{} names a cost setting that this plan never declared",
                         at, who
                     ));
                 }
-                self.validate_custom_cost(at, &who, cc)?;
-                continue;
             }
-            let by = match self.cost_arm(prefix, t)? {
-                Some(by) => by,
-                None => continue,
-            };
-            let setting = &self.settings[by.setting.index - 1];
-            let full = setting.emitted_name(prefix);
-            armed_by_tech[by.setting.index - 1] += 1;
-            // `cost_arm` answered Some, so the arm is there.
-            let cc = by
-                .custom
-                .as_ref()
-                .expect("a composed cost arm carries its CustomCost");
-            let cv = custom_value(&by.custom_value);
-            custom_arm_values(
-                at,
-                &who,
-                &full,
-                cv,
-                by.choices.iter().any(|c| c.value == cv),
-                &setting.values,
-            )?;
-            // THE PREREQUISITE MOVES WITH THE UNIT everywhere else in CostBy:
-            // the chosen tier's source technology becomes the sole
-            // prerequisite. A custom arm has no source, so it carries its own
-            // ladder, and an arm with none would place the technology nowhere
-            // at all.
-            if cc.position.is_empty() {
-                return Err(format!(
-                    "{}{} names a Custom cost arm with no Position; the arm places the technology, so it needs a prerequisite ladder",
-                    at, who
-                ));
+            if let Some(cc) = &t.spec.cost_from {
+                let has_tier = match &t.spec.cost_by {
+                    Some(by) => {
+                        armed_by_tech[by.setting.index - 1] += 1;
+                        true
+                    }
+                    None => false,
+                };
+                self.validate_custom_cost(at, &who, cc, has_tier)?;
             }
-            self.validate_custom_cost(at, &who, cc)?;
         }
 
         // The composed description is ONE declaration's presets, so two of
@@ -592,7 +468,7 @@ impl Lib {
         // because the sentence names what the author wrote; a dropdown armed
         // by one recipe AND one technology is not refused here, and the
         // technology's description is the one that lands, because
-        // `custom_arm_for` walks recipes first.
+        // `setting_descriptions` walks recipes first.
         //
         // IT RUNS AFTER BOTH WALKS, so on a plan with two problems the arm's
         // own sentence wins: an ill formed arm is refused where it is walked,
@@ -600,14 +476,14 @@ impl Lib {
         for (i, s) in self.settings.iter().enumerate() {
             if armed_by_recipe[i] > 1 {
                 return Err(format!(
-                    "{}the setting {} takes a Custom arm from more than one recipe; one dropdown composes one description",
+                    "{}the setting {} takes a text setting from more than one recipe; one dropdown composes one description",
                     at,
                     s.emitted_name(prefix)
                 ));
             }
             if armed_by_tech[i] > 1 {
                 return Err(format!(
-                    "{}the setting {} takes a Custom arm from more than one technology; one dropdown composes one description",
+                    "{}the setting {} takes a text setting from more than one technology; one dropdown composes one description",
                     at,
                     s.emitted_name(prefix)
                 ));
@@ -636,19 +512,15 @@ impl Lib {
             }
         }
 
-        // A RESEARCH NUMBER IS BOUND ONCE TOO, and the line that says so out
-        // loud is why. A dropdown sitting on a preset logs that the count and
-        // the seconds beside it are ignored, and that sentence is a lie the
-        // moment a second declaration reads the same setting: the player is
-        // told the number changed nothing and the recipe two lines down takes
-        // its crafting time from it, or the other technology prices its
-        // research with it. So a setting some custom cost reads is a setting
-        // nothing else reads.
+        // A RESEARCH NUMBER IS BOUND ONCE TOO, and the composed description is
+        // why: it names ONE dropdown as the thing deciding while the field is
+        // 0, so a setting two technologies priced themselves with would be
+        // described by whichever of them composed last.
         //
         // A NUMBER NOTHING PRICES RESEARCH WITH IS STILL SHARED FREELY: one
         // double behind two recipes' crafting time is a mod-wide speed dial
-        // and nothing ever says it is ignored, so `research` is what turns a
-        // second reader into a refusal, and only a setting some CustomCost
+        // and nothing ever says anything about it, so `research` is what turns
+        // a second reader into a refusal, and only a setting some CustomCost
         // names as its count or its seconds carries it.
         //
         // A HANDLE FROM ANOTHER PLAN IS SKIPPED rather than followed, exactly
@@ -686,15 +558,12 @@ impl Lib {
             if named_cost_sources(&t.spec) != 1 {
                 continue;
             }
-            let arm = t.spec.cost_by.as_ref().and_then(|by| by.custom.as_ref());
-            for cc in t.spec.cost_from.iter().chain(arm) {
-                if self.valid_int_setting(cc.count) {
-                    readers[cc.count.index - 1] += 1;
-                    research[cc.count.index - 1] = true;
-                }
-                if self.valid_double_setting(cc.seconds) {
-                    readers[cc.seconds.index - 1] += 1;
-                    research[cc.seconds.index - 1] = true;
+            if let Some(cc) = &t.spec.cost_from {
+                for h in [cc.count, cc.seconds] {
+                    if self.valid_int_setting(h) {
+                        readers[h.index - 1] += 1;
+                        research[h.index - 1] = true;
+                    }
                 }
             }
         }
@@ -843,53 +712,209 @@ impl Lib {
         }
     }
 
-    /// The Custom arm a dropdown setting carries, if any, decided by the same
-    /// two walks the binding validator decides with: a declaration those step
-    /// past has no description composed for it here either.
+    /// The presets a dropdown setting composes into its description, if a text
+    /// setting sits beside it, decided by the same two walks the binding
+    /// validator decides with: a declaration those step past has nothing
+    /// composed for it here either.
     ///
-    /// A REFUSAL IS AN ABSENCE HERE. `validate_bindings` runs first in both
-    /// planners and raises the same `Err`, so an arm this reads as `Err` is one
-    /// no caller ever reaches; the locale checker, which validates nothing,
-    /// reports on locale rather than on a declaration mistake.
+    /// A DROPDOWN WITH NO TEXT SETTING BESIDE IT COMPOSES NOTHING, because
+    /// there is nothing the presets have to be read in the language of and
+    /// nothing to say the text overrides them.
     ///
     /// RECIPES THEN TECHNOLOGIES, in declaration order, and the LAST one wins.
     /// Two recipes cannot reach one dropdown, and neither can two
     /// technologies: both are refused at plan validation. What remains is a
-    /// dropdown a recipe and a technology both give an arm to, which the two
-    /// text settings' own "read by exactly one" rule does not forbid; the
-    /// technology's presets are the ones composed.
-    pub(crate) fn custom_arm_for(&self, prefix: &str, index: usize) -> Option<CustomArm<'_>> {
-        let mut arm = None;
+    /// dropdown a recipe and a technology both put a text setting beside,
+    /// which the two text settings' own "read by exactly one" rule does not
+    /// forbid; the technology's presets are the ones composed.
+    pub(crate) fn presets_beside_text(&self, index: usize) -> Option<Presets<'_>> {
+        let mut found = None;
         for r in &self.recipes {
-            if let Ok(Some(by)) = self.ingredients_arm(prefix, r) {
-                if by.setting.index == index {
-                    arm = Some(CustomArm {
-                        presets: Presets::Ingredients(&by.choices),
-                    });
-                }
+            let by = match &r.spec.ingredients_by {
+                Some(by) => by,
+                None => continue,
+            };
+            if !r.spec.ingredients.is_empty() || !self.valid_dropdown_setting(by.setting) {
+                continue;
+            }
+            let text = match r.spec.ingredients_from {
+                Some(h) if self.valid_ingredients_setting(h) => h.index,
+                _ => continue,
+            };
+            if by.setting.index == index {
+                found = Some(Presets::Ingredients(&by.choices, text));
             }
         }
         for t in &self.techs {
-            if let Ok(Some(by)) = self.cost_arm(prefix, t) {
-                if by.setting.index == index {
-                    arm = Some(CustomArm {
-                        presets: Presets::Cost(&by.choices),
-                    });
+            if named_cost_sources(&t.spec) != 1 {
+                continue;
+            }
+            let by = match &t.spec.cost_by {
+                Some(by) => by,
+                None => continue,
+            };
+            let cc = match &t.spec.cost_from {
+                Some(cc) => cc,
+                None => continue,
+            };
+            if !self.valid_dropdown_setting(by.setting) || !self.valid_packs_setting(cc.packs) {
+                continue;
+            }
+            if by.setting.index == index {
+                found = Some(Presets::Cost(&by.choices, cc.packs.index));
+            }
+        }
+        found
+    }
+
+    /// The word that says where the setting at `other` sits on the settings
+    /// screen relative to the one at `self_index`: above or below.
+    ///
+    /// IT COMPARES THE EMITTED ORDER STRINGS, the same ones `plan_settings`
+    /// writes into the prototypes, because that is what the engine sorts by. A
+    /// composed sentence that said "the option chosen above" would otherwise be
+    /// a guess about a declaration order the consumer is free to choose, and
+    /// `order_after` and the Legacy constructors both let them choose one where
+    /// the guess is wrong.
+    pub(crate) fn relative_order(&self, self_index: usize, other: usize) -> &'static str {
+        if self.emitted_order(other) < self.emitted_order(self_index) {
+            "above"
+        } else {
+            "below"
+        }
+    }
+
+    /// The sentence on a TEXT setting that says what decides while it holds the
+    /// reserved word.
+    pub(crate) fn text_switch_line(&self, i: usize) -> String {
+        match self.text_switch_dropdown(i) {
+            Some(d) => format!(
+                "\nWhile this says default the option chosen {} applies; anything else applies instead of it.",
+                self.relative_order(i, d)
+            ),
+            None => String::from("\nWhile this says default this mod's own list applies."),
+        }
+    }
+
+    /// The dropdown setting that decides while the text setting at `i` says
+    /// `default`, or `None` when the declaration that reads it has no dropdown.
+    ///
+    /// ONE WALK, TWO READERS: the composition on the text setting and the one
+    /// on the dropdown itself have to agree about which pair they are
+    /// describing, and a second walk spelling the same condition is how the two
+    /// could describe different pairs.
+    fn text_switch_dropdown(&self, i: usize) -> Option<usize> {
+        for r in &self.recipes {
+            match r.spec.ingredients_from {
+                Some(h) if self.valid_ingredients_setting(h) && h.index - 1 == i => {}
+                _ => continue,
+            }
+            if let Some(by) = &r.spec.ingredients_by {
+                if r.spec.ingredients.is_empty() && self.valid_dropdown_setting(by.setting) {
+                    return Some(by.setting.index - 1);
+                }
+            }
+            return None;
+        }
+        for t in &self.techs {
+            let cc = match &t.spec.cost_from {
+                Some(cc) => cc,
+                None => continue,
+            };
+            if named_cost_sources(&t.spec) != 1
+                || !self.valid_packs_setting(cc.packs)
+                || cc.packs.index - 1 != i
+            {
+                continue;
+            }
+            if let Some(by) = &t.spec.cost_by {
+                if self.valid_dropdown_setting(by.setting) {
+                    return Some(by.setting.index - 1);
+                }
+            }
+            return None;
+        }
+        None
+    }
+
+    /// The settings a `CustomCost` prices a research with, and which dropdown
+    /// decides while each of them is 0. Both planners and the locale checker
+    /// ask it, so the description, the locale obligation and the range sentence
+    /// are decided once.
+    ///
+    /// IT STEPS PAST EXACTLY WHAT `validate_bindings` STEPS PAST: a technology
+    /// naming some other number of cost sources is answered by "exactly one",
+    /// and nothing validated its `CustomCost`, so composing a range out of
+    /// bounds nobody checked would be a description about a declaration the
+    /// data planner refuses.
+    pub(crate) fn research_number_settings(&self) -> Vec<ResearchNumber> {
+        let mut out: Vec<ResearchNumber> = Vec::with_capacity(self.settings.len());
+        for _ in &self.settings {
+            out.push(ResearchNumber::default());
+        }
+        for t in &self.techs {
+            let cc = match &t.spec.cost_from {
+                Some(cc) => cc,
+                None => continue,
+            };
+            if named_cost_sources(&t.spec) != 1 {
+                continue;
+            }
+            let dropdown = match &t.spec.cost_by {
+                Some(by) if self.valid_dropdown_setting(by.setting) => Some(by.setting.index - 1),
+                _ => None,
+            };
+            for h in [cc.count, cc.seconds] {
+                if self.valid_int_setting(h) {
+                    out[h.index - 1] = ResearchNumber {
+                        bound: true,
+                        dropdown,
+                    };
                 }
             }
         }
-        arm
+        out
+    }
+
+    /// What a research number's description says about the range it takes, and
+    /// about what 0 means where a dropdown decides.
+    ///
+    /// THE NUMBERS COME OUT OF THE AMOUNT FORMATTER the language already pins
+    /// byte for byte across the two halves, rather than out of either
+    /// language's own float formatting: this sentence is compared in the mirror
+    /// transcript, and two standard libraries agree about 100000 right up until
+    /// they do not.
+    ///
+    /// A BOUND IS THERE BECAUSE `validate_custom_cost` PROVED IT. Both planners
+    /// run it in front of this walk, and `research_number_settings` steps past
+    /// exactly the declarations it steps past, so the maximum is declared and
+    /// the minimum is too.
+    fn research_range_line(&self, i: usize, s: &SettingDecl, dropdown: Option<usize>) -> String {
+        let amount = self.installed_language().format_amount;
+        let max = amount(s.spec.max.unwrap_or(0.0));
+        match dropdown {
+            Some(d) => format!(
+                "\nA whole number from 0 to {}. While it is 0 the option chosen {} decides.",
+                max,
+                self.relative_order(i, d)
+            ),
+            None => format!(
+                "\nA whole number from {} to {}.",
+                amount(s.spec.min.unwrap_or(0.0)),
+                max
+            ),
+        }
     }
 
     /// The dropdown's composed description: the consumer's own entry, then one
     /// line per preset, its LOCALISED label followed by what it means.
-    fn dropdown_description(&self, prefix: &str, full: &str, arm: &CustomArm<'_>) -> Value {
+    fn dropdown_description(&self, prefix: &str, full: &str, presets: &Presets<'_>) -> Value {
         let mut params = alloc::vec![Value::Arr(alloc::vec![Value::Str(format!(
             "mod-setting-description.{}",
             full
         ))])];
-        match arm.presets {
-            Presets::Ingredients(choices) => {
+        let text = match *presets {
+            Presets::Ingredients(choices, text) => {
                 for c in choices {
                     let list = self.declared_list(prefix, &c.ingredients);
                     let rendered = (self.installed_language().render)(&ListText::List(list));
@@ -902,75 +927,70 @@ impl Lib {
                         ))],
                     ));
                 }
+                text
             }
-            Presets::Cost(choices) => {
+            Presets::Cost(choices, text) => {
                 for c in choices {
                     params.push(preset_element(full, &c.value, cost_preset_tail(c)));
                 }
+                text
             }
-        }
+        };
+        // THE SWITCH LINE LAST, because it is about the field beside this one
+        // rather than about any preset above it.
+        let i = self
+            .settings
+            .iter()
+            .position(|d| d.emitted_name(prefix) == full)
+            .expect("a composed dropdown is one of this plan's settings");
+        params.push(Value::Str(dropdown_switch_line(
+            self.relative_order(i, text - 1),
+        )));
         localised_group(&params)
     }
 }
 
-/// What a dropdown's Custom arm offers beside the player's own text.
-pub(crate) struct CustomArm<'a> {
-    pub(crate) presets: Presets<'a>,
-}
-
-/// What the arm's dropdown offers besides the text.
+/// What a dropdown with a text setting beside it offers, and which setting that
+/// is: a 1-BASED index, the shape every handle in this crate carries.
 pub(crate) enum Presets<'a> {
-    Ingredients(&'a [IngredientChoice]),
-    Cost(&'a [CostChoice]),
+    Ingredients(&'a [IngredientChoice], usize),
+    Cost(&'a [CostChoice], usize),
 }
 
-/// How many of a dropdown's values are this one.
-fn count_value(values: &[String], value: &str) -> usize {
-    values.iter().filter(|v| v.as_str() == value).count()
+/// What a research count or time setting composes from: that it backs one at
+/// all, and which dropdown decides while it is 0.
+#[derive(Default, Clone, Copy)]
+pub(crate) struct ResearchNumber {
+    pub(crate) bound: bool,
+    pub(crate) dropdown: Option<usize>,
+}
+
+/// The sentence appended to a DROPDOWN's composed description: the text setting
+/// beside it wins whenever it is not on the word.
+fn dropdown_switch_line(where_: &str) -> String {
+    format!(
+        "\nThe setting {} applies instead while it does not say default.",
+        where_
+    )
 }
 
 /// How many cost sources a technology declares. Exactly one is the rule and
 /// the data planner is where it is refused, so every walk that steps past a
 /// technology naming some other number asks this one question.
-fn named_cost_sources(spec: &TechSpec) -> usize {
+///
+/// `cost_by` AND `cost_from` COUNT AS ONE, because they are one cost: the
+/// dropdown is the tier and the three settings overwrite it field by field.
+/// Every other pairing is still two, so `unit` beside either is refused
+/// exactly as it was.
+pub(crate) fn named_cost_sources(spec: &TechSpec) -> usize {
     [
         !spec.cost_of.is_empty(),
         spec.unit.is_some(),
-        spec.cost_by.is_some(),
-        spec.cost_from.is_some(),
+        spec.cost_by.is_some() || spec.cost_from.is_some(),
     ]
     .iter()
     .filter(|x| **x)
     .count()
-}
-
-/// The shape rule a Custom arm's dropdown has to satisfy, written once because
-/// the recipe arm and the cost arm have the same one.
-fn custom_arm_values(
-    at: &str,
-    who: &str,
-    setting: &str,
-    value: &str,
-    covered: bool,
-    values: &[String],
-) -> Result<(), String> {
-    if covered {
-        return Err(format!(
-            "{}{} gives {} a preset as well as a Custom arm; name the arm's value with CustomValue",
-            at, who, value
-        ));
-    }
-    match count_value(values, value) {
-        1 => Ok(()),
-        0 => Err(format!(
-            "{}{} names a Custom arm for {}, which the setting {} does not offer",
-            at, who, value, setting
-        )),
-        _ => Err(format!(
-            "{}the setting {} offers {} more than once, and a Custom arm needs it exactly once",
-            at, setting, value
-        )),
-    }
 }
 
 /// A packs setting's declared list as the language sees it. A pack is an item
@@ -1018,21 +1038,23 @@ fn validate_declared_packs(at: &str, who: &str, packs: &[Pack]) -> Result<(), St
 /// consumer's own entry, then the three things this library owes the player
 /// about the field beside it.
 ///
-/// FOUR PARAMETERS, and none of them a table beyond the consumer's key, so the
+/// FIVE PARAMETERS, and none of them a table beyond the consumer's key, so the
 /// twenty-parameter ceiling [`MAX_LOCALISED_PARAMS`] records is nowhere near
 /// reached and this shape needs no nesting rule of its own.
 ///
-/// THE THREE LINES ARE THE ANSWER TO WHAT A CLIENT MEASUREMENT FOUND. A player
+/// THE FOUR LINES ARE THE ANSWER TO WHAT A CLIENT MEASUREMENT FOUND. A player
 /// standing in the Mod Settings screen reads the tooltip whole (measured on
 /// 2.0.77 on a DROPDOWN's composed description, one line per preset: seven
 /// lines rendered readable and unclipped; the ceilings on a composed
 /// description are the parameter count [`MAX_LOCALISED_PARAMS`] holds and the
-/// nesting depth its comment records, and neither of them is a line count), so
+/// nesting depth its comment records, neither of which is a line count), so
 /// the description is where the library can say what the field takes; the
 /// closed dropdown's LABEL beside it is truncated at about 37 characters, which
 /// is why nothing a player needs may live in a label. The default line shows
 /// the list the word `default` stands for, in the internal names the field
-/// actually takes; the format line says so in words and states the ceiling; and
+/// actually takes; the format line says so in words and states the ceiling; the
+/// switch line says which of the two fields is deciding, which the screen
+/// cannot show because it has no conditional visibility at all (measured); and
 /// the fallback line says what a text this library cannot use costs, which
 /// before it was stated nowhere a player looks.
 ///
@@ -1040,7 +1062,7 @@ fn validate_declared_packs(at: &str, who: &str, packs: &[Pack]) -> Result<(), St
 /// [`Lib::check_locale`](crate::Lib) asks the same function for the same shape
 /// with the list left out, so a line deleted here is a finding rather than a
 /// silent loss. See `check_text_description`.
-pub(crate) fn text_description(full: &str, rendered: &str) -> Value {
+pub(crate) fn text_description(full: &str, rendered: &str, switch_line: &str) -> Value {
     Value::Arr(alloc::vec![
         Value::string(""),
         Value::Arr(alloc::vec![Value::Str(format!(
@@ -1049,7 +1071,26 @@ pub(crate) fn text_description(full: &str, rendered: &str) -> Value {
         ))]),
         Value::Str(format!("\ndefault: {}", rendered)),
         Value::Str(text_format_line()),
+        Value::string(switch_line),
         Value::string(TEXT_FALLBACK_LINE),
+    ])
+}
+
+/// The whole `localised_description` a RESEARCH NUMBER is emitted with: the
+/// consumer's own entry, then the range the field takes.
+///
+/// IT IS THE ONLY PLACE THE RANGE IS STATED. The settings screen shows a
+/// numeric field with no visible bounds, and 0 there means something the player
+/// cannot guess: the dropdown beside it decides. Both sentences live in
+/// `research_range_line`, and this is the shape they are emitted in.
+pub(crate) fn number_description(full: &str, range_line: &str) -> Value {
+    Value::Arr(alloc::vec![
+        Value::string(""),
+        Value::Arr(alloc::vec![Value::Str(format!(
+            "mod-setting-description.{}",
+            full
+        ))]),
+        Value::string(range_line),
     ])
 }
 
@@ -1166,14 +1207,24 @@ fn cost_preset_tail(c: &CostChoice) -> Vec<Value> {
     }
 }
 
-/// The engine's ceiling on one localised string's parameters.
+/// The engine's ceiling on one localised string's parameters, and it is PER
+/// TABLE rather than per string.
 ///
-/// MEASURED (Factorio 2.0.77, build 84539): a localised string with 21
-/// parameters refuses the load, and so does one nested 20 tables deep; 20
-/// parameters and 19 nested tables load, and two nested groups of 20 load.
-/// (The engine's refusal counts one higher than the tables, "21 > 20 (limit)"
-/// for 20 of them; FkLua's data-stage probe pinned both limits.) A dropdown
-/// with more presets than fit therefore NESTS rather than overflowing.
+/// MEASURED (Factorio 2.0.77, build 84539), twice independently: ONE TABLE
+/// TAKES 20 PARAMETERS and the 21st refuses the load, `Too many parameters for
+/// localised string: 21 > 20 (limit).`, with a literal and a table parameter
+/// counting alike; nesting is capped at 20 LEVELS OF DEPTH and the 21st
+/// refuses, `Too deep recursion for localised string: 21 > 20 (limit).`, where
+/// the root table is level 1, every parameter sits one level below the table
+/// holding it, a plain-string parameter occupies a level of its own and the key
+/// at element 0 does not; and there is NO GLOBAL TABLE BUDGET at all, a
+/// description holding 421 tables at depth 3 loading with exit 0. A recipe
+/// prototype carries the same two ceilings with its own prototype kind in the
+/// refusal text.
+///
+/// THE RULE THE VALUE DRIVES IS UNCHANGED. A dropdown with more presets than
+/// fit NESTS rather than overflowing, and nesting spends depth, which is the
+/// budget with 20 levels in it, so the overflow is a fill rather than a wall.
 const MAX_LOCALISED_PARAMS: usize = 20;
 
 /// Wraps parameters in a concatenating localised string, nesting when there are

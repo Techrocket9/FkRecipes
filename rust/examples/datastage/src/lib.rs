@@ -48,15 +48,12 @@ mod guest {
                 max: Some(120.0),
             },
         );
-        // The customizer arrives as ONE MORE VALUE on a dropdown that already
-        // shipped: every stored preference is still one of the values, so
-        // nobody's choice is reset, and the players who see anything new are
-        // the ones who open the settings screen.
-        let medium = lib.dropdown_setting_needing_locale(
-            "quench-medium",
-            "water",
-            &["water", "oil", "custom"],
-        );
+        // The quenching medium, and its option list is EXACTLY the two the mod
+        // declares: the customizer adds no value to a dropdown that already
+        // shipped, so every stored preference keeps the meaning it had and a
+        // release that drops the text setting again loses nothing.
+        let medium =
+            lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "oil"]);
         let bonuses = lib.bool_setting("bonus-research", true);
         // Declared LAST on purpose: the generated order is derived from the
         // declaration index, so a new setting at the end leaves every existing
@@ -64,7 +61,7 @@ mod guest {
         let tier = lib.dropdown_setting_needing_locale(
             "tips-research-tier",
             "projectile",
-            &["projectile", "military", "custom"],
+            &["projectile", "military"],
         );
         // A FLOOR AND NO CEILING, the one NumericSpec arm the goldens did not
         // carry. Organic here: a longer hold keeps tempering, so there is
@@ -144,11 +141,7 @@ mod guest {
                 Ingredient::named(1, "tungsten-carbide", &["titanium-plate"]),
             ],
         );
-        let links = lib.dropdown_setting_needing_locale(
-            "chain-links",
-            "short",
-            &["short", "long", "custom"],
-        );
+        let links = lib.dropdown_setting_needing_locale("chain-links", "short", &["short", "long"]);
         let chain_list =
             lib.ingredients_setting("chain-ingredients", vec![Ingredient::of(rivet, 4)]);
         // The research the player prices: the packs as text, the count and the
@@ -160,14 +153,18 @@ mod guest {
                 Pack::new("military-science-pack", 1),
             ],
         );
-        let tips_count = lib.int_setting("tips-count", 30, NumericSpec::between(1.0, 100000.0));
-        let tips_seconds =
-            lib.double_setting("tips-seconds", 15.0, NumericSpec::between(0.5, 600.0));
+        // BOTH DEFAULT TO 0 AND BOTH FLOOR AT 0, because a research dropdown
+        // sits beside them: 0 is a number's way of saying the reserved word,
+        // and it means the tier the dropdown chose supplies that field.
+        let tips_count = lib.int_setting("tips-count", 0, NumericSpec::between(0.0, 100000.0));
+        let tips_seconds = lib.int_setting("tips-seconds", 0, NumericSpec::between(0.0, 600.0));
         let chain_packs =
             lib.packs_setting("chain-packs", vec![Pack::new("automation-science-pack", 1)]);
+        // NO DROPDOWN BESIDE THESE TWO, so there is nothing to defer to and
+        // each declares a minimum of at least 1: the engine refuses a unit
+        // count of 0 and a unit time of 0.
         let chain_count = lib.int_setting("chain-count", 20, NumericSpec::between(1.0, 100000.0));
-        let chain_seconds =
-            lib.double_setting("chain-seconds", 10.0, NumericSpec::between(0.5, 600.0));
+        let chain_seconds = lib.int_setting("chain-seconds", 10, NumericSpec::between(1.0, 600.0));
 
         let rivets = lib.recipe(
             rivet,
@@ -224,9 +221,9 @@ mod guest {
                             ],
                         },
                     ],
-                    custom: Some(quench_list),
                     ..Default::default()
                 }),
+                ingredients_from: Some(quench_list),
                 name: String::from("hardened-steel-plate-quenching"),
                 // A category that takes a fluid, because a player writing
                 // their own list may well reach for one and the crafting
@@ -274,9 +271,9 @@ mod guest {
                             ],
                         },
                     ],
-                    custom: Some(chain_list),
                     ..Default::default()
                 }),
+                ingredients_from: Some(chain_list),
                 display_name: String::from("Steel chain"),
                 description: String::from("Links of rivets"),
                 ..Default::default()
@@ -351,17 +348,15 @@ mod guest {
                         seconds: 30.0,
                         packs: vec![Pack::new("automation-science-pack", 1)],
                     },
-                    // The last value prices the research out of three settings
-                    // instead of copying a technology, and the ladder is what
-                    // says where it hangs, because there is no source to take
-                    // the position from.
-                    custom: Some(CustomCost {
-                        packs: tips_packs,
-                        count: tips_count,
-                        seconds: tips_seconds,
-                        position: vec![String::from("military-2"), String::from("military")],
-                    }),
                     ..Default::default()
+                }),
+                // The three settings beside the dropdown overwrite the chosen
+                // tier's numbers one field at a time, and the tier still places
+                // the technology.
+                cost_from: Some(CustomCost {
+                    packs: tips_packs,
+                    count: tips_count,
+                    seconds: tips_seconds,
                 }),
                 enabled_by: bonuses,
                 display_name: String::from("Hardened tool tips"),
@@ -381,7 +376,6 @@ mod guest {
                     packs: chain_packs,
                     count: chain_count,
                     seconds: chain_seconds,
-                    position: alloc::vec::Vec::new(),
                 }),
                 after: String::from("steel-processing"),
                 unlocks: vec![chains],

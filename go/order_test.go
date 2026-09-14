@@ -41,7 +41,7 @@ func TestOrderAfterPlacesGeneratedSettingsUnderALegacyOrder(t *testing.T) {
 	lib.OrderAfter("b")
 	packs := lib.PacksSetting("tech-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
 	count := lib.IntSetting("tech-count", 20, Between(1, 1000000))
-	seconds := lib.DoubleSetting("tech-seconds", 15, Between(1, 3600))
+	seconds := lib.IntSetting("tech-seconds", 15, Between(1, 3600))
 	lib.DropdownSettingNeedingLocale("tech-style", "plain", []string{"plain", "fancy"})
 
 	rivet := lib.Item("steel-rivet", ItemSpec{})
@@ -63,8 +63,10 @@ func TestOrderAfterPlacesGeneratedSettingsUnderALegacyOrder(t *testing.T) {
 		`extend {type="string-setting", name="steelworks-tech-packs", setting_type="startup",` +
 			` default_value="default", order="bae", auto_trim=true,` +
 			` localised_description=["", ["mod-setting-description.steelworks-tech-packs"], "` + "\n" + `default: 1 automation-science-pack"` + wantTextTail + `]}`,
-		`extend {type="int-setting", name="steelworks-tech-count", setting_type="startup", default_value=20, order="baf", minimum_value=1, maximum_value=1000000}`,
-		`extend {type="double-setting", name="steelworks-tech-seconds", setting_type="startup", default_value=15, order="bag", minimum_value=1, maximum_value=3600}`,
+		`extend {type="int-setting", name="steelworks-tech-count", setting_type="startup", default_value=20, order="baf", minimum_value=1, maximum_value=1000000,` +
+			` localised_description=["", ["mod-setting-description.steelworks-tech-count"], "` + "\n" + `A whole number from 1 to 1000000."]}`,
+		`extend {type="int-setting", name="steelworks-tech-seconds", setting_type="startup", default_value=15, order="bag", minimum_value=1, maximum_value=3600,` +
+			` localised_description=["", ["mod-setting-description.steelworks-tech-seconds"], "` + "\n" + `A whole number from 1 to 3600."]}`,
 		`extend {type="string-setting", name="steelworks-tech-style", setting_type="startup", default_value="plain", order="bah", allowed_values=["plain", "fancy"]}`,
 	})
 }
@@ -86,7 +88,7 @@ func TestALegacySettingDeclaredAfterOrderAfterKeepsItsOwnOrder(t *testing.T) {
 	packs := lib.LegacyPacksSetting("bbb-tech-packs",
 		[]Pack{{Name: "automation-science-pack", Amount: 1}}, "d")
 	count := lib.LegacyIntSetting("bbb-tech-count", 20, Between(1, 1000), "e")
-	seconds := lib.LegacyDoubleSetting("bbb-tech-seconds", 15, Between(1, 600), "f")
+	seconds := lib.LegacyIntSetting("bbb-tech-seconds", 15, Between(1, 600), "f")
 
 	rivet := lib.Item("steel-rivet", ItemSpec{})
 	lib.Recipe(rivet, RecipeSpec{IngredientsFrom: parts})

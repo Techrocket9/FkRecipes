@@ -58,7 +58,7 @@ lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "oil"])
 
 If your mod already ships settings under names of its own, there are `Legacy` constructors that take a full name and an explicit order and emit both verbatim. See [Migrating a mod that already ships settings](migration.md).
 
-Two more constructors declare a text setting the player edits: an ingredient list, or a list of science packs. The setting's default text is the word `default`, which means the list you give here. The library composes three lines onto the setting's description, under whatever your own `[mod-setting-description]` entry says: your list written out in the form documented in [The ingredient list](ingredient-list.md), a line saying the field takes internal names and takes at most 2000 characters, and a line saying that a text it cannot use is set aside for your list, with the reason in the log or in the load error. Your entry says what the setting is for; the library says how to fill it in and what it costs to get it wrong. That last line states the narrow claim rather than promising a load, because the narrow claim is the one that holds: your declared list is what the fallback lands on and it is held to the rules it always was, so a modpack in which it cannot produce a legal result still stops the load, and on a failed load no log line reaches the game at all. See [Ingredients the player writes](#ingredients-the-player-writes) below for the whole rule.
+Two more constructors declare a text setting the player edits: an ingredient list, or a list of science packs. The setting's default text is the word `default`, which means the list you give here. The library composes four lines onto the setting's description, under whatever your own `[mod-setting-description]` entry says: your list written out in the form documented in [The ingredient list](ingredient-list.md), a line saying the field takes internal names and takes at most 2000 characters, a line saying which field decides while this one holds the word `default` (the dropdown above or below it when you declared one beside it, otherwise your own list), and a line saying that a text it cannot use is set aside for your list, with the reason in the log or in the load error. Your entry says what the setting is for; the library says how to fill it in and what it costs to get it wrong. That last line states the narrow claim rather than promising a load, because the narrow claim is the one that holds: your declared list is what the fallback lands on and it is held to the rules it always was, so a modpack in which it cannot produce a legal result still stops the load, and on a failed load no log line reaches the game at all. See [Ingredients the player writes](#ingredients-the-player-writes) below for the whole rule.
 
 ```go
 rivets := lib.IngredientsSetting("rivet-ingredients", []fkrecipes.Ingredient{
@@ -85,23 +85,23 @@ Settings are emitted in declaration order. A generated setting's `order` string 
 ```go
 recipeCost := lib.LegacyDropdownSettingNeedingLocale("bbb-recipe-cost", "vanilla", recipeValues, "a")
 lib.OrderAfter("a")
-custom := lib.IngredientsSetting("recipe-ingredients", vanilla) // order aab: after a, before b
+parts := lib.IngredientsSetting("recipe-ingredients", vanilla) // order aab: after a, before b
 techCost := lib.LegacyDropdownSettingNeedingLocale("bbb-tech-cost", "logistics", techValues, "b")
 lib.OrderAfter("b")
 packs := lib.PacksSetting("tech-packs", defaultPacks)          // bad
 count := lib.IntSetting("tech-count", 20, fkrecipes.Between(1, 1000000)) // bae
-seconds := lib.DoubleSetting("tech-seconds", 15, fkrecipes.Between(1, 3600)) // baf
+seconds := lib.IntSetting("tech-seconds", 15, fkrecipes.Between(1, 3600)) // baf
 ```
 
 ```rust
 let recipe_cost = lib.legacy_dropdown_setting_needing_locale("bbb-recipe-cost", "vanilla", &recipe_values, "a");
 lib.order_after("a");
-let custom = lib.ingredients_setting("recipe-ingredients", vanilla); // order aab: after a, before b
+let parts = lib.ingredients_setting("recipe-ingredients", vanilla); // order aab: after a, before b
 let tech_cost = lib.legacy_dropdown_setting_needing_locale("bbb-tech-cost", "logistics", &tech_values, "b");
 lib.order_after("b");
 let packs = lib.packs_setting("tech-packs", default_packs);          // bad
 let count = lib.int_setting("tech-count", 20, NumericSpec::between(1.0, 1000000.0)); // bae
-let seconds = lib.double_setting("tech-seconds", 15.0, NumericSpec::between(1.0, 3600.0)); // baf
+let seconds = lib.int_setting("tech-seconds", 15, NumericSpec::between(1.0, 3600.0)); // baf
 ```
 
 Three things are refused at the settings stage: an empty order; a generated setting whose order string equals a legacy setting's, whether or not `OrderAfter` was called (a plan that tied a generated `aa` with a legacy `aa` by accident loaded before with the two in the engine's hands, and is refused now); and a placed setting that would sort past a legacy order extending the one it was placed after, which is the misplacement `OrderAfter` exists to remove (with legacy `a` and `ab`, twenty-four generated settings fit under `a` before the twenty-fifth reaches `aba`; with legacy `b` and `ba`, nothing fits under `b`, so name `ba`):
@@ -248,7 +248,7 @@ A resolved list may name the very item the recipe makes, and that is accepted ra
 fkrecipes: balancer-part: bbb-balancer-part is in the list and is also what this recipe makes, so nothing can craft the first one unless something else produces it
 ```
 
-The check sits where every resolved list is handed over, so all four ways of naming one reach it: `Ingredients`, a dropdown preset, a dropdown's custom arm and `IngredientsFrom`. Three shapes actually produce the line. An `IngredientOf` (`Ingredient::of`) handle to the recipe's own result item is one. A list the player typed is the second, because their text is read against a world that already knows the items this plan is about to emit. The third is a ladder landing on the existing item a `ResultNamed` recipe makes, which is somebody else's item rather than one of yours. A declared ladder cannot land on an item of your own: a ladder's rungs are probed against the game as loaded and your items are not in it yet, so such a rung is simply absent and the ingredient is dropped with the ordinary drop line. The line names the recipe as you declared it and the ingredient under the name the game will hold. An ingredient that is a fluid of the product's name is a different ingredient and says nothing, because a product is always an item and the two namespaces are separate.
+The check sits where every resolved list is handed over, so all four ways of naming one reach it: `Ingredients`, a dropdown preset, a text that takes a dropdown's choice over and a text with no dropdown beside it. Three shapes actually produce the line. An `IngredientOf` (`Ingredient::of`) handle to the recipe's own result item is one. A list the player typed is the second, because their text is read against a world that already knows the items this plan is about to emit. The third is a ladder landing on the existing item a `ResultNamed` recipe makes, which is somebody else's item rather than one of yours. A declared ladder cannot land on an item of your own: a ladder's rungs are probed against the game as loaded and your items are not in it yet, so such a rung is simply absent and the ingredient is dropped with the ordinary drop line. The line names the recipe as you declared it and the ingredient under the name the game will hold. An ingredient that is a fluid of the product's name is a different ingredient and says nothing, because a product is always an item and the two namespaces are separate.
 
 `FluidIngredient` (`Ingredient::fluid`) is the same ladder over fluid names, with an amount that may be fractional: `fkrecipes.FluidIngredient(0.5, "water")`. A fluid is accepted only in a recipe whose category allows one. The default category, `crafting`, is the hand-crafting category and the engine refuses a fluid there (measured on Factorio 2.0.77), so a declared fluid in a recipe with no category or with `crafting` is refused at plan time with a sentence naming the recipe, the fluid and the category. Set `Category` to `crafting-with-fluid`, `chemistry` or whichever category your recipe belongs in.
 
@@ -282,19 +282,29 @@ fkrecipes: ERROR: steelworks-rivet-ingredients, entry 1 ("2 iron-plat"): no item
 
 That is a rule about every field the player controls: a typed list, a stored value that is not text, and the numeric fields of a research cost (whose line ends `fix the number` instead). It is the narrow claim and not "a player is never refused": your declared list is what the fallback lands on, and it is held to the rules it always was, so a modpack that leaves it with no science pack the game has, or with two ladder rungs collapsed onto one name above the item ceiling, still stops the load. That refusal is one a player who typed nothing meets too. When a stored value was set aside on the way to it, the refusal carries one more sentence naming the first such setting and saying that correcting it under Settings then Mod settings then Startup is what a player can change; the log lines never reach the game on a failed load, so the refusal is the only place left to say it. Measured behaviour of the client is what makes the fallback a rule rather than a preference. Factorio rewrites `mod-settings.dat` on every successful load and on no failed one, so a value that fails the load is a value nothing in the game will then edit; the `Error loading mods` dialog offers Disable listed mods, Disable all mods, Manage mods, Restart and Exit, and `Manage mods` reaches only the Mods screen, which has no Mod settings button and whose Back returns to the same dialog. Disabling and re-enabling the mod does not help, because the engine keeps a disabled mod's settings and does not show them on the Mod Settings screen. The one way out is `Reset mod settings` with `Disable listed mods`, which costs every startup preference in the file. Measured on Factorio 2.0.77 (build 84539, mac-arm64).
 
+**And the recipe or technology says so where the player looks.** The log is evidence for you; a player reads the settings screen, the changelog and the tooltip of the thing in front of them. So a prototype whose stored setting value was set aside carries one trailing line in its own `localised_description`, joined onto the description you declared or standing alone when you declared none:
+
+```
+The stored value of steelworks-rivet-ingredients could not be used, so this mod's own choice applies instead. The reason is in the log.
+```
+
+A fallback on a recipe's **ingredient text** carries one sentence more, because fixing that setting costs the player something the engine will not give back: `Changing a recipe empties an assembling machine's input slots of anything the new list does not use.` The same sentence ends the `ERROR:` line of a recipe's ingredient text, and no other note and no other fallback line carries it. A crafting time, a pack text and the two research numbers do not: a repriced research destroys nothing, and a recipe whose crafting time fell back emits the same ingredient list it always did and moves only its `energy_required`. One line per prototype, naming the first setting the walk set aside, and a crafting-time setting two recipes read puts it on both of them. A prototype nothing fell back on carries exactly what it carried before, byte for byte.
+
+The line is English for every player, and that is deliberate rather than an omission: a locale key the game does not define deletes a prototype's whole description on the client, silently and with the load still exiting 0, so composing one would risk the sentence it was meant to carry. Every sentence this library composes is an English literal for the same reason.
+
 Anything **you** declare still refuses at plan time, and should: your own default list, your presets, your ladders and your setting bounds are bugs to catch while you are building the mod, not choices a player made.
 
-A dropdown of presets can offer the same thing as one more value. Give the dropdown a value named `custom`, leave it out of `Choices`, and put the text setting in `Custom`:
+A dropdown of presets can offer the same thing without growing a value. Declare `IngredientsFrom` beside `IngredientsBy` on the same recipe: the dropdown keeps exactly the option list you wrote, and the text setting decides which of the two is live.
 
 ```go
 IngredientsBy: &fkrecipes.IngredientChoices{
-	Setting: medium, // its values are water, oil, custom
+	Setting: medium, // its values are water and oil
 	Choices: []fkrecipes.IngredientChoice{
 		{Value: "water", Ingredients: []fkrecipes.Ingredient{fkrecipes.IngredientNamed(2, "steel-plate"), fkrecipes.FluidIngredient(10, "water")}},
 		{Value: "oil", Ingredients: []fkrecipes.Ingredient{fkrecipes.IngredientNamed(2, "steel-plate"), fkrecipes.FluidIngredient(5, "lubricant")}},
 	},
-	Custom: quench,
 },
+IngredientsFrom: quench,
 ```
 
 ```rust
@@ -304,20 +314,23 @@ ingredients_by: Some(IngredientChoices {
         IngredientChoice { value: "water".into(), ingredients: vec![Ingredient::named(2, "steel-plate", &[]), Ingredient::fluid(10.0, "water", &[])] },
         IngredientChoice { value: "oil".into(), ingredients: vec![Ingredient::named(2, "steel-plate", &[]), Ingredient::fluid(5.0, "lubricant", &[])] },
     ],
-    custom: Some(quench),
-    ..Default::default()
 }),
+ingredients_from: Some(quench),
 ```
 
-The text applies only while the dropdown says `custom`; on any preset the preset applies and the text is ignored. The dropdown's description is composed for you: your own `[mod-setting-description]` entry, then two lines per preset, its localised label and then, on a second indented line opening with `type:`, its ingredients written out in the language, so the player switching to `custom` can start from the preset they were on (a cost dropdown's preset stays on one line and names the technology it copies, through that technology's own localised name; see below).
+**The text is the switch.** While it says `default` the dropdown decides, exactly as it did before the text setting existed; anything else is the whole list, and the line that records it says which choice was set aside:
+
+```
+fkrecipes: steelworks-hardened-steel-plate-quenching takes its ingredients from steelworks-quench-ingredients: 2 steel-plate, 6 iron-stick; the steelworks-quench-medium choice oil is set aside
+```
+
+A text the language refuses behaves exactly as `default` does, so the dropdown decides and the ERROR line above is the only difference. Nothing is ever edited and ignored: every value that is not at its default is live.
+
+The dropdown's description is composed for you: your own `[mod-setting-description]` entry, then two lines per preset, its localised label and then, on a second indented line opening with `type:`, its ingredients written out in the language, so a player about to type can start from the preset they were on; and last a line saying that the text setting above or below it applies while it does not say `default` (a cost dropdown's preset stays on one line and names the technology it copies, through that technology's own localised name; see below). The text setting's own description carries the mirror of that sentence, naming the option above or below it. Which word each of them uses is decided by the emitted `order` strings, so the sentence is true whichever order you declared them in; the settings screen has no conditional visibility at all (measured on Factorio 2.0.77, build 84539), so those two lines are the only place the pairing can be stated.
 
 The ingredient line is a line of its own because it is written in a different vocabulary from the label above it. Your label is display prose ("Default: 4 iron plates, 2 gears") and the line under it is the internal names the text field takes (`4 iron-plate, 2 iron-gear-wheel`); only the second can be pasted into the field. The client truncates a closed dropdown's label at about 37 characters (measured on Factorio 2.0.77, build 84539), so joining the two with a colon would put the half that works past the truncation with nothing to say which half was which.
 
-A dropdown that lists `custom` with no preset behind it and no `Custom` arm is refused, as is a `Custom` arm on a dropdown that does not list it, and so is a dropdown that takes a `Custom` arm from two recipes, because its composed description can only describe one. A dropdown whose presets already include one named `custom` is an ordinary dropdown until you give it an arm. If your dropdown already uses the value `custom` for a preset of its own, name the arm's value with `CustomValue` (`custom_value`) instead of renaming the preset, which would reset every player who had chosen it. A text edited while the dropdown still says a preset does nothing, and the log says so once:
-
-```
-fkrecipes: steelworks-quench-ingredients is edited, but steelworks-quench-medium is not on custom, so the text is ignored
-```
+A dropdown that takes a text setting from two recipes is refused, because its composed description can only describe one. The word `custom` is an ordinary dropdown value: this library reserves none and adds none, so a dropdown of yours that already offers a preset spelled `custom` keeps it and keeps every stored choice with it.
 
 A stored dropdown value that is none of the values you offer cannot come through the settings screen, which resets it, but a file edited by hand can carry one; it is refused by name rather than read as any preset.
 
@@ -344,6 +357,8 @@ A technology needs exactly one source of cost and at most one anchor in the tree
 ### Cost
 
 `CostOf` names an existing technology and copies its whole `unit` unchanged. This is the intended way to price research: cost and tree position then come from one named point, and a multi-level source brings its `count_formula` and its `max_level` across without this library needing to evaluate either.
+
+**Pointing a cost at an infinite technology mis-prices a one-level one, and nothing warns you.** A `count_formula` is written in terms of the level `L` and is copied verbatim, so a formula written for a source that starts at level 7 evaluates at level 1 on a technology of yours that has no `max_level`: measured on Factorio 2.0.77, `count_formula = "2^(L-7)*1000"` copied onto a one-level technology reads `research_unit_count = 15`. The load succeeds, the engine logs nothing, and the same hazard reaches a `CostBy` tier whose ladder lands on such a source. Read the source's own `unit` before you name it, and prefer a source whose cost does not depend on a level your technology does not have.
 
 ```go
 lib.Technology("hardened-tips", fkrecipes.TechSpec{
@@ -430,11 +445,11 @@ fkrecipes: a prerequisite cycle: logistics-2 -> steel-processing -> steelworks-s
 
 ### A research cost the player writes
 
-`CostFrom` is `Unit` with its three numbers in the player's hands: a `PacksSetting` for the science packs, written as an ingredient list, an int setting for the count and a double setting for the seconds. The int setting must declare a minimum of at least 1 and the double a minimum above 0, because the engine refuses a unit with a count of 0 or a time of 0 (measured on Factorio 2.0.77); a `CustomCost` whose settings do not is refused at plan time, and the engine's own rule that an out-of-range stored value resets to the default keeps every value the library reads legal. Should one of the two answer with something the engine would not take anyway, it takes the setting's declared default and logs the fallback line ending `fix the number`, exactly as a refused text takes yours. Placement is the ordinary placement fields, as for `Unit`.
+`CostFrom` is `Unit` with its three numbers in the player's hands: a `PacksSetting` for the science packs, written as an ingredient list, and an int setting each for the count and the seconds. On its own, each number setting must declare a minimum of at least 1 and a maximum, because the engine refuses a unit with a count of 0 or a time of 0 (measured on Factorio 2.0.77) and a field the player types into needs a ceiling the screen can show; a `CustomCost` whose settings do not is refused at plan time, and the engine's own rule that an out-of-range stored value resets to the default keeps every value the library reads legal. Should one of the two answer with something the engine would not take anyway, it takes the setting's declared default and logs the fallback line ending `fix the number`, exactly as a refused text takes yours. Placement is the ordinary placement fields, as for `Unit`.
 
 ```go
 count := lib.IntSetting("chain-count", 20, fkrecipes.Between(1, 100000))
-seconds := lib.DoubleSetting("chain-seconds", 10, fkrecipes.Between(0.5, 600))
+seconds := lib.IntSetting("chain-seconds", 10, fkrecipes.Between(1, 600))
 lib.Technology("chain-forging", fkrecipes.TechSpec{
 	CostFrom: &fkrecipes.CustomCost{Packs: packs, Count: count, Seconds: seconds},
 	After:    "steel-processing",
@@ -444,9 +459,9 @@ lib.Technology("chain-forging", fkrecipes.TechSpec{
 
 ```rust
 let count = lib.int_setting("chain-count", 20, NumericSpec::between(1.0, 100000.0));
-let seconds = lib.double_setting("chain-seconds", 10.0, NumericSpec::between(0.5, 600.0));
+let seconds = lib.int_setting("chain-seconds", 10, NumericSpec::between(1.0, 600.0));
 lib.technology("chain-forging", TechSpec {
-    cost_from: Some(CustomCost { packs, count, seconds, position: vec![] }),
+    cost_from: Some(CustomCost { packs, count, seconds }),
     after: "steel-processing".into(),
     unlocks: vec![chain],
     ..Default::default()
@@ -456,40 +471,54 @@ lib.technology("chain-forging", TechSpec {
 Only items the game treats as science packs (prototype type `tool`) are accepted in the pack list, and the word `default` means the packs you declared, with their fallbacks. The unit is emitted in the engine's short tuple form, and one line records what was read:
 
 ```
-fkrecipes: steelworks-chain-forging takes its research cost from steelworks-chain-packs: count 25, time 12.5, packs 1 automation-science-pack, 1 logistic-science-pack
+fkrecipes: steelworks-chain-forging takes its research cost from steelworks-chain-packs: count 25, time 12, packs 1 automation-science-pack, 1 logistic-science-pack
 ```
 
-A `CostBy` dropdown takes the same thing as its `Custom` arm, with one addition: a `Position` ladder, walked to the first technology the game has, which becomes the sole prerequisite exactly as a chosen tier's source would, or no prerequisite with a log line when no rung exists. `Position` is required in a `Custom` arm and refused under `CostFrom`, where the placement fields already say where the technology goes.
-
-While the dropdown is on a tier, the three settings do nothing, and each one that differs from what you declared says so, one line per setting in the order count, seconds, packs, before the tier's own lines:
-
-```
-fkrecipes: steelworks-tips-count is edited, but steelworks-tips-tier is not on custom, so the number is ignored
-fkrecipes: steelworks-tips-packs is edited, but steelworks-tips-tier is not on custom, so the text is ignored
-```
-
-A number that equals its declared default, or that cannot be read, draws nothing. For that line to be true, a count or seconds setting serves exactly one technology: one read as a research count or time by two technologies, or by a technology and a recipe's `CraftTimeFrom`, is refused at plan time (`fkrecipes: the setting tips-count is read as a research count or time by more than one declaration; a custom cost's number serves exactly one`). Two recipes may still share one crafting-time setting.
-
-The composed description of a cost dropdown names, after each tier's localised label and on the same line, the technology whose cost that tier copies, through the technology's own localised name (`{"technology-name.<first source>"}` after `: cost of`), or `: the fallback cost` for a tier with no source. It stays on one line where an ingredient preset takes two, because a localised label followed by a localised technology name is one vocabulary and there is nothing in it to copy. Where the game has no such technology or no entry for it, the tooltip shows the game's `Unknown key:` marker for that key, so order the ladder with the technology a stock install has first, or ship the entry.
+`CostFrom` also combines with `CostBy`, and that is the customizable research cost: the dropdown chooses a tier and the three settings overwrite that tier's numbers **one field at a time**. A field left at its declared default comes from the tier, so a player who moves the count alone gets their count with the tier's time and the tier's packs, and a player who touches nothing gets the tier byte for byte. Beside a dropdown, 0 is what a number says instead of the reserved word, so each of the two number settings declares a default of 0, a minimum of 0 and a maximum; with no dropdown there is nothing to defer to and the minimum of at least 1 applies. The tier still places the technology: the source whose cost it names is the prerequisite, whatever the settings say.
 
 ```go
 CostBy: &fkrecipes.CostChoices{
-	Setting:  tier, // its values end with custom
+	Setting:  tier, // its values are projectile and military
 	Choices:  tiers,
 	Fallback: fallback,
-	Custom:   &fkrecipes.CustomCost{Packs: tipsPacks, Count: tipsCount, Seconds: tipsSeconds, Position: []string{"military-2", "military"}},
 },
+CostFrom: &fkrecipes.CustomCost{Packs: tipsPacks, Count: tipsCount, Seconds: tipsSeconds},
 ```
 
 ```rust
-cost_by: Some(CostChoices {
-    setting: tier,
-    choices: tiers,
-    fallback,
-    custom: Some(CustomCost { packs: tips_packs, count: tips_count, seconds: tips_seconds, position: vec!["military-2".into(), "military".into()] }),
-    ..Default::default()
-}),
+cost_by: Some(CostChoices { setting: tier, choices: tiers, fallback }),
+cost_from: Some(CustomCost { packs: tips_packs, count: tips_count, seconds: tips_seconds }),
 ```
+
+When any of the three is not at its default, one line records what the cost came out as and says what the tier still supplied:
+
+```
+fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs: count 45, time 30, packs 1 automation-science-pack, 1 logistic-science-pack, 1 military-science-pack; the steelworks-tips-research-tier choice military supplies what the settings leave at default
+```
+
+The tier's unit is taken whole and written over field by field, so a `count_formula`, a `max_level` and any field this library has never heard of come through untouched. One exception: the engine refuses outright a unit carrying both a count and a `count_formula` (`Ambiguous definition: count and count_formula are both defined.`, measured on Factorio 2.0.77), so leaving the formula beside a count the player typed is not an option that exists. The formula is dropped in that case and one line says which setting took it:
+
+```
+fkrecipes: hardened-tips: steelworks-tips-count replaces the count_formula the projectile cost carries
+```
+
+**What dropping the formula costs, stated because nothing else states it.** An infinite technology priced by a flat count still levels, and every level then costs the same: measured on Factorio 2.0.77, a unit with `count = 500` and no formula under `max_level = "infinite"` reads `research_unit_count = 500` at level 1, level 2 and level 5. The scaling is gone from the prototype and the engine says nothing about it. The library does not refuse, because the trigger is a number a player typed and a value a player types never stops a load; the line above and the trailing line on the technology's own description are where it is disclosed.
+
+When the count setting is left at 0 beside a formula-priced tier nothing is dropped, and the log line says `count by formula` rather than a number, because there is no number in that price:
+
+```
+fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs: count by formula, time 45, packs 1 automation-science-pack
+```
+
+A count or seconds setting serves exactly one technology: one read as a research count or time by two of them is refused at plan time (`fkrecipes: the setting tips-count is read as a research count or time by more than one declaration; a custom cost's number serves exactly one`), because the description composed onto it names one dropdown as the thing deciding while the field is 0. Two recipes may still share one crafting-time setting, which is a double and so cannot be a research number's handle at all.
+
+Each of the two number settings is emitted with a description of its own: your `[mod-setting-description]` entry, then the range it takes and, beside a research dropdown, what 0 means. The checker requires that entry for the same reason it requires one on a text setting.
+
+```
+A whole number from 0 to 100000. While it is 0 the option chosen above decides.
+```
+
+The composed description of a cost dropdown names, after each tier's localised label and on the same line, the technology whose cost that tier copies, through the technology's own localised name (`{"technology-name.<first source>"}` after `: cost of`), or `: the fallback cost` for a tier with no source. It stays on one line where an ingredient preset takes two, because a localised label followed by a localised technology name is one vocabulary and there is nothing in it to copy. Where the game has no such technology or no entry for it, the tooltip shows the game's `Unknown key:` marker for that key, so order the ladder with the technology a stock install has first, or ship the entry. A last line says that the pack text above or below it applies while it does not say `default`, exactly as an ingredient dropdown's does.
 
 ### Unlocks and enablement
 
@@ -570,7 +599,7 @@ It checks both directions across `[mod-setting-name]`, `[mod-setting-description
 - an entry matching no setting or value of yours is reported as an orphan, because that is what a rename that was only half applied looks like;
 - two dropdown values that would produce one locale key are reported, since `<setting>-<value>` is a flat namespace and the engine keeps whichever came last;
 - a description is optional for a bool, int, double or plain dropdown setting and is never reported missing there, but a description matching nothing is still an orphan;
-- a text setting (an ingredient list or a pack list) needs both a `[mod-setting-name]` entry and a `[mod-setting-description]` entry, because the library composes the declared list, the format, the length limit and the fallback under that entry and an absent one loses all four; a dropdown with a `custom` arm needs a description too, since the library composes the preset texts onto it.
+- a text setting (an ingredient list or a pack list) needs both a `[mod-setting-name]` entry and a `[mod-setting-description]` entry, because the library composes the declared list, the format, the length limit, the switch line and the fallback under that entry and an absent one loses all of them; a research count or seconds setting needs a description for the same reason, since the range and what 0 means are composed onto it; and a dropdown with a text setting beside it needs one too, since the library composes the preset texts onto it.
 
 Sample output over a file missing one name and one dropdown value, and carrying two leftovers:
 

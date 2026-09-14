@@ -221,7 +221,7 @@ fn pilot_order_plan(lib: &mut Lib) {
     lib.order_after("b");
     let packs = lib.packs_setting("tech-packs", vec![Pack::new("automation-science-pack", 1)]);
     let count = lib.int_setting("tech-count", 20, NumericSpec::between(1.0, 1000000.0));
-    let seconds = lib.double_setting("tech-seconds", 15.0, NumericSpec::between(1.0, 3600.0));
+    let seconds = lib.int_setting("tech-seconds", 15, NumericSpec::between(1.0, 3600.0));
     lib.dropdown_setting_needing_locale("tech-style", "plain", &["plain", "fancy"]);
     let rivet = lib.item("steel-rivet", ItemSpec::default());
     lib.recipe(
@@ -238,7 +238,6 @@ fn pilot_order_plan(lib: &mut Lib) {
                 packs,
                 count,
                 seconds,
-                position: Vec::new(),
             }),
             ..Default::default()
         },
@@ -270,8 +269,8 @@ fn order_after_places_generated_settings_behind_a_named_order() {
             r#"extend {type="bool-setting", name="steelworks-recipe-hint", setting_type="startup", default_value=true, order="aac"}"#,
             r#"extend {type="string-setting", name="bbb-tech-cost", setting_type="startup", default_value="logistics", order="b", allowed_values=["logistics", "custom"]}"#,
             r#"extend {type="string-setting", name="steelworks-tech-packs", setting_type="startup", default_value="default", order="bae", auto_trim=true, localised_description=["", ["mod-setting-description.steelworks-tech-packs"], "\ndefault: 1 automation-science-pack"<text tail>]}"#,
-            r#"extend {type="int-setting", name="steelworks-tech-count", setting_type="startup", default_value=20, order="baf", minimum_value=1, maximum_value=1000000}"#,
-            r#"extend {type="double-setting", name="steelworks-tech-seconds", setting_type="startup", default_value=15, order="bag", minimum_value=1, maximum_value=3600}"#,
+            r#"extend {type="int-setting", name="steelworks-tech-count", setting_type="startup", default_value=20, order="baf", minimum_value=1, maximum_value=1000000, localised_description=["", ["mod-setting-description.steelworks-tech-count"], "\nA whole number from 1 to 1000000."]}"#,
+            r#"extend {type="int-setting", name="steelworks-tech-seconds", setting_type="startup", default_value=15, order="bag", minimum_value=1, maximum_value=3600, localised_description=["", ["mod-setting-description.steelworks-tech-seconds"], "\nA whole number from 1 to 3600."]}"#,
             r#"extend {type="string-setting", name="steelworks-tech-style", setting_type="startup", default_value="plain", order="bah", allowed_values=["plain", "fancy"]}"#,
         ],
     );
@@ -567,7 +566,6 @@ fn quench_plan(choices: Vec<IngredientChoice>) -> Lib {
             ingredients_by: Some(IngredientChoices {
                 setting: medium,
                 choices,
-                ..Default::default()
             }),
             ..Default::default()
         },
@@ -699,7 +697,6 @@ fn tier_plan_priced(choices: Vec<CostChoice>, packs: Vec<Pack>) -> Lib {
                     seconds: 30.0,
                     packs,
                 },
-                ..Default::default()
             }),
             ..Default::default()
         },
@@ -936,7 +933,6 @@ fn choice_refusals() {
                                 value: "water".into(),
                                 ingredients: Vec::new(),
                             }],
-                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -963,7 +959,6 @@ fn choice_refusals() {
                                 value: "water".into(),
                                 ingredients: Vec::new(),
                             }],
-                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -992,7 +987,6 @@ fn choice_refusals() {
                                     ingredients: Vec::new(),
                                 },
                             ],
-                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -1015,7 +1009,6 @@ fn choice_refusals() {
                                 value: "water".into(),
                                 ingredients: Vec::new(),
                             }],
-                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -1044,7 +1037,6 @@ fn choice_refusals() {
                                     ingredients: Vec::new(),
                                 },
                             ],
-                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -1067,7 +1059,6 @@ fn choice_refusals() {
                                 value: "water".into(),
                                 ingredients: vec![Ingredient::of(ItemRef::default(), 1)],
                             }],
-                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -1095,7 +1086,6 @@ fn choice_refusals() {
                                 seconds: 1.0,
                                 packs: Vec::new(),
                             },
-                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -1129,7 +1119,6 @@ fn choice_refusals() {
                                 seconds: 1.0,
                                 packs: Vec::new(),
                             },
-                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -1156,7 +1145,6 @@ fn choice_refusals() {
                                 seconds: 1.0,
                                 packs: Vec::new(),
                             },
-                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -1185,7 +1173,6 @@ fn choice_refusals() {
                                 seconds: 30.0,
                                 packs: Vec::new(),
                             },
-                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -1217,7 +1204,6 @@ fn choice_refusals() {
                                 seconds: 30.0,
                                 packs: vec![Pack::new("military-science-pack", 1)],
                             },
-                            ..Default::default()
                         }),
                         ..Default::default()
                     },
@@ -1261,7 +1247,6 @@ fn choices_do_not_alias_the_caller_vectors() {
             ingredients_by: Some(IngredientChoices {
                 setting: medium,
                 choices: choices.clone(),
-                ..Default::default()
             }),
             ..Default::default()
         },

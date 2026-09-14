@@ -229,9 +229,11 @@ func (w *fixtureWorld) withSetting(name string, v Value) *fixtureWorld {
 }
 
 // withSettingButAbsent makes one setting answer a real value beside ok=false,
-// which is the contract violation the !ok term of noteIgnoredNumber and
-// noteIgnoredText is the guard against: an edit-shaped value that the World
-// says is not there.
+// which is the contract violation the !ok terms of resolveTextList and
+// readNumber are the guard against: an edit-shaped value that the World says is
+// not there. Go's World answers (Value, bool) and Rust's answers Option<Value>,
+// so this pair exists on one side only and is tested on one side only. Read by
+// TestASettingAnsweringAValueBesideNotOkIsAbsent.
 func (w *fixtureWorld) withSettingButAbsent(name string, v Value) *fixtureWorld {
 	w.settingsButAbsent = append(w.settingsButAbsent, KV{Key: name, Val: v})
 	return w

@@ -136,7 +136,7 @@ fn a_fixture_world_of_your_own_drives_a_plan() {
         .collect();
     assert_eq!(
         logged,
-        ["fkrecipes: ERROR: mymod-parts contains characters that are not text; retype the list. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart."]
+        ["fkrecipes: ERROR: mymod-parts contains characters that are not text; retype the list. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart. Changing a recipe empties an assembling machine's input slots of anything the new list does not use."]
     );
     // The recipe is the AUTHOR'S declared list, which is what "loaded with its
     // own default instead" means in the prototype rather than only in the line.

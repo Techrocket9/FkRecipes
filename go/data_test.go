@@ -348,11 +348,11 @@ func selfProductWant(subject, name string) string {
 // returns exactly those two of base's 217 recipes. So the shape is legal, a
 // library that refused it would be wrong, and what was missing was the signal.
 //
-// FOUR ARMS ADD A RESOLVED LIST AND ALL FOUR ARE HERE. A player's text through
-// IngredientsFrom, a player's text through a dropdown's Custom arm, an author's
-// preset behind a dropdown, and a plain declared list: the check sits in
-// resolution.addRecipe, which every one of them hands its list to, and this is
-// the witness that none of them goes round it.
+// FOUR ARMS ADD A RESOLVED LIST AND ALL FOUR ARE HERE. A player's text with no
+// dropdown beside it, a player's text that takes a dropdown's choice over, an
+// author's preset behind a dropdown, and a plain declared list: the check sits
+// in resolution.addRecipe, which every one of them hands its list to, and this
+// is the witness that none of them goes round it.
 //
 // THE SUBJECT IS THE DECLARED NAME, which the first arm shows twice over: the
 // same transcript carries the "takes its ingredients from" line, and that one
@@ -378,25 +378,27 @@ func TestARecipeWhoseListNamesItsOwnProductSaysSo(t *testing.T) {
 		`extend {type="recipe", name="steelworks-steel-axe", enabled=true, ingredients=[{type="item", name="steelworks-steel-axe", amount=1}, {type="item", name="iron-plate", amount=2}], results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
 	})
 
-	// The dropdown's Custom arm: the same text path, reached through a
-	// dropdown the player put on custom.
+	// The same text path with a dropdown beside it, taken over by the text.
 	custom := New()
 	plate := custom.Item("hardened-steel-plate", ItemSpec{})
-	style := custom.DropdownSettingNeedingLocale("style", "plain", []string{"plain", "custom"})
+	style := custom.DropdownSettingNeedingLocale("style", "plain", []string{"plain"})
 	quench := custom.IngredientsSetting("quench-ingredients", []Ingredient{IngredientNamed(2, "steel-plate")})
-	custom.Recipe(plate, RecipeSpec{IngredientsBy: &IngredientChoices{
-		Setting: style,
-		Choices: []IngredientChoice{{Value: "plain", Ingredients: []Ingredient{IngredientNamed(2, "steel-plate")}}},
-		Custom:  quench,
-	}})
+	custom.Recipe(plate, RecipeSpec{
+		IngredientsBy: &IngredientChoices{
+			Setting: style,
+			Choices: []IngredientChoice{{Value: "plain", Ingredients: []Ingredient{IngredientNamed(2, "steel-plate")}}},
+		},
+		IngredientsFrom: quench,
+	})
 
 	ops, err = custom.PlanData(baseWorld().
-		withSetting("steelworks-style", Str("custom")).
+		withSetting("steelworks-style", Str("plain")).
 		withSetting("steelworks-quench-ingredients", Str("3 steelworks-hardened-steel-plate")))
 	assertNoError(t, err)
 
 	assertLines(t, transcript(ops), []string{
-		`log fkrecipes: steelworks-hardened-steel-plate takes its ingredients from steelworks-quench-ingredients: 3 steelworks-hardened-steel-plate`,
+		`log fkrecipes: steelworks-hardened-steel-plate takes its ingredients from steelworks-quench-ingredients:` +
+			` 3 steelworks-hardened-steel-plate; the steelworks-style choice plain is set aside`,
 		selfProductWant("hardened-steel-plate", "steelworks-hardened-steel-plate"),
 		`extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-hardened-steel-plate", enabled=true, ingredients=[{type="item", name="steelworks-hardened-steel-plate", amount=3}], results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}`,
@@ -677,8 +679,8 @@ func TestADeclaredListNamingOneThingTwiceIsRefused(t *testing.T) {
 	}
 
 	// A PRESET, AT BOTH OF ITS CHECKS. The data planner's own recipe loop owns
-	// a dropdown with no Custom arm; the binding validator, which BOTH
-	// planners run, owns one that has an arm, because the settings stage
+	// a dropdown with no text setting beside it; the binding validator, which
+	// BOTH planners run, owns one that has one, because the settings stage
 	// renders those presets into the dropdown's description.
 	dup := []Ingredient{IngredientNamed(4, "iron-plate"), IngredientNamed(2, "iron-plate")}
 	want = "fkrecipes: the recipe balancer-part names iron-plate twice; each ingredient is taken once"
@@ -702,13 +704,15 @@ func TestADeclaredListNamingOneThingTwiceIsRefused(t *testing.T) {
 	armed := func() *Lib {
 		l := New()
 		p := l.Item("balancer-part", ItemSpec{})
-		style := l.DropdownSettingNeedingLocale("style", "vanilla", []string{"vanilla", "custom"})
+		style := l.DropdownSettingNeedingLocale("style", "vanilla", []string{"vanilla"})
 		parts := l.IngredientsSetting("part-ingredients", []Ingredient{IngredientNamed(1, "iron-plate")})
-		l.Recipe(p, RecipeSpec{IngredientsBy: &IngredientChoices{
-			Setting: style,
-			Choices: []IngredientChoice{{Value: "vanilla", Ingredients: dup}},
-			Custom:  parts,
-		}})
+		l.Recipe(p, RecipeSpec{
+			IngredientsBy: &IngredientChoices{
+				Setting: style,
+				Choices: []IngredientChoice{{Value: "vanilla", Ingredients: dup}},
+			},
+			IngredientsFrom: parts,
+		})
 		return l
 	}
 
@@ -1916,7 +1920,9 @@ func TestBoundCraftingTimeFallsBack(t *testing.T) {
 				`log fkrecipes: ERROR: ` + c.want +
 					`. The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.`,
 				`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
-				`extend {type="recipe", name="steelworks-steel-axe", energy_required=2.5000000000000000e0, enabled=true, ingredients=[], results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
+				`extend {type="recipe", name="steelworks-steel-axe", ` +
+					noteIn("steelworks-axe-craft-time", false) +
+					`energy_required=2.5000000000000000e0, enabled=true, ingredients=[], results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
 			})
 		})
 	}
@@ -1953,10 +1959,14 @@ func TestOneBadCraftingTimeSettingTwoRecipesLogsOneLine(t *testing.T) {
 			` The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.`,
 		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
 		`extend {type="item", name="steelworks-steel-hammer", stack_size=50}`,
-		`extend {type="recipe", name="steelworks-steel-axe-forging", energy_required=2.5000000000000000e0, enabled=true,` +
+		`extend {type="recipe", name="steelworks-steel-axe-forging", ` +
+			noteIn("steelworks-forging-time", false) +
+			`energy_required=2.5000000000000000e0, enabled=true,` +
 			` ingredients=[{type="item", name="steel-plate", amount=1}],` +
 			` results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
-		`extend {type="recipe", name="steelworks-steel-hammer-forging", energy_required=2.5000000000000000e0, enabled=true,` +
+		`extend {type="recipe", name="steelworks-steel-hammer-forging", ` +
+			noteIn("steelworks-forging-time", false) +
+			`energy_required=2.5000000000000000e0, enabled=true,` +
 			` ingredients=[{type="item", name="steel-plate", amount=2}],` +
 			` results=[{type="item", name="steelworks-steel-hammer", amount=1}]}`,
 	})

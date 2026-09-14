@@ -15,18 +15,39 @@ import (
 // is held up to the light here is the BINDING: which setting a recipe reads,
 // what the settings screen shows, and which of the three text paths applies.
 
-// wantTextTail is the two lines this library composes onto EVERY text
-// setting's description, after the default list: what to write and how much of
-// it, then what a text it cannot use costs.
+// The three lines this library composes onto EVERY text setting's description,
+// after the default list: what to write and how much of it, which field decides
+// while this one says the reserved word, and what a text it cannot use costs.
 //
 // SPELLED OUT HERE RATHER THAN TAKEN FROM THE SOURCE, which is the whole point
 // of a golden: textFormatLine builds the number from maxListChars, so a test
 // that asked it for the sentence would move with any edit to either. These
 // bytes are the contract, the Rust twin carries the same ones, and the mirror
 // compares the two transcripts.
-const wantTextTail = `, "` + "\n" +
-	`Write internal names, as the default line above does, in at most 2000 characters.", "` + "\n" +
-	`A text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."`
+const (
+	wantTextFormat = `, "` + "\n" +
+		`Write internal names, as the default line above does, in at most 2000 characters."`
+	wantTextFallback = `, "` + "\n" +
+		`A text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."`
+	// The switch line a text setting with no dropdown beside it carries.
+	wantSwitchOwn = `, "` + "\n" + `While this says default this mod's own list applies."`
+	// wantTextTail is the whole tail of the commonest shape, a text setting
+	// that is the only source its recipe has.
+	wantTextTail = wantTextFormat + wantSwitchOwn + wantTextFallback
+)
+
+// wantSwitchBy is the switch line a text setting beside a dropdown carries, and
+// where says which way the settings screen sorts the two.
+func wantSwitchBy(where string) string {
+	return `, "` + "\n" + `While this says default the option chosen ` + where +
+		` applies; anything else applies instead of it."`
+}
+
+// wantDropdownSwitch is the sentence appended to a dropdown that has a text
+// setting beside it.
+func wantDropdownSwitch(where string) string {
+	return `, "` + "\n" + `The setting ` + where + ` applies instead while it does not say default."`
+}
 
 // customWorld is baseWorld plus the two names the customizer's fixtures reach
 // for: an iron stick to type into a list, and a military science pack so a
@@ -77,7 +98,7 @@ func TestPlanSettingsEmitsAPacksSettingAndAnEmptyList(t *testing.T) {
 		{Name: "military-science-pack", Amount: 2, Fallbacks: []string{"logistic-science-pack"}},
 	})
 	count := lib.IntSetting("axe-count", 20, Between(1, 100000))
-	seconds := lib.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
+	seconds := lib.IntSetting("axe-seconds", 10, Between(1, 600))
 	lib.Technology("steel-axes", TechSpec{
 		CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
 	})
@@ -93,8 +114,10 @@ func TestPlanSettingsEmitsAPacksSettingAndAnEmptyList(t *testing.T) {
 			` default_value="default", order="ab", auto_trim=true,` +
 			` localised_description=["", ["mod-setting-description.steelworks-axe-packs"],` +
 			` "` + "\n" + `default: 1 automation-science-pack, 2 military-science-pack"` + wantTextTail + `]}`,
-		`extend {type="int-setting", name="steelworks-axe-count", setting_type="startup", default_value=20, order="ac", minimum_value=1, maximum_value=100000}`,
-		`extend {type="double-setting", name="steelworks-axe-seconds", setting_type="startup", default_value=10, order="ad", minimum_value=5.0000000000000000e-1, maximum_value=600}`,
+		`extend {type="int-setting", name="steelworks-axe-count", setting_type="startup", default_value=20, order="ac", minimum_value=1, maximum_value=100000,` +
+			` localised_description=["", ["mod-setting-description.steelworks-axe-count"], "` + "\n" + `A whole number from 1 to 100000."]}`,
+		`extend {type="int-setting", name="steelworks-axe-seconds", setting_type="startup", default_value=10, order="ad", minimum_value=1, maximum_value=600,` +
+			` localised_description=["", ["mod-setting-description.steelworks-axe-seconds"], "` + "\n" + `A whole number from 1 to 600."]}`,
 	})
 }
 
@@ -124,7 +147,7 @@ func TestPlanSettingsEmitsALegacyTextSetting(t *testing.T) {
 func TestPlanSettingsComposesADropdownDescription(t *testing.T) {
 	lib := New()
 	plate := lib.Item("hardened-steel-plate", ItemSpec{})
-	medium := lib.DropdownSettingNeedingLocale("quench-medium", "water", []string{"water", "oil", "custom"})
+	medium := lib.DropdownSettingNeedingLocale("quench-medium", "water", []string{"water", "oil"})
 	quench := lib.IngredientsSetting("quench-ingredients", []Ingredient{IngredientNamed(2, "steel-plate")})
 	lib.Recipe(plate, RecipeSpec{
 		Category: "chemistry",
@@ -134,8 +157,8 @@ func TestPlanSettingsComposesADropdownDescription(t *testing.T) {
 				{Value: "water", Ingredients: []Ingredient{IngredientNamed(2, "steel-plate"), FluidIngredient(10, "water")}},
 				{Value: "oil", Ingredients: []Ingredient{IngredientNamed(2, "steel-plate"), FluidIngredient(0.5, "lubricant")}},
 			},
-			Custom: quench,
 		},
+		IngredientsFrom: quench,
 	})
 
 	ops, err := lib.PlanSettings(settingsWorld())
@@ -143,13 +166,15 @@ func TestPlanSettingsComposesADropdownDescription(t *testing.T) {
 
 	assertLines(t, transcript(ops), []string{
 		`extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup",` +
-			` default_value="water", order="aa", allowed_values=["water", "oil", "custom"],` +
+			` default_value="water", order="aa", allowed_values=["water", "oil"],` +
 			` localised_description=["", ["mod-setting-description.steelworks-quench-medium"],` +
 			` ["", "` + "\n" + `", ["string-mod-setting.steelworks-quench-medium-water"], "` + "\n" + `  type: 2 steel-plate, 10 [fluid=water]"],` +
-			` ["", "` + "\n" + `", ["string-mod-setting.steelworks-quench-medium-oil"], "` + "\n" + `  type: 2 steel-plate, 0.5 [fluid=lubricant]"]]}`,
+			` ["", "` + "\n" + `", ["string-mod-setting.steelworks-quench-medium-oil"], "` + "\n" + `  type: 2 steel-plate, 0.5 [fluid=lubricant]"]` +
+			wantDropdownSwitch("below") + `]}`,
 		`extend {type="string-setting", name="steelworks-quench-ingredients", setting_type="startup",` +
 			` default_value="default", order="ab", auto_trim=true,` +
-			` localised_description=["", ["mod-setting-description.steelworks-quench-ingredients"], "` + "\n" + `default: 2 steel-plate"` + wantTextTail + `]}`,
+			` localised_description=["", ["mod-setting-description.steelworks-quench-ingredients"], "` + "\n" + `default: 2 steel-plate"` +
+			wantTextFormat + wantSwitchBy("above") + wantTextFallback + `]}`,
 	})
 }
 
@@ -164,10 +189,10 @@ func TestPlanSettingsComposesADropdownDescription(t *testing.T) {
 // string, because there is no technology to name.
 func TestPlanSettingsComposesACostDropdownDescription(t *testing.T) {
 	lib := New()
-	tier := lib.DropdownSettingNeedingLocale("tips-tier", "projectile", []string{"projectile", "none", "custom"})
+	tier := lib.DropdownSettingNeedingLocale("tips-tier", "projectile", []string{"projectile", "none"})
 	packs := lib.PacksSetting("tips-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
-	count := lib.IntSetting("tips-count", 30, Between(1, 100000))
-	seconds := lib.DoubleSetting("tips-seconds", 15, Between(0.5, 600))
+	count := lib.IntSetting("tips-count", 0, Between(0, 100000))
+	seconds := lib.IntSetting("tips-seconds", 0, Between(0, 600))
 	lib.Technology("hardened-tips", TechSpec{
 		CostBy: &CostChoices{
 			Setting: tier,
@@ -176,10 +201,8 @@ func TestPlanSettingsComposesACostDropdownDescription(t *testing.T) {
 				{Value: "none"},
 			},
 			Fallback: UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
-			Custom: &CustomCost{
-				Packs: packs, Count: count, Seconds: seconds, Position: []string{"logistics-2"},
-			},
 		},
+		CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
 	})
 
 	ops, err := lib.PlanSettings(settingsWorld())
@@ -191,10 +214,56 @@ func TestPlanSettingsComposesACostDropdownDescription(t *testing.T) {
 	}
 	want := `["", ["mod-setting-description.steelworks-tips-tier"],` +
 		` ["", "` + "\n" + `", ["string-mod-setting.steelworks-tips-tier-projectile"], ": cost of ", ["technology-name.mining-productivity-4"]],` +
-		` ["", "` + "\n" + `", ["string-mod-setting.steelworks-tips-tier-none"], ": the fallback cost"]]`
+		` ["", "` + "\n" + `", ["string-mod-setting.steelworks-tips-tier-none"], ": the fallback cost"], "` + "\n" +
+		`The setting below applies instead while it does not say default."]`
 	if renderValue(got) != want {
 		t.Errorf("\n got: %s\nwant: %s", renderValue(got), want)
 	}
+}
+
+// THE TWO SWITCH LINES FOLLOW THE EMITTED ORDER, NOT THE DECLARATION ORDER.
+//
+// EVERY OTHER FIXTURE IN THIS FILE DECLARES THE DROPDOWN FIRST, so relativeOrder
+// answers "above" on the text side and "below" on the dropdown side in all of
+// them, and a pair of hard-coded constants would pass every one. This is the
+// other half of its domain, and the words it produces here appear nowhere else
+// in the repository: a LEGACY dropdown carrying the consumer's own order "z"
+// sorts UNDER a generated setting whose order is two letters starting at "a",
+// so the text setting points down and the dropdown points up. Whether the
+// author declared them in that order is not what either sentence is about.
+func TestTheSwitchLinesFollowTheEmittedOrder(t *testing.T) {
+	lib := New()
+	parts := lib.IngredientsSetting("quench-ingredients", []Ingredient{IngredientNamed(2, "steel-plate")})
+	medium := lib.LegacyDropdownSettingNeedingLocale("steelworks-quench-medium", "water",
+		[]string{"water", "oil"}, "z")
+	plate := lib.Item("hardened-steel-plate", ItemSpec{})
+	lib.Recipe(plate, RecipeSpec{
+		IngredientsFrom: parts,
+		IngredientsBy: &IngredientChoices{
+			Setting: medium,
+			Choices: []IngredientChoice{
+				{Value: "water", Ingredients: []Ingredient{IngredientNamed(2, "steel-plate")}},
+				{Value: "oil", Ingredients: []Ingredient{IngredientNamed(3, "steel-plate")}},
+			},
+		},
+	})
+
+	ops, err := lib.PlanSettings(settingsWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="string-setting", name="steelworks-quench-ingredients", setting_type="startup",` +
+			` default_value="default", order="aa", auto_trim=true,` +
+			` localised_description=["", ["mod-setting-description.steelworks-quench-ingredients"], "` + "\n" +
+			`default: 2 steel-plate"` + wantTextFormat + wantSwitchBy("below") + wantTextFallback + `]}`,
+		`extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup",` +
+			` default_value="water", order="z", allowed_values=["water", "oil"],` +
+			` localised_description=["", ["mod-setting-description.steelworks-quench-medium"],` +
+			` ["", "` + "\n" + `", ["string-mod-setting.steelworks-quench-medium-water"], "` + "\n" +
+			`  type: 2 steel-plate"],` +
+			` ["", "` + "\n" + `", ["string-mod-setting.steelworks-quench-medium-oil"], "` + "\n" +
+			`  type: 3 steel-plate"]` + wantDropdownSwitch("above") + `]}`,
+	})
 }
 
 // PAST NINETEEN PRESETS THE COMPOSITION STILL NESTS, AND THE NEW LINE IS WHAT
@@ -213,22 +282,19 @@ func TestCostDropdownDescriptionNestsPastNineteenPresets(t *testing.T) {
 		values = append(values, v)
 		choices = append(choices, CostChoice{Value: v, Sources: []string{"source" + strconv.Itoa(i)}})
 	}
-	values = append(values, "custom")
 
 	lib := New()
 	tier := lib.DropdownSettingNeedingLocale("tips-tier", values[0], values)
 	packs := lib.PacksSetting("tips-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
-	count := lib.IntSetting("tips-count", 30, Between(1, 100000))
-	seconds := lib.DoubleSetting("tips-seconds", 15, Between(0.5, 600))
+	count := lib.IntSetting("tips-count", 0, Between(0, 100000))
+	seconds := lib.IntSetting("tips-seconds", 0, Between(0, 600))
 	lib.Technology("hardened-tips", TechSpec{
 		CostBy: &CostChoices{
 			Setting:  tier,
 			Choices:  choices,
 			Fallback: UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
-			Custom: &CustomCost{
-				Packs: packs, Count: count, Seconds: seconds, Position: []string{"logistics-2"},
-			},
 		},
+		CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
 	})
 
 	ops, err := lib.PlanSettings(settingsWorld())
@@ -238,12 +304,13 @@ func TestCostDropdownDescriptionNestsPastNineteenPresets(t *testing.T) {
 	if !ok {
 		t.Fatalf("the dropdown carries no composed description")
 	}
-	// Twenty-two parameters, so nineteen stay and the twentieth slot nests.
+	// Twenty-three parameters (the key, twenty-one presets and the switch
+	// line), so nineteen stay and the twentieth slot nests.
 	if got.Kind != KindArr || len(got.Arr) != maxLocalisedParams+1 {
 		t.Fatalf("the top level is %s", renderValue(got))
 	}
-	if tail := got.Arr[maxLocalisedParams]; tail.Kind != KindArr || len(tail.Arr) != 4 {
-		t.Errorf("the last slot is %s, want a nested group of three lines", renderValue(tail))
+	if tail := got.Arr[maxLocalisedParams]; tail.Kind != KindArr || len(tail.Arr) != 5 {
+		t.Errorf("the last slot is %s, want a nested group of three lines and the switch line", renderValue(tail))
 	}
 	lines := 0
 	var walk func(Value, int)
@@ -354,22 +421,6 @@ func TestCustomizerPlanRefusals(t *testing.T) {
 			want: "fkrecipes: the recipe steel-axe names both Ingredients and IngredientsFrom; pick one",
 		},
 		{
-			name: "IngredientsFrom beside IngredientsBy",
-			build: func(l *Lib) {
-				axe := l.Item("steel-axe", ItemSpec{})
-				style := l.DropdownSettingNeedingLocale("style", "plain", []string{"plain"})
-				parts := l.IngredientsSetting("axe-ingredients", []Ingredient{IngredientNamed(1, "steel-plate")})
-				l.Recipe(axe, RecipeSpec{
-					IngredientsFrom: parts,
-					IngredientsBy: &IngredientChoices{
-						Setting: style,
-						Choices: []IngredientChoice{{Value: "plain", Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")}}},
-					},
-				})
-			},
-			want: "fkrecipes: the recipe steel-axe names both IngredientsBy and IngredientsFrom; pick one",
-		},
-		{
 			name: "IngredientsFrom naming another plan's setting",
 			build: func(l *Lib) {
 				axe := l.Item("steel-axe", ItemSpec{})
@@ -380,135 +431,12 @@ func TestCustomizerPlanRefusals(t *testing.T) {
 			want: "fkrecipes: the recipe steel-axe reads its ingredients from a setting that this plan never declared",
 		},
 		{
-			name: "a Custom arm naming another plan's setting",
-			build: func(l *Lib) {
-				axe := l.Item("steel-axe", ItemSpec{})
-				style := l.DropdownSettingNeedingLocale("style", "plain", []string{"plain", "custom"})
-				other := New()
-				parts := other.IngredientsSetting("axe-ingredients", []Ingredient{IngredientNamed(1, "steel-plate")})
-				l.Recipe(axe, RecipeSpec{IngredientsBy: &IngredientChoices{
-					Setting: style,
-					Choices: []IngredientChoice{{Value: "plain", Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")}}},
-					Custom:  parts,
-				}})
-			},
-			want: "fkrecipes: the recipe steel-axe names a Custom ingredients setting that this plan never declared",
-		},
-		{
-			// The pilot's own defect: the player picks custom and gets a
-			// recipe made of nothing, with no line saying why. The value is
-			// offered and NO choice covers it, which is what the refusal is
-			// about; the test below is the same dropdown with a preset behind
-			// the word.
-			name: "a dropdown offering custom with no arm",
-			build: func(l *Lib) {
-				axe := l.Item("steel-axe", ItemSpec{})
-				style := l.DropdownSettingNeedingLocale("style", "plain", []string{"plain", "custom"})
-				l.Recipe(axe, RecipeSpec{IngredientsBy: &IngredientChoices{
-					Setting: style,
-					Choices: []IngredientChoice{
-						{Value: "plain", Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")}},
-					},
-				}})
-			},
-			want: "fkrecipes: the setting steelworks-style offers custom, and the recipe steel-axe names no Custom arm for it",
-		},
-		{
-			// The cost twin, which had no witness of its own.
-			name: "a cost dropdown offering custom with no arm",
-			build: func(l *Lib) {
-				tier := l.DropdownSettingNeedingLocale("tier", "cheap", []string{"cheap", "custom"})
-				l.Technology("steel-axes", TechSpec{CostBy: &CostChoices{
-					Setting:  tier,
-					Choices:  []CostChoice{{Value: "cheap", Sources: []string{"logistics-2"}}},
-					Fallback: UnitSpec{Count: 1, Seconds: 1, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
-				}})
-			},
-			want: "fkrecipes: the setting steelworks-tier offers custom, and the technology steel-axes names no Custom arm for it",
-		},
-		{
-			// The migration hazard the CustomValue field exists for, named
-			// rather than resolved silently in either direction.
-			name: "a CustomValue a preset already covers",
-			build: func(l *Lib) {
-				axe := l.Item("steel-axe", ItemSpec{})
-				style := l.DropdownSettingNeedingLocale("style", "plain", []string{"plain", "mine"})
-				parts := l.IngredientsSetting("axe-ingredients", []Ingredient{IngredientNamed(1, "steel-plate")})
-				l.Recipe(axe, RecipeSpec{IngredientsBy: &IngredientChoices{
-					Setting: style,
-					Choices: []IngredientChoice{
-						{Value: "plain", Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")}},
-						{Value: "mine", Ingredients: []Ingredient{IngredientNamed(2, "steel-plate")}},
-					},
-					CustomValue: "mine",
-					Custom:      parts,
-				}})
-			},
-			want: "fkrecipes: the recipe steel-axe gives mine a preset as well as a Custom arm; name the arm's value with CustomValue",
-		},
-		{
-			name: "a Custom arm the dropdown does not offer",
-			build: func(l *Lib) {
-				axe := l.Item("steel-axe", ItemSpec{})
-				style := l.DropdownSettingNeedingLocale("style", "plain", []string{"plain"})
-				parts := l.IngredientsSetting("axe-ingredients", []Ingredient{IngredientNamed(1, "steel-plate")})
-				l.Recipe(axe, RecipeSpec{IngredientsBy: &IngredientChoices{
-					Setting: style,
-					Choices: []IngredientChoice{{Value: "plain", Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")}}},
-					Custom:  parts,
-				}})
-			},
-			want: "fkrecipes: the recipe steel-axe names a Custom arm for custom, which the setting steelworks-style does not offer",
-		},
-		{
-			name: "a Custom arm the dropdown offers twice",
-			build: func(l *Lib) {
-				axe := l.Item("steel-axe", ItemSpec{})
-				style := l.DropdownSettingNeedingLocale("style", "plain", []string{"plain", "custom", "custom"})
-				parts := l.IngredientsSetting("axe-ingredients", []Ingredient{IngredientNamed(1, "steel-plate")})
-				l.Recipe(axe, RecipeSpec{IngredientsBy: &IngredientChoices{
-					Setting: style,
-					Choices: []IngredientChoice{{Value: "plain", Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")}}},
-					Custom:  parts,
-				}})
-			},
-			want: "fkrecipes: the setting steelworks-style offers custom more than once, and a Custom arm needs it exactly once",
-		},
-		{
-			name: "CostFrom with a Position",
-			build: func(l *Lib) {
-				packs := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
-				count := l.IntSetting("axe-count", 20, Between(1, 100000))
-				seconds := l.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
-				l.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{
-					Packs: packs, Count: count, Seconds: seconds, Position: []string{"logistics-2"},
-				}})
-			},
-			want: "fkrecipes: the technology steel-axes names CostFrom with a Position; Position belongs to a Custom arm, and CostFrom is placed by After, Before and AfterTech",
-		},
-		{
-			name: "a Custom cost arm with no Position",
-			build: func(l *Lib) {
-				tier := l.DropdownSettingNeedingLocale("tier", "cheap", []string{"cheap", "custom"})
-				packs := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
-				count := l.IntSetting("axe-count", 20, Between(1, 100000))
-				seconds := l.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
-				l.Technology("steel-axes", TechSpec{CostBy: &CostChoices{
-					Setting:  tier,
-					Choices:  []CostChoice{{Value: "cheap", Sources: []string{"logistics-2"}}},
-					Fallback: UnitSpec{Count: 1, Seconds: 1, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
-					Custom:   &CustomCost{Packs: packs, Count: count, Seconds: seconds},
-				}})
-			},
-			want: "fkrecipes: the technology steel-axes names a Custom cost arm with no Position; the arm places the technology, so it needs a prerequisite ladder",
-		},
-		{
 			name: "a CustomCost naming another plan's packs setting",
 			build: func(l *Lib) {
 				other := New()
 				packs := other.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
 				count := l.IntSetting("axe-count", 20, Between(1, 100000))
-				seconds := l.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
+				seconds := l.IntSetting("axe-seconds", 10, Between(1, 600))
 				l.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds}})
 			},
 			want: "fkrecipes: the technology steel-axes reads its science packs from a setting that this plan never declared",
@@ -519,7 +447,7 @@ func TestCustomizerPlanRefusals(t *testing.T) {
 				packs := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
 				other := New()
 				count := other.IntSetting("axe-count", 20, Between(1, 100000))
-				seconds := l.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
+				seconds := l.IntSetting("axe-seconds", 10, Between(1, 600))
 				l.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds}})
 			},
 			want: "fkrecipes: the technology steel-axes reads its research count from a setting that this plan never declared",
@@ -530,7 +458,7 @@ func TestCustomizerPlanRefusals(t *testing.T) {
 				packs := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
 				count := l.IntSetting("axe-count", 20, Between(1, 100000))
 				other := New()
-				seconds := other.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
+				seconds := other.IntSetting("axe-seconds", 10, Between(1, 600))
 				l.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds}})
 			},
 			want: "fkrecipes: the technology steel-axes reads its research time from a setting that this plan never declared",
@@ -543,7 +471,7 @@ func TestCustomizerPlanRefusals(t *testing.T) {
 			build: func(l *Lib) {
 				packs := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
 				count := l.IntSetting("axe-count", 20, NumericSpec{HasMax: true, Max: 100})
-				seconds := l.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
+				seconds := l.IntSetting("axe-seconds", 10, Between(1, 600))
 				l.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds}})
 			},
 			want: "fkrecipes: the setting axe-count backs a research count but declares no minimum of at least 1 (the engine refuses a unit count of 0)",
@@ -553,7 +481,7 @@ func TestCustomizerPlanRefusals(t *testing.T) {
 			build: func(l *Lib) {
 				packs := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
 				count := l.IntSetting("axe-count", 20, Between(0, 100))
-				seconds := l.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
+				seconds := l.IntSetting("axe-seconds", 10, Between(1, 600))
 				l.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds}})
 			},
 			want: "fkrecipes: the setting axe-count backs a research count but declares no minimum of at least 1 (the engine refuses a unit count of 0)",
@@ -563,61 +491,145 @@ func TestCustomizerPlanRefusals(t *testing.T) {
 			build: func(l *Lib) {
 				packs := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
 				count := l.IntSetting("axe-count", 20, Between(1, 100))
-				seconds := l.DoubleSetting("axe-seconds", 10, Between(0, 600))
+				seconds := l.IntSetting("axe-seconds", 10, Between(0, 600))
 				l.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds}})
 			},
-			want: "fkrecipes: the setting axe-seconds backs a research time but declares no minimum above 0 (the engine refuses a unit time of 0)",
+			want: "fkrecipes: the setting axe-seconds backs a research time but declares no minimum of at least 1 (the engine refuses a unit time of 0)",
+		},
+		{
+			// A FIELD THE PLAYER TYPES INTO NEEDS A CEILING, and the settings
+			// screen has no other one to show them: an int setting with no
+			// maximum_value takes any number the engine's own encoding holds.
+			name: "a count setting with no maximum",
+			build: func(l *Lib) {
+				packs := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				count := l.IntSetting("axe-count", 20, NumericSpec{HasMin: true, Min: 1})
+				seconds := l.IntSetting("axe-seconds", 10, Between(1, 600))
+				l.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds}})
+			},
+			want: "fkrecipes: the setting axe-count backs a research number but declares no maximum of at least 1; a number the player types needs a ceiling it can reach",
+		},
+		{
+			name: "a seconds setting with no maximum",
+			build: func(l *Lib) {
+				packs := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				count := l.IntSetting("axe-count", 20, Between(1, 100))
+				seconds := l.IntSetting("axe-seconds", 10, NumericSpec{HasMin: true, Min: 1})
+				l.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds}})
+			},
+			want: "fkrecipes: the setting axe-seconds backs a research number but declares no maximum of at least 1; a number the player types needs a ceiling it can reach",
+		},
+		{
+			// A DECLARED MAXIMUM OF ZERO IS THE OTHER ARM OF THE SAME RULE, and
+			// it is why the sentence says "no maximum of at least 1" rather
+			// than "no maximum": this declaration carries one, and 0 is the
+			// only value it allows, which is the word that means "the dropdown
+			// decides" and never a cost. A sentence naming an absent maximum
+			// would be false of exactly this case. It is written beside a
+			// dropdown because that is where a 0 minimum is legal at all; with
+			// no dropdown the minimum rule answers first.
+			name: "a count setting beside a dropdown whose maximum is zero",
+			build: func(l *Lib) {
+				tier := l.DropdownSettingNeedingLocale("tier", "cheap", []string{"cheap"})
+				packs := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				count := l.IntSetting("axe-count", 0, Between(0, 0))
+				seconds := l.IntSetting("axe-seconds", 0, Between(0, 600))
+				l.Technology("steel-axes", TechSpec{
+					CostBy:   cheapTier(tier),
+					CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
+				})
+			},
+			want: "fkrecipes: the setting axe-count backs a research number but declares no maximum of at least 1; a number the player types needs a ceiling it can reach",
+		},
+		{
+			// BESIDE A DROPDOWN THE RULE INVERTS, because 0 is what a number
+			// says instead of the reserved word: a declared default of
+			// anything else would price the research out of a field the
+			// player never touched and leave the tier saying nothing.
+			name: "a count setting beside a dropdown whose default is not zero",
+			build: func(l *Lib) {
+				tier := l.DropdownSettingNeedingLocale("tier", "cheap", []string{"cheap"})
+				packs := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				count := l.IntSetting("axe-count", 20, Between(0, 100))
+				seconds := l.IntSetting("axe-seconds", 0, Between(0, 600))
+				l.Technology("steel-axes", TechSpec{
+					CostBy:   cheapTier(tier),
+					CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
+				})
+			},
+			want: "fkrecipes: the setting axe-count backs a research count beside a research dropdown, so its declared default and its minimum must both be 0 (0 means the dropdown decides)",
+		},
+		{
+			name: "a count setting beside a dropdown whose minimum is not zero",
+			build: func(l *Lib) {
+				tier := l.DropdownSettingNeedingLocale("tier", "cheap", []string{"cheap"})
+				packs := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				count := l.IntSetting("axe-count", 0, NumericSpec{HasMax: true, Max: 100})
+				seconds := l.IntSetting("axe-seconds", 0, Between(0, 600))
+				l.Technology("steel-axes", TechSpec{
+					CostBy:   cheapTier(tier),
+					CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
+				})
+			},
+			want: "fkrecipes: the setting axe-count backs a research count beside a research dropdown, so its declared default and its minimum must both be 0 (0 means the dropdown decides)",
+		},
+		{
+			name: "a seconds setting beside a dropdown whose default is not zero",
+			build: func(l *Lib) {
+				tier := l.DropdownSettingNeedingLocale("tier", "cheap", []string{"cheap"})
+				packs := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				count := l.IntSetting("axe-count", 0, Between(0, 100))
+				seconds := l.IntSetting("axe-seconds", 10, Between(0, 600))
+				l.Technology("steel-axes", TechSpec{
+					CostBy:   cheapTier(tier),
+					CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
+				})
+			},
+			want: "fkrecipes: the setting axe-seconds backs a research time beside a research dropdown, so its declared default and its minimum must both be 0 (0 means the dropdown decides)",
 		},
 		{
 			// ONE DROPDOWN COMPOSES ONE DESCRIPTION, so the presets it shows
-			// can only be one declaration's. Two recipes arming it is two
-			// preset lists for one string, and the player would read the
-			// other recipe's.
-			name: "two recipes arming one dropdown",
+			// can only be one declaration's. Two recipes putting a text
+			// setting beside it is two preset lists for one string, and the
+			// player would read the other recipe's.
+			name: "two recipes putting a text setting beside one dropdown",
 			build: func(l *Lib) {
 				axe := l.Item("steel-axe", ItemSpec{})
 				head := l.Item("axe-head", ItemSpec{})
-				style := l.DropdownSettingNeedingLocale("style", "plain", []string{"plain", "custom"})
+				style := l.DropdownSettingNeedingLocale("style", "plain", []string{"plain"})
 				axeParts := l.IngredientsSetting("axe-ingredients", []Ingredient{IngredientNamed(1, "steel-plate")})
 				headParts := l.IngredientsSetting("head-ingredients", []Ingredient{IngredientNamed(2, "steel-plate")})
-				l.Recipe(axe, RecipeSpec{IngredientsBy: &IngredientChoices{
-					Setting: style,
-					Choices: []IngredientChoice{{Value: "plain", Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")}}},
-					Custom:  axeParts,
-				}})
-				l.Recipe(head, RecipeSpec{IngredientsBy: &IngredientChoices{
-					Setting: style,
-					Choices: []IngredientChoice{{Value: "plain", Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")}}},
-					Custom:  headParts,
-				}})
-			},
-			want: "fkrecipes: the setting steelworks-style takes a Custom arm from more than one recipe; one dropdown composes one description",
-		},
-		{
-			name: "two technologies arming one dropdown",
-			build: func(l *Lib) {
-				tier := l.DropdownSettingNeedingLocale("tier", "cheap", []string{"cheap", "custom"})
-				axePacks := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
-				axeCount := l.IntSetting("axe-count", 20, Between(1, 100000))
-				axeSeconds := l.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
-				sawPacks := l.PacksSetting("saw-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
-				sawCount := l.IntSetting("saw-count", 20, Between(1, 100000))
-				sawSeconds := l.DoubleSetting("saw-seconds", 10, Between(0.5, 600))
-				by := func(packs PacksSettingRef, count IntSettingRef, seconds DoubleSettingRef) *CostChoices {
-					return &CostChoices{
-						Setting:  tier,
-						Choices:  []CostChoice{{Value: "cheap", Sources: []string{"logistics-2"}}},
-						Fallback: UnitSpec{Count: 1, Seconds: 1, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
-						Custom: &CustomCost{
-							Packs: packs, Count: count, Seconds: seconds,
-							Position: []string{"logistics-2"},
-						},
+				plain := func() *IngredientChoices {
+					return &IngredientChoices{
+						Setting: style,
+						Choices: []IngredientChoice{{Value: "plain", Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")}}},
 					}
 				}
-				l.Technology("steel-axes", TechSpec{CostBy: by(axePacks, axeCount, axeSeconds)})
-				l.Technology("steel-saws", TechSpec{CostBy: by(sawPacks, sawCount, sawSeconds)})
+				l.Recipe(axe, RecipeSpec{IngredientsBy: plain(), IngredientsFrom: axeParts})
+				l.Recipe(head, RecipeSpec{IngredientsBy: plain(), IngredientsFrom: headParts})
 			},
-			want: "fkrecipes: the setting steelworks-tier takes a Custom arm from more than one technology; one dropdown composes one description",
+			want: "fkrecipes: the setting steelworks-style takes a text setting from more than one recipe; one dropdown composes one description",
+		},
+		{
+			name: "two technologies putting a text setting beside one dropdown",
+			build: func(l *Lib) {
+				tier := l.DropdownSettingNeedingLocale("tier", "cheap", []string{"cheap"})
+				axePacks := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				axeCount := l.IntSetting("axe-count", 0, Between(0, 100000))
+				axeSeconds := l.IntSetting("axe-seconds", 0, Between(0, 600))
+				sawPacks := l.PacksSetting("saw-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				sawCount := l.IntSetting("saw-count", 0, Between(0, 100000))
+				sawSeconds := l.IntSetting("saw-seconds", 0, Between(0, 600))
+				l.Technology("steel-axes", TechSpec{
+					CostBy:   cheapTier(tier),
+					CostFrom: &CustomCost{Packs: axePacks, Count: axeCount, Seconds: axeSeconds},
+				})
+				l.Technology("steel-saws", TechSpec{
+					CostBy:   cheapTier(tier),
+					CostFrom: &CustomCost{Packs: sawPacks, Count: sawCount, Seconds: sawSeconds},
+				})
+			},
+			want: "fkrecipes: the setting steelworks-tier takes a text setting from more than one technology; one dropdown composes one description",
 		},
 		{
 			// A field the player can edit that changes nothing is a promise
@@ -640,54 +652,32 @@ func TestCustomizerPlanRefusals(t *testing.T) {
 			want: "fkrecipes: the setting axe-ingredients is read by more than one recipe or technology; a text setting serves exactly one",
 		},
 		{
-			// THE SAME RULE FOR A COST ARM'S NUMBERS, and it is the ignored
-			// line that needs it: the arm on a preset says the count is
-			// ignored, and here the other technology is spending it. A player
-			// reads "the number is ignored" about a field that priced the
-			// research two declarations down.
+			// A RESEARCH NUMBER IS BOUND ONCE, and the composed description is
+			// why: it names ONE dropdown as the thing deciding while the field
+			// is 0, so a setting two technologies priced themselves with would
+			// be described by whichever of them composed last.
+			//
+			// THE MIXED PAIR IS NOT REPRESENTABLE ANY MORE. One double backing
+			// a recipe's crafting time and a research time at once was the
+			// case this rule was written for; CustomCost.Seconds is an
+			// IntSettingRef now and CraftTimeFrom is a DoubleSettingRef, so no
+			// handle fits both slots and the two technologies below are the
+			// whole remaining domain.
 			name: "a count setting two technologies read",
 			build: func(l *Lib) {
-				tier := l.DropdownSettingNeedingLocale("tier", "cheap", []string{"cheap", "custom"})
-				fromPacks := l.PacksSetting("from-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
-				armPacks := l.PacksSetting("arm-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				axePacks := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				sawPacks := l.PacksSetting("saw-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
 				count := l.IntSetting("shared-count", 20, Between(1, 100000))
-				fromSeconds := l.DoubleSetting("from-seconds", 10, Between(0.5, 600))
-				armSeconds := l.DoubleSetting("arm-seconds", 10, Between(0.5, 600))
+				axeSeconds := l.IntSetting("axe-seconds", 10, Between(1, 600))
+				sawSeconds := l.IntSetting("saw-seconds", 10, Between(1, 600))
 				l.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{
-					Packs: fromPacks, Count: count, Seconds: fromSeconds,
+					Packs: axePacks, Count: count, Seconds: axeSeconds,
 				}})
-				l.Technology("steel-saws", TechSpec{CostBy: &CostChoices{
-					Setting:  tier,
-					Choices:  []CostChoice{{Value: "cheap", Sources: []string{"logistics-2"}}},
-					Fallback: UnitSpec{Count: 1, Seconds: 1, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
-					Custom: &CustomCost{
-						Packs: armPacks, Count: count, Seconds: armSeconds,
-						Position: []string{"logistics-2"},
-					},
+				l.Technology("steel-saws", TechSpec{CostFrom: &CustomCost{
+					Packs: sawPacks, Count: count, Seconds: sawSeconds,
 				}})
 			},
 			want: "fkrecipes: the setting shared-count is read as a research count or time by more than one declaration; a custom cost's number serves exactly one",
-		},
-		{
-			// THE MIXED PAIR IS THE ONE THE PILOT COULD HAVE WRITTEN: one
-			// double backing a recipe's crafting time and a research time at
-			// once. The recipe reads it whatever the dropdown says, so the
-			// ignored line would be false the moment the dropdown left custom.
-			name: "a seconds setting a recipe and a cost read",
-			build: func(l *Lib) {
-				axe := l.Item("steel-axe", ItemSpec{})
-				packs := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
-				count := l.IntSetting("axe-count", 20, Between(1, 100000))
-				seconds := l.DoubleSetting("shared-seconds", 10, Between(0.5, 600))
-				l.Recipe(axe, RecipeSpec{
-					CraftTimeFrom: seconds,
-					Ingredients:   []Ingredient{IngredientNamed(1, "steel-plate")},
-				})
-				l.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{
-					Packs: packs, Count: count, Seconds: seconds,
-				}})
-			},
-			want: "fkrecipes: the setting shared-seconds is read as a research count or time by more than one declaration; a custom cost's number serves exactly one",
 		},
 		{
 			// BOTH EXACTLY-ONCE RULES BROKEN AT ONCE, and the text one
@@ -698,8 +688,8 @@ func TestCustomizerPlanRefusals(t *testing.T) {
 			build: func(l *Lib) {
 				packs := l.PacksSetting("shared-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
 				count := l.IntSetting("shared-count", 20, Between(1, 100000))
-				axeSeconds := l.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
-				sawSeconds := l.DoubleSetting("saw-seconds", 10, Between(0.5, 600))
+				axeSeconds := l.IntSetting("axe-seconds", 10, Between(1, 600))
+				sawSeconds := l.IntSetting("saw-seconds", 10, Between(1, 600))
 				l.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{
 					Packs: packs, Count: count, Seconds: axeSeconds,
 				}})
@@ -713,50 +703,40 @@ func TestCustomizerPlanRefusals(t *testing.T) {
 			// THE NUMBER RULE STEPS PAST WHAT THE OTHER SENTENCES OWN, and
 			// this technology is the one that made it necessary: it names two
 			// cost sources, so it has not said what its research costs, and
-			// both of the arms it names read the same count. Counting them
-			// would answer an undeclared cost with a sentence about sharing.
+			// the count it reads is one another technology reads too. Counting
+			// it would answer an undeclared cost with a sentence about
+			// sharing.
 			name: "two cost sources over one count",
 			build: func(l *Lib) {
-				tier := l.DropdownSettingNeedingLocale("tier", "cheap", []string{"cheap", "custom"})
-				fromPacks := l.PacksSetting("from-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
-				armPacks := l.PacksSetting("arm-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				axePacks := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+				sawPacks := l.PacksSetting("saw-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
 				count := l.IntSetting("shared-count", 20, Between(1, 100000))
-				fromSeconds := l.DoubleSetting("from-seconds", 10, Between(0.5, 600))
-				armSeconds := l.DoubleSetting("arm-seconds", 10, Between(0.5, 600))
+				axeSeconds := l.IntSetting("axe-seconds", 10, Between(1, 600))
+				sawSeconds := l.IntSetting("saw-seconds", 10, Between(1, 600))
 				l.Technology("steel-axes", TechSpec{
-					CostFrom: &CustomCost{Packs: fromPacks, Count: count, Seconds: fromSeconds},
-					CostBy: &CostChoices{
-						Setting:  tier,
-						Choices:  []CostChoice{{Value: "cheap", Sources: []string{"logistics-2"}}},
-						Fallback: UnitSpec{Count: 1, Seconds: 1, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
-						Custom: &CustomCost{
-							Packs: armPacks, Count: count, Seconds: armSeconds,
-							Position: []string{"logistics-2"},
-						},
-					},
+					CostOf:   "logistics-2",
+					CostFrom: &CustomCost{Packs: axePacks, Count: count, Seconds: axeSeconds},
 				})
+				l.Technology("steel-saws", TechSpec{CostFrom: &CustomCost{
+					Packs: sawPacks, Count: count, Seconds: sawSeconds,
+				}})
 			},
 			want:     "fkrecipes: the technology steel-axes must name exactly one of CostOf, Unit, CostBy or CostFrom",
 			dataOnly: true,
 		},
 		{
 			// The recipe twin: a crafting time named twice, once by hand and
-			// once by a handle a research cost also reads. "Pick one" is what
-			// the author has to fix first, and it is the data planner's line.
-			name: "CraftTime beside CraftTimeFrom over a shared seconds",
+			// once by a handle. "Pick one" is what the author has to fix
+			// first, and it is the data planner's line.
+			name: "CraftTime beside CraftTimeFrom",
 			build: func(l *Lib) {
 				axe := l.Item("steel-axe", ItemSpec{})
-				packs := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
-				count := l.IntSetting("axe-count", 20, Between(1, 100000))
-				seconds := l.DoubleSetting("shared-seconds", 10, Between(0.5, 600))
+				seconds := l.DoubleSetting("forge-seconds", 10, Between(0.5, 600))
 				l.Recipe(axe, RecipeSpec{
 					CraftTime:     2,
 					CraftTimeFrom: seconds,
 					Ingredients:   []Ingredient{IngredientNamed(1, "steel-plate")},
 				})
-				l.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{
-					Packs: packs, Count: count, Seconds: seconds,
-				}})
 			},
 			want:     "fkrecipes: the recipe steel-axe names both CraftTime and CraftTimeFrom; pick one",
 			dataOnly: true,
@@ -766,7 +746,7 @@ func TestCustomizerPlanRefusals(t *testing.T) {
 			build: func(l *Lib) {
 				packs := l.PacksSetting("axe-packs", nil)
 				count := l.IntSetting("axe-count", 20, Between(1, 100000))
-				seconds := l.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
+				seconds := l.IntSetting("axe-seconds", 10, Between(1, 600))
 				l.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds}})
 			},
 			want: "fkrecipes: the packs setting axe-packs declares no science pack; research takes at least one",
@@ -871,7 +851,7 @@ func TestCustomizerPlanRefusals(t *testing.T) {
 			build: func(l *Lib) {
 				packs := l.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
 				count := l.IntSetting("axe-count", 20, Between(1, 100000))
-				seconds := l.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
+				seconds := l.IntSetting("axe-seconds", 10, Between(1, 600))
 				l.Technology("steel-axes", TechSpec{
 					CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
 					Unit:     &UnitSpec{Count: 1, Seconds: 1, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
@@ -920,6 +900,17 @@ func TestCustomizerPlanRefusals(t *testing.T) {
 				t.Errorf("a refused plan still produced %d ops", len(ops))
 			}
 		})
+	}
+}
+
+// cheapTier is a research dropdown with one preset, so a refusal about the
+// settings BESIDE it is the sentence under test rather than one about the
+// dropdown's own shape.
+func cheapTier(setting DropdownSettingRef) *CostChoices {
+	return &CostChoices{
+		Setting:  setting,
+		Choices:  []CostChoice{{Value: "cheap", Sources: []string{"logistics-2"}}},
+		Fallback: UnitSpec{Count: 1, Seconds: 1, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
 	}
 }
 
@@ -1062,6 +1053,93 @@ func TestTextSettingThatIsNotReadable(t *testing.T) {
 	})
 }
 
+// A VALUE BESIDE ok=false IS STILL ABSENT, AND EVERY READER HONOURS THE FLAG.
+//
+// THIS IS A GO-ONLY HAZARD and it has no Rust twin, which is why it is a test
+// rather than a shared one: Go's World answers (Value, bool) and a host fixture
+// can hand back a perfectly edit-shaped value beside ok=false, while Rust's
+// answers Option<Value> and cannot express the pair at all. A reader that looked
+// at the value first would take this text and this number as a player's typing,
+// log the lines that name a field to go and fix, and put a note on the recipe;
+// what is owed instead is the declared default with the ordinary unreadable
+// sentence and nothing else. withSettingButAbsent is the fixture arm that says
+// so, and this is what reads it.
+func TestASettingAnsweringAValueBesideNotOkIsAbsent(t *testing.T) {
+	lib := New()
+	axe := lib.Item("steel-axe", ItemSpec{})
+	parts := lib.IngredientsSetting("axe-ingredients", []Ingredient{IngredientNamed(1, "steel-plate")})
+	forging := lib.DoubleSetting("forging-time", 3, NumericSpec{HasMax: true, Max: 120})
+	lib.Recipe(axe, RecipeSpec{Name: "steel-axe-forging", CraftTimeFrom: forging, IngredientsFrom: parts})
+
+	w := customWorld().
+		withSettingButAbsent("steelworks-axe-ingredients", Str("2 iron-stick")).
+		withSettingButAbsent("steelworks-forging-time", Num(0))
+
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: the setting steelworks-forging-time was not readable, so its default applies`,
+		`log fkrecipes: the setting steelworks-axe-ingredients was not readable, so its default applies`,
+		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-steel-axe-forging", energy_required=3, enabled=true,` +
+			` ingredients=[{type="item", name="steel-plate", amount=1}],` +
+			` results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
+	})
+}
+
+// THE NOTE JOINS THE AUTHOR'S OWN DESCRIPTION rather than replacing it, and an
+// ITEM NEVER CARRIES ONE.
+//
+// THREE SHAPES AND THE THIRD ONE IS THE DEFAULT, which is what the other
+// transcripts in this file already show: a recipe with no Description of its own
+// carries the note alone in the ordinary two-element form. Here the recipe and
+// the technology both declare one, so the emitted description is the author's
+// sentence and then the library's on a line of its own; and the item beside
+// them declares one too and carries it UNCHANGED, because the fallback is about
+// what a recipe makes and what a technology costs and an item prototype is
+// neither.
+func TestAFallbackNoteJoinsTheAuthorsOwnDescription(t *testing.T) {
+	lib := New()
+	rivet := lib.Item("steel-rivet", ItemSpec{Description: "A small steel rivet."})
+	parts := lib.IngredientsSetting("rivet-ingredients", []Ingredient{IngredientNamed(2, "steel-plate")})
+	packs := lib.PacksSetting("rivet-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+	count := lib.IntSetting("rivet-count", 20, Between(1, 100000))
+	seconds := lib.IntSetting("rivet-seconds", 10, Between(1, 600))
+	lib.Recipe(rivet, RecipeSpec{Name: "steel-rivet-forging", Description: "Forged from plate.", IngredientsFrom: parts})
+	lib.Technology("riveting", TechSpec{
+		Description: "Teaches riveting.",
+		CostFrom:    &CustomCost{Packs: packs, Count: count, Seconds: seconds},
+	})
+
+	w := customWorld().
+		withSetting("steelworks-rivet-ingredients", Str("2 unobtanium")).
+		withSetting("steelworks-rivet-packs", Str("1 unobtanium")).
+		withSetting("steelworks-rivet-count", Num(20)).
+		withSetting("steelworks-rivet-seconds", Num(10))
+
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: ERROR: steelworks-rivet-ingredients, entry 1 ("2 unobtanium"): no item or fluid is named unobtanium.` +
+			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
+		`log fkrecipes: ERROR: steelworks-rivet-packs, entry 1 ("1 unobtanium"): no science pack is named unobtanium.` +
+			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.`,
+		`log fkrecipes: steelworks-riveting takes its research cost from steelworks-rivet-packs:` +
+			` count 20, time 10, packs 1 automation-science-pack`,
+		`extend {type="item", name="steelworks-steel-rivet",` +
+			` localised_description=["", "A small steel rivet."], stack_size=50}`,
+		`extend {type="recipe", name="steelworks-steel-rivet-forging",` +
+			` localised_description=["", "Forged from plate.", "` + "\n" + fallbackNote("steelworks-rivet-ingredients", true) + `"],` +
+			` enabled=true, ingredients=[{type="item", name="steel-plate", amount=2}],` +
+			` results=[{type="item", name="steelworks-steel-rivet", amount=1}]}`,
+		`extend {type="technology", name="steelworks-riveting",` +
+			` localised_description=["", "Teaches riveting.", "` + "\n" + fallbackNote("steelworks-rivet-packs", false) + `"],` +
+			` unit={count=20, time=10, ingredients=[["automation-science-pack", 1]]}}`,
+	})
+}
+
 // A readable value that is not a string takes the author's list with ONE line
 // saying so. The engine resets a wrong-typed stored value before any stage runs
 // (measured), so this is a hand-edited file; the line is what says so, and it
@@ -1075,9 +1153,11 @@ func TestTextSettingThatIsNotTextFallsBack(t *testing.T) {
 
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: ERROR: steelworks-rivet-ingredients is not text.` +
-			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.`,
+			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
 		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
-		`extend {type="recipe", name="steelworks-steel-rivet-forging", enabled=true,` +
+		`extend {type="recipe", name="steelworks-steel-rivet-forging", ` +
+			noteIn("steelworks-rivet-ingredients", true) +
+			`enabled=true,` +
 			` ingredients=[{type="item", name="steel-plate", amount=2}, {type="item", name="iron-stick", amount=1}],` +
 			` results=[{type="item", name="steelworks-steel-rivet", amount=1}]}`,
 	})
@@ -1103,9 +1183,11 @@ func TestTextSettingFallsBackOnTheLanguageRefusal(t *testing.T) {
 
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: ERROR: steelworks-rivet-ingredients, entry 2 ("1 unobtanium"): no item or fluid is named unobtanium.` +
-			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.`,
+			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
 		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
-		`extend {type="recipe", name="steelworks-steel-rivet-forging", enabled=true,` +
+		`extend {type="recipe", name="steelworks-steel-rivet-forging", ` +
+			noteIn("steelworks-rivet-ingredients", true) +
+			`enabled=true,` +
 			` ingredients=[{type="item", name="steel-plate", amount=2}, {type="item", name="iron-stick", amount=1}],` +
 			` results=[{type="item", name="steelworks-steel-rivet", amount=1}]}`,
 	})
@@ -1125,9 +1207,11 @@ func TestRefusedTextFallsBackOntoTheDeclaredLadders(t *testing.T) {
 
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: ERROR: steelworks-rivet-ingredients, entry 1 ("2 unobtanium"): no item or fluid is named unobtanium.` +
-			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.`,
+			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
 		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
-		`extend {type="recipe", name="steelworks-steel-rivet-forging", enabled=true,` +
+		`extend {type="recipe", name="steelworks-steel-rivet-forging", ` +
+			noteIn("steelworks-rivet-ingredients", true) +
+			`enabled=true,` +
 			` ingredients=[{type="item", name="steel-plate", amount=2}, {type="item", name="iron-plate", amount=1}],` +
 			` results=[{type="item", name="steelworks-steel-rivet", amount=1}]}`,
 	})
@@ -1176,10 +1260,12 @@ func TestTextSettingSuggestsThePlansOwnItem(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: ERROR: steelworks-axe-ingredients, entry 1 ("3 Steelworks_Steel_Rivet"):` +
 			` no item or fluid is named Steelworks_Steel_Rivet; did you mean steelworks-steel-rivet.` +
-			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.`,
+			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
 		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
 		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
-		`extend {type="recipe", name="steelworks-steel-axe-forging", enabled=true,` +
+		`extend {type="recipe", name="steelworks-steel-axe-forging", ` +
+			noteIn("steelworks-axe-ingredients", true) +
+			`enabled=true,` +
 			` ingredients=[{type="item", name="steelworks-steel-rivet", amount=2}, {type="item", name="iron-plate", amount=1}],` +
 			` results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
 	})
@@ -1193,7 +1279,7 @@ func TestPackTextNamingAPlanItemIsToldItIsAnItem(t *testing.T) {
 	lib.Item("steel-rivet", ItemSpec{})
 	packs := lib.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
 	count := lib.IntSetting("axe-count", 20, Between(1, 100000))
-	seconds := lib.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
+	seconds := lib.IntSetting("axe-seconds", 10, Between(1, 600))
 	lib.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds}})
 	w := customWorld().withSetting("steelworks-axe-packs", Str("1 steelworks-steel-rivet"))
 
@@ -1209,8 +1295,9 @@ func TestPackTextNamingAPlanItemIsToldItIsAnItem(t *testing.T) {
 		`log fkrecipes: steelworks-steel-axes takes its research cost from steelworks-axe-packs:` +
 			` count 20, time 10, packs 1 automation-science-pack`,
 		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
-		`extend {type="technology", name="steelworks-steel-axes",` +
-			` unit={count=20, time=10, ingredients=[["automation-science-pack", 1]]}}`,
+		`extend {type="technology", name="steelworks-steel-axes", ` +
+			noteIn("steelworks-axe-packs", false) +
+			`unit={count=20, time=10, ingredients=[["automation-science-pack", 1]]}}`,
 	})
 }
 
@@ -1251,13 +1338,13 @@ func ownItemPlan() (*Lib, IngredientsSettingRef) {
 }
 
 // ---------------------------------------------------------------------------
-// The data stage: a dropdown with a Custom arm.
+// The data stage: a text setting beside a dropdown.
 // ---------------------------------------------------------------------------
 
-func customArmPlan() *Lib {
+func textBesideDropdownPlan() *Lib {
 	lib := New()
 	plate := lib.Item("hardened-steel-plate", ItemSpec{})
-	medium := lib.DropdownSettingNeedingLocale("quench-medium", "water", []string{"water", "oil", "custom"})
+	medium := lib.DropdownSettingNeedingLocale("quench-medium", "water", []string{"water", "oil"})
 	quench := lib.IngredientsSetting("quench-ingredients", []Ingredient{IngredientNamed(2, "steel-plate")})
 	lib.Recipe(plate, RecipeSpec{
 		Name:     "plate-quenching",
@@ -1268,81 +1355,18 @@ func customArmPlan() *Lib {
 				{Value: "water", Ingredients: []Ingredient{IngredientNamed(1, "iron-plate")}},
 				{Value: "oil", Ingredients: []Ingredient{IngredientNamed(1, "copper-plate")}},
 			},
-			Custom: quench,
 		},
+		IngredientsFrom: quench,
 	})
 	return lib
 }
 
-// On a preset the preset applies, exactly as it did before the arm existed.
-func TestCustomArmOnAPreset(t *testing.T) {
-	lib := customArmPlan()
-	w := customWorld().withSetting("steelworks-quench-medium", Str("oil"))
-
-	ops, err := lib.PlanData(w)
-	assertNoError(t, err)
-
-	// AND NOT ONE WORD ABOUT THE TEXT SETTING, which is unreadable here. It is
-	// not being read for real, so an unreadable line about it would be noise
-	// about a field nothing consulted.
-	assertLines(t, transcript(ops), []string{
-		`extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}`,
-		`extend {type="recipe", name="steelworks-plate-quenching", category="chemistry", enabled=true,` +
-			` ingredients=[{type="item", name="copper-plate", amount=1}],` +
-			` results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}`,
-	})
-}
-
-// WITHOUT THIS LINE THE PLAYER EDITS A FIELD AND NOTHING HAPPENS. It comes
-// before the preset's own lines, so it reads as the reason they are the
-// preset's and not the text's.
-func TestCustomArmSaysWhenAnEditedTextIsIgnored(t *testing.T) {
-	lib := customArmPlan()
+// A TEXT LEFT ON THE RESERVED WORD LETS THE DROPDOWN DECIDE, which is exactly
+// where a player who never opened the settings screen lands.
+func TestTextOnTheWordLetsTheDropdownDecide(t *testing.T) {
+	lib := textBesideDropdownPlan()
 	w := customWorld().
 		withSetting("steelworks-quench-medium", Str("oil")).
-		withSetting("steelworks-quench-ingredients", Str("4 iron-plate"))
-
-	ops, err := lib.PlanData(w)
-	assertNoError(t, err)
-
-	assertLines(t, transcript(ops), []string{
-		`log fkrecipes: steelworks-quench-ingredients is edited, but steelworks-quench-medium is not on custom, so the text is ignored`,
-		`extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}`,
-		`extend {type="recipe", name="steelworks-plate-quenching", category="chemistry", enabled=true,` +
-			` ingredients=[{type="item", name="copper-plate", amount=1}],` +
-			` results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}`,
-	})
-}
-
-// A TEXT THE LANGUAGE REFUSES, BEHIND A PRESET, IS STILL ONLY AN EDIT. It gets
-// the ignored line and NOT the ERROR line, because nothing read it for real:
-// the dropdown beside it is on a preset, so the text is not the recipe's list
-// and there is no default for it to have fallen back to. Telling the player to
-// go and fix a field the mod is not using would send them after the wrong
-// thing.
-func TestARefusedTextBehindAPresetGetsTheIgnoredLineAndNotTheErrorLine(t *testing.T) {
-	lib := customArmPlan()
-	w := customWorld().
-		withSetting("steelworks-quench-medium", Str("oil")).
-		withSetting("steelworks-quench-ingredients", Str("4 unobtanium"))
-
-	ops, err := lib.PlanData(w)
-	assertNoError(t, err)
-
-	assertLines(t, transcript(ops), []string{
-		`log fkrecipes: steelworks-quench-ingredients is edited, but steelworks-quench-medium is not on custom, so the text is ignored`,
-		`extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}`,
-		`extend {type="recipe", name="steelworks-plate-quenching", category="chemistry", enabled=true,` +
-			` ingredients=[{type="item", name="copper-plate", amount=1}],` +
-			` results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}`,
-	})
-}
-
-// A text left on the word is not an edit, so nothing is said about it.
-func TestCustomArmIsQuietWhenTheTextIsOnTheWord(t *testing.T) {
-	lib := customArmPlan()
-	w := customWorld().
-		withSetting("steelworks-quench-medium", Str("water")).
 		withSetting("steelworks-quench-ingredients", Str("default"))
 
 	ops, err := lib.PlanData(w)
@@ -1351,17 +1375,17 @@ func TestCustomArmIsQuietWhenTheTextIsOnTheWord(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		`extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-plate-quenching", category="chemistry", enabled=true,` +
-			` ingredients=[{type="item", name="iron-plate", amount=1}],` +
+			` ingredients=[{type="item", name="copper-plate", amount=1}],` +
 			` results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}`,
 	})
 }
 
-// AND THE LANGUAGE IS WHAT DECIDES WHAT THE WORD IS. "default," is a
-// tolerated trailing comma the language reads as the marker, so the field is
-// untouched and nothing is said about it. Comparing the trimmed text with the
-// bare word would have told the player their untouched field was ignored.
-func TestCustomArmIsQuietWhenTheTextIsTheWordWithATrailingComma(t *testing.T) {
-	lib := customArmPlan()
+// AND THE LANGUAGE IS WHAT DECIDES WHAT THE WORD IS. "default," is a tolerated
+// trailing comma the language reads as the marker, so the dropdown still
+// decides and nothing is said. Comparing the trimmed text with the bare word
+// would have taken an untouched field for an edit.
+func TestTextOnTheWordWithATrailingCommaLetsTheDropdownDecide(t *testing.T) {
+	lib := textBesideDropdownPlan()
 	w := customWorld().
 		withSetting("steelworks-quench-medium", Str("oil")).
 		withSetting("steelworks-quench-ingredients", Str("default,"))
@@ -1377,18 +1401,40 @@ func TestCustomArmIsQuietWhenTheTextIsTheWordWithATrailingComma(t *testing.T) {
 	})
 }
 
-// On the custom value the text is what the recipe is made of.
-func TestCustomArmOnTheCustomValue(t *testing.T) {
-	lib := customArmPlan()
+// AN UNREADABLE TEXT IS THE WORD, and the line saying so is the one every
+// unreadable setting gets. The dropdown decides, exactly as it does for the
+// word itself.
+func TestAnUnreadableTextLetsTheDropdownDecide(t *testing.T) {
+	lib := textBesideDropdownPlan()
+	w := customWorld().withSetting("steelworks-quench-medium", Str("oil"))
+
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: the setting steelworks-quench-ingredients was not readable, so its default applies`,
+		`extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-plate-quenching", category="chemistry", enabled=true,` +
+			` ingredients=[{type="item", name="copper-plate", amount=1}],` +
+			` results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}`,
+	})
+}
+
+// THE TEXT IS THE SWITCH: anything but the word takes the list over, and the
+// line says which choice was set aside so a player who forgot the field reads
+// why the dropdown did nothing.
+func TestTextBesideADropdownTakesTheListOver(t *testing.T) {
+	lib := textBesideDropdownPlan()
 	w := customWorld().
-		withSetting("steelworks-quench-medium", Str("custom")).
+		withSetting("steelworks-quench-medium", Str("oil")).
 		withSetting("steelworks-quench-ingredients", Str("3 copper-plate, 2 water"))
 
 	ops, err := lib.PlanData(w)
 	assertNoError(t, err)
 
 	assertLines(t, transcript(ops), []string{
-		`log fkrecipes: steelworks-plate-quenching takes its ingredients from steelworks-quench-ingredients: 3 copper-plate, 2 [fluid=water]`,
+		`log fkrecipes: steelworks-plate-quenching takes its ingredients from steelworks-quench-ingredients:` +
+			` 3 copper-plate, 2 [fluid=water]; the steelworks-quench-medium choice oil is set aside`,
 		`extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-plate-quenching", category="chemistry", enabled=true,` +
 			` ingredients=[{type="item", name="copper-plate", amount=3}, {type="fluid", name="water", amount=2}],` +
@@ -1396,64 +1442,55 @@ func TestCustomArmOnTheCustomValue(t *testing.T) {
 	})
 }
 
-// On the custom value with the word in the field, the AUTHOR's declared list
-// applies: the arm is a switch, and the word means the same thing under it.
-func TestCustomArmOnTheCustomValueWithTheWord(t *testing.T) {
-	lib := customArmPlan()
+// A TEXT THE LANGUAGE REFUSES FALLS BACK EXACTLY AS THE WORD BEHAVES: the
+// dropdown decides, and the ERROR line names the field the player fixes. The
+// clause about a choice being set aside must NOT appear, because none was.
+func TestARefusedTextBesideADropdownFallsBackToTheDropdown(t *testing.T) {
+	lib := textBesideDropdownPlan()
 	w := customWorld().
-		withSetting("steelworks-quench-medium", Str("custom")).
-		withSetting("steelworks-quench-ingredients", Str("default"))
+		withSetting("steelworks-quench-medium", Str("oil")).
+		withSetting("steelworks-quench-ingredients", Str("4 unobtanium"))
 
 	ops, err := lib.PlanData(w)
 	assertNoError(t, err)
 
 	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: ERROR: steelworks-quench-ingredients, entry 1 ("4 unobtanium"):` +
+			` no item or fluid is named unobtanium.` +
+			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
 		`extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}`,
-		`extend {type="recipe", name="steelworks-plate-quenching", category="chemistry", enabled=true,` +
-			` ingredients=[{type="item", name="steel-plate", amount=2}],` +
+		`extend {type="recipe", name="steelworks-plate-quenching", ` +
+			noteIn("steelworks-quench-ingredients", true) +
+			`category="chemistry", enabled=true,` +
+			` ingredients=[{type="item", name="copper-plate", amount=1}],` +
 			` results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}`,
 	})
 }
 
-// A CustomValue of the mod's own choosing selects the same way, which is what
-// lets a mod that already ships a preset named custom take an arm without
-// renaming it and discarding every stored preference.
-func TestCustomArmUnderItsOwnValue(t *testing.T) {
-	lib := New()
-	plate := lib.Item("hardened-steel-plate", ItemSpec{})
-	medium := lib.DropdownSettingNeedingLocale("quench-medium", "custom", []string{"custom", "mine"})
-	quench := lib.IngredientsSetting("quench-ingredients", []Ingredient{IngredientNamed(2, "steel-plate")})
-	lib.Recipe(plate, RecipeSpec{
-		Name: "plate-quenching",
-		IngredientsBy: &IngredientChoices{
-			Setting:     medium,
-			Choices:     []IngredientChoice{{Value: "custom", Ingredients: []Ingredient{IngredientNamed(1, "iron-plate")}}},
-			CustomValue: "mine",
-			Custom:      quench,
-		},
-	})
-	w := customWorld().
-		withSetting("steelworks-quench-medium", Str("mine")).
-		withSetting("steelworks-quench-ingredients", Str("7 copper-plate"))
+// A TEXT WITH NO DROPDOWN BESIDE IT CARRIES NO CLAUSE, which is what says the
+// clause is about a choice that really was set aside rather than decoration on
+// the line.
+func TestTextWithNoDropdownCarriesNoSetAsideClause(t *testing.T) {
+	lib, _ := rivetPlan()
+	w := customWorld().withSetting("steelworks-rivet-ingredients", Str("3 copper-plate"))
 
 	ops, err := lib.PlanData(w)
 	assertNoError(t, err)
 
 	assertLines(t, transcript(ops), []string{
-		`log fkrecipes: steelworks-plate-quenching takes its ingredients from steelworks-quench-ingredients: 7 copper-plate`,
-		`extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}`,
-		`extend {type="recipe", name="steelworks-plate-quenching", enabled=true,` +
-			` ingredients=[{type="item", name="copper-plate", amount=7}],` +
-			` results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}`,
+		`log fkrecipes: steelworks-steel-rivet-forging takes its ingredients from steelworks-rivet-ingredients: 3 copper-plate`,
+		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-steel-rivet-forging", enabled=true,` +
+			` ingredients=[{type="item", name="copper-plate", amount=3}],` +
+			` results=[{type="item", name="steelworks-steel-rivet", amount=1}]}`,
 	})
 }
 
-// A DROPDOWN WHOSE CHOICES ALREADY COVER custom KEEPS IT AS AN ORDINARY
-// PRESET. The refusal beside it is about a value with nothing behind it, and a
-// mod that already ships one named custom must not be made to rename it:
-// Factorio keys a stored choice by its value, so a rename discards what every
-// player picked.
-func TestDropdownWithAPresetNamedCustomNeedsNoArm(t *testing.T) {
+// THE WORD custom IS AN ORDINARY DROPDOWN VALUE NOW. The library adds nothing
+// to a dropdown's option list and reserves no value in it, so a mod that
+// already ships a preset spelled custom keeps it and keeps every stored choice
+// with it.
+func TestAPresetNamedCustomIsAnOrdinaryPreset(t *testing.T) {
 	lib := New()
 	axe := lib.Item("steel-axe", ItemSpec{})
 	style := lib.DropdownSettingNeedingLocale("style", "plain", []string{"plain", "custom"})
@@ -1478,7 +1515,7 @@ func TestDropdownWithAPresetNamedCustomNeedsNoArm(t *testing.T) {
 }
 
 // The cost twin of the rule above: the preset is a ladder like any other.
-func TestCostDropdownWithAPresetNamedCustomNeedsNoArm(t *testing.T) {
+func TestACostPresetNamedCustomIsAnOrdinaryPreset(t *testing.T) {
 	lib := New()
 	tier := lib.DropdownSettingNeedingLocale("tier", "cheap", []string{"cheap", "custom"})
 	lib.Technology("steel-axes", TechSpec{CostBy: &CostChoices{
@@ -1505,7 +1542,7 @@ func TestCostDropdownWithAPresetNamedCustomNeedsNoArm(t *testing.T) {
 // said so. It is unreachable through the engine, which resets such a value
 // before any stage runs, and reachable through a hand-edited file.
 func TestDropdownHoldingAValueItDoesNotOffer(t *testing.T) {
-	lib := customArmPlan()
+	lib := textBesideDropdownPlan()
 	w := customWorld().withSetting("steelworks-quench-medium", Str("brine"))
 
 	_, err := lib.PlanData(w)
@@ -1539,7 +1576,7 @@ func chainPlan() *Lib {
 		{Name: "military-science-pack", Amount: 2},
 	})
 	count := lib.IntSetting("chain-count", 20, Between(1, 100000))
-	seconds := lib.DoubleSetting("chain-seconds", 10, Between(0.5, 600))
+	seconds := lib.IntSetting("chain-seconds", 10, Between(1, 600))
 	lib.Technology("chain-forging", TechSpec{
 		CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
 		After:    "steel-processing",
@@ -1630,37 +1667,45 @@ func TestCustomResearchCostRefusesWhenEveryDeclaredPackDrops(t *testing.T) {
 // one: count 20, time 10.
 func TestCustomResearchCostFallsBackOnANumberTheEngineWouldNotTake(t *testing.T) {
 	cases := []struct {
-		name  string
-		count Value
-		time  Value
-		want  string
+		name string
+		// setting is the field the note on the emitted technology names, which
+		// is the FIRST the walk set aside: the count is read before the time,
+		// so a case that spoils both would still name the count.
+		setting string
+		count   Value
+		time    Value
+		want    string
 	}{
 		{
-			name:  "a count that is not a finite number",
-			count: Num(nan()),
-			time:  Num(10),
-			want:  "steelworks-chain-count holds a value that is not a finite number",
+			name:    "a count that is not a finite number",
+			setting: "steelworks-chain-count",
+			count:   Num(nan()),
+			time:    Num(10),
+			want:    "steelworks-chain-count holds a value that is not a finite number",
 		},
 		{
-			name:  "a time that is not a finite number",
-			count: Num(20),
-			time:  Num(math.Inf(1)),
-			want:  "steelworks-chain-seconds holds a value that is not a finite number",
+			name:    "a time that is not a finite number",
+			setting: "steelworks-chain-seconds",
+			count:   Num(20),
+			time:    Num(math.Inf(1)),
+			want:    "steelworks-chain-seconds holds a value that is not a finite number",
 		},
 		{
 			// Finiteness is asked first within each number, so this arm is
 			// only ever reached by a real number: a NaN is not below 1 and
 			// would have gone through.
-			name:  "a count below 1",
-			count: Num(0),
-			time:  Num(10),
-			want:  "steelworks-chain-count holds a research count below 1",
+			name:    "a count below 1",
+			setting: "steelworks-chain-count",
+			count:   Num(0),
+			time:    Num(10),
+			want:    "steelworks-chain-count holds a research count below 1",
 		},
 		{
-			name:  "a time at or below zero",
-			count: Num(20),
-			time:  Num(0),
-			want:  "steelworks-chain-seconds holds a research time at or below zero",
+			name:    "a time at or below zero",
+			setting: "steelworks-chain-seconds",
+			count:   Num(20),
+			time:    Num(0),
+			want:    "steelworks-chain-seconds holds a research time at or below zero",
 		},
 	}
 	for _, c := range cases {
@@ -1678,7 +1723,9 @@ func TestCustomResearchCostFallsBackOnANumberTheEngineWouldNotTake(t *testing.T)
 					`. The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.`,
 				`log fkrecipes: steelworks-chain-forging takes its research cost from steelworks-chain-packs:` +
 					` count 20, time 10, packs 1 automation-science-pack`,
-				`extend {type="technology", name="steelworks-chain-forging", prerequisites=["steel-processing"],` +
+				`extend {type="technology", name="steelworks-chain-forging", ` +
+					noteIn(c.setting, false) +
+					`prerequisites=["steel-processing"],` +
 					` unit={count=20, time=10, ingredients=[["automation-science-pack", 1]]}}`,
 			})
 		})
@@ -1699,8 +1746,8 @@ func TestCustomResearchCostRefusesADeclaredDefaultTheEngineWouldNotTake(t *testi
 		packs := lib.PacksSetting("chain-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
 		// A minimum of 1, which validateCustomCost demands, beside a declared
 		// default of 0, which validateSettings refuses at the settings stage.
-		count := lib.IntSetting("chain-count", 0, NumericSpec{HasMin: true, Min: 1})
-		seconds := lib.DoubleSetting("chain-seconds", 10, Between(0.5, 600))
+		count := lib.IntSetting("chain-count", 0, NumericSpec{HasMin: true, Min: 1, HasMax: true, Max: 100000})
+		seconds := lib.IntSetting("chain-seconds", 10, Between(1, 600))
 		lib.Technology("chain-forging", TechSpec{
 			CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
 		})
@@ -1742,8 +1789,8 @@ func TestRefusedCostNumbersAnswerTheCountBeforeTheSeconds(t *testing.T) {
 	packs := lib.PacksSetting("chain-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
 	// Both outside what the engine takes, and both refused by validateSettings
 	// at the settings stage: PlanData reaches them only on its own.
-	count := lib.IntSetting("chain-count", 0, NumericSpec{HasMin: true, Min: 1})
-	seconds := lib.DoubleSetting("chain-seconds", 0, NumericSpec{HasMin: true, Min: 0.5})
+	count := lib.IntSetting("chain-count", 0, NumericSpec{HasMin: true, Min: 1, HasMax: true, Max: 100000})
+	seconds := lib.IntSetting("chain-seconds", 0, NumericSpec{HasMin: true, Min: 1, HasMax: true, Max: 600})
 	lib.Technology("chain-forging", TechSpec{
 		CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
 	})
@@ -1772,36 +1819,55 @@ func TestCustomResearchCostPlacementDegrades(t *testing.T) {
 	})
 }
 
-// A cost dropdown's Custom arm carries its own Position ladder, because the
-// preset it replaces would have brought a source technology to hang off.
+// A research cost with a TIER BESIDE IT: the dropdown chooses a source, and the
+// three settings overwrite that source's numbers one field at a time.
 func tipsPlan() *Lib {
 	lib := New()
-	tier := lib.DropdownSettingNeedingLocale("tips-tier", "cheap", []string{"cheap", "custom"})
+	tier := lib.DropdownSettingNeedingLocale("tips-tier", "cheap", []string{"cheap", "formula"})
 	packs := lib.PacksSetting("tips-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
-	count := lib.IntSetting("tips-count", 30, Between(1, 100000))
-	seconds := lib.DoubleSetting("tips-seconds", 15, Between(0.5, 600))
+	count := lib.IntSetting("tips-count", 0, Between(0, 100000))
+	seconds := lib.IntSetting("tips-seconds", 0, Between(0, 600))
 	lib.Technology("hardened-tips", TechSpec{
 		CostBy: &CostChoices{
-			Setting:  tier,
-			Choices:  []CostChoice{{Value: "cheap", Sources: []string{"logistics-2"}}},
-			Fallback: UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
-			Custom: &CustomCost{
-				Packs: packs, Count: count, Seconds: seconds,
-				Position: []string{"tungsten-hardening", "logistics-3"},
+			Setting: tier,
+			Choices: []CostChoice{
+				{Value: "cheap", Sources: []string{"logistics-2"}},
+				{Value: "formula", Sources: []string{"mining-productivity-4"}},
 			},
+			Fallback: UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
 		},
+		CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
 	})
 	return lib
 }
 
-// ON THE CUSTOM VALUE NOTHING IS IGNORED AND NOTHING SAYS SO. All three fields
-// are moved here and all three are live, so the whole transcript is the one
-// research line and the technology; this is the witness that the ignored lines
-// belong to the preset side only.
-func TestCustomCostArmWalksItsPositionLadder(t *testing.T) {
+// EVERY FIELD AT ITS DEFAULT LEAVES THE TIER ALONE, byte for byte, which is the
+// load a player who never opened the settings screen gets: no cost line, no
+// clause, the source's own unit and the source as the prerequisite.
+func TestEveryResearchFieldAtItsDefaultLeavesTheTierAlone(t *testing.T) {
 	lib := tipsPlan()
 	w := customWorld().
-		withSetting("steelworks-tips-tier", Str("custom")).
+		withSetting("steelworks-tips-tier", Str("cheap")).
+		withSetting("steelworks-tips-count", Num(0)).
+		withSetting("steelworks-tips-seconds", Num(0)).
+		withSetting("steelworks-tips-packs", Str("default"))
+
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
+			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
+	})
+}
+
+// ALL THREE MOVED IS THE WHOLE COST THE PLAYER'S, and the tier still places the
+// technology: the source that would have paid for it is the rung it hangs off
+// whatever the settings say.
+func TestAllThreeResearchFieldsOverrideTheTier(t *testing.T) {
+	lib := tipsPlan()
+	w := customWorld().
+		withSetting("steelworks-tips-tier", Str("cheap")).
 		withSetting("steelworks-tips-count", Num(40)).
 		withSetting("steelworks-tips-seconds", Num(20)).
 		withSetting("steelworks-tips-packs", Str("2 logistic-science-pack"))
@@ -1810,276 +1876,213 @@ func TestCustomCostArmWalksItsPositionLadder(t *testing.T) {
 	assertNoError(t, err)
 
 	assertLines(t, transcript(ops), []string{
-		`log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs: count 40, time 20, packs 2 logistic-science-pack`,
-		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-3"],` +
-			` unit={count=40, time=20, ingredients=[["logistic-science-pack", 2]]}}`,
+		`log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs:` +
+			` count 40, time 20, packs 2 logistic-science-pack;` +
+			` the steelworks-tips-tier choice cheap supplies what the settings leave at default`,
+		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
+			` unit={count=40, ingredients=[["logistic-science-pack", 2]], time=20}}`,
 	})
 }
 
-// No rung present leaves the technology unattached and says so, in the shape
-// every other dropped ladder in this library uses.
-func TestCustomCostArmWithNoPositionRungPresent(t *testing.T) {
+// ONE FIELD MOVED IS THE ONE THE OLD SHAPE COULD NOT EXPRESS. The count is the
+// player's and the time and the packs are the tier's, in one unit, and the
+// clause says so rather than pretending the whole cost was overridden.
+func TestAPartialCustomCostTakesTheRestFromTheTier(t *testing.T) {
 	lib := tipsPlan()
-	w := customWorld().withoutTech("logistics-3").
-		withSetting("steelworks-tips-tier", Str("custom")).
+	w := customWorld().
+		withSetting("steelworks-tips-tier", Str("cheap")).
 		withSetting("steelworks-tips-count", Num(40)).
-		withSetting("steelworks-tips-seconds", Num(20)).
-		withSetting("steelworks-tips-packs", Str("2 logistic-science-pack"))
+		withSetting("steelworks-tips-seconds", Num(0)).
+		withSetting("steelworks-tips-packs", Str("default"))
 
 	ops, err := lib.PlanData(w)
 	assertNoError(t, err)
 
 	assertLines(t, transcript(ops), []string{
-		`log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs: count 40, time 20, packs 2 logistic-science-pack`,
-		`log fkrecipes: hardened-tips: none of tungsten-hardening, logistics-3 is present, so the technology has no prerequisite`,
-		`extend {type="technology", name="steelworks-hardened-tips",` +
-			` unit={count=40, time=20, ingredients=[["logistic-science-pack", 2]]}}`,
+		`log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs:` +
+			` count 40, time 30, packs 1 automation-science-pack, 1 logistic-science-pack;` +
+			` the steelworks-tips-tier choice cheap supplies what the settings leave at default`,
+		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
+			` unit={count=40, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
 	})
 }
 
-// On a preset the arm is not live, and an edited pack text says so rather than
-// disappearing. The count and the seconds are unread here, so they say nothing:
-// an unreadable value is not an edit.
-func TestCustomCostArmOnAPresetIgnoresTheText(t *testing.T) {
+// THE TIME ALONE IS THE MIRROR OF THE CASE ABOVE, and it is what says the merge
+// is per field rather than count-shaped: the count stays the tier's number.
+func TestATimeAloneOverridesTheTier(t *testing.T) {
 	lib := tipsPlan()
 	w := customWorld().
 		withSetting("steelworks-tips-tier", Str("cheap")).
-		withSetting("steelworks-tips-packs", Str("2 logistic-science-pack"))
+		withSetting("steelworks-tips-count", Num(0)).
+		withSetting("steelworks-tips-seconds", Num(45)).
+		withSetting("steelworks-tips-packs", Str("default"))
 
 	ops, err := lib.PlanData(w)
 	assertNoError(t, err)
 
 	assertLines(t, transcript(ops), []string{
-		`log fkrecipes: steelworks-tips-packs is edited, but steelworks-tips-tier is not on custom, so the text is ignored`,
+		`log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs:` +
+			` count 200, time 45, packs 1 automation-science-pack, 1 logistic-science-pack;` +
+			` the steelworks-tips-tier choice cheap supplies what the settings leave at default`,
 		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
-			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
+			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=45}}`,
 	})
 }
 
-// AND THE TWO NUMBERS BESIDE IT SAY THE SAME THING. The pilot moved a count
-// under a tier, watched the technology keep the preset's price, and read
-// nothing about it: the pack text drew a line and the count drew none, which
-// is the field-edited-nothing-happens shape the text line exists to close,
-// left open on two thirds of the arm.
-func TestCustomCostArmOnAPresetIgnoresAnEditedCount(t *testing.T) {
+// A PACK TEXT ALONE OVERRIDES THE INGREDIENTS AND NOTHING ELSE, so the tier's
+// count and time are what the line reports and what the unit carries.
+func TestAPackTextAloneOverridesTheTier(t *testing.T) {
 	lib := tipsPlan()
 	w := customWorld().
 		withSetting("steelworks-tips-tier", Str("cheap")).
-		withSetting("steelworks-tips-count", Num(45))
+		withSetting("steelworks-tips-count", Num(0)).
+		withSetting("steelworks-tips-seconds", Num(0)).
+		withSetting("steelworks-tips-packs", Str("3 automation-science-pack"))
 
 	ops, err := lib.PlanData(w)
 	assertNoError(t, err)
 
 	assertLines(t, transcript(ops), []string{
-		`log fkrecipes: steelworks-tips-count is edited, but steelworks-tips-tier is not on custom, so the number is ignored`,
+		`log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs:` +
+			` count 200, time 30, packs 3 automation-science-pack;` +
+			` the steelworks-tips-tier choice cheap supplies what the settings leave at default`,
 		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
-			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
+			` unit={count=200, ingredients=[["automation-science-pack", 3]], time=30}}`,
 	})
 }
 
-// The seconds are the count's twin and get the twin sentence, under its own
-// setting's name, because that is the field somebody would go and put back.
-func TestCustomCostArmOnAPresetIgnoresEditedSeconds(t *testing.T) {
+// A REFUSED PACK TEXT FALLS BACK EXACTLY AS THE WORD BEHAVES, which beside a
+// tier means the TIER'S packs rather than the setting's declared list: the
+// fallback lands where a player who typed nothing lands.
+func TestARefusedPackTextBesideATierTakesTheTiersPacks(t *testing.T) {
 	lib := tipsPlan()
 	w := customWorld().
 		withSetting("steelworks-tips-tier", Str("cheap")).
-		withSetting("steelworks-tips-seconds", Num(22))
+		withSetting("steelworks-tips-count", Num(40)).
+		withSetting("steelworks-tips-seconds", Num(0)).
+		withSetting("steelworks-tips-packs", Str("2 unobtainium"))
 
 	ops, err := lib.PlanData(w)
 	assertNoError(t, err)
 
 	assertLines(t, transcript(ops), []string{
-		`log fkrecipes: steelworks-tips-seconds is edited, but steelworks-tips-tier is not on custom, so the number is ignored`,
-		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
-			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
+		`log fkrecipes: ERROR: steelworks-tips-packs, entry 1 ("2 unobtainium"): no science pack is named unobtainium.` +
+			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.`,
+		`log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs:` +
+			` count 40, time 30, packs 1 automation-science-pack, 1 logistic-science-pack;` +
+			` the steelworks-tips-tier choice cheap supplies what the settings leave at default`,
+		`extend {type="technology", name="steelworks-hardened-tips", ` +
+			noteIn("steelworks-tips-packs", false) +
+			`prerequisites=["logistics-2"],` +
+			` unit={count=40, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
 	})
 }
 
-// ONE LINE PER EDITED FIELD, IN THE ORDER THE UNIT READS THEM: count, seconds,
-// packs. A player who priced the whole thing and left the dropdown alone reads
-// all three fields back, in the order the log line on the custom side prints
-// them, and reads them before the preset's own lines.
-func TestCustomCostArmOnAPresetIgnoresAllThreeInOrder(t *testing.T) {
+// A NUMBER THE ENGINE WOULD NOT TAKE FALLS BACK TO ITS DECLARED DEFAULT, which
+// beside a tier is 0, which means the tier decides. So a stored value the
+// library cannot use behaves exactly as an untouched field does, and the only
+// thing that changes is the ERROR line.
+func TestABadNumberBesideATierLeavesTheTierDeciding(t *testing.T) {
 	lib := tipsPlan()
 	w := customWorld().
 		withSetting("steelworks-tips-tier", Str("cheap")).
-		withSetting("steelworks-tips-count", Num(45)).
-		withSetting("steelworks-tips-seconds", Num(22)).
-		withSetting("steelworks-tips-packs", Str("2 logistic-science-pack"))
-
-	ops, err := lib.PlanData(w)
-	assertNoError(t, err)
-
-	assertLines(t, transcript(ops), []string{
-		`log fkrecipes: steelworks-tips-count is edited, but steelworks-tips-tier is not on custom, so the number is ignored`,
-		`log fkrecipes: steelworks-tips-seconds is edited, but steelworks-tips-tier is not on custom, so the number is ignored`,
-		`log fkrecipes: steelworks-tips-packs is edited, but steelworks-tips-tier is not on custom, so the text is ignored`,
-		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
-			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
-	})
-}
-
-// A NUMBER STANDING ON ITS DECLARED DEFAULT IS NOT AN EDIT, and this is the
-// case that makes the comparison load-bearing rather than the readability
-// check: the engine stores every setting's value including the ones nobody
-// touched, so a silent player answers both of these and must read nothing.
-func TestCustomCostArmIsQuietWhenTheNumbersAreOnTheirDefaults(t *testing.T) {
-	lib := tipsPlan()
-	w := customWorld().
-		withSetting("steelworks-tips-tier", Str("cheap")).
-		withSetting("steelworks-tips-count", Num(30)).
-		withSetting("steelworks-tips-seconds", Num(15))
-
-	ops, err := lib.PlanData(w)
-	assertNoError(t, err)
-
-	assertLines(t, transcript(ops), []string{
-		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
-			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
-	})
-}
-
-// AND THE IGNORED LINES COME BEFORE THE PRESET'S OWN, so they read as the
-// reason the lines under them are the preset's and not the player's. The chosen
-// ladder finds nothing here, so the preset has a line of its own to sit under.
-func TestCustomCostArmIgnoredLinesComeBeforeThePresetsOwn(t *testing.T) {
-	lib := tipsPlan()
-	w := customWorld().withoutTech("logistics-2").
-		withSetting("steelworks-tips-tier", Str("cheap")).
-		withSetting("steelworks-tips-count", Num(45))
-
-	ops, err := lib.PlanData(w)
-	assertNoError(t, err)
-
-	assertLines(t, transcript(ops), []string{
-		`log fkrecipes: steelworks-tips-count is edited, but steelworks-tips-tier is not on custom, so the number is ignored`,
-		`log fkrecipes: hardened-tips: no source for the cheap cost carries a unit, so the fallback cost applies and the technology has no prerequisite`,
-		`extend {type="technology", name="steelworks-hardened-tips", unit={count=200, time=30, ingredients=[["automation-science-pack", 1]]}}`,
-	})
-}
-
-// A value that is not a number is not an edit either, and neither is one that
-// is not there: the same tolerance the text line has, for the same reason. The
-// count here is answered as a string and the seconds are not answered at all,
-// and the transcript says nothing about either.
-func TestCustomCostArmIsQuietWhenANumberIsNotOne(t *testing.T) {
-	lib := tipsPlan()
-	w := customWorld().
-		withSetting("steelworks-tips-tier", Str("cheap")).
-		withSetting("steelworks-tips-count", Str("45"))
-
-	ops, err := lib.PlanData(w)
-	assertNoError(t, err)
-
-	assertLines(t, transcript(ops), []string{
-		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
-			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
-	})
-}
-
-// A VALUE THE WORLD ANSWERS BESIDE ok=false IS NOT AN EDIT EITHER, for all
-// three fields at once. Each of these would be an edit if the flag said the
-// setting was there: 45 is not the declared 30, 22 is not the declared 15, and
-// the pack text is not the word. The World says none of them is there, and the
-// contract is that the flag wins over whatever value rides along, so the
-// transcript is the preset's line and nothing else. This is the witness for
-// the !ok term of noteIgnoredNumber and of noteIgnoredText.
-func TestCustomCostArmOnAPresetIsQuietWhenTheWorldAnswersBesideAbsent(t *testing.T) {
-	lib := tipsPlan()
-	w := customWorld().
-		withSetting("steelworks-tips-tier", Str("cheap")).
-		withSettingButAbsent("steelworks-tips-count", Num(45)).
-		withSettingButAbsent("steelworks-tips-seconds", Num(22)).
-		withSettingButAbsent("steelworks-tips-packs", Str("2 logistic-science-pack"))
-
-	ops, err := lib.PlanData(w)
-	assertNoError(t, err)
-
-	assertLines(t, transcript(ops), []string{
-		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
-			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
-	})
-}
-
-// A STORED NaN IS AN EDIT UNDER A PRESET AND A FALLBACK ON CUSTOM, and the two
-// halves are deliberate rather than an accident of NaN comparing false against
-// everything. A stored value that is not the default is something the player
-// did, so under a preset it draws the ignored line naming the field they can go
-// and put back; on the custom value the same number is read for real, cannot be
-// used, and takes the declared default with the ERROR line naming the setting
-// that holds it. Two different lines, because the two say different things: one
-// is "your edit is not live", the other is "your edit is not usable".
-func TestCustomCostArmNaNIsAnEditUnderAPresetAndAFallbackOnCustom(t *testing.T) {
-	preset := customWorld().
-		withSetting("steelworks-tips-tier", Str("cheap")).
-		withSetting("steelworks-tips-count", Num(math.NaN()))
-
-	ops, err := tipsPlan().PlanData(preset)
-	assertNoError(t, err)
-
-	assertLines(t, transcript(ops), []string{
-		`log fkrecipes: steelworks-tips-count is edited, but steelworks-tips-tier is not on custom, so the number is ignored`,
-		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-2"],` +
-			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
-	})
-
-	custom := customWorld().
-		withSetting("steelworks-tips-tier", Str("custom")).
 		withSetting("steelworks-tips-count", Num(math.NaN())).
-		withSetting("steelworks-tips-seconds", Num(20)).
-		withSetting("steelworks-tips-packs", Str("1 automation-science-pack"))
+		withSetting("steelworks-tips-seconds", Num(0)).
+		withSetting("steelworks-tips-packs", Str("default"))
 
-	ops, err = tipsPlan().PlanData(custom)
+	ops, err := lib.PlanData(w)
 	assertNoError(t, err)
 
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: ERROR: steelworks-tips-count holds a value that is not a finite number.` +
 			` The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.`,
-		`log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs:` +
-			` count 30, time 20, packs 1 automation-science-pack`,
-		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-3"],` +
-			` unit={count=30, time=20, ingredients=[["automation-science-pack", 1]]}}`,
+		`extend {type="technology", name="steelworks-hardened-tips", ` +
+			noteIn("steelworks-tips-count", false) +
+			`prerequisites=["logistics-2"],` +
+			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
 	})
 }
 
-// ALL THREE FIELDS WRONG AT ONCE, AND ALL THREE ANSWERED. The count and the
-// seconds are both below what the engine takes and the text names a pack no
-// game has, so a player who got everything wrong is told about everything:
-// three lines, then the cost the mod declared.
-//
-// THE ORDER IS THE ORDER THE VALUES ARE READ, count then seconds then the pack
-// text, which is also the order the cost line names them. This used to be the
-// place the two halves fixed which SINGLE refusal came out of a world with more
-// than one problem; with a line per field there is nothing to choose between,
-// and the ordering that is left is the walk's own.
-//
-// THE STORED VALUES ARE THE RUST HALF'S, BYTE FOR BYTE: the same pack text, the
-// same count, the same seconds, so the three sentences are the same three
-// sentences. The two plans behind them are not identical (that one's dropdown
-// is named tips-research-tier and it declares two packs), which is why the cost
-// line and the unit differ; what a parity pin has to hold still is the input
-// and the wording, and those are what match.
-func TestCustomCostArmFallsBackOnTheTextAndBothNumbers(t *testing.T) {
+// A COUNT THE PLAYER TYPED REPLACES A count_formula, because the engine prices
+// a unit carrying both by the FORMULA and the number would be read by nobody.
+// One line says which setting took it, and everything else the tier carried,
+// including the key no version of this library knows about and the level cap
+// beside the unit, comes through untouched.
+func TestACountReplacesTheTiersCountFormula(t *testing.T) {
+	lib := tipsPlan()
 	w := customWorld().
-		withSetting("steelworks-tips-tier", Str("custom")).
-		withSetting("steelworks-tips-count", Num(0)).
-		withSetting("steelworks-tips-seconds", Num(math.NaN())).
-		withSetting("steelworks-tips-packs", Str("2 unobtainium"))
+		withSetting("steelworks-tips-tier", Str("formula")).
+		withSetting("steelworks-tips-count", Num(40)).
+		withSetting("steelworks-tips-seconds", Num(0)).
+		withSetting("steelworks-tips-packs", Str("default"))
 
-	ops, err := tipsPlan().PlanData(w)
+	ops, err := lib.PlanData(w)
 	assertNoError(t, err)
 
 	assertLines(t, transcript(ops), []string{
-		`log fkrecipes: ERROR: steelworks-tips-count holds a research count below 1.` +
-			` The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.`,
-		`log fkrecipes: ERROR: steelworks-tips-seconds holds a value that is not a finite number.` +
-			` The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.`,
-		`log fkrecipes: ERROR: steelworks-tips-packs, entry 1 ("2 unobtainium"): no science pack is named unobtainium.` +
-			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.`,
+		`log fkrecipes: hardened-tips: steelworks-tips-count replaces the count_formula the formula cost carries`,
 		`log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs:` +
-			` count 30, time 15, packs 1 automation-science-pack`,
-		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["logistics-3"],` +
-			` unit={count=30, time=15, ingredients=[["automation-science-pack", 1]]}}`,
+			` count 40, time 60, packs 1 automation-science-pack, 1 logistic-science-pack, 1 chemical-science-pack;` +
+			` the steelworks-tips-tier choice formula supplies what the settings leave at default`,
+		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["mining-productivity-4"],` +
+			` unit={ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1], ["chemical-science-pack", 1]],` +
+			` mod_cost_tier="mid-game", time=60, count=40}, max_level="infinite"}`,
+	})
+}
+
+// AND A TIME ALONE LEAVES THE FORMULA WHERE IT IS, which is what says the drop
+// is about the count and not about a player having touched anything at all.
+//
+// THE LINE SAYS `count by formula` RATHER THAN A NUMBER, because there is no
+// number: the tier prices itself with count_formula and carries no count key,
+// the count setting deferred, and the emitted unit holds neither a count nor
+// anything the setting's declared default (0) describes. Printing that 0 would
+// be a figure nothing in the prototype is using.
+func TestATimeBesideACountFormulaLeavesItAlone(t *testing.T) {
+	lib := tipsPlan()
+	w := customWorld().
+		withSetting("steelworks-tips-tier", Str("formula")).
+		withSetting("steelworks-tips-count", Num(0)).
+		withSetting("steelworks-tips-seconds", Num(45)).
+		withSetting("steelworks-tips-packs", Str("default"))
+
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs:` +
+			` count by formula, time 45, packs 1 automation-science-pack, 1 logistic-science-pack, 1 chemical-science-pack;` +
+			` the steelworks-tips-tier choice formula supplies what the settings leave at default`,
+		`extend {type="technology", name="steelworks-hardened-tips", prerequisites=["mining-productivity-4"],` +
+			` unit={count_formula="2^(L-4)*1000", ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1], ["chemical-science-pack", 1]],` +
+			` mod_cost_tier="mid-game", time=45}, max_level="infinite"}`,
+	})
+}
+
+// THE FALLBACK COST IS A TIER LIKE ANY OTHER. No source in the chosen ladder
+// carries a unit, so the author's own fallback is what the settings write over
+// and what they leave alone; the line saying why comes first, because it is the
+// reason the numbers under it are the fallback's. The Rust half holds the same
+// transcript.
+func TestASettingOverridesTheFallbackTier(t *testing.T) {
+	lib := tipsPlan()
+	w := customWorld().withoutTech("logistics-2").
+		withSetting("steelworks-tips-tier", Str("cheap")).
+		withSetting("steelworks-tips-count", Num(45)).
+		withSetting("steelworks-tips-seconds", Num(0)).
+		withSetting("steelworks-tips-packs", Str("default"))
+
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: hardened-tips: no source for the cheap cost carries a unit,` +
+			` so the fallback cost applies and the technology has no prerequisite`,
+		`log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs:` +
+			` count 45, time 30, packs 1 automation-science-pack;` +
+			` the steelworks-tips-tier choice cheap supplies what the settings leave at default`,
+		`extend {type="technology", name="steelworks-hardened-tips",` +
+			` unit={count=45, time=30, ingredients=[["automation-science-pack", 1]]}}`,
 	})
 }
 
@@ -2110,23 +2113,26 @@ func TestCustomResearchCostCarriesNoMaxLevel(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // THE DRIFT GUARD OVER WHAT THE LIBRARY ITSELF COMPOSES. The consumer's entry
-// is checked above; these two lines are this library's, so no locale file can
+// is checked above; these three lines are this library's, so no locale file can
 // put one back and no plan can leave one out. What the rule can see is a
 // composition that stopped carrying a line, which is why the composition is
 // what it is handed.
 //
 // THE SENTENCE NAMES THE LIBRARY AND NOT A SETTING, because the rule's input
-// does not vary with the setting: both lines are constants, and the only
-// per-setting part of a text description is the consumer's key, which the rule
-// does not look at. One defect is therefore one finding.
+// does not vary with the setting in any way the rule reads: two lines are
+// constants, the third is the switch line the composition was built with and is
+// handed in beside it, and the only per-setting part of a text description is
+// the consumer's key, which the rule does not look at. One defect is therefore
+// one finding.
 //
 // THE HEALTHY PATH FIRST, so a rule that fired on everything would be caught
 // here rather than in a golden somewhere: the real composition reports
 // nothing.
 func TestComposedTextLinesMissingGuardsTheComposedLines(t *testing.T) {
 	const full = "steelworks-axe-ingredients"
-	whole := textDescription(full, "1 steel-plate")
-	if got := composedTextLinesMissing(whole); len(got) != 0 {
+	const switchLine = "\nWhile this says default this mod's own list applies."
+	whole := textDescription(full, "1 steel-plate", switchLine)
+	if got := composedTextLinesMissing(whole, switchLine); len(got) != 0 {
 		t.Fatalf("the real composition reported %v", got)
 	}
 
@@ -2143,17 +2149,21 @@ func TestComposedTextLinesMissingGuardsTheComposedLines(t *testing.T) {
 		}
 		return Arr(out...)
 	}
-	assertFindings(t, composedTextLinesMissing(without(textFormatLine())), []string{
+	assertFindings(t, composedTextLinesMissing(without(textFormatLine()), switchLine), []string{
 		"the library composes no line about the format and the length limit onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
 	})
-	assertFindings(t, composedTextLinesMissing(without(textFallbackLine)), []string{
+	assertFindings(t, composedTextLinesMissing(without(switchLine), switchLine), []string{
+		"the library composes no line about which field decides while the text says default onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
+	})
+	assertFindings(t, composedTextLinesMissing(without(textFallbackLine), switchLine), []string{
 		"the library composes no line about what happens to a text this mod cannot use onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
 	})
-	// Both gone: both reported, format first, which is the order the lines sit
-	// in and the order every other rule here reports in.
+	// All three gone: all three reported, in the order the lines sit in, which
+	// is the order every other rule here reports in.
 	stripped := Arr(Str(""), localeRef("mod-setting-description", full))
-	assertFindings(t, composedTextLinesMissing(stripped), []string{
+	assertFindings(t, composedTextLinesMissing(stripped, switchLine), []string{
 		"the library composes no line about the format and the length limit onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
+		"the library composes no line about which field decides while the text says default onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
 		"the library composes no line about what happens to a text this mod cannot use onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
 	})
 }
@@ -2171,22 +2181,28 @@ func TestComposedTextLinesMissingGuardsTheComposedLines(t *testing.T) {
 func TestTheDriftGuardInspectsTheFirstTextSettingOnly(t *testing.T) {
 	lib := New()
 	lib.BoolSetting("hint", true)
-	if _, ok := lib.guardedTextDescription("steelworks-"); ok {
+	if _, _, ok := lib.guardedTextDescription("steelworks-"); ok {
 		t.Fatal("a plan with no text setting handed the guard a composition")
 	}
 
 	axe := lib.Item("steel-axe", ItemSpec{})
 	lib.IngredientsSetting("axe-ingredients", []Ingredient{IngredientOf(axe, 1)})
 	lib.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
-	desc, ok := lib.guardedTextDescription("steelworks-")
+	desc, switchLine, ok := lib.guardedTextDescription("steelworks-")
 	if !ok {
 		t.Fatal("a plan with two text settings handed the guard nothing")
 	}
 	// The FIRST one's, and with the list left out: the packs setting declared
 	// after it is not what the guard reads, and neither is any rendering.
-	want := renderValue(textDescription("steelworks-axe-ingredients", ""))
+	const own = "\nWhile this says default this mod's own list applies."
+	want := renderValue(textDescription("steelworks-axe-ingredients", "", own))
 	if got := renderValue(desc); got != want {
 		t.Errorf("\n got: %s\nwant: %s", got, want)
+	}
+	// AND THE LINE COMES BACK BESIDE IT, because the rule cannot recompute a
+	// line that names a neighbouring setting.
+	if switchLine != own {
+		t.Errorf("the guard was handed the switch line %q, want %q", switchLine, own)
 	}
 }
 
@@ -2234,12 +2250,10 @@ func TestCheckLocaleRequiresATextSettingDescription(t *testing.T) {
 	assertFindings(t, lib.CheckLocale("steelworks", full), nil)
 }
 
-// A dropdown with a Custom arm has its preset list composed onto its
-// description, so an absent one loses the list as well as the tooltip. Its
-// custom value needs its own [string-mod-setting] entry under the rule every
-// other value already has.
-func TestCheckLocaleRequiresACustomArmDropdownDescription(t *testing.T) {
-	lib := customArmPlan()
+// A dropdown with a text setting beside it has its preset list composed onto
+// its description, so an absent one loses the list as well as the tooltip.
+func TestCheckLocaleRequiresADropdownDescriptionBesideAText(t *testing.T) {
+	lib := textBesideDropdownPlan()
 
 	cfg := `[mod-setting-name]
 steelworks-quench-medium=Quenching medium
@@ -2253,13 +2267,39 @@ steelworks-quench-medium-water=Water
 steelworks-quench-medium-oil=Oil
 `
 	assertFindings(t, lib.CheckLocale("steelworks", cfg), []string{
-		"the dropdown setting steelworks-quench-medium has no [mod-setting-description] entry, which the custom arm composes its preset list onto",
-		"the dropdown setting steelworks-quench-medium has no [string-mod-setting] entry for its value custom",
+		"the dropdown setting steelworks-quench-medium has no [mod-setting-description] entry, and the library composes its preset list onto that entry",
 	})
 }
 
-// A dropdown WITHOUT an arm keeps the old rule: its description stays optional,
-// because a missing one there costs a tooltip and nothing else.
+// A RESEARCH NUMBER'S DESCRIPTION IS REQUIRED TOO, for the reason a text
+// setting's is: the range and what 0 means are composed onto that entry, and an
+// absent one loses both.
+func TestCheckLocaleRequiresAResearchNumberDescription(t *testing.T) {
+	lib := New()
+	packs := lib.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+	count := lib.IntSetting("axe-count", 20, Between(1, 100000))
+	seconds := lib.IntSetting("axe-seconds", 10, Between(1, 600))
+	lib.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds}})
+
+	cfg := `[mod-setting-name]
+steelworks-axe-packs=Science packs
+steelworks-axe-count=Research count
+steelworks-axe-seconds=Research seconds
+
+[mod-setting-description]
+steelworks-axe-packs=Amount, then name, commas between.
+`
+	assertFindings(t, lib.CheckLocale("steelworks", cfg), []string{
+		"the setting steelworks-axe-count has no [mod-setting-description] entry, and a research number needs one to say what the number is for; the library composes the range onto it",
+		"the setting steelworks-axe-seconds has no [mod-setting-description] entry, and a research number needs one to say what the number is for; the library composes the range onto it",
+	})
+
+	full := cfg + "steelworks-axe-count=How many units.\nsteelworks-axe-seconds=Seconds per unit.\n"
+	assertFindings(t, lib.CheckLocale("steelworks", full), nil)
+}
+
+// A dropdown with NO text setting beside it keeps the old rule: its description
+// stays optional, because a missing one there costs a tooltip and nothing else.
 func TestCheckLocaleLeavesAPlainDropdownDescriptionOptional(t *testing.T) {
 	lib := New()
 	plate := lib.Item("hardened-steel-plate", ItemSpec{})
@@ -2298,14 +2338,12 @@ func TestSettingsPlanDoesNotRenderAnUnvalidatedChoice(t *testing.T) {
 	// name rather than reaching for one that is not there, and this test would
 	// pass over a guard that does nothing.
 	stranger := other.Item("second-stranger", ItemSpec{})
-	style := lib.DropdownSettingNeedingLocale("style", "plain", []string{"plain", "custom"})
-	parts := lib.IngredientsSetting("axe-ingredients", []Ingredient{IngredientNamed(1, "steel-plate")})
+	style := lib.DropdownSettingNeedingLocale("style", "plain", []string{"plain"})
 	lib.Recipe(axe, RecipeSpec{
 		Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")},
 		IngredientsBy: &IngredientChoices{
 			Setting: style,
 			Choices: []IngredientChoice{{Value: "plain", Ingredients: []Ingredient{IngredientOf(stranger, 1)}}},
-			Custom:  parts,
 		},
 	})
 
@@ -2383,9 +2421,11 @@ func TestPlayerFieldsFallBackWhileTheAuthorChannelStillRefuses(t *testing.T) {
 			` which answers at or below the engine floor (energy_required can't be <= 0.001).` +
 			` The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.`,
 		`log fkrecipes: ERROR: steelworks-axe-ingredients, entry 1 ("2 unobtanium"): no item or fluid is named unobtanium.` +
-			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.`,
+			` The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
 		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
-		`extend {type="recipe", name="steelworks-steel-axe-forging", energy_required=3, enabled=true,` +
+		`extend {type="recipe", name="steelworks-steel-axe-forging", ` +
+			noteIn("steelworks-forging-time", false) +
+			`energy_required=3, enabled=true,` +
 			` ingredients=[{type="item", name="steel-plate", amount=1}],` +
 			` results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
 		`extend {type="technology", name="steelworks-steel-axes",` +
@@ -2457,15 +2497,15 @@ func TestRefusalChannelOrder(t *testing.T) {
 func TestCheckLocaleSkipsADropdownTheCompositionStepsPast(t *testing.T) {
 	lib := New()
 	axe := lib.Item("steel-axe", ItemSpec{})
-	style := lib.DropdownSettingNeedingLocale("style", "plain", []string{"plain", "custom"})
+	style := lib.DropdownSettingNeedingLocale("style", "plain", []string{"plain"})
 	parts := lib.IngredientsSetting("axe-ingredients", []Ingredient{IngredientNamed(1, "steel-plate")})
 	lib.Recipe(axe, RecipeSpec{
 		Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")},
 		IngredientsBy: &IngredientChoices{
 			Setting: style,
 			Choices: []IngredientChoice{{Value: "plain", Ingredients: []Ingredient{IngredientNamed(1, "steel-plate")}}},
-			Custom:  parts,
 		},
+		IngredientsFrom: parts,
 	})
 
 	cfg := `[mod-setting-name]
@@ -2477,7 +2517,6 @@ steelworks-axe-ingredients=Amount, then name, commas between.
 
 [string-mod-setting]
 steelworks-style-plain=Plain
-steelworks-style-custom=Custom
 `
 	assertFindings(t, lib.CheckLocale("steelworks", cfg), nil)
 }
@@ -2524,7 +2563,7 @@ func TestTextSettingWithoutTheLanguageIsRefused(t *testing.T) {
 		})
 		list := PacksSettingRef{lib: lib.id, index: len(lib.settings)}
 		count := lib.IntSetting("axe-count", 20, Between(1, 100000))
-		seconds := lib.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
+		seconds := lib.IntSetting("axe-seconds", 10, Between(1, 600))
 		lib.Technology("steel-axes", TechSpec{
 			CostFrom: &CustomCost{Packs: list, Count: count, Seconds: seconds},
 		})
@@ -2597,7 +2636,7 @@ func TestATextHandleIntoAnotherKindIsRefused(t *testing.T) {
 		lib := New()
 		style := lib.DropdownSettingNeedingLocale("axe-style", "vanilla", []string{"vanilla", "steel"})
 		count := lib.IntSetting("axe-count", 20, Between(1, 100000))
-		seconds := lib.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
+		seconds := lib.IntSetting("axe-seconds", 10, Between(1, 600))
 		list := PacksSettingRef{lib: style.lib, index: style.index}
 		lib.Technology("steel-axes", TechSpec{
 			CostFrom: &CustomCost{Packs: list, Count: count, Seconds: seconds},
@@ -2684,7 +2723,7 @@ func TestTheConstructorsInstallTheLanguage(t *testing.T) {
 		t.Fatal("PacksSetting installed no custom-cost resolver")
 	}
 	count := lib.IntSetting("axe-count", 20, Between(1, 100000))
-	seconds := lib.DoubleSetting("axe-seconds", 10, Between(0.5, 600))
+	seconds := lib.IntSetting("axe-seconds", 10, Between(1, 600))
 	lib.Technology("steel-axes", TechSpec{CostFrom: &CustomCost{Packs: list, Count: count, Seconds: seconds}})
 
 	if _, err := lib.PlanSettings(settingsWorld()); err != nil {
@@ -2736,7 +2775,7 @@ func TestFallbackSentencesCarryThePrefix(t *testing.T) {
 			if !strings.HasPrefix(s.text, messagePrefix) {
 				t.Fatalf("a sentence the fallback composer quotes does not open with %q: %s", messagePrefix, s.text)
 			}
-			line := playerFallback(s.text, "text")
+			line := playerFallback(s.text, "text", "")
 			if strings.Contains(line, messagePrefix+"ERROR: "+messagePrefix) {
 				t.Errorf("the prefix was not stripped, so the line carries it twice: %s", line)
 			}
@@ -2748,7 +2787,7 @@ func TestFallbackSentencesCarryThePrefix(t *testing.T) {
 // the sentence itself is pinned here as well as inside every transcript that
 // carries one.
 func TestPlayerFallbackLineShape(t *testing.T) {
-	got := playerFallback("fkrecipes: mymod-parts is not text", "text")
+	got := playerFallback("fkrecipes: mymod-parts is not text", "text", "")
 	want := "fkrecipes: ERROR: mymod-parts is not text." +
 		" The mod loaded with its own default instead;" +
 		" fix the text under Settings > Mod settings > Startup, then restart."
@@ -2762,8 +2801,64 @@ func TestPlayerFallbackLineShape(t *testing.T) {
 	if got != want {
 		t.Errorf("\n got: %s\nwant: %s", got, want)
 	}
-	if textFallback("fkrecipes: mymod-parts is not text") != playerFallback("fkrecipes: mymod-parts is not text", "text") {
+	if textFallback("fkrecipes: mymod-parts is not text") != playerFallback("fkrecipes: mymod-parts is not text", "text", "") {
 		t.Error("textFallback and playerFallback disagree about the field word")
+	}
+}
+
+// A RECIPE'S INGREDIENT TEXT IS THE ONE FALLBACK WITH A TAIL, and the tail is
+// the engine's own cost rather than anything this library does. The pack text
+// and the two numbers keep the line byte for byte, which is what says the tail
+// is chosen by the prototype the setting is bound to and not by the message.
+func TestARecipeTextFallbackNamesWhatChangingARecipeCosts(t *testing.T) {
+	reason := "fkrecipes: mymod-parts is not text"
+	want := textFallback(reason) + " " +
+		"Changing a recipe empties an assembling machine's input slots of anything the new list does not use."
+	if got := recipeTextFallback(reason); got != want {
+		t.Errorf("\n got: %s\nwant: %s", got, want)
+	}
+	if got := textFallbackFor(noteTarget{index: 0}, reason); got != want {
+		t.Errorf("a recipe target did not pick the recipe line:\n got: %s\nwant: %s", got, want)
+	}
+	if got := textFallbackFor(noteTarget{tech: true, index: 0}, reason); got != textFallback(reason) {
+		t.Errorf("a technology target picked up a recipe's tail:\n got: %s", got)
+	}
+	if strings.Contains(numberFallback(reason), "assembling machine") {
+		t.Error("a number fallback carries the recipe tail")
+	}
+}
+
+// noteIn is the localised_description one fallen-back prototype carries, in the
+// shape a transcript shows it, and every transcript below composes it rather
+// than retyping the sentence, exactly as the fallback LINES are composed
+// through playerFallback. The sentence itself is pinned by TestFallbackNoteShape
+// and the line by TestPlayerFallbackLineShape, so a drift in either is one
+// failure with the whole text in it rather than thirty.
+func noteIn(setting string, destroysInputs bool) string {
+	return `localised_description=["", "` + fallbackNote(setting, destroysInputs) + `"], `
+}
+
+// recipeFallbackTail is what an ingredient text's ERROR line carries past the
+// line every other fallback shares.
+var recipeFallbackTail = " " + recipeChangeSentence
+
+// THE NOTE IS THE OTHER READER OF THE SAME SENTENCE, and the two shapes are
+// written out here so a change to either is a change to this test.
+//
+// THE TAIL IS SCOPED BY WHAT MOVED, NOT BY THE PROTOTYPE KIND. A recipe whose
+// CRAFTING TIME fell back gets the head alone, because its ingredient list is
+// byte for byte what it would have been; only a fallback that changes the list
+// itself can empty an assembler. See noteOn, and
+// TestPlayerFieldsFallBackWhileTheAuthorChannelStillRefuses for the recipe that proves it end to end.
+func TestFallbackNoteShape(t *testing.T) {
+	head := "The stored value of mymod-parts could not be used," +
+		" so this mod's own choice applies instead. The reason is in the log."
+	if got := fallbackNote("mymod-parts", false); got != head {
+		t.Errorf("a fallback that moved no ingredient list\n got: %s\nwant: %s", got, head)
+	}
+	want := head + " Changing a recipe empties an assembling machine's input slots of anything the new list does not use."
+	if got := fallbackNote("mymod-parts", true); got != want {
+		t.Errorf("a fallback that moved the ingredient list\n got: %s\nwant: %s", got, want)
 	}
 }
 

@@ -39,7 +39,8 @@ func (l *Lib) PlanSettings(w Named) ([]Op, error) {
 	}
 	// THE SETTINGS STAGE VALIDATES BINDINGS TOO, and it has to: a text
 	// setting's default is rendered into its description here, and a dropdown
-	// with a Custom arm has its whole preset list composed here. Both read the
+	// with a text setting beside it has its whole preset list composed here, and
+	// a research number its range. All of them read the
 	// recipes and technologies, so both need them well formed. The two
 	// validators are shared with the data planner rather than written twice.
 	if err := l.validateBindings(prefix); err != nil {
@@ -87,8 +88,9 @@ func (l *Lib) PlanSettings(w Named) ([]Op, error) {
 		}
 		// LAST, because it is the bulkiest field and because it is composed
 		// out of everything above it. Nil for the settings that carry none,
-		// which is every kind but a text setting and a dropdown with a Custom
-		// arm.
+		// which is every kind but the three that compose one: a text setting, a
+		// research number, and a dropdown that has a text setting bound to the
+		// same recipe or technology.
 		if descriptions[i].Kind != KindNil {
 			pairs = append(pairs, kv("localised_description", descriptions[i]))
 		}

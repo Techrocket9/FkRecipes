@@ -596,45 +596,42 @@ func TestPackLaddersDoNotAliasCallerSlices(t *testing.T) {
 	})
 }
 
-// The two CustomValue fields are declared and copied and mean nothing else yet.
-// They exist because a mod whose dropdown already has a value literally named
-// custom cannot rename it without discarding every player's stored choice; the
-// commit that binds a text setting is where they start selecting anything.
-func TestCustomValueIsCarriedAndDoesNothingYet(t *testing.T) {
+// A DECLARED CHOICES LIST IS A SNAPSHOT, so a caller reusing its struct after
+// the declaration cannot rewrite the plan. The dropdown's option list is
+// exactly what the author wrote and this library adds nothing to it, so what
+// has to survive the copy is the author's own values.
+func TestDeclaredChoicesAreSnapshotted(t *testing.T) {
 	lib := New()
 	plate := lib.Item("hardened-steel-plate", ItemSpec{})
 	medium := lib.DropdownSettingNeedingLocale("quench-medium", "dry", []string{"dry", "wet"})
 	choices := &IngredientChoices{
-		Setting:     medium,
-		Choices:     []IngredientChoice{{Value: "dry"}, {Value: "wet"}},
-		CustomValue: "hand-written",
+		Setting: medium,
+		Choices: []IngredientChoice{{Value: "dry"}, {Value: "wet"}},
 	}
 	lib.Recipe(plate, RecipeSpec{IngredientsBy: choices})
 
 	tier := lib.DropdownSettingNeedingLocale("tips-research-tier", "logistics", []string{"logistics"})
 	cost := &CostChoices{
-		Setting:     tier,
-		Choices:     []CostChoice{{Value: "logistics", Sources: []string{"steel-processing"}}},
-		Fallback:    UnitSpec{Count: 60, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
-		CustomValue: "hand-written",
+		Setting:  tier,
+		Choices:  []CostChoice{{Value: "logistics", Sources: []string{"steel-processing"}}},
+		Fallback: UnitSpec{Count: 60, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
 	}
 	lib.Technology("hardened-tips", TechSpec{CostBy: cost})
 
 	// The declaration took a copy, so the caller's later edit cannot reach it.
-	choices.CustomValue = "rewritten"
-	cost.CustomValue = "rewritten"
+	choices.Choices[0].Value = "rewritten"
+	cost.Choices[0].Value = "rewritten"
 
-	if got := lib.recipes[0].spec.IngredientsBy.CustomValue; got != "hand-written" {
-		t.Errorf("IngredientChoices.CustomValue is %q, want hand-written", got)
+	if got := lib.recipes[0].spec.IngredientsBy.Choices[0].Value; got != "dry" {
+		t.Errorf("IngredientChoices.Choices[0].Value is %q, want dry", got)
 	}
-	if got := lib.techs[0].spec.CostBy.CustomValue; got != "hand-written" {
-		t.Errorf("CostChoices.CustomValue is %q, want hand-written", got)
+	if got := lib.techs[0].spec.CostBy.Choices[0].Value; got != "logistics" {
+		t.Errorf("CostChoices.Choices[0].Value is %q, want logistics", got)
 	}
 
-	// AND IT CHANGES NOTHING TODAY. A value no dropdown offers would be a
-	// refusal if the field meant anything yet; the plan is accepted, which is
-	// what says the field is declared and inert.
+	// AND THE PLAN IS STILL THE ONE THE AUTHOR DECLARED: a rewritten value
+	// would no longer cover the dropdown's allowed values and would be refused.
 	if _, err := lib.PlanData(baseWorld()); err != nil {
-		t.Errorf("CustomValue changed what a plan does: %s", err)
+		t.Errorf("a snapshotted plan was refused: %s", err)
 	}
 }

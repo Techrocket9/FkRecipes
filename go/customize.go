@@ -22,18 +22,24 @@ import (
 // where a player who wants to edit copies it from. See IngredientsSetting.
 
 // maxLocalisedParams is the engine's ceiling on one localised string's
-// parameters.
+// parameters, and it is PER TABLE rather than per string.
 //
-// MEASURED (Factorio 2.0.77, build 84539): a localised string with 21
-// parameters refuses the load, and so does one nested 20 tables deep; 20
-// parameters and 19 nested tables load, and two nested groups of 20 load. (The
-// engine's refusal counts one higher than the tables, "21 > 20 (limit)" for
-// 20 of them; FkLua's data-stage probe pinned both limits.) A dropdown with
-// more presets than fit therefore NESTS rather than overflowing: each level carries at most
-// this many parameters, and when there are more the last parameter is a nested
-// localised string holding the rest by the same rule. That is what keeps the
-// composed description a load the engine takes rather than a hard failure
-// naming nothing useful.
+// MEASURED (Factorio 2.0.77, build 84539), twice independently: ONE TABLE
+// TAKES 20 PARAMETERS and the 21st refuses the load, `Too many parameters for
+// localised string: 21 > 20 (limit).`, with a literal and a table parameter
+// counting alike; nesting is capped at 20 LEVELS OF DEPTH and the 21st refuses,
+// `Too deep recursion for localised string: 21 > 20 (limit).`, where the root
+// table is level 1, every parameter sits one level below the table holding it,
+// a plain-string parameter occupies a level of its own and the key at element 0
+// does not; and there is NO GLOBAL TABLE BUDGET at all, a description holding
+// 421 tables at depth 3 loading with exit 0. A recipe prototype carries the
+// same two ceilings with its own prototype kind in the refusal text.
+//
+// THE RULE THE VALUE DRIVES IS UNCHANGED. A dropdown with more presets than fit
+// NESTS rather than overflowing: each level carries at most this many
+// parameters, and when there are more the last parameter is a nested localised
+// string holding the rest by the same rule. Nesting spends depth, which is the
+// budget with 20 levels in it, so the overflow is a fill rather than a wall.
 const maxLocalisedParams = 20
 
 // allExistsWorld answers yes to every presence question and nothing else.
@@ -142,16 +148,10 @@ func (l *Lib) textSettingBindings() []textBinding {
 		if l.validIngredientsSetting(r.spec.IngredientsFrom) {
 			mark(r.spec.IngredientsFrom.index-1, r.spec.Category)
 		}
-		if by := r.spec.IngredientsBy; by != nil && l.validIngredientsSetting(by.Custom) {
-			mark(by.Custom.index-1, r.spec.Category)
-		}
 	}
 	for _, t := range l.techs {
 		if c := t.spec.CostFrom; c != nil && l.validPacksSetting(c.Packs) {
 			mark(c.Packs.index-1, "")
-		}
-		if by := t.spec.CostBy; by != nil && by.Custom != nil && l.validPacksSetting(by.Custom.Packs) {
-			mark(by.Custom.Packs.index-1, "")
 		}
 	}
 	return out
@@ -162,9 +162,10 @@ func (l *Lib) textSettingBindings() []textBinding {
 // seconds.
 //
 // THE TWO HALVES ARE SEPARATE BECAUSE THE TWO READS ARE. A crafting time two
-// recipes share is ordinary and always was; a cost arm's number is the one
-// this library says out loud is ignored, and that sentence is only true of a
-// setting nothing else reads.
+// recipes share is ordinary and always was; a research number carries a
+// composed description that names ONE dropdown as the thing deciding while it
+// is 0, and a setting two technologies priced themselves with would be
+// described by whichever of them composed last.
 type numberBinding struct {
 	count  int
 	asCost bool
@@ -172,7 +173,7 @@ type numberBinding struct {
 
 // numberSettingBindings walks the plan once and records who reads each numeric
 // setting: a recipe's crafting time, and a custom cost's count and seconds
-// under CostFrom and under a Custom arm alike.
+// under CostFrom.
 //
 // A handle this plan never issued is SKIPPED rather than followed, exactly as
 // textSettingBindings and craftTimeBoundSettings skip one: the validators and
@@ -188,13 +189,11 @@ type numberBinding struct {
 func (l *Lib) numberSettingBindings() []numberBinding {
 	out := make([]numberBinding, len(l.settings))
 	markCost := func(c *CustomCost) {
-		if l.validIntSetting(c.Count) {
-			out[c.Count.index-1].count++
-			out[c.Count.index-1].asCost = true
-		}
-		if l.validDoubleSetting(c.Seconds) {
-			out[c.Seconds.index-1].count++
-			out[c.Seconds.index-1].asCost = true
+		for _, h := range []IntSettingRef{c.Count, c.Seconds} {
+			if l.validIntSetting(h) {
+				out[h.index-1].count++
+				out[h.index-1].asCost = true
+			}
 		}
 	}
 	for _, r := range l.recipes {
@@ -217,9 +216,6 @@ func (l *Lib) numberSettingBindings() []numberBinding {
 		if c := t.spec.CostFrom; c != nil {
 			markCost(c)
 		}
-		if by := t.spec.CostBy; by != nil && by.Custom != nil {
-			markCost(by.Custom)
-		}
 	}
 	return out
 }
@@ -227,9 +223,13 @@ func (l *Lib) numberSettingBindings() []numberBinding {
 // namedCostSources counts the cost sources a technology declares. Exactly one
 // is the rule and the data planner is where it is refused, so every walk that
 // steps past a technology naming some other number asks this one question.
+//
+// CostBy AND CostFrom COUNT AS ONE, because they are one cost: the dropdown is
+// the tier and the three settings overwrite it field by field. Every other
+// pairing is still two, so Unit beside either is refused exactly as it was.
 func namedCostSources(spec *TechSpec) int {
 	named := 0
-	for _, set := range []bool{spec.CostOf != "", spec.Unit != nil, spec.CostBy != nil, spec.CostFrom != nil} {
+	for _, set := range []bool{spec.CostOf != "", spec.Unit != nil, spec.CostBy != nil || spec.CostFrom != nil} {
 		if set {
 			named++
 		}
@@ -243,8 +243,8 @@ func namedCostSources(spec *TechSpec) int {
 
 // validateBindings is every rule about how a text setting is BOUND, and both
 // planners run it: the settings stage composes a dropdown's description out of
-// a Custom arm, so it needs the arm to be well formed just as much as the data
-// stage does.
+// a text setting beside one, so it needs that pairing to be well formed just as
+// much as the data stage does.
 //
 // IT REFUSES NOTHING THE OTHER TWO VALIDATORS ALREADY OWN. Where a recipe or a
 // technology names two costs, or two ingredient sources this file did not add,
@@ -254,10 +254,11 @@ func namedCostSources(spec *TechSpec) int {
 func (l *Lib) validateBindings(prefix string) error {
 	at := "fkrecipes: "
 
-	// ONE DROPDOWN COMPOSES ONE DESCRIPTION, so it takes a Custom arm from one
-	// declaration. Counted in the two walks below, where an arm is proved, and
-	// refused after both of them so the sentence names the first such setting
-	// in declaration order rather than whichever walk noticed first.
+	// ONE DROPDOWN COMPOSES ONE DESCRIPTION, so one declaration may put a text
+	// setting beside it. Counted in the two walks below, where the pairing is
+	// proved, and refused after both of them so the sentence names the first
+	// such setting in declaration order rather than whichever walk noticed
+	// first.
 	armedByRecipe := make([]int, len(l.settings))
 	armedByTech := make([]int, len(l.settings))
 
@@ -266,9 +267,6 @@ func (l *Lib) validateBindings(prefix string) error {
 		if r.spec.IngredientsFrom.index != 0 {
 			if len(r.spec.Ingredients) > 0 {
 				return errors.New(at + who + " names both Ingredients and IngredientsFrom; pick one")
-			}
-			if r.spec.IngredientsBy != nil {
-				return errors.New(at + who + " names both IngredientsBy and IngredientsFrom; pick one")
 			}
 			if !l.validIngredientsSetting(r.spec.IngredientsFrom) {
 				return errors.New(at + who + " reads its ingredients from a setting that this plan never declared")
@@ -283,31 +281,8 @@ func (l *Lib) validateBindings(prefix string) error {
 		if !l.validDropdownSetting(by.Setting) {
 			return errors.New(at + who + " names an ingredients setting that this plan never declared")
 		}
-		setting := l.settings[by.Setting.index-1]
-		full := setting.emittedName(prefix)
-		if by.Custom.index == 0 {
-			// A value named custom with NOTHING BEHIND IT is the pilot's own
-			// defect: the player picks it and gets a recipe made of nothing,
-			// with no line in the log saying why.
-			//
-			// A CHOICE THAT COVERS IT IS WHAT MAKES IT ORDINARY. A mod whose
-			// dropdown already ships a preset named custom keeps it as a
-			// preset: this refusal is about a value with no plan behind it,
-			// not about the word, and a covered value has a plan like every
-			// other one.
-			if v := by.customValue(); countValue(setting.values, v) > 0 && !coversIngredientValue(by.Choices, v) {
-				return errors.New(at + "the setting " + full + " offers " + v +
-					", and " + who + " names no Custom arm for it")
-			}
-			continue
-		}
-		armedByRecipe[by.Setting.index-1]++
-		if !l.validIngredientsSetting(by.Custom) {
-			return errors.New(at + who + " names a Custom ingredients setting that this plan never declared")
-		}
-		if err := customArmValues(at, who, full, by.customValue(),
-			coversIngredientValue(by.Choices, by.customValue()), setting.values); err != nil {
-			return err
+		if r.spec.IngredientsFrom.index != 0 {
+			armedByRecipe[by.Setting.index-1]++
 		}
 		// The presets are RENDERED into the dropdown's description at the
 		// settings stage, so they have to be renderable there. The data
@@ -331,47 +306,17 @@ func (l *Lib) validateBindings(prefix string) error {
 		if namedCostSources(&t.spec) != 1 {
 			continue
 		}
-		if c := t.spec.CostFrom; c != nil {
-			if len(c.Position) > 0 {
-				return errors.New(at + who + " names CostFrom with a Position; Position belongs to a Custom arm, and CostFrom is placed by After, Before and AfterTech")
-			}
-			if err := l.validateCustomCost(at, who, c); err != nil {
-				return err
-			}
-			continue
-		}
 		by := t.spec.CostBy
-		if by == nil {
-			continue
-		}
-		if !l.validDropdownSetting(by.Setting) {
+		if by != nil && !l.validDropdownSetting(by.Setting) {
 			return errors.New(at + who + " names a cost setting that this plan never declared")
 		}
-		setting := l.settings[by.Setting.index-1]
-		full := setting.emittedName(prefix)
-		if by.Custom == nil {
-			// The recipe twin's rule, word for word: a value with no plan
-			// behind it is the defect, and one a Choice covers is a preset.
-			if v := by.customValue(); countValue(setting.values, v) > 0 && !coversCostValue(by.Choices, v) {
-				return errors.New(at + "the setting " + full + " offers " + v +
-					", and " + who + " names no Custom arm for it")
+		if c := t.spec.CostFrom; c != nil {
+			if by != nil {
+				armedByTech[by.Setting.index-1]++
 			}
-			continue
-		}
-		armedByTech[by.Setting.index-1]++
-		if err := customArmValues(at, who, full, by.customValue(),
-			coversCostValue(by.Choices, by.customValue()), setting.values); err != nil {
-			return err
-		}
-		// THE PREREQUISITE MOVES WITH THE UNIT everywhere else in CostBy: the
-		// chosen tier's source technology becomes the sole prerequisite. A
-		// custom arm has no source, so it carries its own ladder, and an arm
-		// with none would place the technology nowhere at all.
-		if len(by.Custom.Position) == 0 {
-			return errors.New(at + who + " names a Custom cost arm with no Position; the arm places the technology, so it needs a prerequisite ladder")
-		}
-		if err := l.validateCustomCost(at, who, by.Custom); err != nil {
-			return err
+			if err := l.validateCustomCost(at, who, c, by != nil); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -385,11 +330,11 @@ func (l *Lib) validateBindings(prefix string) error {
 		full := s.emittedName(prefix)
 		if armedByRecipe[i] > 1 {
 			return errors.New(at + "the setting " + full +
-				" takes a Custom arm from more than one recipe; one dropdown composes one description")
+				" takes a text setting from more than one recipe; one dropdown composes one description")
 		}
 		if armedByTech[i] > 1 {
 			return errors.New(at + "the setting " + full +
-				" takes a Custom arm from more than one technology; one dropdown composes one description")
+				" takes a text setting from more than one technology; one dropdown composes one description")
 		}
 	}
 
@@ -435,50 +380,79 @@ func (l *Lib) validateBindings(prefix string) error {
 	return nil
 }
 
-// customArmValues is the shape rule a Custom arm's dropdown has to satisfy,
-// written once because the recipe arm and the cost arm have the same one.
-func customArmValues(at, who, setting, value string, covered bool, values []string) error {
-	if covered {
-		return errors.New(at + who + " gives " + value + " a preset as well as a Custom arm; name the arm's value with CustomValue")
-	}
-	switch countValue(values, value) {
-	case 1:
-		return nil
-	case 0:
-		return errors.New(at + who + " names a Custom arm for " + value + ", which the setting " + setting + " does not offer")
-	default:
-		return errors.New(at + "the setting " + setting + " offers " + value + " more than once, and a Custom arm needs it exactly once")
-	}
-}
-
-// validateCustomCost checks the three handles and the two bounds the engine's
-// own reset rule turns into a guarantee.
+// validateCustomCost checks the three handles and the bounds the engine's own
+// reset rule turns into a guarantee.
 //
 // THE BOUNDS ARE ON THE DECLARED SPEC, not on the value read. MEASURED: a
 // numeric setting whose stored value falls outside its own bounds is RESET to
 // the default rather than clamped, and a setting whose DEFAULT lies outside its
-// own bounds refuses the load. So a minimum of at least 1 on the count and
-// above 0 on the seconds makes every value the data stage can ever read a legal
-// one, and the data stage needs no arm for an illegal one at all.
-func (l *Lib) validateCustomCost(at, who string, c *CustomCost) error {
+// own bounds refuses the load. So what a declaration promises here is what
+// makes every value the data stage can ever read a legal one, and the data
+// stage needs no arm for an illegal one at all.
+//
+// WHAT IS PROMISED DEPENDS ON WHETHER THERE IS A TIER, which is what hasTier
+// carries. Beside a CostBy dropdown, 0 is the number's way of saying the word
+// default: the declared default and the minimum are both 0, and the dropdown's
+// tier supplies the field. With no dropdown there is nothing to defer to, so a
+// minimum of at least 1 on the count and on the time is what keeps a unit the
+// engine takes.
+//
+// AND A MAXIMUM EITHER WAY, because the field is one a player types into: an
+// int setting with no maximum_value lets them ask for a research nobody
+// finishes, and the settings screen has no other ceiling to offer them.
+//
+// PER SETTING, count then seconds, and inside each of them the default and the
+// minimum before the maximum: a plan with two of these answers with the same
+// one every run and in both languages.
+func (l *Lib) validateCustomCost(at, who string, c *CustomCost, hasTier bool) error {
 	if !l.validPacksSetting(c.Packs) {
 		return errors.New(at + who + " reads its science packs from a setting that this plan never declared")
 	}
 	if !l.validIntSetting(c.Count) {
 		return errors.New(at + who + " reads its research count from a setting that this plan never declared")
 	}
-	if !l.validDoubleSetting(c.Seconds) {
+	if !l.validIntSetting(c.Seconds) {
 		return errors.New(at + who + " reads its research time from a setting that this plan never declared")
 	}
 	count := l.settings[c.Count.index-1]
-	if !count.spec.HasMin || count.spec.Min < 1 {
+	if hasTier {
+		if count.defNum != 0 || !count.spec.HasMin || count.spec.Min != 0 {
+			return errors.New(at + "the setting " + count.name +
+				" backs a research count beside a research dropdown, so its declared default and its minimum must both be 0 (0 means the dropdown decides)")
+		}
+	} else if !count.spec.HasMin || count.spec.Min < 1 {
 		return errors.New(at + "the setting " + count.name +
 			" backs a research count but declares no minimum of at least 1 (the engine refuses a unit count of 0)")
 	}
+	if err := researchNumberMaximum(at, count); err != nil {
+		return err
+	}
 	seconds := l.settings[c.Seconds.index-1]
-	if !seconds.spec.HasMin || !(seconds.spec.Min > 0) {
+	if hasTier {
+		if seconds.defNum != 0 || !seconds.spec.HasMin || seconds.spec.Min != 0 {
+			return errors.New(at + "the setting " + seconds.name +
+				" backs a research time beside a research dropdown, so its declared default and its minimum must both be 0 (0 means the dropdown decides)")
+		}
+	} else if !seconds.spec.HasMin || seconds.spec.Min < 1 {
 		return errors.New(at + "the setting " + seconds.name +
-			" backs a research time but declares no minimum above 0 (the engine refuses a unit time of 0)")
+			" backs a research time but declares no minimum of at least 1 (the engine refuses a unit time of 0)")
+	}
+	return researchNumberMaximum(at, seconds)
+}
+
+// researchNumberMaximum is the ceiling both research numbers need, written once
+// because the sentence is one sentence: the count and the time are the same
+// kind of field to a player and the same kind of hole to a modpack.
+//
+// THE SENTENCE NAMES THE WHOLE PREDICATE, which is not "no maximum": a
+// declaration of Between(0, 0) carries one and it is a ceiling no legal value
+// can sit under, so a sentence that said the maximum was missing would be
+// untrue of half the declarations that reach this line. "No maximum of at least
+// 1" is true of both arms, and the Rust half carries it byte for byte.
+func researchNumberMaximum(at string, s settingDecl) error {
+	if !s.spec.HasMax || s.spec.Max < 1 {
+		return errors.New(at + "the setting " + s.name +
+			" backs a research number but declares no maximum of at least 1; a number the player types needs a ceiling it can reach")
 	}
 	return nil
 }
@@ -602,26 +576,37 @@ func validateDeclaredPacks(at, who string, packs []Pack) error {
 // ---------------------------------------------------------------------------
 
 // settingDescriptions is the localised_description each setting is emitted
-// with, or Nil for the ones that carry none. Two settings get one:
+// with, or Nil for the ones that carry none. Three settings get one:
 //
 //   - a TEXT setting, whose description is the consumer's own key followed by
-//     the declared list written out, so the player can see what the word
-//     default stands for and copy it;
-//   - a DROPDOWN WITH A CUSTOM ARM, whose description is the consumer's own key
-//     followed by one line per preset, so a player switching to custom can
-//     start from the preset they were on.
+//     the declared list written out, what the field takes, which setting
+//     decides while it says default, and what an unusable text costs;
+//   - a RESEARCH NUMBER, the count or the time of a CustomCost, whose
+//     description is the consumer's own key followed by the range it takes and,
+//     beside a research dropdown, what 0 means;
+//   - a DROPDOWN WITH A TEXT SETTING BESIDE IT, whose description is the
+//     consumer's own key followed by one line per preset and then the sentence
+//     that says the text overrides it.
 //
-// THE SECOND ONE EXISTS BECAUSE THE ENGINE FORBIDS THE ALTERNATIVE. Filling the
-// text from the player's old dropdown choice is impossible: the settings stage
-// sees no stored value (measured: data.raw is empty there), nothing at a data
-// stage can write a setting, and settings.startup is read only at the control
-// stage. Composing the description is what the library can do instead.
+// THE COMPOSITIONS EXIST BECAUSE THE ENGINE FORBIDS THE ALTERNATIVES. Filling
+// the text from the player's old dropdown choice is impossible: the settings
+// stage sees no stored value (measured: data.raw is empty there), nothing at a
+// data stage can write a setting, and settings.startup is read only at the
+// control stage. The settings screen has no conditional visibility either
+// (measured), so no field can be hidden while the other one decides, and
+// saying which is which in the description is what the library can do instead.
 func (l *Lib) settingDescriptions(prefix string) []Value {
 	out := make([]Value, len(l.settings))
 	for i := range out {
 		out[i] = Nil()
 	}
+	numbers := l.researchNumberSettings()
 	for i, s := range l.settings {
+		if numbers[i].bound {
+			out[i] = numberDescription(s.emittedName(prefix),
+				l.researchRangeLine(i, s, numbers[i].dropdown))
+			continue
+		}
 		if !s.kind.isText() {
 			continue
 		}
@@ -634,16 +619,17 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		// THE LANGUAGE IS THERE BECAUSE THIS SETTING IS. Both planners run
 		// validateTextSettings in front of this walk, and it refuses a text
 		// setting whose language is missing before anything renders.
-		out[i] = textDescription(s.emittedName(prefix), l.lang.render(entries))
+		out[i] = textDescription(s.emittedName(prefix), l.lang.render(entries),
+			l.textSwitchLine(i))
 	}
 	// Recipes then technologies, in declaration order, which is the order a
-	// dropdown's own description is built in when two declarations arm one
-	// dropdown. validateBindings refuses two recipes and two technologies over
-	// one dropdown, each with its own sentence; what it does NOT refuse is one
-	// recipe and one technology arming the same one, and there the technology's
-	// preset list is the one that lands, because this walk runs second. That is
-	// a plan nobody has written and a sentence nobody has agreed on, so it is
-	// written down here rather than answered on a guess.
+	// dropdown's own description is built in when two declarations put a text
+	// setting beside one dropdown. validateBindings refuses two recipes and two
+	// technologies over one dropdown, each with its own sentence; what it does
+	// NOT refuse is one recipe and one technology reaching the same one, and
+	// there the technology's preset list is the one that lands, because this
+	// walk runs second. That is a plan nobody has written and a sentence nobody
+	// has agreed on, so it is written down here rather than answered on a guess.
 	for _, r := range l.recipes {
 		by := r.spec.IngredientsBy
 		// EXACTLY THE CONDITION validateBindings CHECKED UNDER, len(Ingredients)
@@ -651,38 +637,168 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		// validated, and rendering an unvalidated choice would dereference an
 		// item handle nothing proved. The data planner refuses that plan by
 		// name; this one just says nothing about it.
-		if by == nil || by.Custom.index == 0 || len(r.spec.Ingredients) > 0 || !l.validDropdownSetting(by.Setting) {
+		if by == nil || len(r.spec.Ingredients) > 0 || !l.validDropdownSetting(by.Setting) {
+			continue
+		}
+		// A DROPDOWN WITH NO TEXT SETTING BESIDE IT COMPOSES NOTHING, because
+		// there is nothing the presets have to be read in the language of and
+		// nothing to say the text overrides them.
+		if !l.validIngredientsSetting(r.spec.IngredientsFrom) {
 			continue
 		}
 		i := by.Setting.index - 1
 		full := l.settings[i].emittedName(prefix)
-		params := make([]Value, 0, len(by.Choices)+1)
+		params := make([]Value, 0, len(by.Choices)+2)
 		params = append(params, localeRef("mod-setting-description", full))
-		// THE ARM IS WHAT GUARANTEES THE LANGUAGE. A Custom arm holds an
-		// IngredientsSettingRef, which only IngredientsSetting issues, and
-		// that constructor installs the renderer. A dropdown with no arm was
-		// stepped past above and renders nothing.
+		// THE TEXT SETTING IS WHAT GUARANTEES THE LANGUAGE. It is an
+		// IngredientsSettingRef, which only IngredientsSetting issues, and that
+		// constructor installs the renderer.
 		for _, c := range by.Choices {
 			params = append(params, presetLine(full, c.Value,
 				Str(ingredientPresetHead+l.lang.render(l.declaredIngredientEntries(prefix, c.Ingredients)))))
 		}
+		params = append(params, Str(dropdownSwitchLine(l.relativeOrder(i, r.spec.IngredientsFrom.index-1))))
 		out[i] = localisedGroup(params)
 	}
 	for _, t := range l.techs {
 		by := t.spec.CostBy
-		if by == nil || by.Custom == nil || !l.validDropdownSetting(by.Setting) {
+		if by == nil || namedCostSources(&t.spec) != 1 || !l.validDropdownSetting(by.Setting) {
+			continue
+		}
+		c := t.spec.CostFrom
+		if c == nil || !l.validPacksSetting(c.Packs) {
 			continue
 		}
 		i := by.Setting.index - 1
 		full := l.settings[i].emittedName(prefix)
-		params := make([]Value, 0, len(by.Choices)+1)
+		params := make([]Value, 0, len(by.Choices)+2)
 		params = append(params, localeRef("mod-setting-description", full))
 		for _, c := range by.Choices {
 			params = append(params, presetLine(full, c.Value, costPresetTail(c)...))
 		}
+		params = append(params, Str(dropdownSwitchLine(l.relativeOrder(i, c.Packs.index-1))))
 		out[i] = localisedGroup(params)
 	}
 	return out
+}
+
+// relativeOrder is the word that says where the setting at other sits on the
+// settings screen relative to the one at self: above or below.
+//
+// IT COMPARES THE EMITTED ORDER STRINGS, the same ones PlanSettings writes into
+// the prototypes, because that is what the engine sorts by. A composed sentence
+// that said "the option chosen above" would otherwise be a guess about a
+// declaration order the consumer is free to choose, and OrderAfter and the
+// Legacy constructors both let them choose one where the guess is wrong.
+func (l *Lib) relativeOrder(self, other int) string {
+	if l.settings[other].emittedOrder(other) < l.settings[self].emittedOrder(self) {
+		return "above"
+	}
+	return "below"
+}
+
+// textSwitchLine is the sentence on a TEXT setting that says what decides while
+// it holds the reserved word.
+func (l *Lib) textSwitchLine(i int) string {
+	if d := l.textSwitchDropdown(i); d >= 0 {
+		return "\nWhile this says default the option chosen " + l.relativeOrder(i, d) + " applies; anything else applies instead of it."
+	}
+	return "\nWhile this says default this mod's own list applies."
+}
+
+// dropdownSwitchLine is the sentence appended to a DROPDOWN's composed
+// description: the text setting beside it wins whenever it is not on the word.
+func dropdownSwitchLine(where string) string {
+	return "\nThe setting " + where + " applies instead while it does not say default."
+}
+
+// textSwitchDropdown is the dropdown setting that decides while the text
+// setting at i says default, or -1 when the declaration that reads it has none.
+//
+// ONE WALK, TWO READERS: the composition above and the composition on the
+// dropdown itself have to agree about which pair they are describing, and a
+// second walk spelling the same condition is how the two could describe
+// different pairs.
+func (l *Lib) textSwitchDropdown(i int) int {
+	for _, r := range l.recipes {
+		if !l.validIngredientsSetting(r.spec.IngredientsFrom) || r.spec.IngredientsFrom.index-1 != i {
+			continue
+		}
+		by := r.spec.IngredientsBy
+		if by != nil && len(r.spec.Ingredients) == 0 && l.validDropdownSetting(by.Setting) {
+			return by.Setting.index - 1
+		}
+		return -1
+	}
+	for _, t := range l.techs {
+		c := t.spec.CostFrom
+		if c == nil || namedCostSources(&t.spec) != 1 || !l.validPacksSetting(c.Packs) || c.Packs.index-1 != i {
+			continue
+		}
+		if by := t.spec.CostBy; by != nil && l.validDropdownSetting(by.Setting) {
+			return by.Setting.index - 1
+		}
+		return -1
+	}
+	return -1
+}
+
+// researchNumber is what a research count or time setting composes from: that
+// it backs one at all, and which dropdown decides while it is 0.
+type researchNumber struct {
+	bound    bool
+	dropdown int // -1 when the technology declares no CostBy
+}
+
+// researchNumberSettings marks the settings a CustomCost prices a research
+// with. Both planners and the locale checker ask it, so the description, the
+// locale obligation and the range sentence are decided once.
+//
+// IT STEPS PAST EXACTLY WHAT validateBindings STEPS PAST: a technology naming
+// some other number of cost sources is answered by "exactly one", and nothing
+// validated its CustomCost, so composing a range out of bounds nobody checked
+// would be a description about a declaration the data planner refuses.
+func (l *Lib) researchNumberSettings() []researchNumber {
+	out := make([]researchNumber, len(l.settings))
+	for i := range out {
+		out[i].dropdown = -1
+	}
+	for _, t := range l.techs {
+		c := t.spec.CostFrom
+		if c == nil || namedCostSources(&t.spec) != 1 {
+			continue
+		}
+		dropdown := -1
+		if by := t.spec.CostBy; by != nil && l.validDropdownSetting(by.Setting) {
+			dropdown = by.Setting.index - 1
+		}
+		for _, h := range []IntSettingRef{c.Count, c.Seconds} {
+			if l.validIntSetting(h) {
+				out[h.index-1] = researchNumber{bound: true, dropdown: dropdown}
+			}
+		}
+	}
+	return out
+}
+
+// researchRangeLine is what a research number's description says about the
+// range it takes, and about what 0 means where a dropdown decides.
+//
+// THE NUMBERS COME OUT OF THE AMOUNT FORMATTER the language already pins byte
+// for byte across the two halves, rather than out of either language's own
+// float formatting: this sentence is compared in the mirror transcript, and two
+// standard libraries agree about 100000 right up until they do not.
+//
+// A BOUND IS THERE BECAUSE validateCustomCost PROVED IT. Both planners run it
+// in front of this walk, and researchNumberSettings steps past exactly the
+// declarations it steps past, so the maximum is declared and the minimum is
+// too.
+func (l *Lib) researchRangeLine(i int, s settingDecl, dropdown int) string {
+	if dropdown >= 0 {
+		return "\nA whole number from 0 to " + l.lang.amount(s.spec.Max) +
+			". While it is 0 the option chosen " + l.relativeOrder(i, dropdown) + " decides."
+	}
+	return "\nA whole number from " + l.lang.amount(s.spec.Min) + " to " + l.lang.amount(s.spec.Max) + "."
 }
 
 // localeRef is a localised string that is nothing but a key: {"section.key"}.
@@ -692,34 +808,52 @@ func localeRef(section, key string) Value { return Arr(Str(section + "." + key))
 // with: the consumer's own entry, then the three things this library owes the
 // player about the field beside it.
 //
-// FOUR PARAMETERS, and none of them a table beyond the consumer's key, so the
+// FIVE PARAMETERS, and none of them a table beyond the consumer's key, so the
 // twenty-parameter ceiling maxLocalisedParams records is nowhere near reached
 // and the shape needs no nesting rule of its own.
 //
-// THE THREE LINES ARE THE ANSWER TO WHAT A CLIENT MEASUREMENT FOUND. A player
+// THE FOUR LINES ARE THE ANSWER TO WHAT A CLIENT MEASUREMENT FOUND. A player
 // standing in the Mod Settings screen reads the tooltip whole (measured on
 // 2.0.77 on a DROPDOWN's composed description, one line per preset: seven
 // lines rendered readable and unclipped; the ceilings on a composed
 // description are the parameter count maxLocalisedParams holds and the nesting
-// depth its comment records, and neither of them is a line count), so the
+// depth its comment records, neither of which is a line count), so the
 // description is where the library can say what the field takes; the closed
 // dropdown's LABEL beside it is truncated at about 37 characters, which is why
 // nothing a player needs may live in a label. The default line shows the list
 // the word default stands for, in the internal names the field actually takes;
-// the format line says so in words and states the ceiling; and the fallback
-// line says what a text this library cannot use costs, which before it was
-// stated nowhere a player looks.
+// the format line says so in words and states the ceiling; the switch line says
+// which of the two fields is deciding, which the screen cannot show because it
+// has no conditional visibility at all (measured); and the fallback line says
+// what a text this library cannot use costs, which before it was stated nowhere
+// a player looks.
 //
 // ONE COMPOSITION, TWO READERS. The settings planner emits this; CheckLocale
 // asks the same function for the same shape with the list left out, so a line
-// deleted here is a finding rather than a silent loss. See checkTextDescription.
-func textDescription(full, rendered string) Value {
+// deleted here is a finding rather than a silent loss. See guardedTextDescription.
+func textDescription(full, rendered, switchLine string) Value {
 	return Arr(
 		Str(""),
 		localeRef("mod-setting-description", full),
 		Str("\ndefault: "+rendered),
 		Str(textFormatLine()),
+		Str(switchLine),
 		Str(textFallbackLine),
+	)
+}
+
+// numberDescription is the whole localised_description a RESEARCH NUMBER is
+// emitted with: the consumer's own entry, then the range the field takes.
+//
+// IT IS THE ONLY PLACE THE RANGE IS STATED. The settings screen shows a numeric
+// field with no visible bounds, and 0 there means something the player cannot
+// guess: the dropdown beside it decides. Both sentences live in
+// researchRangeLine, and this is the shape they are emitted in.
+func numberDescription(full, rangeLine string) Value {
+	return Arr(
+		Str(""),
+		localeRef("mod-setting-description", full),
+		Str(rangeLine),
 	)
 }
 
@@ -892,16 +1026,57 @@ const messagePrefix = "fkrecipes: "
 //
 // FIELD is the word the player looks for on the settings screen: the text of a
 // list, or the number of a slider.
-func playerFallback(reason, field string) string {
+// TAIL is what the field costs beyond being wrong, and it is a parameter
+// rather than a branch on the reason so that no sentence here is chosen by
+// reading another sentence. Only a recipe's ingredient text has one: see
+// recipeTextFallback.
+func playerFallback(reason, field, tail string) string {
 	return messagePrefix + "ERROR: " + strings.TrimPrefix(reason, messagePrefix) +
 		". The mod loaded with its own default instead; fix the " + field +
-		" under Settings > Mod settings > Startup, then restart."
+		" under Settings > Mod settings > Startup, then restart." + tail
 }
 
 // textFallback and numberFallback are the two fields that exist, named once so
 // no caller spells the word.
-func textFallback(reason string) string   { return playerFallback(reason, "text") }
-func numberFallback(reason string) string { return playerFallback(reason, "number") }
+func textFallback(reason string) string   { return playerFallback(reason, "text", "") }
+func numberFallback(reason string) string { return playerFallback(reason, "number", "") }
+
+// recipeTextFallback is textFallback for a RECIPE'S INGREDIENT LIST, which is
+// the one fallback whose fix costs the player something the engine will not
+// give back.
+//
+// THE PACK TEXT AND THE TWO NUMBERS DO NOT CARRY IT. Repricing a research
+// destroys nothing; changing a recipe empties every assembling machine holding
+// ingredients the new list does not use, measured and irreversible. See
+// recipeChangeSentence, which the recipe's own tooltip note carries too.
+func recipeTextFallback(reason string) string {
+	return playerFallback(reason, "text", " "+recipeChangeSentence)
+}
+
+// movesIngredients answers whether a TEXT setting bound to this target decides
+// a recipe's ingredient list, which is the one fallback in the library that
+// changes what a recipe is made of.
+//
+// ONE PREDICATE, TWO READERS, and that is the whole reason it has a name. The
+// ERROR line's tail and the prototype tooltip's tail are the same measured
+// sentence about the same engine cost, so they must be true of exactly the same
+// set of fallbacks. Deriving either one from the prototype KIND instead would
+// put the sentence on a crafting-time fallback, which moves energy_required and
+// leaves the ingredient list byte for byte.
+//
+// IT IS ASKED OF A TEXT SETTING ONLY. A crafting time and a research number
+// never move an ingredient list whatever they are bound to, so those callers
+// pass false outright rather than asking.
+func movesIngredients(tgt noteTarget) bool { return !tgt.tech }
+
+// textFallbackFor is which of the two a text setting's fallback line is,
+// decided by whether the text moves a recipe's ingredient list.
+func textFallbackFor(tgt noteTarget, reason string) string {
+	if movesIngredients(tgt) {
+		return recipeTextFallback(reason)
+	}
+	return textFallback(reason)
+}
 
 // notTextSentence is the one sentence a stored value that is not text is
 // answered with, built in ONE place: two spellings of one sentence is exactly
@@ -963,6 +1138,28 @@ func secondsFault(v float64) numberFault {
 		return faultTimeAtOrBelowZero
 	}
 	return faultNone
+}
+
+// deferrableCountFault and deferrableSecondsFault are the same two rules with
+// 0 let through, which is what a research number beside a CostBy dropdown means
+// by 0: the dropdown decides. Everything else the engine would refuse is still
+// refused, so a number that IS in force is one the engine takes.
+//
+// A SEPARATE PAIR RATHER THAN A FLAG ON THE ORIGINALS, because the originals
+// are also the AUTHOR-side post-condition over a built unit, where 0 is a
+// research nobody can finish and has to stay a fault.
+func deferrableCountFault(v float64) numberFault {
+	if v == 0 {
+		return faultNone
+	}
+	return countFault(v)
+}
+
+func deferrableSecondsFault(v float64) numberFault {
+	if v == 0 {
+		return faultNone
+	}
+	return secondsFault(v)
 }
 
 func craftTimeFault(v float64) numberFault {
@@ -1105,15 +1302,21 @@ func (l *Lib) ownItemWorld(w World, prefix string) planItemWorld {
 // language's resolver, its tag hint and its suggestion fold all have to see the
 // items this plan is about to emit. Reading the setting itself goes through the
 // overlay too, which delegates it.
-func (l *Lib) resolveTextList(w World, res *resolution, s settingDecl, prefix, category string, kind listKind) parsedList {
+func (l *Lib) resolveTextList(w World, res *resolution, s settingDecl, prefix, category string, kind listKind, tgt noteTarget) parsedList {
 	full := s.emittedName(prefix)
+	// THE TARGET IS WHAT PICKS THE SENTENCE, not the list kind beside it, and
+	// the two agree by construction: a recipe target reaches this function only
+	// for its own ingredient list and a technology target only for its pack
+	// text. Choosing off the target is what keeps the ERROR line and the
+	// prototype note the target also fills saying the same thing about the same
+	// prototype. See textFallbackFor.
 	v, ok := w.StartupSetting(full)
 	if !ok {
 		res.logs = append(res.logs, "fkrecipes: the setting "+full+" was not readable, so its default applies")
 		return parsedList{isDefault: true}
 	}
 	if v.Kind != KindStr {
-		res.noteFallback(full, textFallback(notTextSentence(full)))
+		res.noteFallback(tgt, full, textFallbackFor(tgt, notTextSentence(full)), movesIngredients(tgt))
 		return parsedList{isDefault: true}
 	}
 	parsed, problem := l.lang.parse(v.Str, kind, category, full, w)
@@ -1123,25 +1326,16 @@ func (l *Lib) resolveTextList(w World, res *resolution, s settingDecl, prefix, c
 		// the same sentence the corpus pins in both languages; the fallback
 		// line carries it with the shared prefix trimmed off, because the line
 		// it sits in already opens with one.
-		res.noteFallback(full, textFallback(problem))
+		res.noteFallback(tgt, full, textFallbackFor(tgt, problem), movesIngredients(tgt))
 		return parsedList{isDefault: true}
 	}
 	return parsed
 }
 
-// resolveIngredientsFrom is a recipe whose ingredients the player writes.
-//
-// TWO WORLDS, AND THE DIFFERENCE IS DELIBERATE. A text the player typed is
-// resolved against the overlay, because it may name this plan's own items; the
-// DECLARED ladders are walked against the real World, because a ladder is the
-// author's list of things other mods might provide and its rungs are answered
-// exactly as they were before the overlay existed.
-func (l *Lib) resolveIngredientsFrom(w, text World, res *resolution, prefix string, r recipeDecl, s settingDecl) []resolvedIngredient {
-	parsed := l.resolveTextList(text, res, s, prefix, r.spec.Category, listRecipe)
-	if parsed.isDefault {
-		// The pre-existing path, ladders and drop lines and all.
-		return l.resolveIngredients(w, res, prefix, r.name, s.defIngredients)
-	}
+// typedIngredients is a list the player wrote, in the typed order, ready for a
+// recipe. The language has already resolved every name against the overlay, so
+// nothing here walks a ladder or drops an entry.
+func typedIngredients(parsed parsedList) []resolvedIngredient {
 	list := make([]resolvedIngredient, 0, len(parsed.entries))
 	for _, e := range parsed.entries {
 		if e.kind == kindFluid {
@@ -1150,147 +1344,333 @@ func (l *Lib) resolveIngredientsFrom(w, text World, res *resolution, prefix stri
 		}
 		list = append(list, resolvedIngredient{name: e.name, amount: e.amount})
 	}
-	// ONE LINE, AND IT IS THE CANONICAL RENDERING rather than the text as
-	// typed: a player who wrote "iron-plate x2" reads back "2 iron-plate" and
-	// learns the form the library would have written.
-	res.logs = append(res.logs, "fkrecipes: "+r.emittedName(prefix)+" takes its ingredients from "+
-		s.emittedName(prefix)+": "+l.lang.render(parsed.entries))
 	return list
 }
 
-// noteIgnoredText says out loud that a text the player edited is not being
-// used, because the dropdown beside it is on a preset.
+// ingredientsFromLine is the ONE line a recipe whose text is in force logs, and
+// it is the CANONICAL RENDERING rather than the text as typed: a player who
+// wrote "iron-plate x2" reads back "2 iron-plate" and learns the form the
+// library would have written.
 //
-// WITHOUT IT THE PLAYER EDITS A FIELD AND NOTHING HAPPENS, which is the worst
-// shape a setting can have. It is a log line rather than a refusal because the
-// player has not done anything wrong: the two fields are simply not both live.
-//
-// EDITED IS DECIDED BY THE LANGUAGE, not by comparing the text with the word.
-// "default," is a tolerated trailing comma the language reads as the marker, so
-// a comparison would call it an edit and tell the player their untouched field
-// was ignored. This asks the same function the data path asks and takes the
-// same answer; a text the language refuses is an edit, because it is certainly
-// not the marker.
-func (l *Lib) noteIgnoredText(text World, res *resolution, s settingDecl, prefix, category, dropdown, customValue string) {
-	full := s.emittedName(prefix)
-	v, ok := text.StartupSetting(full)
-	// An unreadable or wrong-typed value is not an edit. Neither is refused
-	// here: the text is not being read for real, and refusing a load over a
-	// value nothing uses would be worse than saying nothing.
-	if !ok || v.Kind != KindStr {
-		return
+// THE CLAUSE IS THE MERGE LINE'S VOICE, and it is only there when a dropdown is
+// also declared. The ingredient override is TOTAL, so the clause says the
+// choice is set aside; a research cost's override is per field, and its clause
+// says what the tier still supplies instead. One sentence cannot serve both.
+func (l *Lib) ingredientsFromLine(recipe, setting, dropdown, chosen string, parsed parsedList) string {
+	line := "fkrecipes: " + recipe + " takes its ingredients from " + setting + ": " + l.lang.render(parsed.entries)
+	if dropdown == "" {
+		return line
 	}
-	parsed, problem := l.lang.parse(v.Str, listKindOf(s.kind), category, full, text)
-	if problem == "" && parsed.isDefault {
-		return
-	}
-	res.logs = append(res.logs, "fkrecipes: "+full+" is edited, but "+dropdown+
-		" is not on "+customValue+", so the text is ignored")
+	return line + "; the " + dropdown + " choice " + chosen + " is set aside"
 }
 
-// noteIgnoredNumber is the same sentence for the two NUMBERS a cost arm holds,
-// the count and the seconds, and it exists because the pilot moved one under a
-// tier and the log said nothing at all. A player who drags a slider and reads
-// no line has been told their edit landed when it did not.
+// costTier is what a technology's CostBy dropdown settled on, handed to a
+// custom cost so the fields the player left at their default can come from it.
 //
-// EDITED IS A COMPARISON HERE, not a question for the language. A numeric
-// setting has no reserved word standing for the author's answer: the DECLARED
-// DEFAULT is the untouched value, and the engine stores it for a silent player
-// exactly as it stores a moved one, so the comparison is the only thing that
-// separates them.
-//
-// AN UNREADABLE OR WRONG-TYPED VALUE IS NOT AN EDIT, the same tolerance
-// noteIgnoredText has and for the same reason: the field is not being read for
-// real here, and refusing a load over a value nothing uses would be worse than
-// saying nothing. It reads through the World readNumber reads through, which is
-// the real one: a number is never resolved against the plan's own item overlay.
-func noteIgnoredNumber(w World, res *resolution, s settingDecl, prefix, dropdown, customValue string) {
-	full := s.emittedName(prefix)
-	v, ok := w.StartupSetting(full)
-	if !ok || v.Kind != KindNum || v.Num == s.defNum {
-		return
-	}
-	res.logs = append(res.logs, "fkrecipes: "+full+" is edited, but "+dropdown+
-		" is not on "+customValue+", so the number is ignored")
+// A ZERO VALUE IS NO TIER AT ALL, which is TechSpec.CostFrom on its own: there
+// is nothing to defer to, so the three settings are the whole price and the
+// cost is built fresh from them exactly as it always was.
+type costTier struct {
+	has bool
+	// unit is the tier's own unit map, whatever it holds: a count_formula, a
+	// max_level, fields no version of this library knows about. Overriding a
+	// field rather than rebuilding the map is what keeps every one of them.
+	unit     Value
+	dropdown string
+	chosen   string
 }
 
 // resolveCustomCost is a research cost the player writes: the count and the
-// seconds from their own settings, the packs from the text.
+// time from their own settings, the packs from the text.
 //
-// THE COUNT AND THE SECONDS ARE ALWAYS READ, on both text paths. They are
-// separate settings and the player may have moved them whether or not they
-// touched the pack list, so there is no "untouched" arm for either.
+// THE THREE ARE ALWAYS READ, whatever the tier says, because reading them is
+// how the library finds out whether any of them is in force. Each one that is
+// not at its declared default overrides the tier; each one that is comes FROM
+// the tier, or from the setting's own declared default where there is no tier.
+// Nothing is ever edited and ignored, which is the whole point of the shape.
 //
-// The pack ladders are walked against the real World and the pack TEXT against
-// the overlay, for the reason resolveIngredientsFrom carries two of them.
+// THE PACK LADDERS ARE WALKED AGAINST THE REAL WORLD AND THE PACK TEXT AGAINST
+// THE OVERLAY, for the reason the recipe path carries two of them.
+//
+// IT ANSWERS WHETHER THE CUSTOM COST APPLIES AT ALL. With a tier and nothing
+// non-default the answer is false and the caller emits the tier byte for byte,
+// which is the load a player who never opened the settings screen gets.
 //
 // THE DATA PLANNER REACHES IT THROUGH Lib.customCost AND NEVER BY NAME, which
 // is what keeps a plan that declares no pack setting from shipping it. See
 // language: packsSetting is the only place this function's name appears
 // outside this line.
-func (l *Lib) resolveCustomCost(w, text World, res *resolution, prefix string, t techDecl, c *CustomCost) Value {
+func (l *Lib) resolveCustomCost(w, text World, res *resolution, prefix string, t techDecl, c *CustomCost, tier costTier, tgt noteTarget) (Value, bool) {
 	countSetting := l.settings[c.Count.index-1]
 	secondsSetting := l.settings[c.Seconds.index-1]
 	packsSetting := l.settings[c.Packs.index-1]
 
 	// EACH NUMBER IS HELD TO WHAT THE ENGINE TAKES WHERE IT IS READ, and one
-	// that is not takes the setting's DECLARED DEFAULT with a line naming it.
-	// All three fields here are the player's, so all three follow the same
-	// rule; the lines come out in the order the values are read, which is the
-	// order the cost line below names them.
-	count := res.costNumber(w, countSetting, prefix, countFault)
-	seconds := res.costNumber(w, secondsSetting, prefix, secondsFault)
-
-	parsed := l.resolveTextList(text, res, packsSetting, prefix, "", listPacks)
-	// AND THE POST-CONDITION, on whatever the two reads settled on. After a
-	// fallback the value IS the declared default, so the only world this can
-	// still refuse is a plan whose declared default is itself outside what the
-	// engine takes. That is an AUTHOR bug: validateSettings refuses it at the
-	// settings stage, which the engine runs before the data stage, so it
-	// reaches here only through a host test that calls PlanData on its own.
-	// It refuses, because an author's declaration is not a player's typing.
-	if !res.refuseCostNumbers(countSetting.emittedName(prefix), secondsSetting.emittedName(prefix), count, seconds) {
-		return refusedCost(count, seconds)
+	// that is not takes the setting's DECLARED DEFAULT with a line naming it,
+	// which is also how it stops being in force. The rules differ by one value:
+	// beside a tier, 0 is the number's reserved word and is legal, and every
+	// other number still has to be one the engine would take.
+	countRule, secondsRule := countFault, secondsFault
+	if tier.has {
+		countRule, secondsRule = deferrableCountFault, deferrableSecondsFault
 	}
+	count := res.costNumber(w, countSetting, prefix, countRule, tgt)
+	seconds := res.costNumber(w, secondsSetting, prefix, secondsRule, tgt)
+	parsed := l.resolveTextList(text, res, packsSetting, prefix, "", listPacks, tgt)
+
+	countSet := count != countSetting.defNum
+	secondsSet := seconds != secondsSetting.defNum
+	if tier.has && !countSet && !secondsSet && parsed.isDefault {
+		return Nil(), false
+	}
+
+	// THE PACKS, and the three sources in the order the rule names them: what
+	// the player typed, then the tier's own ingredients, then the author's
+	// declared list with its ladders walked and its drops logged.
 	entries := parsed.entries
 	if parsed.isDefault {
-		// The declared packs with their ladders, dropped and logged one by one
-		// exactly as a hand-rolled unit's are.
-		entries = resolvePackLadders(w, res, t.name, packsSetting.defPacks)
+		if tier.has {
+			entries = tierPackEntries(tier.unit)
+		} else {
+			entries = resolvePackLadders(w, res, t.name, packsSetting.defPacks)
+		}
+	} else if tier.has && res.packless == t.name {
+		// A TYPED PACK LIST IS WHAT THIS TECHNOLOGY IS PRICED IN, so it is not
+		// packless any more. The only way the mark is here already is the
+		// CostBy fallback having lost every pack it declared a moment ago, and
+		// that unit's ingredients are about to be written over: refusing the
+		// load over packs nothing emits would be a refusal a player's own text
+		// had removed. The drop lines stay, because they are true.
+		res.packless = ""
 	}
+	if !tier.has {
+		// AND THE POST-CONDITION, on whatever the two reads settled on. After a
+		// fallback the value IS the declared default, so the only world this can
+		// still refuse is a plan whose declared default is itself outside what
+		// the engine takes. That is an AUTHOR bug: validateSettings refuses it
+		// at the settings stage, which the engine runs before the data stage, so
+		// it reaches here only through a host test that calls PlanData on its
+		// own. It refuses, because an author's declaration is not a player's
+		// typing.
+		//
+		// BESIDE A TIER THERE IS NOTHING FOR IT TO ANSWER: a number that is in
+		// force there has already cleared the same rule with 0 excluded, and a
+		// number that is not in force is the tier's own, which belongs to
+		// whoever declared that technology.
+		if !res.refuseCostNumbers(countSetting.emittedName(prefix), secondsSetting.emittedName(prefix), count, seconds) {
+			return refusedCost(count, seconds), true
+		}
+		// A parsed list can never be empty here: the language refuses none in a
+		// pack list. So this is the ladder path having lost every pack, which is
+		// the same refusal a hand-rolled unit gets. A TIER'S OWN PACKS ARE NOT
+		// ASKED, because they are another technology's declaration.
+		if len(entries) == 0 && res.packless == "" {
+			res.packless = t.name
+		}
+	}
+
+	// THE NUMBERS THE LINE AND THE UNIT CARRY, which are the settings' where
+	// they are in force and the tier's where they are not. A tier that carries
+	// no count at all (a count_formula prices it instead) leaves the setting's
+	// declared default standing in the line, and leaves the tier's own field
+	// alone in the unit: the override below is what writes one.
+	// COUNT BY FORMULA IS A PRICE WITH NO NUMBER IN IT, and the line says so
+	// rather than printing one. A tier priced by count_formula carries no count
+	// key at all, so a count setting that DEFERS leaves nothing for the line to
+	// name: printing the setting's declared default there (0, beside a
+	// dropdown) is a number nothing in the emitted unit is using. Both terms
+	// are load-bearing. The formula test is what keeps the phrase true: a unit
+	// with neither field is one the engine refuses outright (measured on
+	// 2.0.77: `Key "count_formula" not found in property tree`), so it is
+	// reachable only from a fixture World, and there the honest answer is the
+	// number rather than a formula that is not there.
+	byFormula := false
+	if tier.has {
+		if !countSet {
+			if v, ok := tierNumber(tier.unit, "count"); ok {
+				count = v
+			} else {
+				byFormula = hasUnitField(tier.unit, "count_formula")
+			}
+		}
+		if !secondsSet {
+			if v, ok := tierNumber(tier.unit, "time"); ok {
+				seconds = v
+			}
+		}
+	}
+
+	countText := l.lang.amount(count)
+	if byFormula {
+		countText = "by formula"
+	}
+	line := "fkrecipes: " + t.emittedName(prefix) + " takes its research cost from " +
+		packsSetting.emittedName(prefix) + ": count " + countText +
+		", time " + l.lang.amount(seconds) + ", packs " + l.lang.render(entries)
+	if tier.has {
+		line += "; the " + tier.dropdown + " choice " + tier.chosen + " supplies what the settings leave at default"
+	}
+
 	packs := make([]Value, 0, len(entries))
 	for _, e := range entries {
 		packs = append(packs, Arr(Str(e.name), Num(float64(e.amount))))
 	}
-	// A parsed list can never be empty here: the language refuses none in a
-	// pack list. So this is the ladder path having lost every pack, which is
-	// the same refusal a hand-rolled unit gets.
-	if len(packs) == 0 && res.packless == "" {
-		res.packless = t.name
+	if !tier.has {
+		res.logs = append(res.logs, line)
+		return Obj(
+			kv("count", Num(count)),
+			kv("time", Num(seconds)),
+			kv("ingredients", Arr(packs...)),
+		), true
 	}
-	res.logs = append(res.logs, "fkrecipes: "+t.emittedName(prefix)+" takes its research cost from "+
-		packsSetting.emittedName(prefix)+": count "+l.lang.amount(count)+
-		", time "+l.lang.amount(seconds)+", packs "+l.lang.render(entries))
-	return Obj(
-		kv("count", Num(count)),
-		kv("time", Num(seconds)),
-		kv("ingredients", Arr(packs...)),
-	)
-}
 
-// customPrereqs walks a Custom arm's Position ladder. The first technology the
-// game has becomes the sole prerequisite, exactly as a chosen tier's source
-// would; a ladder with no rung present leaves the technology unattached and
-// says so, in the shape every other dropped ladder uses.
-func customPrereqs(w World, res *resolution, tech string, position []string) []string {
-	for _, name := range position {
-		if w.TechExists(name) {
-			return []string{name}
+	// THE TIER'S UNIT WITH THE PLAYER'S FIELDS WRITTEN OVER IT, so a
+	// count_formula, a max_level and anything else it carried survive a player
+	// who moved one slider.
+	unit := tier.unit
+	if countSet {
+		unit = setUnitField(unit, "count", Num(count))
+		// ONE WRINKLE, AND THE ENGINE DECIDES IT: a unit carrying both a count
+		// and a count_formula is priced by the FORMULA, so the number the
+		// player typed would be read by nobody and nothing would say so. The
+		// formula goes, and the line says which setting took it.
+		if hasUnitField(unit, "count_formula") {
+			unit = withoutUnitField(unit, "count_formula")
+			res.logs = append(res.logs, "fkrecipes: "+t.name+": "+countSetting.emittedName(prefix)+
+				" replaces the count_formula the "+tier.chosen+" cost carries")
 		}
 	}
-	res.logs = append(res.logs, "fkrecipes: "+tech+": none of "+strings.Join(position, ", ")+
-		" is present, so the technology has no prerequisite")
-	return nil
+	if secondsSet {
+		unit = setUnitField(unit, "time", Num(seconds))
+	}
+	if !parsed.isDefault {
+		unit = setUnitField(unit, "ingredients", Arr(packs...))
+	}
+	res.logs = append(res.logs, line)
+	return unit, true
+}
+
+// tierNumber reads one numeric field out of a tier's unit map.
+//
+// A SLICE AND A SCAN, like every other lookup in this library: a unit is a
+// handful of fields and nothing here may depend on an iteration order.
+func tierNumber(unit Value, key string) (float64, bool) {
+	if unit.Kind != KindMap {
+		return 0, false
+	}
+	for _, e := range unit.Map {
+		if e.Key == key && e.Val.Kind == KindNum {
+			return e.Val.Num, true
+		}
+	}
+	return 0, false
+}
+
+// hasUnitField reports whether a tier's unit carries a field at all, whatever
+// its shape. count_formula is a STRING in every unit the engine ships, so the
+// numeric reader above cannot answer this question.
+func hasUnitField(unit Value, key string) bool {
+	if unit.Kind != KindMap {
+		return false
+	}
+	for _, e := range unit.Map {
+		if e.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+// setUnitField replaces a field of a tier's unit IN PLACE IN THE ORDER IT
+// ALREADY HAD, or appends it at the end when the unit does not carry one.
+//
+// THE ORDER IS PART OF THE EMITTED VALUE, so a field that moved would be a
+// prototype that differs between a plan that overrode it and one that did not,
+// and the two halves would have to agree about the move as well as about the
+// value.
+func setUnitField(unit Value, key string, val Value) Value {
+	if unit.Kind != KindMap {
+		return Obj(kv(key, val))
+	}
+	pairs := make([]KV, 0, len(unit.Map)+1)
+	replaced := false
+	for _, e := range unit.Map {
+		if e.Key == key {
+			pairs = append(pairs, kv(key, val))
+			replaced = true
+			continue
+		}
+		pairs = append(pairs, e)
+	}
+	if !replaced {
+		pairs = append(pairs, kv(key, val))
+	}
+	return Obj(pairs...)
+}
+
+// withoutUnitField drops a field of a tier's unit, keeping the rest in order.
+func withoutUnitField(unit Value, key string) Value {
+	if unit.Kind != KindMap {
+		return unit
+	}
+	pairs := make([]KV, 0, len(unit.Map))
+	for _, e := range unit.Map {
+		if e.Key == key {
+			continue
+		}
+		pairs = append(pairs, e)
+	}
+	return Obj(pairs...)
+}
+
+// tierPackEntries is a tier unit's science packs in the shape the renderer
+// takes, so a cost line can say what the tier is paying with.
+//
+// BOTH SPELLINGS, because a unit this library copies is somebody else's
+// declaration: the engine takes the short tuple {"name", amount} and the long
+// {name = ..., amount = ...} alike, and base writes the short one. An entry in
+// neither shape is skipped rather than guessed at; it is the tier's own
+// ingredients that are emitted, so nothing this reader misses changes the
+// prototype, only the line that describes it.
+func tierPackEntries(unit Value) ingredientList {
+	out := ingredientList{}
+	if unit.Kind != KindMap {
+		return out
+	}
+	for _, e := range unit.Map {
+		if e.Key != "ingredients" || e.Val.Kind != KindArr {
+			continue
+		}
+		for _, item := range e.Val.Arr {
+			if entry, ok := tierPackEntry(item); ok {
+				out = append(out, entry)
+			}
+		}
+	}
+	return out
+}
+
+func tierPackEntry(v Value) (listEntry, bool) {
+	if v.Kind == KindArr && len(v.Arr) >= 2 && v.Arr[0].Kind == KindStr && v.Arr[1].Kind == KindNum {
+		return listEntry{name: v.Arr[0].Str, amount: int64(v.Arr[1].Num)}, true
+	}
+	if v.Kind != KindMap {
+		return listEntry{}, false
+	}
+	name, amount := "", 0.0
+	named, counted := false, false
+	for _, e := range v.Map {
+		if e.Key == "name" && e.Val.Kind == KindStr {
+			name, named = e.Val.Str, true
+		}
+		if e.Key == "amount" && e.Val.Kind == KindNum {
+			amount, counted = e.Val.Num, true
+		}
+	}
+	if !named || !counted {
+		return listEntry{}, false
+	}
+	return listEntry{name: name, amount: int64(amount)}, true
 }
 
 // readNumber is every numeric read a binding makes: the crafting time, the
@@ -1332,14 +1712,17 @@ func (r *resolution) readNumber(w World, s settingDecl, prefix string) (float64,
 // declared default the engine would not take is an author bug refuseCostNumbers
 // names as one; a fallback line there would send a player to a field whose
 // stored value was never the problem.
-func (r *resolution) costNumber(w World, s settingDecl, prefix string, fault func(float64) numberFault) float64 {
+//
+// A REPRICED RESEARCH DESTROYS NOTHING, so the note below carries no
+// recipe-change sentence: see noteOn.
+func (r *resolution) costNumber(w World, s settingDecl, prefix string, fault func(float64) numberFault, tgt noteTarget) float64 {
 	full := s.emittedName(prefix)
 	v, held := r.readNumber(w, s, prefix)
 	if !held {
 		return v
 	}
 	if f := fault(v); f != faultNone {
-		r.noteFallback(full, numberFallback(storedNumberProblem(full, f)))
+		r.noteFallback(tgt, full, numberFallback(storedNumberProblem(full, f)), false)
 		return s.defNum
 	}
 	return v
@@ -1353,14 +1736,19 @@ func (r *resolution) costNumber(w World, s settingDecl, prefix string, fault fun
 // why the line goes through noteFallback: one bad field on the settings screen
 // is one problem, so it says so once however many recipes bind it. The recipe
 // the line names is the FIRST in declaration order, the same one every run.
-func (r *resolution) craftTimeNumber(w World, s settingDecl, prefix, recipe string) float64 {
+//
+// A CRAFTING TIME DESTROYS NOTHING, which is why the note below asks for none
+// of the recipe-change sentence: energy_required moves and the ingredient list
+// this recipe emits is byte for byte what it would have been. The one fallback
+// that empties an assembler is the one that changes the list itself.
+func (r *resolution) craftTimeNumber(w World, s settingDecl, prefix, recipe string, tgt noteTarget) float64 {
 	full := s.emittedName(prefix)
 	v, held := r.readNumber(w, s, prefix)
 	if !held {
 		return v
 	}
 	if f := craftTimeFault(v); f != faultNone {
-		r.noteFallback(full, numberFallback(storedCraftTimeProblem(recipe, full, f)))
+		r.noteFallback(tgt, full, numberFallback(storedCraftTimeProblem(recipe, full, f)), false)
 		return s.defNum
 	}
 	return v

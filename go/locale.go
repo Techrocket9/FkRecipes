@@ -129,7 +129,8 @@ func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, compl
 	// (1) and (2): what the player cannot read, in DECLARATION order, and a
 	// setting's own name before the description it needs and the values it
 	// offers.
-	customArm := l.dropdownsWithCustomArm()
+	composed := l.dropdownsWithComposedDescription()
+	numbers := l.researchNumberSettings()
 	for i, s := range l.settings {
 		full := s.emittedName(prefix)
 		if !localeHas(sections, "mod-setting-name", full) {
@@ -139,8 +140,9 @@ func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, compl
 		// A TEXT SETTING'S DESCRIPTION IS REQUIRED, and it is the one place a
 		// description is. Everywhere else a missing one costs a tooltip; here
 		// it costs the player the whole tooltip, because the library composes
-		// the declared list, the format, the length limit and the fallback
-		// onto that entry: an absent one loses all four along with whatever the
+		// the declared list, the format, the length limit, the field that
+		// decides while this one says the reserved word, and the fallback onto
+		// that entry: an absent one loses all five along with whatever the
 		// consumer meant to say. What the consumer's own entry is FOR is
 		// therefore what the setting is, not how to fill it in, and the
 		// sentence says so.
@@ -159,14 +161,27 @@ func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, compl
 			}
 			continue
 		}
+		// A RESEARCH NUMBER'S DESCRIPTION IS REQUIRED FOR THE SAME REASON a
+		// text setting's is: the library composes the range and what 0 means
+		// onto that entry, and an absent one loses both along with whatever the
+		// consumer meant to say about what the number is for.
+		if numbers[i].bound {
+			if !localeHas(sections, "mod-setting-description", full) {
+				findings = append(findings, "the setting "+full+
+					" has no [mod-setting-description] entry, and a research number needs one to say what the number is for;"+
+					" the library composes the range onto it")
+			}
+			continue
+		}
 		if s.kind != settingDropdown {
 			continue
 		}
-		// A dropdown with a Custom arm has its preset list composed onto its
-		// description, so the description stops being optional there too.
-		if customArm[i] && !localeHas(sections, "mod-setting-description", full) {
+		// A dropdown with a text setting beside it has its preset list composed
+		// onto its description, so the description stops being optional there
+		// too.
+		if composed[i] && !localeHas(sections, "mod-setting-description", full) {
 			findings = append(findings, "the dropdown setting "+full+
-				" has no [mod-setting-description] entry, which the custom arm composes its preset list onto")
+				" has no [mod-setting-description] entry, and the library composes its preset list onto that entry")
 		}
 		for _, v := range s.values {
 			key := full + "-" + v
@@ -240,8 +255,8 @@ func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, compl
 }
 
 // checkComposedTextLines is the DRIFT GUARD over what this library composes
-// onto a text setting's description: the format line and the fallback line,
-// each reported by name when the composition stops carrying it.
+// onto a text setting's description: the format line, the switch line and the
+// fallback line, each reported by name when the composition stops carrying it.
 //
 // IT IS NOT AN AUTHOR FINDING, and that is why it is worded and placed the way
 // it is. The consumer writes the [mod-setting-description] entry and this
@@ -253,12 +268,14 @@ func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, compl
 // somebody runs an engine.
 //
 // ONCE PER REPORT, NOT ONCE PER SETTING, and the sentence names the library
-// rather than a setting. What it inspects does not vary with the setting: the
-// two lines are constants and the only per-setting part of the composition, the
-// consumer's own key, is not what it looks at. Run inside the per-setting loop
-// it turned ONE library defect into one finding per text setting, five of them
-// on the example guest, and at fifty text settings the two sentences alone
-// would fill localeFindingCap and push every author finding out of the report.
+// rather than a setting. What it inspects does not vary with the setting in any
+// way the rule reads: two of the three lines are constants, the third is the
+// switch line the guarded composition was built with and is handed in beside
+// it, and the only per-setting part of the composition, the consumer's own key,
+// is not what it looks at. Run inside the per-setting loop it turned ONE library
+// defect into one finding per text setting, five of them on the example guest,
+// and at fifty text settings the sentences alone would fill localeFindingCap and
+// push every author finding out of the report.
 //
 // FIRST IN THE REPORT, WHICH IS ALSO HOW IT SURVIVES THE CAP. The cap keeps the
 // first localeFindingCap findings and replaces the tail with a count, so a
@@ -281,28 +298,37 @@ func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, compl
 // dereferences an item handle. The checker validates nothing, exactly as the
 // rest of it validates nothing, so a plan the planners would refuse must not
 // panic here: with the list left out neither the language nor l.items is
-// touched, and the two lines under test are the two this function can see. What
-// the rendered list itself says is the settings stage's business and the
+// touched, and the three lines under test are the three this function can see.
+// What the rendered list itself says is the settings stage's business and the
 // corpus's.
 func (l *Lib) checkComposedTextLines(prefix string) []string {
-	desc, ok := l.guardedTextDescription(prefix)
+	desc, switchLine, ok := l.guardedTextDescription(prefix)
 	if !ok {
 		return nil
 	}
-	return composedTextLinesMissing(desc)
+	return composedTextLinesMissing(desc, switchLine)
 }
 
 // guardedTextDescription is WHICH composition the guard inspects, split out
 // from the rule so that the choice is visible to a test on its own: the first
 // text setting's in declaration order, with the declared list left out, and no
 // composition at all when the plan declares no text setting.
-func (l *Lib) guardedTextDescription(prefix string) (Value, bool) {
-	for _, s := range l.settings {
+//
+// THE SWITCH LINE COMES BACK BESIDE THE COMPOSITION because it is the one line
+// of the three that is not a constant: it names the option above or below when
+// a dropdown is bound to the same declaration and the mod's own list when none
+// is. The rule cannot recompute it without the declaration, so the caller that
+// built the composition hands over the line it built it with, and what the
+// guard then answers is whether textDescription put that line into the table it
+// returned.
+func (l *Lib) guardedTextDescription(prefix string) (Value, string, bool) {
+	for i, s := range l.settings {
 		if s.kind.isText() {
-			return textDescription(s.emittedName(prefix), ""), true
+			line := l.textSwitchLine(i)
+			return textDescription(s.emittedName(prefix), "", line), line, true
 		}
 	}
-	return Value{}, false
+	return Value{}, "", false
 }
 
 // composedTextLinesMissing is the guard's rule over one composition.
@@ -311,10 +337,13 @@ func (l *Lib) guardedTextDescription(prefix string) (Value, bool) {
 // with one line taken out of it, which is the only way to see the finding
 // without editing the source: nothing a consumer can declare produces a
 // composition missing a line.
-func composedTextLinesMissing(desc Value) []string {
+func composedTextLinesMissing(desc Value, switchLine string) []string {
 	var out []string
+	// THE ORDER IS THE COMPOSITION'S OWN, so a description that lost two lines
+	// reports them in the order a reader would have met them.
 	for _, want := range []struct{ line, missing string }{
 		{textFormatLine(), "no line about the format and the length limit"},
+		{switchLine, "no line about which field decides while the text says default"},
 		{textFallbackLine, "no line about what happens to a text this mod cannot use"},
 	} {
 		if !localisedCarries(desc, want.line) {
@@ -331,7 +360,7 @@ func composedTextLinesMissing(desc Value) []string {
 //
 // DEPTH BECAUSE THE QUESTION IS "DOES THE PLAYER READ IT", NOT "WHERE". The
 // composition it is handed is flat past the consumer's own key, which is itself
-// a nested table: textDescription is fixed at four parameters and never reaches
+// a nested table: textDescription is fixed at five parameters and never reaches
 // localisedGroup's nesting rule, and a dropdown's composition is never handed
 // here at all. A top-level scan would therefore be a claim about the shape of
 // the composition rather than about the lines, and it would go quietly wrong
@@ -404,9 +433,9 @@ func nameListed(handRolled []string, key string) bool {
 	return false
 }
 
-// dropdownsWithCustomArm marks the dropdown settings some recipe or technology
-// gives a Custom arm. The checker needs it because those, and only those, have
-// a composed description and so a required one.
+// dropdownsWithComposedDescription marks the dropdown settings a text setting
+// sits beside. The checker needs it because those, and only those, have a
+// composed description and so a required one.
 //
 // A handle this plan never issued is SKIPPED rather than followed, exactly as
 // every other walk over the plan skips one: the checker reports on locale, and
@@ -417,17 +446,20 @@ func nameListed(handRolled []string, key string) bool {
 // planner composes nothing for, so demanding a description for its dropdown
 // would be a finding about a string the mod never emits. settingDescriptions is
 // the condition this mirrors.
-func (l *Lib) dropdownsWithCustomArm() []bool {
+func (l *Lib) dropdownsWithComposedDescription() []bool {
 	marks := make([]bool, len(l.settings))
 	for _, r := range l.recipes {
 		by := r.spec.IngredientsBy
-		if by != nil && by.Custom.index != 0 && len(r.spec.Ingredients) == 0 && l.validDropdownSetting(by.Setting) {
+		if by != nil && len(r.spec.Ingredients) == 0 && l.validDropdownSetting(by.Setting) &&
+			l.validIngredientsSetting(r.spec.IngredientsFrom) {
 			marks[by.Setting.index-1] = true
 		}
 	}
 	for _, t := range l.techs {
 		by := t.spec.CostBy
-		if by != nil && by.Custom != nil && l.validDropdownSetting(by.Setting) {
+		c := t.spec.CostFrom
+		if by != nil && c != nil && namedCostSources(&t.spec) == 1 &&
+			l.validDropdownSetting(by.Setting) && l.validPacksSetting(c.Packs) {
 			marks[by.Setting.index-1] = true
 		}
 	}

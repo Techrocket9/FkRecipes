@@ -589,6 +589,28 @@ jqassert "the text setting's composed description states the length limit" "$DSD
 jqassert "the text setting's composed description states what an unusable text costs" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-rivet-ingredients") | .localised_description]
    | length > 0 and all(any(.[]; . == "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."))'
+# WHICH OF THE TWO FIELDS IS DECIDING, which the settings screen cannot show at
+# all: it has no conditional visibility (measured), so a player looking at a
+# text field beside a dropdown has nowhere else to learn that one of them wins.
+# Both sides of the pairing, because the player may be looking at either.
+jqassert "a text setting with no dropdown beside it names its own list" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-rivet-ingredients") | .localised_description]
+   | length > 0 and all(any(.[]; . == "\nWhile this says default this mod'"'"'s own list applies."))'
+jqassert "a text setting beside a dropdown names the option that decides" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-quench-ingredients") | .localised_description]
+   | length > 0 and all(any(.[]; . == "\nWhile this says default the option chosen above applies; anything else applies instead of it."))'
+jqassert "the dropdown says the text setting beside it overrides it" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-quench-medium") | .localised_description]
+   | length > 0 and all(any(.[]; . == "\nThe setting below applies instead while it does not say default."))'
+# A RESEARCH NUMBER STATES ITS RANGE, and beside a research dropdown it states
+# what 0 means: a numeric field on that screen shows no bounds at all, and a 0
+# that silently defers to a dropdown is not something anyone can guess.
+jqassert "a research number beside a dropdown says what 0 means" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-tips-count") | .localised_description]
+   | length > 0 and all(any(.[]; . == "\nA whole number from 0 to 100000. While it is 0 the option chosen above decides."))'
+jqassert "a research number with no dropdown states its range" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-chain-seconds") | .localised_description]
+   | length > 0 and all(any(.[]; . == "\nA whole number from 1 to 600."))'
 # AN INGREDIENT PRESET IS TWO LINES, not one run of text in two vocabularies.
 # The label before it is the consumer's display prose, which the client
 # truncates at about 37 characters in the closed dropdown; the internal names
@@ -610,53 +632,89 @@ jqassert "an ingredient preset puts the internal names on their own line" "$DSDU
 # ---------------------------------------------------------------------------
 echo "== checking the flipped row says something"
 
-# A TYPED FLUID, in a recipe whose category allows one. This is the whole
-# reason the quenching recipe is crafting-with-fluid: the engine refuses a
-# fluid in the crafting category (measured), so a customizable recipe that
-# wants to allow water has to say where it is crafted, and a fluid ingredient
-# reaching a real prototype loader is the only proof that holds.
-jqassert "the player's typed fluid reached the quenching recipe" "$FDUMP" \
+# THE DROPDOWN DECIDES WHERE THE TEXT IS UNTOUCHED. quench-medium is on the oil
+# preset and quench-ingredients is not in the settings file at all, so the
+# preset's own plan is what the recipe comes out of, ladders and all. The mirror
+# types into that same text with the same dropdown on oil, so between the two
+# gates both sides of one pair are walked.
+# MEASURED: neither rung of that plan's oil ladder is in a stock 2.0.77 install,
+# so the third ingredient is dropped with its line and the two that resolve are
+# what the recipe carries.
+jqassert "the preset applied while its text was left untouched" "$FDUMP" \
   '.recipe["fkrecipes-example-hardened-steel-plate-quenching"].ingredients ==
-   [{"amount":1,"name":"steel-plate","type":"item"},{"amount":10,"name":"water","type":"fluid"}]'
+   [{"amount":2,"name":"steel-plate","type":"item"},{"amount":2,"name":"fkrecipes-example-steel-rivet","type":"item"}]'
+grep -q "fkrecipes: hardened-steel-plate-quenching: none of light-oil-barrel, crude-oil-barrel is present, so the ingredient is dropped" "$FLOG" ||
+  fail "the preset's own ingredient ladder logged nothing in the engine's own log"
 # THE WHOLE LIST OF A RECIPE WITH NO DROPDOWN in front of it, in the order the
 # player wrote rather than the order the mod declared. The mirror puts a REFUSED
 # text on this same setting, so one gate covers each side of the arm.
 jqassert "the player's typed list reached the recipe that has no dropdown" "$FDUMP" \
   '.recipe["fkrecipes-example-steel-rivet"].ingredients ==
    [{"amount":2,"name":"iron-stick","type":"item"},{"amount":1,"name":"steel-plate","type":"item"}]'
-# A TEXT LEFT UNTOUCHED BEHIND A PRESET: chain-links is on long and
-# chain-ingredients is not in the settings file at all, so the preset applies
-# and the mod's own item comes through under its emitted name.
-jqassert "the preset applied while its text was left untouched" "$FDUMP" \
+# A TYPED LIST THAT TAKES A PRESET OVER, carrying a FLUID and a FRACTIONAL
+# amount. This is the whole reason the chain recipe is crafting-with-fluid: the
+# engine refuses a fluid in the crafting category (measured), so a customizable
+# recipe that wants to allow water has to say where it is crafted, and a fluid
+# ingredient reaching a real prototype loader is the only proof that holds. The
+# fraction is what says a fluid amount is a double all the way through rather
+# than an item count wearing a decimal point.
+jqassert "the player's typed list took the dropdown's choice over" "$FDUMP" \
   '.recipe["fkrecipes-example-steel-chain"].ingredients ==
-   [{"amount":8,"name":"fkrecipes-example-steel-rivet","type":"item"},{"amount":1,"name":"steel-plate","type":"item"}]'
-# A RESEARCH PRICED OUT OF THREE SETTINGS, in the short tuple form, and PLACED
-# BY ITS OWN LADDER: a custom arm has no source technology to take a position
-# from, so it carries one, and military-2 is the first rung a stock install
-# has. The default row copies a whole unit out of base instead, formula, level
-# cap and all, so these two rows cover the two ways a cost is built.
-# THE PACK TEXT IS THE TYPO, so the two NUMBERS the player set are what reach
-# the unit and the pack list is the mod's OWN declared one: "loaded with its own
-# default instead" in the prototype rather than only in the log, on a real
-# engine. This is the measurement the whole decision rests on: before it, this
-# row exited 1 with "Failed to load mod" and no dump at all, and a player in
-# that state could not reach the Mod Settings screen to undo it (see the client
-# walk in the library's player_fallback).
+   [{"amount":2,"name":"fkrecipes-example-steel-rivet","type":"item"},{"amount":0.5,"name":"water","type":"fluid"}]'
+# A RESEARCH COST OVERRIDDEN WHOLE, in the short tuple form, and PLACED BY THE
+# TIER: the count and the time are the player's, the pack TEXT IS THE TYPO and
+# so falls back exactly as the reserved word behaves, which beside a tier means
+# the MILITARY tier's own packs. "Loaded with its own default instead" in the
+# prototype rather than only in the log, on a real engine. This is the
+# measurement the whole decision rests on: before it, this row exited 1 with
+# "Failed to load mod" and no dump at all, and a player in that state could not
+# reach the Mod Settings screen to undo it (see the client walk in the library's
+# player_fallback). The mirror moves ONE of the three fields on the same
+# technology, so between the two gates the merge is covered whole and per field.
+# THE PACKS ARE military-4'S OWN, read out of the same dump rather than written
+# here: this asserts "the tier supplied the field the text left at its default"
+# rather than "the packs are what I typed into this script", and a base game
+# that reprices military-4 moves both sides together.
 jqassert "the player's research cost reached the technology" "$FDUMP" \
   '.technology["fkrecipes-example-hardened-tips"].unit ==
-   {"count":40,"time":20,"ingredients":[["automation-science-pack",1],["military-science-pack",1]]}'
-jqassert "the custom arm's position ladder placed the technology" "$FDUMP" \
-  '.technology["fkrecipes-example-hardened-tips"].prerequisites == ["military-2"]'
-# A BUILT unit is not a COPIED one: nothing was copied here, so the level cap
-# the default row brings across must not be present.
-jqassert "the built unit carried no level cap of a technology it never copied" "$FDUMP" \
+   ((.technology["military-4"].unit) + {"count":40,"time":20})'
+jqassert "the tier's own packs are what the refused text fell back onto" "$FDUMP" \
+  '.technology["fkrecipes-example-hardened-tips"].unit.ingredients ==
+   .technology["military-4"].unit.ingredients'
+jqassert "the chosen tier placed the technology" "$FDUMP" \
+  '.technology["fkrecipes-example-hardened-tips"].prerequisites == ["military-4"]'
+# military-4 carries no level cap, so neither does the technology priced from
+# it: max_level is a field a COPY brings across from its source, and the default
+# row's own source is the one that has one.
+jqassert "the unit carried no level cap its source never had" "$FDUMP" \
   '.technology["fkrecipes-example-hardened-tips"] | has("max_level") | not'
+# THE LOG IS NOT A DISCLOSURE, and this is the line that is. The technology
+# whose pack text the language refused says so in its OWN description, which is
+# what the player hovers in the tech tree, joined onto the author's own sentence
+# rather than replacing it. Pinned whole and verbatim: the author's line, a
+# newline, and the library's.
+#
+# ENGLISH LITERALS AND NO LOCALE KEY, deliberately. An UNDEFINED key anywhere in
+# a prototype description deletes the WHOLE description on the client, silently
+# and with exit 0, while the dump below still holds every byte of it (measured
+# on 2.0.77 on a recipe prototype), so no assertion in this file could ever see
+# that happen and the library composes nothing a consumer has to define.
+jqassert "the technology whose pack text was set aside says so in its own tooltip" "$FDUMP" \
+  '.technology["fkrecipes-example-hardened-tips"].localised_description ==
+   ["", "Every level puts a harder edge on the same tools.",
+    "\nThe stored value of fkrecipes-example-tips-packs could not be used, so this mod'"'"'s own choice applies instead. The reason is in the log."]'
+# AND A PROTOTYPE NOTHING FELL BACK ON CARRIES NO NOTE, which is what says the
+# line is a consequence of the fallback rather than something every prototype
+# now has. The chain recipe in this row took the list the player TYPED, so
+# nothing about it was set aside and its description is the author's alone.
+jqassert "a recipe with no fallback carries the author's description and no note" "$FDUMP" \
+  '.recipe["fkrecipes-example-steel-chain"].localised_description == ["", "Links of rivets"]'
 
 # THE LOG LINES, in the engine's own log. A player who typed gets one line per
 # thing they changed, and it renders the list CANONICALLY rather than quoting
 # what they typed, so they learn the form the library would have written.
-grep -q "fkrecipes: fkrecipes-example-hardened-steel-plate-quenching takes its ingredients from fkrecipes-example-quench-ingredients: 1 steel-plate, 10 \[fluid=water\]" "$FLOG" ||
-  fail "the custom arm's edited text logged nothing in the engine's own log"
+grep -q "fkrecipes: fkrecipes-example-steel-chain takes its ingredients from fkrecipes-example-chain-ingredients: 2 fkrecipes-example-steel-rivet, 0.5 \[fluid=water\]; the fkrecipes-example-chain-links choice long is set aside" "$FLOG" ||
+  fail "the text that took a dropdown's list over logged no set-aside clause"
 # AND THE ERROR LINE FOR THE TEXT THE LANGUAGE REFUSED, in the engine's own
 # log. Factorio's log() has one channel and no severity, so the word ERROR is in
 # the text; it is uppercase so a case-sensitive grep for the engine's own Error
@@ -684,15 +742,21 @@ if grep -q "takes its research cost from fkrecipes-example-tips-packs: count 40,
   fail "a refused pack text was logged as a list the research took"
 fi
 # AND WHAT IT DID FALL BACK ONTO, said out loud: the cost line comes out
-# whatever the text said, because the count and the seconds are read on every
-# load, and the packs it names are the mod's own.
-grep -q "fkrecipes: fkrecipes-example-hardened-tips takes its research cost from fkrecipes-example-tips-packs: count 40, time 20, packs 1 automation-science-pack, 1 military-science-pack" "$FLOG" ||
+# whatever the text said, because the count and the time are read on every load,
+# and the packs it names are the TIER'S, which is where a player who typed
+# nothing in that field lands.
+grep -q "fkrecipes: fkrecipes-example-hardened-tips takes its research cost from fkrecipes-example-tips-packs: count 40, time 20, packs 1 automation-science-pack, 1 logistic-science-pack, 1 chemical-science-pack, 1 military-science-pack, 1 utility-science-pack; the fkrecipes-example-tips-research-tier choice military supplies what the settings leave at default" "$FLOG" ||
   fail "the custom research cost logged nothing in the engine's own log"
-# An untouched text is the author's list with its ladders, which is the
-# pre-existing path and gets no line of its own; a line here would mean the
-# reserved word had been read as an edit.
-if grep -q "takes its ingredients from fkrecipes-example-chain-ingredients" "$FLOG"; then
+# An untouched text is the reserved word, so the dropdown decides and no line is
+# written about the text at all.
+if grep -q "takes its ingredients from fkrecipes-example-quench-ingredients" "$FLOG"; then
   fail "an untouched text was logged as an edit"
+fi
+# NOTHING IS EDITED AND IGNORED ANY MORE. Every non-default value is live, so
+# the sentence that used to say otherwise may not appear in an engine's log
+# either.
+if grep -q "is edited, but" "$FLOG"; then
+  fail "a value was reported as edited and ignored, which nothing does now"
 fi
 
 # WHAT THE ENGINE SETTLED ON, read back rather than assumed. Everything above

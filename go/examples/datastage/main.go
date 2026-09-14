@@ -58,16 +58,17 @@ func plan() *fkrecipes.Lib {
 	// beside the declared ceiling, so both bounds are in the golden and the
 	// single-bound spec is exercised.
 	forging := lib.DoubleSetting("forging-time", 3, fkrecipes.NumericSpec{HasMax: true, Max: 120})
-	// The quenching medium, which now offers a third value: custom, the arm
-	// that hands the whole ingredient list to the player.
+	// The quenching medium. Its option list is exactly the two the mod
+	// declares: the text setting beside it is what hands the whole ingredient
+	// list to the player, and it adds no value here.
 	medium := lib.DropdownSettingNeedingLocale("quench-medium", "water",
-		[]string{"water", "oil", "custom"})
+		[]string{"water", "oil"})
 	bonuses := lib.BoolSetting("bonus-research", true)
 	// Declared LAST on purpose: the generated order is derived from the
 	// declaration index, so a new setting at the end leaves every existing
 	// order alone.
 	tier := lib.DropdownSettingNeedingLocale("tips-research-tier", "projectile",
-		[]string{"projectile", "military", "custom"})
+		[]string{"projectile", "military"})
 	// A FLOOR AND NO CEILING, the one NumericSpec arm the goldens did not
 	// carry. Organic here: a longer hold keeps tempering, so there is nothing
 	// to cap, but below half a second the plate never reaches temperature.
@@ -86,15 +87,15 @@ func plan() *fkrecipes.Lib {
 	rivetIngredients := lib.IngredientsSetting("rivet-ingredients", []fkrecipes.Ingredient{
 		fkrecipes.IngredientNamed(1, "iron-plate"),
 	})
-	// The custom arm of a dropdown, declared as the preset it sits beside so a
-	// player who switches to custom starts from what they had.
+	// The text setting that sits beside a dropdown, declared as the preset it
+	// starts from so a player who types has somewhere to start from.
 	quenchIngredients := lib.IngredientsSetting("quench-ingredients", []fkrecipes.Ingredient{
 		fkrecipes.IngredientNamed(2, "tungsten-plate", "steel-plate"),
 		fkrecipes.IngredientOf(rivet, 4),
 		fkrecipes.IngredientNamed(1, "tungsten-carbide", "titanium-plate"),
 	})
 	chainLinks := lib.DropdownSettingNeedingLocale("chain-links", "short",
-		[]string{"short", "long", "custom"})
+		[]string{"short", "long"})
 	chainIngredients := lib.IngredientsSetting("chain-ingredients", []fkrecipes.Ingredient{
 		fkrecipes.IngredientOf(rivet, 4),
 	})
@@ -104,13 +105,19 @@ func plan() *fkrecipes.Lib {
 		{Name: "automation-science-pack", Amount: 1},
 		{Name: "military-science-pack", Amount: 1},
 	})
-	tipsCount := lib.IntSetting("tips-count", 30, fkrecipes.Between(1, 100000))
-	tipsSeconds := lib.DoubleSetting("tips-seconds", 15, fkrecipes.Between(0.5, 600))
+	// BOTH DEFAULT TO 0 AND BOTH FLOOR AT 0, because a research dropdown sits
+	// beside them: 0 is a number's way of saying the reserved word, and it
+	// means the tier the dropdown chose supplies that field.
+	tipsCount := lib.IntSetting("tips-count", 0, fkrecipes.Between(0, 100000))
+	tipsSeconds := lib.IntSetting("tips-seconds", 0, fkrecipes.Between(0, 600))
 	chainPacks := lib.PacksSetting("chain-packs", []fkrecipes.Pack{
 		{Name: "automation-science-pack", Amount: 1},
 	})
+	// NO DROPDOWN BESIDE THESE TWO, so there is nothing to defer to and each
+	// declares a minimum of at least 1: the engine refuses a unit count of 0
+	// and a unit time of 0.
 	chainCount := lib.IntSetting("chain-count", 20, fkrecipes.Between(1, 100000))
-	chainSeconds := lib.DoubleSetting("chain-seconds", 10, fkrecipes.Between(0.5, 600))
+	chainSeconds := lib.IntSetting("chain-seconds", 10, fkrecipes.Between(1, 600))
 
 	rivets := lib.Recipe(rivet, fkrecipes.RecipeSpec{
 		CraftTime:   0.5,
@@ -129,8 +136,9 @@ func plan() *fkrecipes.Lib {
 	plates := lib.Recipe(plate, fkrecipes.RecipeSpec{
 		CraftTimeFrom: forging,
 		// The player picks what the plate is quenched in, and each medium is
-		// a whole ingredient plan rather than one substituted line. The third
-		// value hands the list over entirely.
+		// a whole ingredient plan rather than one substituted line. The text
+		// setting below takes the list over entirely whenever it is not on the
+		// reserved word.
 		IngredientsBy: &fkrecipes.IngredientChoices{
 			Setting: medium,
 			Choices: []fkrecipes.IngredientChoice{
@@ -156,9 +164,9 @@ func plan() *fkrecipes.Lib {
 					fkrecipes.IngredientNamed(1, "light-oil-barrel", "crude-oil-barrel"),
 				}},
 			},
-			Custom: quenchIngredients,
 		},
-		Name: "hardened-steel-plate-quenching",
+		IngredientsFrom: quenchIngredients,
+		Name:            "hardened-steel-plate-quenching",
 		// A CATEGORY THAT TAKES FLUIDS, because the player may now type one.
 		// The engine refuses a fluid in the crafting category (measured) and
 		// this library refuses it first, so a customizable recipe that wants
@@ -195,10 +203,10 @@ func plan() *fkrecipes.Lib {
 					fkrecipes.IngredientNamed(1, "steel-plate"),
 				}},
 			},
-			Custom: chainIngredients,
 		},
-		DisplayName: "Steel chain",
-		Description: "Links of rivets",
+		IngredientsFrom: chainIngredients,
+		DisplayName:     "Steel chain",
+		Description:     "Links of rivets",
 	})
 
 	hardenedSteel := lib.Technology("hardened-steel", fkrecipes.TechSpec{
@@ -223,12 +231,12 @@ func plan() *fkrecipes.Lib {
 		AfterTech:   hardenedSteel,
 		DisplayName: "Steel riveting",
 	})
-	// A bonus line the player prices for themselves. Each ladder is walked to
-	// the first technology that is actually there and carries a cost, and THE
-	// PREREQUISITE MOVES WITH THE UNIT: whichever source pays for this one
+	// A bonus line the player can price for themselves. Each ladder is walked
+	// to the first technology that is actually there and carries a cost, and
+	// THE PREREQUISITE MOVES WITH THE UNIT: whichever source pays for this one
 	// also becomes the thing it hangs off, so cost and tree position never
-	// disagree. The custom arm carries its own ladder for exactly that reason:
-	// it has no source technology to take a position from.
+	// disagree. The three settings beside it overwrite the chosen tier's
+	// numbers one field at a time, and the tier still places the technology.
 	lib.Technology("hardened-tips", fkrecipes.TechSpec{
 		Icon:     "__fkrecipes-example__/graphics/technology/hardened-tips.png",
 		IconSize: 128,
@@ -251,12 +259,11 @@ func plan() *fkrecipes.Lib {
 				Seconds: 30,
 				Packs:   []fkrecipes.Pack{{Name: "automation-science-pack", Amount: 1}},
 			},
-			Custom: &fkrecipes.CustomCost{
-				Packs:    tipsPacks,
-				Count:    tipsCount,
-				Seconds:  tipsSeconds,
-				Position: []string{"military-2", "military"},
-			},
+		},
+		CostFrom: &fkrecipes.CustomCost{
+			Packs:   tipsPacks,
+			Count:   tipsCount,
+			Seconds: tipsSeconds,
 		},
 		EnabledBy:   bonuses,
 		DisplayName: "Hardened tool tips",

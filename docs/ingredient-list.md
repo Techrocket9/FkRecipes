@@ -60,7 +60,7 @@ The word `default` means the mod's own declared list, with every fallback the mo
 
 A fallback can land on something the list already carries, and the recipe that reaches the game never names one ingredient twice: the amounts are added into the earlier entry, keeping its place in the list, and a line in the log says so. For an item that line names the ingredient and both amounts; for a fluid it names the ingredient and the fallback that landed on it, so two lines about one fluid say which declaration each came from. The game refuses to load a recipe that names one ingredient twice, so this is what keeps a modpack missing one name loading at all. An item and a fluid of the same name are two ingredients and are not added together. In a list you type yourself none of this applies: the same ingredient written twice is reported as you wrote it, and the mod's own list applies instead.
 
-When a recipe also has a dropdown of preset ingredient lists, the text applies only while the dropdown says `custom`; on any other value the preset applies and the text is ignored. The dropdown's description lists each preset written out, so the player can start a custom list from the preset they were using.
+When a recipe also has a dropdown of preset ingredient lists, the text is the switch: while it says `default` the dropdown decides, and anything else applies instead of the chosen preset. The dropdown's description lists each preset written out, so the player can start their own list from the preset they were using, and both descriptions say which of the two fields is deciding.
 
 ## What happens when the text cannot be read
 
@@ -116,13 +116,13 @@ Every message starts with `fkrecipes:` and the setting's full name; those about 
 
 ## Declaring the setting
 
-A mod declares the text setting with `IngredientsSetting` (Go) or `ingredients_setting` (Rust), giving the bare name and the default list, and binds it to a recipe through `IngredientsFrom`, or as the `Custom` arm of a dropdown of presets. A pack list is declared with `PacksSetting` and bound through `CostFrom` or as the `Custom` arm of a research-cost dropdown, together with an int setting for the count and a double setting for the seconds. The setting's default text is the word `default`. The name and description come from the mod's locale file under `mod-setting-name` and `mod-setting-description`, and the locale checker treats both as required for a text setting.
+A mod declares the text setting with `IngredientsSetting` (Go) or `ingredients_setting` (Rust), giving the bare name and the default list, and binds it to a recipe through `IngredientsFrom`, on its own or beside an `IngredientsBy` dropdown. A pack list is declared with `PacksSetting` and bound through `CostFrom`, on its own or beside a `CostBy` dropdown, together with an int setting for the count and one for the seconds. The setting's default text is the word `default`. The name and description come from the mod's locale file under `mod-setting-name` and `mod-setting-description`, and the locale checker treats both as required for a text setting.
 
-The library composes three lines onto the description, under whatever your own `[mod-setting-description]` entry says: the list you declared written out in the form this page documents, a line saying the field takes internal names and takes at most 2000 characters, and a line saying that a text it cannot use is set aside for that list, with the reason in the log or in the load error. So your entry says what the setting is for, and the library says how to fill it in and what it costs to get it wrong. The entry does not have to teach the syntax:
+The library composes four lines onto the description, under whatever your own `[mod-setting-description]` entry says: the list you declared written out in the form this page documents, a line saying the field takes internal names and takes at most 2000 characters, a line saying which field decides while this one holds the word `default` (the dropdown above or below it when you declared one beside it, otherwise the mod's own list), and a line saying that a text it cannot use is set aside for that list, with the reason in the log or in the load error. So your entry says what the setting is for, and the library says how to fill it in and what it costs to get it wrong. The entry does not have to teach the syntax:
 
 ```
 [mod-setting-description]
 mymod-parts-ingredients=What a part is made of. Leave this alone and parts are built the way the mod intends.
 ```
 
-See [Using FkRecipes](usage.md) for the constructors and [Migrating a mod that already ships settings](migration.md) for adding a custom arm to a dropdown a mod already ships.
+See [Using FkRecipes](usage.md) for the constructors and [Migrating a mod that already ships settings](migration.md) for putting a text setting beside a dropdown a mod already ships.

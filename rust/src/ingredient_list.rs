@@ -199,7 +199,6 @@ pub(crate) struct ListEntry {
 /// again with every other test still green.
 pub(crate) struct Language {
     pub(crate) parse: ParseFn,
-    pub(crate) is_edited: fn(&[u8], ListKind, &str, &str, &dyn World) -> bool,
     pub(crate) render: fn(&ListText) -> String,
     pub(crate) render_list: fn(&IngredientList) -> String,
     pub(crate) format_amount: fn(f64) -> String,
@@ -213,7 +212,6 @@ pub(crate) type ParseFn = fn(&[u8], ListKind, &str, &str, &dyn World) -> Result<
 /// The one table there is. See [`Language`] for why it is reached by pointer.
 pub(crate) static LANGUAGE: Language = Language {
     parse,
-    is_edited,
     render,
     render_list,
     format_amount,
@@ -433,33 +431,6 @@ pub(crate) fn parse(
     }
 
     Ok(ListText::List(IngredientList { entries }))
-}
-
-/// Whether a stored text says anything other than "the mod's own list".
-///
-/// IT IS THE PARSER'S OWN ANSWER, and that is the point: the planner is about
-/// to IGNORE this text, because the dropdown beside it sits on a preset, and
-/// the line it writes has to agree with the reading the data path would have
-/// given the same bytes. A comparison against the bare word is a second answer
-/// to that question and drifts from it: `default,` carries the tolerated
-/// trailing comma this language accepts everywhere else, and telling the
-/// player their untouched field is edited sends them looking for an edit they
-/// never made.
-///
-/// THE REFUSAL IS DISCARDED, deliberately: a text that does not parse is not
-/// the word, so it is an edit, and it stays one log line rather than a load
-/// failure over a list nothing was going to read.
-pub(crate) fn is_edited(
-    text: &[u8],
-    kind: ListKind,
-    category: &str,
-    setting: &str,
-    w: &dyn World,
-) -> bool {
-    !matches!(
-        parse(text, kind, category, setting, w),
-        Ok(ListText::Default)
-    )
 }
 
 /// Writes a parse result back out in the canonical form, which is what a log

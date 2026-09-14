@@ -434,7 +434,6 @@ fn refusals_compose_without_their_own_stage() {
                                     ingredients: vec![Ingredient::named(2, "steel-plate", &[])],
                                 },
                             ],
-                            ..Default::default()
                         }),
                         ..Default::default()
                     },

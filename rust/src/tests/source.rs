@@ -418,7 +418,7 @@ struct SeamGuard {
     method: bool,
 }
 
-/// The five functions the language table carries, the lexer helper the parser
+/// The four functions the language table carries, the lexer helper the parser
 /// reaches through, the one method the plan holds beside them, and the two
 /// values that install all of it.
 ///
@@ -431,13 +431,6 @@ struct SeamGuard {
 const SEAM: &[SeamGuard] = &[
     SeamGuard {
         name: "parse",
-        home: "ingredient_list.rs",
-        namers: &["ingredient_list.rs"],
-        callers: &["ingredient_list.rs"],
-        method: false,
-    },
-    SeamGuard {
-        name: "is_edited",
         home: "ingredient_list.rs",
         namers: &["ingredient_list.rs"],
         callers: &["ingredient_list.rs"],
@@ -914,11 +907,12 @@ fn the_walk_reads_outward_facing_code_only() {
 
 /// ONE DOOR INTO `Resolution::recipes`, AND THIS IS WHAT KEEPS IT ONE.
 ///
-/// `resolve` answers a recipe's ingredients through four arms: a dropdown's
-/// Custom arm, a dropdown on a preset, `ingredients_from` and a plain declared
-/// list. A check written into one of them is missing from three, and from
-/// whichever arm is added next; `Resolution::add_recipe` exists so there is one
-/// place that sees every resolved list, and the self-product line lives there.
+/// `resolve` answers a recipe's ingredients through four arms: a text that
+/// takes a dropdown's choice over, a dropdown on a preset, a text with no
+/// dropdown beside it, and a plain declared list. A check written into one of
+/// them is missing from three, and from whichever arm is added next;
+/// `Resolution::add_recipe` exists so there is one place that sees every
+/// resolved list, and the self-product line lives there.
 ///
 /// A FIFTH ARM THAT PUSHED DIRECTLY WOULD PASS EVERY BEHAVIOURAL TEST, because
 /// a test can only assert about the arms it happens to build a plan through.

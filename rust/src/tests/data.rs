@@ -488,7 +488,7 @@ fn a_recipe_whose_list_names_its_own_product_says_so() {
     // dropdown the player put on custom.
     let mut custom = Lib::new();
     let plate = custom.item("hardened-steel-plate", ItemSpec::default());
-    let style = custom.dropdown_setting_needing_locale("style", "plain", &["plain", "custom"]);
+    let style = custom.dropdown_setting_needing_locale("style", "plain", &["plain"]);
     let quench = custom.ingredients_setting(
         "quench-ingredients",
         vec![Ingredient::named(2, "steel-plate", &[])],
@@ -502,9 +502,8 @@ fn a_recipe_whose_list_names_its_own_product_says_so() {
                     value: "plain".into(),
                     ingredients: vec![Ingredient::named(2, "steel-plate", &[])],
                 }],
-                custom: Some(quench),
-                ..Default::default()
             }),
+            ingredients_from: Some(quench),
             ..Default::default()
         },
     );
@@ -512,7 +511,7 @@ fn a_recipe_whose_list_names_its_own_product_says_so() {
     let ops = custom
         .plan_data(
             &base_world()
-                .with_setting("steelworks-style", Value::string("custom"))
+                .with_setting("steelworks-style", Value::string("plain"))
                 .with_setting(
                     "steelworks-quench-ingredients",
                     Value::string("3 steelworks-hardened-steel-plate"),
@@ -523,7 +522,7 @@ fn a_recipe_whose_list_names_its_own_product_says_so() {
     assert_lines(
         &transcript(&ops),
         &[
-            "log fkrecipes: steelworks-hardened-steel-plate takes its ingredients from steelworks-quench-ingredients: 3 steelworks-hardened-steel-plate",
+            "log fkrecipes: steelworks-hardened-steel-plate takes its ingredients from steelworks-quench-ingredients: 3 steelworks-hardened-steel-plate; the steelworks-style choice plain is set aside",
             &self_product_want("hardened-steel-plate", "steelworks-hardened-steel-plate"),
             r#"extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}"#,
             r#"extend {type="recipe", name="steelworks-hardened-steel-plate", enabled=true, ingredients=[{type="item", name="steelworks-hardened-steel-plate", amount=3}], results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}"#,
@@ -553,7 +552,6 @@ fn a_recipe_whose_list_names_its_own_product_says_so() {
                         ],
                     },
                 ],
-                ..Default::default()
             }),
             ..Default::default()
         },
@@ -836,7 +834,6 @@ fn the_preset_fallback_resolves_twice_and_the_line_follows_the_second() {
                         ingredients: vec![Ingredient::named(1, "tungsten-plate", &[])],
                     },
                 ],
-                ..Default::default()
             }),
             ..Default::default()
         },
@@ -932,7 +929,6 @@ fn a_declared_list_naming_one_thing_twice_is_refused() {
                     value: "vanilla".into(),
                     ingredients: dup(),
                 }],
-                ..Default::default()
             }),
             ..Default::default()
         },
@@ -942,7 +938,7 @@ fn a_declared_list_naming_one_thing_twice_is_refused() {
     let armed = || {
         let mut l = Lib::new();
         let p = l.item("balancer-part", ItemSpec::default());
-        let style = l.dropdown_setting_needing_locale("style", "vanilla", &["vanilla", "custom"]);
+        let style = l.dropdown_setting_needing_locale("style", "vanilla", &["vanilla"]);
         let parts = l.ingredients_setting(
             "part-ingredients",
             vec![Ingredient::named(1, "iron-plate", &[])],
@@ -956,9 +952,8 @@ fn a_declared_list_naming_one_thing_twice_is_refused() {
                         value: "vanilla".into(),
                         ingredients: dup(),
                     }],
-                    custom: Some(parts),
-                    ..Default::default()
                 }),
+                ingredients_from: Some(parts),
                 ..Default::default()
             },
         );
@@ -1135,7 +1130,6 @@ fn a_unit_naming_one_pack_twice_is_refused() {
                         Pack::new("automation-science-pack", 2),
                     ],
                 },
-                ..Default::default()
             }),
             ..Default::default()
         },
@@ -1303,7 +1297,6 @@ fn plan_data_refuses_a_fluid_inside_a_choice_a_player_could_pick() {
                         ingredients: vec![Ingredient::fluid(10.0, "water", &[])],
                     },
                 ],
-                ..Default::default()
             }),
             ..Default::default()
         },
@@ -3383,7 +3376,9 @@ fn a_bound_crafting_time_falls_back() {
             &[
                 &alloc::format!("log fkrecipes: ERROR: {}. The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.", c.want),
                 r#"extend {type="item", name="steelworks-steel-axe", stack_size=50}"#,
-                r#"extend {type="recipe", name="steelworks-steel-axe", energy_required=2.5000000000000000e0, enabled=true, ingredients=[], results=[{type="item", name="steelworks-steel-axe", amount=1}]}"#,
+                &(String::from(r#"extend {type="recipe", name="steelworks-steel-axe", "#)
+                + &note_in("steelworks-axe-craft-time", false)
+                + r#"energy_required=2.5000000000000000e0, enabled=true, ingredients=[], results=[{type="item", name="steelworks-steel-axe", amount=1}]}"#),
             ],
             c.name,
         );
@@ -3436,8 +3431,12 @@ fn one_bad_crafting_time_setting_two_recipes_logs_one_line() {
             "log fkrecipes: ERROR: the recipe steel-axe-forging reads its crafting time from steelworks-forging-time, which answers at or below the engine floor (energy_required can't be <= 0.001). The mod loaded with its own default instead; fix the number under Settings > Mod settings > Startup, then restart.",
             r#"extend {type="item", name="steelworks-steel-axe", stack_size=50}"#,
             r#"extend {type="item", name="steelworks-steel-hammer", stack_size=50}"#,
-            r#"extend {type="recipe", name="steelworks-steel-axe-forging", energy_required=2.5000000000000000e0, enabled=true, ingredients=[{type="item", name="steel-plate", amount=1}], results=[{type="item", name="steelworks-steel-axe", amount=1}]}"#,
-            r#"extend {type="recipe", name="steelworks-steel-hammer-forging", energy_required=2.5000000000000000e0, enabled=true, ingredients=[{type="item", name="steel-plate", amount=2}], results=[{type="item", name="steelworks-steel-hammer", amount=1}]}"#,
+            &(String::from(r#"extend {type="recipe", name="steelworks-steel-axe-forging", "#)
+                + &note_in("steelworks-forging-time", false)
+                + r#"energy_required=2.5000000000000000e0, enabled=true, ingredients=[{type="item", name="steel-plate", amount=1}], results=[{type="item", name="steelworks-steel-axe", amount=1}]}"#),
+            &(String::from(r#"extend {type="recipe", name="steelworks-steel-hammer-forging", "#)
+                + &note_in("steelworks-forging-time", false)
+                + r#"energy_required=2.5000000000000000e0, enabled=true, ingredients=[{type="item", name="steel-plate", amount=2}], results=[{type="item", name="steelworks-steel-hammer", amount=1}]}"#),
         ],
     );
 }

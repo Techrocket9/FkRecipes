@@ -444,7 +444,7 @@ func contains(list []string, want string) bool {
 // ONE DOOR INTO res.recipes, AND THIS IS WHAT KEEPS IT ONE.
 //
 // resolve answers a recipe's ingredients through four arms: IngredientsFrom, a
-// dropdown's Custom arm, a dropdown on a preset, and a plain declared list. A
+// dropdown's chosen preset, a text that takes it over, and a plain list. A
 // check written into one of them is missing from three, and from whichever arm
 // is added next; resolution.addRecipe exists so there is one place that sees
 // every resolved list, and the self-product line lives there.

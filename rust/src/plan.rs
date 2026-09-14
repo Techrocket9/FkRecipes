@@ -338,17 +338,6 @@ fn candidate_list(first: &str, fallbacks: &[&str]) -> Vec<String> {
     candidates
 }
 
-/// The dropdown value a Custom arm answers to when the consumer named none.
-pub(crate) const DEFAULT_CUSTOM_VALUE: &str = "custom";
-
-/// The dropdown value a Custom arm actually answers to.
-pub(crate) fn custom_value(declared: &str) -> &str {
-    if declared.is_empty() {
-        return DEFAULT_CUSTOM_VALUE;
-    }
-    declared
-}
-
 /// One dropdown value and the ingredients it selects.
 #[derive(Clone, Default)]
 pub struct IngredientChoice {
@@ -363,50 +352,52 @@ pub struct IngredientChoice {
 /// things another mod provides. A chosen plan that resolves to nothing falls
 /// back to the DEFAULT option's plan, with a line saying so, rather than
 /// emitting a recipe made of nothing.
+///
+/// THE DROPDOWN'S OPTION LIST IS EXACTLY WHAT THE AUTHOR DECLARED, and this
+/// library adds no value of its own to it. A recipe that also names
+/// [`RecipeSpec::ingredients_from`] hands the list to the player whenever that
+/// text does not say `default`, and the dropdown decides whenever it does.
+/// That is what makes adopting the customizer on a dropdown a mod already
+/// ships an identity: no stored choice changes meaning, and a release that
+/// drops the text setting again loses nothing, because the engine RESETS a
+/// stored value a dropdown no longer offers and keeps a setting no release
+/// declares (both measured on 2.0.77).
 #[derive(Clone, Default)]
 pub struct IngredientChoices {
     pub setting: DropdownSettingRef,
     pub choices: Vec<IngredientChoice>,
-    /// The dropdown value under which the player's own text applies. Empty
-    /// means `custom`.
-    ///
-    /// IT EXISTS FOR THE MOD THAT ALREADY SHIPS A PRESET CALLED `custom`.
-    /// Renaming that preset would reset every player who had chosen it, which
-    /// is the stored-preference loss the migration path exists to avoid, so
-    /// the arm moves instead of the preset.
-    pub custom_value: String,
-
-    /// The text setting the player writes their own list into. The dropdown
-    /// lists [`custom_value`](IngredientChoices::custom_value) and `choices`
-    /// does NOT: the text is what that value selects.
-    pub custom: Option<IngredientsSettingRef>,
 }
 
 /// A research cost the PLAYER writes: the science packs as an ingredient list
 /// in a text setting, the count and the seconds as numeric settings of their
 /// own.
 ///
-/// THE TWO NUMERIC SETTINGS CARRY THEIR OWN FLOORS, and this library refuses
-/// a pair that does not. The engine takes neither a unit count of 0 nor a
-/// research time of 0 (measured: "ResearchIngredient's amount must not be 0"
-/// is the pack's, and a unit with `time = 0` refuses with "time must be
-/// positive."), and it RESETS a stored value outside a setting's own bounds
-/// to that setting's default rather than clamping it (measured), so a
-/// declared minimum of at least 1 on the count and above 0 on the seconds is
-/// what makes every value this library can read back a legal one.
+/// EVERY NON-DEFAULT FIELD IS LIVE, ONE FIELD AT A TIME. The cost is the
+/// player's whenever any of the three is not at its declared default; the ones
+/// left at their default come from the technology's [`TechSpec::cost_by`] tier
+/// where there is one, and from the settings' own declared defaults where
+/// there is not. Nothing here is ever "edited but ignored".
+///
+/// WHAT THE TWO NUMERIC SETTINGS MUST DECLARE DEPENDS ON WHETHER THERE IS A
+/// TIER, and this library refuses a pair that does not. Beside a `cost_by`
+/// dropdown each of them declares a default of 0, a minimum of 0 and a
+/// maximum: 0 is the word `default` of a number, and it means the dropdown
+/// decides. With no dropdown there is nothing to defer to, so each declares a
+/// minimum of at least 1 and a maximum. The engine takes neither a unit count
+/// of 0 nor a research time of 0 (measured: "ResearchIngredient's amount must
+/// not be 0" is the pack's, and a unit with `time = 0` refuses with "time must
+/// be positive."), and it RESETS a stored value outside a setting's own bounds
+/// to that setting's default rather than clamping it (measured), so those
+/// bounds are what make every value this library can read back a legal one.
+///
+/// THE SECONDS ARE AN INT SETTING and not a double, because the field carries
+/// a research time in whole seconds and a slider the player drags is easier to
+/// land on a whole number than on a fraction.
 #[derive(Clone, Default)]
 pub struct CustomCost {
     pub packs: PacksSettingRef,
-    /// Its declared [`NumericSpec`] must carry a minimum of at least 1.
     pub count: IntSettingRef,
-    /// Its declared [`NumericSpec`] must carry a minimum above 0.
-    pub seconds: DoubleSettingRef,
-    /// THE PREREQUISITE LADDER, walked to the first technology the game has.
-    /// Required under [`CostChoices::custom`], where the arm replaces a
-    /// chosen source and so has to say where the technology goes; refused
-    /// under [`TechSpec::cost_from`], where the ordinary placement fields
-    /// already say it.
-    pub position: Vec<String>,
+    pub seconds: IntSettingRef,
 }
 
 /// What a text setting is bound to: how many declarations read it, and the
@@ -436,18 +427,16 @@ pub struct CostChoice {
 /// `fallback` is what applies when no source in the chosen ladder carries a
 /// unit this library can copy. It is a hand-rolled cost, validated exactly
 /// like one, and a technology that falls back has no prerequisite at all.
+///
+/// THE OPTION LIST IS EXACTLY WHAT THE AUTHOR DECLARED, as
+/// [`IngredientChoices`]' is. A technology that also names
+/// [`TechSpec::cost_from`] lets the player overwrite the tier's three numbers
+/// one field at a time, and the tier supplies whatever is left at its default.
 #[derive(Clone, Default)]
 pub struct CostChoices {
     pub setting: DropdownSettingRef,
     pub choices: Vec<CostChoice>,
     pub fallback: UnitSpec,
-    /// The dropdown value under which the player's own pack text applies.
-    /// Empty means `custom`; see [`IngredientChoices::custom_value`].
-    pub custom_value: String,
-
-    /// The cost the player writes: a pack text setting, a count, a time and
-    /// the prerequisite ladder that replaces the chosen source's own.
-    pub custom: Option<CustomCost>,
 }
 
 /// A generated recipe prototype.
@@ -468,14 +457,21 @@ pub struct RecipeSpec {
     pub craft_time: f64,
     pub craft_time_from: DoubleSettingRef,
 
-    /// Exactly one of `ingredients`, `ingredients_by` and `ingredients_from`,
-    /// or none of them. `ingredients` is one fixed list; `ingredients_by` lets
-    /// a dropdown setting choose between several; `ingredients_from` hands the
-    /// whole list to the player as text.
+    /// `ingredients` is one fixed list and combines with neither of the other
+    /// two. `ingredients_by` lets a dropdown setting choose between several;
+    /// `ingredients_from` hands the whole list to the player as text; and the
+    /// two of them TOGETHER is the ordinary customizable recipe.
     pub ingredients_by: Option<IngredientChoices>,
     pub ingredients: Vec<Ingredient>,
     /// The text setting this recipe is made of. See
     /// [`Lib::ingredients_setting`] and docs/ingredient-list.md.
+    ///
+    /// THE TEXT IS THE SWITCH. Whenever it does not say `default` the list the
+    /// player wrote is what the recipe is made of, and the dropdown beside it,
+    /// if there is one, is set aside with a line saying so. Whenever it does
+    /// say `default` the dropdown decides, or the setting's own declared list
+    /// applies where there is no dropdown. A text the language refuses behaves
+    /// exactly as `default` does, with one ERROR line naming the setting.
     pub ingredients_from: Option<IngredientsSettingRef>,
     /// Zero means 1.
     pub result_count: i64,
@@ -594,16 +590,21 @@ pub struct TechSpec {
     pub icon: String,
     pub icon_size: i64,
 
-    /// Exactly one of `cost_of`, `unit`, `cost_by` and `cost_from`. `cost_of`
-    /// copies a named technology's whole unit verbatim, count_formula and all.
+    /// `cost_of` copies a named technology's whole unit verbatim,
+    /// count_formula and all.
+    ///
+    /// `cost_of`, `unit` and the `cost_by`/`cost_from` pair are EXCLUSIVE, and
+    /// `cost_by` with `cost_from` is the one combination: the dropdown is the
+    /// tier and the three settings overwrite it field by field.
     pub cost_of: String,
     pub unit: Option<UnitSpec>,
     /// Lets a dropdown setting choose between several sources, and places the
     /// technology as well: see [`CostChoices`].
     pub cost_by: Option<CostChoices>,
-    /// `unit` with its three numbers in the player's hands. It does NOT place
-    /// the technology, so its [`CustomCost::position`] must be empty and the
-    /// ordinary placement fields apply.
+    /// `unit` with its three numbers in the player's hands. On its own it does
+    /// NOT place the technology and the ordinary placement fields apply;
+    /// beside a `cost_by` the tier's own source technology is the
+    /// prerequisite, as it is for every other `cost_by`.
     pub cost_from: Option<CustomCost>,
 
     /// Tree placement, and exactly one anchor. `after` names a technology the
@@ -831,8 +832,8 @@ impl Lib {
     /// it and copy it.
     ///
     /// A text setting is bound to exactly one recipe, through
-    /// [`RecipeSpec::ingredients_from`] or [`IngredientChoices::custom`]; one
-    /// that is declared and read by nothing is refused.
+    /// [`RecipeSpec::ingredients_from`]; one that is declared and read by
+    /// nothing is refused.
     pub fn ingredients_setting(
         &mut self,
         name: &str,
@@ -1305,25 +1306,11 @@ impl Lib {
                     mark(h.index, &r.spec.category);
                 }
             }
-            if let Some(by) = &r.spec.ingredients_by {
-                if let Some(h) = by.custom {
-                    if self.valid_ingredients_setting(h) {
-                        mark(h.index, &r.spec.category);
-                    }
-                }
-            }
         }
         for t in &self.techs {
             if let Some(cc) = &t.spec.cost_from {
                 if self.valid_packs_setting(cc.packs) {
                     mark(cc.packs.index, "");
-                }
-            }
-            if let Some(by) = &t.spec.cost_by {
-                if let Some(cc) = &by.custom {
-                    if self.valid_packs_setting(cc.packs) {
-                        mark(cc.packs.index, "");
-                    }
                 }
             }
         }

@@ -10,16 +10,16 @@
 # settings the engine read. The default row is every setting where the mod
 # declared it, which is the load a player who never opens the settings screen
 # gets. The flipped row is testdata/ingame/flipped.json written into the mod
-# directory as mod-settings.dat by `fklua modsettings write`: a dropdown on
-# custom with a player-typed ingredient list carrying a fluid, a research
-# priced out of three settings and placed by its own ladder with a TYPO in its
+# directory as mod-settings.dat by `fklua modsettings write`: a player-typed
+# ingredient list that takes a dropdown's chosen preset over and carries a fluid
+# and a fractional amount, a research cost overridden whole with a TYPO in its
 # pack text, a whole ingredient list typed into a setting with no dropdown in
-# front of it, and one text left untouched behind a preset. Only the engine can
-# walk those paths, because the settings stage stores a value and no stand-in
-# has one to read back. The typo is what says a refused player text LOADS: the
-# row exits 0, the research comes out priced on the packs the mod declared, and
-# the log carries exactly one ERROR line, which before that decision was a run
-# that exited 1 and produced no dump to hash at all.
+# front of it, and one text left untouched beside a dropdown that decides. Only
+# the engine can walk those paths, because the settings stage stores a value and
+# no stand-in has one to read back. The typo is what says a refused player text
+# LOADS: the row exits 0, the research comes out priced on the packs the chosen
+# TIER carries, and the log carries exactly one ERROR line, which before that
+# decision was a run that exited 1 and produced no dump to hash at all.
 #
 # THE BYTES OF THAT FILE ARE PINNED TOO, beside this one as flipped.golden.dat.
 # The writer belongs to the toolchain now, so the gate compares what it
@@ -41,5 +41,5 @@
 # A mismatch here is ENVIRONMENTAL and reports SKIPPED, not FAILED.
 #
 # Capture both rows with: scripts/run-ingame.sh --update
-2.0.77 default e824cd8302c00fd07c3c3416ad8d9a5eea5612bce5ee455f1cf9669eee1685cd 0254345f6b2cf500d30c03b234c1b276fc33559ced6ccc30e0d38866b2d74478 base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
-2.0.77 flipped 868f6aedc91a92058ce56f93ee4c7723f34d2b855f768ce3c7d5db67be70da8f 0254345f6b2cf500d30c03b234c1b276fc33559ced6ccc30e0d38866b2d74478 base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
+2.0.77 default e824cd8302c00fd07c3c3416ad8d9a5eea5612bce5ee455f1cf9669eee1685cd b44919426364511fc66e0cf2a6947c0e754d1c4157758224e6b12e364e0543ac base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
+2.0.77 flipped 8cf5985e3d860b84c69ee9a604c878903f8d63285ad6d3bf06d7769a0fe7dad2 b44919426364511fc66e0cf2a6947c0e754d1c4157758224e6b12e364e0543ac base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77

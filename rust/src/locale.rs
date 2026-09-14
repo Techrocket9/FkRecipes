@@ -150,6 +150,7 @@ impl Lib {
 
         // (1) and (2): what the player cannot read, in DECLARATION order, and
         // a setting's own name before the values it offers.
+        let numbers = self.research_number_settings();
         for (i, s) in self.settings.iter().enumerate() {
             let full = s.emitted_name(&prefix);
             if !locale_has(&sections, "mod-setting-name", &full) {
@@ -159,13 +160,14 @@ impl Lib {
                     elsewhere(&sections, "mod-setting-name", &full)
                 ));
             }
-            // THE TWO SETTINGS WHOSE DESCRIPTION IS NOT OPTIONAL. A text
+            // THE THREE SETTINGS WHOSE DESCRIPTION IS NOT OPTIONAL. A text
             // setting's description is where the library writes the declared
-            // list, the format, the length limit and the fallback, so a
-            // missing entry loses all four along with whatever the consumer
-            // meant to say; a dropdown with a custom arm has its presets
-            // composed onto its own description, so a missing entry there is a
-            // key rendered raw in the tooltip.
+            // list, the format, the length limit, the switch and the fallback,
+            // so a missing entry loses all of them along with whatever the
+            // consumer meant to say; a research number's is where the range and
+            // what 0 means are written; and a dropdown with a text setting
+            // beside it has its presets composed onto its own description, so a
+            // missing entry there is a key rendered raw in the tooltip.
             let missing_description = !locale_has(&sections, "mod-setting-description", &full);
             if matches!(s.kind, SettingKind::Ingredients | SettingKind::Packs) {
                 if missing_description {
@@ -174,17 +176,25 @@ impl Lib {
                         full
                     ));
                 }
-            } else if s.kind == SettingKind::Dropdown
-                && missing_description
-                && self.custom_arm_for(&prefix, i + 1).is_some()
-            {
-                findings.push(format!(
-                    "the dropdown setting {} has no [mod-setting-description] entry, which the custom arm composes its preset list onto",
-                    full
-                ));
+                continue;
+            }
+            if numbers[i].bound {
+                if missing_description {
+                    findings.push(format!(
+                        "the setting {} has no [mod-setting-description] entry, and a research number needs one to say what the number is for; the library composes the range onto it",
+                        full
+                    ));
+                }
+                continue;
             }
             if s.kind != SettingKind::Dropdown {
                 continue;
+            }
+            if missing_description && self.presets_beside_text(i + 1).is_some() {
+                findings.push(format!(
+                    "the dropdown setting {} has no [mod-setting-description] entry, and the library composes its preset list onto that entry",
+                    full
+                ));
             }
             for v in &s.values {
                 let key = format!("{}-{}", full, v);
@@ -311,8 +321,8 @@ impl Lib {
     }
 
     /// The DRIFT GUARD over what this library composes onto a text setting's
-    /// description: the format line and the fallback line, each reported by name
-    /// when the composition stops carrying it.
+    /// description: the format line, the switch line and the fallback line, each
+    /// reported by name when the composition stops carrying it.
     ///
     /// IT IS NOT AN AUTHOR FINDING, and that is why it is worded and placed the
     /// way it is. The consumer writes the `[mod-setting-description]` entry and
@@ -324,13 +334,14 @@ impl Lib {
     /// where somebody runs an engine.
     ///
     /// ONCE PER REPORT, NOT ONCE PER SETTING, and the sentence names the library
-    /// rather than a setting. What it inspects does not vary with the setting: the
-    /// two lines are constants and the only per-setting part of the composition,
-    /// the consumer's own key, is not what it looks at. Run inside the per-setting
-    /// loop it turned ONE library defect into one finding per text setting, five
-    /// of them on the example guest, and at fifty text settings the two sentences
-    /// alone would fill [`LOCALE_FINDING_CAP`] and push every author finding out
-    /// of the report.
+    /// rather than a setting. What it inspects does not vary with the setting in
+    /// any way the rule reads: two of the three lines are constants, the third is
+    /// the switch line the guarded composition was built with and is handed in
+    /// beside it, and the only per-setting part of the composition, the consumer's
+    /// own key, is not what it looks at. Run inside the per-setting loop it turned
+    /// ONE library defect into one finding per text setting, five of them on the
+    /// example guest, and at fifty text settings the sentences alone would fill
+    /// [`LOCALE_FINDING_CAP`] and push every author finding out of the report.
     ///
     /// FIRST IN THE REPORT, WHICH IS ALSO HOW IT SURVIVES THE CAP. The cap keeps
     /// the first [`LOCALE_FINDING_CAP`] findings and replaces the tail with a
@@ -351,12 +362,12 @@ impl Lib {
     /// part that indexes `self.items`. The checker validates nothing, exactly as
     /// the rest of it validates nothing, so a plan the planners would refuse must
     /// not panic here: with the list left out neither the language nor the item
-    /// table is touched, and the two lines under test are the two this function
-    /// can see. What the rendered list itself says is the settings stage's
-    /// business and the corpus's.
+    /// table is touched, and the three lines under test are the three this
+    /// function can see. What the rendered list itself says is the settings
+    /// stage's business and the corpus's.
     pub(crate) fn check_composed_text_lines(&self, prefix: &str) -> Vec<String> {
         match self.guarded_text_description(prefix) {
-            Some(desc) => composed_text_lines_missing(&desc),
+            Some((desc, switch_line)) => composed_text_lines_missing(&desc, &switch_line),
             None => Vec::new(),
         }
     }
@@ -365,11 +376,23 @@ impl Lib {
     /// the choice is visible to a test on its own: the first text setting's in
     /// declaration order, with the declared list left out, and no composition
     /// at all when the plan declares no text setting.
-    pub(crate) fn guarded_text_description(&self, prefix: &str) -> Option<Value> {
+    ///
+    /// THE SWITCH LINE COMES BACK BESIDE THE COMPOSITION because it is the one
+    /// line of the three that is not a constant: it names the option above or
+    /// below when a dropdown is bound to the same declaration and the mod's own
+    /// list when none is. The rule cannot recompute it without the declaration,
+    /// so the caller that built the composition hands over the line it built it
+    /// with, and what the guard then answers is whether [`text_description`] put
+    /// that line into the table it returned.
+    pub(crate) fn guarded_text_description(&self, prefix: &str) -> Option<(Value, String)> {
         self.settings
             .iter()
-            .find(|s| matches!(s.kind, SettingKind::Ingredients | SettingKind::Packs))
-            .map(|s| text_description(&s.emitted_name(prefix), ""))
+            .enumerate()
+            .find(|(_, s)| matches!(s.kind, SettingKind::Ingredients | SettingKind::Packs))
+            .map(|(i, s)| {
+                let line = self.text_switch_line(i);
+                (text_description(&s.emitted_name(prefix), "", &line), line)
+            })
     }
 }
 
@@ -379,12 +402,18 @@ impl Lib {
 /// with one line taken out of it, which is the only way to see the finding
 /// without editing the source: nothing a consumer can declare produces a
 /// composition missing a line.
-pub(crate) fn composed_text_lines_missing(desc: &Value) -> Vec<String> {
+pub(crate) fn composed_text_lines_missing(desc: &Value, switch_line: &str) -> Vec<String> {
     let mut out = Vec::new();
+    // THE ORDER IS THE COMPOSITION'S OWN, so a description that lost two lines
+    // reports them in the order a reader would have met them.
     for (line, missing) in [
         (
             text_format_line(),
             "no line about the format and the length limit",
+        ),
+        (
+            String::from(switch_line),
+            "no line about which field decides while the text says default",
         ),
         (
             String::from(TEXT_FALLBACK_LINE),
@@ -406,7 +435,7 @@ pub(crate) fn composed_text_lines_missing(desc: &Value) -> Vec<String> {
 ///
 /// DEPTH BECAUSE THE QUESTION IS "DOES THE PLAYER READ IT", NOT "WHERE". The
 /// composition it is handed is flat past the consumer's own key, which is
-/// itself a nested table: [`text_description`] is fixed at four parameters and
+/// itself a nested table: [`text_description`] is fixed at five parameters and
 /// never reaches the nesting rule, and a dropdown's composition is never handed
 /// here at all. A top-level scan would therefore be a claim about the shape of
 /// the composition rather than about the lines, and it would go quietly wrong
@@ -628,7 +657,7 @@ fn parse_locale(cfg: &str) -> (Vec<LocaleSect>, Vec<String>) {
 mod tests {
     use crate::plan::{
         CostChoice, CostChoices, CustomCost, Ingredient, IngredientChoice, IngredientChoices,
-        ItemSpec, Lib, NumericSpec, Pack, RecipeSpec, TechSpec,
+        ItemSpec, Lib, NumericSpec, Pack, RecipeSpec, TechSpec, UnitSpec,
     };
     use alloc::string::String;
     use alloc::vec::Vec;
@@ -637,9 +666,9 @@ mod tests {
     /// cross-language pin over a real mod rather than over a sketch: every one
     /// of the seventeen settings both example guests declare, in the same
     /// order, with the same values, and enough of the recipes and
-    /// technologies for the checker to see WHICH DROPDOWNS CARRY A CUSTOM ARM.
-    /// A dropdown that composes a preset list onto its description needs that
-    /// description, and the scan that decides so reads the bindings.
+    /// technologies for the checker to see WHICH DROPDOWNS HAVE A TEXT SETTING
+    /// BESIDE THEM. A dropdown that composes a preset list onto its description
+    /// needs that description, and the scan that decides so reads the bindings.
     ///
     /// The items and recipes are the fewest that carry those bindings: the
     /// checker reads no ingredient and no cost, only who reads which setting.
@@ -655,16 +684,13 @@ mod tests {
                 max: Some(120.0),
             },
         );
-        let medium = lib.dropdown_setting_needing_locale(
-            "quench-medium",
-            "water",
-            &["water", "oil", "custom"],
-        );
+        let medium =
+            lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "oil"]);
         lib.bool_setting("bonus-research", true);
         let tier = lib.dropdown_setting_needing_locale(
             "tips-research-tier",
             "projectile",
-            &["projectile", "military", "custom"],
+            &["projectile", "military"],
         );
         lib.double_setting(
             "tempering-hold",
@@ -690,11 +716,7 @@ mod tests {
                 Ingredient::named(1, "tungsten-carbide", &["titanium-plate"]),
             ],
         );
-        let links = lib.dropdown_setting_needing_locale(
-            "chain-links",
-            "short",
-            &["short", "long", "custom"],
-        );
+        let links = lib.dropdown_setting_needing_locale("chain-links", "short", &["short", "long"]);
         let chain_list =
             lib.ingredients_setting("chain-ingredients", alloc::vec![Ingredient::of(rivet, 4)]);
         let tips_packs = lib.packs_setting(
@@ -704,16 +726,14 @@ mod tests {
                 Pack::new("military-science-pack", 1),
             ],
         );
-        let tips_count = lib.int_setting("tips-count", 30, NumericSpec::between(1.0, 100000.0));
-        let tips_seconds =
-            lib.double_setting("tips-seconds", 15.0, NumericSpec::between(0.5, 600.0));
+        let tips_count = lib.int_setting("tips-count", 0, NumericSpec::between(0.0, 100000.0));
+        let tips_seconds = lib.int_setting("tips-seconds", 0, NumericSpec::between(0.0, 600.0));
         let chain_packs = lib.packs_setting(
             "chain-packs",
             alloc::vec![Pack::new("automation-science-pack", 1)],
         );
         let chain_count = lib.int_setting("chain-count", 20, NumericSpec::between(1.0, 100000.0));
-        let chain_seconds =
-            lib.double_setting("chain-seconds", 10.0, NumericSpec::between(0.5, 600.0));
+        let chain_seconds = lib.int_setting("chain-seconds", 10, NumericSpec::between(1.0, 600.0));
 
         lib.recipe(
             rivet,
@@ -739,9 +759,8 @@ mod tests {
                             ingredients: alloc::vec![Ingredient::of(rivet, 2)],
                         },
                     ],
-                    custom: Some(quench_list),
-                    ..Default::default()
                 }),
+                ingredients_from: Some(quench_list),
                 ..Default::default()
             },
         );
@@ -761,9 +780,8 @@ mod tests {
                             ingredients: alloc::vec![Ingredient::of(rivet, 8)],
                         },
                     ],
-                    custom: Some(chain_list),
-                    ..Default::default()
                 }),
+                ingredients_from: Some(chain_list),
                 ..Default::default()
             },
         );
@@ -783,13 +801,16 @@ mod tests {
                             sources: alloc::vec![String::from("military-4")],
                         },
                     ],
-                    custom: Some(CustomCost {
-                        packs: tips_packs,
-                        count: tips_count,
-                        seconds: tips_seconds,
-                        position: alloc::vec![String::from("military-2")],
-                    }),
-                    ..Default::default()
+                    fallback: UnitSpec {
+                        count: 200,
+                        seconds: 30.0,
+                        packs: alloc::vec![Pack::new("automation-science-pack", 1)],
+                    },
+                }),
+                cost_from: Some(CustomCost {
+                    packs: tips_packs,
+                    count: tips_count,
+                    seconds: tips_seconds,
                 }),
                 ..Default::default()
             },
@@ -801,7 +822,6 @@ mod tests {
                     packs: chain_packs,
                     count: chain_count,
                     seconds: chain_seconds,
-                    position: Vec::new(),
                 }),
                 ..Default::default()
             },
@@ -957,11 +977,11 @@ fkrecipes-example-quench-medium-oil=Oil
         use crate::plan::{Ingredient, IngredientChoice, IngredientChoices, ItemSpec, RecipeSpec};
 
         let mut lib = Lib::new();
-        // A dropdown with NO custom arm, so the rule that a description is
-        // optional for an ordinary dropdown keeps its witness.
+        // A dropdown with NO text setting beside it, so the rule that a
+        // description is optional for an ordinary dropdown keeps its witness.
         lib.dropdown_setting_needing_locale("smelting-style", "furnace", &["furnace", "foundry"]);
         let medium =
-            lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "custom"]);
+            lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "oil"]);
         let plate = lib.item("hardened-steel-plate", ItemSpec::default());
         let rivet = lib.item("steel-rivet", ItemSpec::default());
         let quench = lib.ingredients_setting(
@@ -977,13 +997,18 @@ fkrecipes-example-quench-medium-oil=Oil
             RecipeSpec {
                 ingredients_by: Some(IngredientChoices {
                     setting: medium,
-                    choices: alloc::vec![IngredientChoice {
-                        value: String::from("water"),
-                        ingredients: alloc::vec![Ingredient::named(2, "steel-plate", &[])],
-                    }],
-                    custom: Some(quench),
-                    ..Default::default()
+                    choices: alloc::vec![
+                        IngredientChoice {
+                            value: String::from("water"),
+                            ingredients: alloc::vec![Ingredient::named(2, "steel-plate", &[])],
+                        },
+                        IngredientChoice {
+                            value: String::from("oil"),
+                            ingredients: alloc::vec![Ingredient::named(2, "steel-plate", &[])],
+                        },
+                    ],
                 }),
+                ingredients_from: Some(quench),
                 ..Default::default()
             },
         );
@@ -999,10 +1024,10 @@ fkrecipes-example-quench-medium-oil=Oil
 
     /// A DESCRIPTION IS NOT OPTIONAL FOR THESE TWO. A text setting's is where
     /// the player learns what the setting is for; the declared list, the
-    /// format, the limits and the fallback are the library's own lines under
-    /// it, so an absent entry loses all of them at once. A custom-arm
-    /// dropdown's is what the preset lines are composed onto, so a missing
-    /// entry renders a raw key in the tooltip.
+    /// format, the limits, the switch and the fallback are the library's own
+    /// lines under it, so an absent entry loses all of them at once. A dropdown
+    /// with a text setting beside it has the preset lines composed onto its
+    /// own, so a missing entry renders a raw key in the tooltip.
     #[test]
     fn check_locale_requires_a_description_where_one_is_composed() {
         let cfg = "[mod-setting-name]
@@ -1015,12 +1040,12 @@ fkrecipes-example-rivet-ingredients=Rivet ingredients
 fkrecipes-example-smelting-style-furnace=Furnace
 fkrecipes-example-smelting-style-foundry=Foundry
 fkrecipes-example-quench-medium-water=Water
-fkrecipes-example-quench-medium-custom=Custom
+fkrecipes-example-quench-medium-oil=Oil
 ";
         assert_eq!(
             customizer_plan().check_locale("fkrecipes-example", cfg),
             [
-                "the dropdown setting fkrecipes-example-quench-medium has no [mod-setting-description] entry, which the custom arm composes its preset list onto",
+                "the dropdown setting fkrecipes-example-quench-medium has no [mod-setting-description] entry, and the library composes its preset list onto that entry",
                 "the setting fkrecipes-example-quench-ingredients has no [mod-setting-description] entry, and a text setting needs one to say what the setting is for; the library composes the format, the limits and the fallback onto it",
                 "the setting fkrecipes-example-rivet-ingredients has no [mod-setting-description] entry, and a text setting needs one to say what the setting is for; the library composes the format, the limits and the fallback onto it",
             ]
@@ -1038,8 +1063,7 @@ fkrecipes-example-quench-medium-custom=Custom
         use crate::plan::{Ingredient, IngredientChoice, IngredientChoices, ItemSpec, RecipeSpec};
 
         let mut lib = Lib::new();
-        let medium =
-            lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "custom"]);
+        let medium = lib.dropdown_setting_needing_locale("quench-medium", "water", &["water"]);
         let plate = lib.item("hardened-steel-plate", ItemSpec::default());
         let quench = lib.ingredients_setting(
             "quench-ingredients",
@@ -1056,9 +1080,8 @@ fkrecipes-example-quench-medium-custom=Custom
                         value: String::from("water"),
                         ingredients: alloc::vec![Ingredient::named(2, "steel-plate", &[])],
                     }],
-                    custom: Some(quench),
-                    ..Default::default()
                 }),
+                ingredients_from: Some(quench),
                 ..Default::default()
             },
         );
@@ -1072,7 +1095,6 @@ fkrecipes-example-quench-ingredients=Amount then name, separated by commas.
 
 [string-mod-setting]
 fkrecipes-example-quench-medium-water=Water
-fkrecipes-example-quench-medium-custom=Custom
 ";
         assert_eq!(
             lib.check_locale("fkrecipes-example", cfg),
@@ -1081,15 +1103,17 @@ fkrecipes-example-quench-medium-custom=Custom
     }
 
     /// THE DRIFT GUARD OVER WHAT THE LIBRARY ITSELF COMPOSES. The consumer's
-    /// entry is checked above; these two lines are this library's, so no
+    /// entry is checked above; these three lines are this library's, so no
     /// locale file can put one back and no plan can leave one out. What the
     /// rule can see is a composition that stopped carrying a line, which is
     /// why the composition is what it is handed.
     ///
     /// THE SENTENCE NAMES THE LIBRARY AND NOT A SETTING, because the rule's
-    /// input does not vary with the setting: both lines are constants, and the
-    /// only per-setting part of a text description is the consumer's key,
-    /// which the rule does not look at. One defect is therefore one finding.
+    /// input does not vary with the setting in any way the rule reads: two
+    /// lines are constants, the third is the switch line the composition was
+    /// built with and is handed in beside it, and the only per-setting part of
+    /// a text description is the consumer's key, which the rule does not look
+    /// at. One defect is therefore one finding.
     ///
     /// THE HEALTHY PATH FIRST, so a rule that fired on everything would be
     /// caught here rather than in a golden somewhere: the real composition
@@ -1101,8 +1125,12 @@ fkrecipes-example-quench-medium-custom=Custom
         use crate::value::Value;
 
         const FULL: &str = "steelworks-axe-ingredients";
-        let whole = text_description(FULL, "1 steel-plate");
-        assert_eq!(composed_text_lines_missing(&whole), Vec::<String>::new());
+        const SWITCH: &str = "\nWhile this says default this mod's own list applies.";
+        let whole = text_description(FULL, "1 steel-plate", SWITCH);
+        assert_eq!(
+            composed_text_lines_missing(&whole, SWITCH),
+            Vec::<String>::new()
+        );
 
         // The same composition with one line taken out of it, which is the
         // only way to reach the finding: nothing a consumer declares composes
@@ -1118,15 +1146,19 @@ fkrecipes-example-quench-medium-custom=Custom
             _ => unreachable!("the composition is an array"),
         };
         assert_eq!(
-            composed_text_lines_missing(&without(&text_format_line())),
+            composed_text_lines_missing(&without(&text_format_line()), SWITCH),
             ["the library composes no line about the format and the length limit onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file"]
         );
         assert_eq!(
-            composed_text_lines_missing(&without(TEXT_FALLBACK_LINE)),
+            composed_text_lines_missing(&without(SWITCH), SWITCH),
+            ["the library composes no line about which field decides while the text says default onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file"]
+        );
+        assert_eq!(
+            composed_text_lines_missing(&without(TEXT_FALLBACK_LINE), SWITCH),
             ["the library composes no line about what happens to a text this mod cannot use onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file"]
         );
-        // Both gone: both reported, format first, which is the order the lines
-        // sit in and the order every other rule here reports in.
+        // All three gone: all three reported, in the order the lines sit in,
+        // which is the order every other rule here reports in.
         let stripped = Value::Arr(alloc::vec![
             Value::string(""),
             Value::Arr(alloc::vec![Value::Str(format!(
@@ -1135,9 +1167,10 @@ fkrecipes-example-quench-medium-custom=Custom
             ))]),
         ]);
         assert_eq!(
-            composed_text_lines_missing(&stripped),
+            composed_text_lines_missing(&stripped, SWITCH),
             [
                 "the library composes no line about the format and the length limit onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
+                "the library composes no line about which field decides while the text says default onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
                 "the library composes no line about what happens to a text this mod cannot use onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
             ]
         );
@@ -1170,16 +1203,21 @@ fkrecipes-example-quench-medium-custom=Custom
         );
         // The FIRST one's, and with the list left out: the packs setting
         // declared after it is not what the guard reads, and neither is any
-        // rendering.
+        // rendering. AND THE LINE COMES BACK BESIDE IT, because the rule cannot
+        // recompute a line that names a neighbouring setting.
+        const OWN: &str = "\nWhile this says default this mod's own list applies.";
         assert_eq!(
             lib.guarded_text_description("steelworks-"),
-            Some(text_description("steelworks-axe-ingredients", ""))
+            Some((
+                text_description("steelworks-axe-ingredients", "", OWN),
+                String::from(OWN)
+            ))
         );
     }
 
-    /// The same file with the three descriptions written, and the custom
-    /// value's own entry: clean. The ordinary dropdown still needs none, which
-    /// is what says the new rule is scoped rather than a blanket one.
+    /// The same file with the three descriptions written: clean. The ordinary
+    /// dropdown still needs none, which is what says the new rule is scoped
+    /// rather than a blanket one.
     #[test]
     fn check_locale_accepts_a_complete_customizer_file() {
         let cfg = "[mod-setting-name]
@@ -1197,13 +1235,66 @@ fkrecipes-example-rivet-ingredients=Amount then name, separated by commas.
 fkrecipes-example-smelting-style-furnace=Furnace
 fkrecipes-example-smelting-style-foundry=Foundry
 fkrecipes-example-quench-medium-water=Water
-fkrecipes-example-quench-medium-custom=Custom (edit the ingredients below)
+fkrecipes-example-quench-medium-oil=Oil
 ";
         let findings = customizer_plan().check_locale("fkrecipes-example", cfg);
         assert!(
             findings.is_empty(),
             "a complete file produced findings:\n{}",
             findings.join("\n")
+        );
+    }
+
+    /// A RESEARCH NUMBER'S DESCRIPTION IS REQUIRED TOO, for the reason a text
+    /// setting's is: the range and what 0 means are composed onto that entry,
+    /// and an absent one loses both along with whatever the consumer meant to
+    /// say about what the number is for. The Go half pins the same pair.
+    #[test]
+    fn check_locale_requires_a_research_number_description() {
+        use crate::plan::{CustomCost, Lib, NumericSpec, Pack, TechSpec};
+
+        let mut lib = Lib::new();
+        let packs = lib.packs_setting(
+            "axe-packs",
+            alloc::vec![Pack::new("automation-science-pack", 1)],
+        );
+        let count = lib.int_setting("axe-count", 20, NumericSpec::between(1.0, 100000.0));
+        let seconds = lib.int_setting("axe-seconds", 10, NumericSpec::between(1.0, 600.0));
+        lib.technology(
+            "steel-axes",
+            TechSpec {
+                cost_from: Some(CustomCost {
+                    packs,
+                    count,
+                    seconds,
+                }),
+                ..Default::default()
+            },
+        );
+
+        let cfg = "[mod-setting-name]
+fkrecipes-example-axe-packs=Science packs
+fkrecipes-example-axe-count=Research count
+fkrecipes-example-axe-seconds=Research seconds
+
+[mod-setting-description]
+fkrecipes-example-axe-packs=Amount, then name, commas between.
+";
+        assert_eq!(
+            lib.check_locale("fkrecipes-example", cfg),
+            [
+                "the setting fkrecipes-example-axe-count has no [mod-setting-description] entry, and a research number needs one to say what the number is for; the library composes the range onto it",
+                "the setting fkrecipes-example-axe-seconds has no [mod-setting-description] entry, and a research number needs one to say what the number is for; the library composes the range onto it",
+            ]
+        );
+
+        let full = alloc::format!(
+            "{}fkrecipes-example-axe-count=How many units.\nfkrecipes-example-axe-seconds=Seconds per unit.\n",
+            cfg
+        );
+        assert_eq!(
+            lib.check_locale("fkrecipes-example", &full),
+            Vec::<String>::new()
         );
     }
 
@@ -1222,20 +1313,6 @@ fkrecipes-example-rivet-ingredients=
             got.iter().any(|f| f
                 == "the setting fkrecipes-example-rivet-ingredients has no [mod-setting-description] entry, and a text setting needs one to say what the setting is for; the library composes the format, the limits and the fallback onto it"),
             "a blank description was accepted: {:?}",
-            got
-        );
-    }
-
-    /// The custom value is a dropdown value like any other, so the per-value
-    /// rule is what asks for its entry.
-    #[test]
-    fn check_locale_asks_for_the_custom_values_own_entry() {
-        let cfg = "[string-mod-setting]\nfkrecipes-example-quench-medium-water=Water\n";
-        let got = customizer_plan().check_locale("fkrecipes-example", cfg);
-        assert!(
-            got.iter().any(|f| f
-                == "the dropdown setting fkrecipes-example-quench-medium has no [string-mod-setting] entry for its value custom"),
-            "the custom value was not asked for: {:?}",
             got
         );
     }

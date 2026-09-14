@@ -76,10 +76,10 @@ func (l *Lib) PlanData(w World) ([]Op, error) {
 	}
 	unlocked := l.unlockedRecipes()
 	for i, r := range l.recipes {
-		ops = append(ops, extendOp(recipeProto(prefix, l, r, res.recipes[i], res.craftTimes[i], unlocked[i])))
+		ops = append(ops, extendOp(recipeProto(prefix, l, r, res.recipes[i], res.craftTimes[i], unlocked[i], res.recipeNotes[i])))
 	}
 	for i, t := range l.techs {
-		ops = append(ops, extendOp(techProto(prefix, l, w, t, res.techs[i])))
+		ops = append(ops, extendOp(techProto(prefix, l, w, t, res.techs[i], res.techNotes[i])))
 	}
 	for i := range l.techs {
 		rt := res.techs[i]
@@ -109,10 +109,9 @@ func (l *Lib) validate(w World, prefix string) error {
 
 	// THE BINDINGS FIRST, and the text settings after them, both shared with
 	// the settings planner. They come before the three declaration loops
-	// because a Custom arm that does not line up with its dropdown would
-	// otherwise be answered by the ordinary allowed-values comparison, which
-	// says "offers nothing for the value custom" and points at the wrong
-	// thing. Neither of them asks the World anything.
+	// because a text setting or a research number whose declaration does not
+	// line up would otherwise be answered by a later rule that points at the
+	// wrong thing. Neither of them asks the World anything.
 	if err := l.validateBindings(prefix); err != nil {
 		return err
 	}
@@ -239,13 +238,10 @@ func (l *Lib) validate(w World, prefix string) error {
 			if !l.validDropdownSetting(by.Setting) {
 				return errors.New(at + "the recipe " + r.name + " names an ingredients setting that this plan never declared")
 			}
+			// THE CHOICES COVER THE ALLOWED VALUES EXACTLY, with nothing
+			// subtracted: this library adds no value of its own to a dropdown,
+			// so every value the author declared needs a plan behind it.
 			values := l.settings[by.Setting.index-1].values
-			// A CUSTOM ARM'S VALUE IS NOT A CHOICE, so it comes out of the
-			// comparison: the arm is the plan for it, and validateBindings has
-			// already proved the dropdown offers it exactly once.
-			if by.Custom.index != 0 {
-				values = withoutValue(values, by.customValue())
-			}
 			offered := make([]string, 0, len(by.Choices))
 			for _, c := range by.Choices {
 				offered = append(offered, c.Value)
@@ -312,14 +308,11 @@ func (l *Lib) validate(w World, prefix string) error {
 		hasCost := t.spec.CostOf != ""
 		hasUnit := t.spec.Unit != nil
 		hasCostBy := t.spec.CostBy != nil
-		hasCostFrom := t.spec.CostFrom != nil
-		named := 0
-		for _, set := range []bool{hasCost, hasUnit, hasCostBy, hasCostFrom} {
-			if set {
-				named++
-			}
-		}
-		if named != 1 {
+		// CostBy AND CostFrom ARE ONE COST, which is why this asks
+		// namedCostSources rather than counting the four fields: the dropdown
+		// is the tier and the three settings overwrite it field by field. Every
+		// other pairing is still two sources and still refused.
+		if namedCostSources(&t.spec) != 1 {
 			return errors.New(at + "the technology " + t.name + " must name exactly one of CostOf, Unit, CostBy or CostFrom")
 		}
 		// CostBy carries the prerequisite with the unit, so it is the thing
@@ -334,9 +327,6 @@ func (l *Lib) validate(w World, prefix string) error {
 				return errors.New(at + "the technology " + t.name + " names a cost setting that this plan never declared")
 			}
 			values := l.settings[by.Setting.index-1].values
-			if by.Custom != nil {
-				values = withoutValue(values, by.customValue())
-			}
 			offered := make([]string, 0, len(by.Choices))
 			for _, c := range by.Choices {
 				offered = append(offered, c.Value)
@@ -457,12 +447,48 @@ type craftTime struct {
 	value   float64
 }
 
+// noteTarget names the prototype whose emitted localised_description carries
+// the trailing line a fallback owes the player, and it is THREADED FROM THE
+// WALK rather than derived from anything the callee can see.
+//
+// A DERIVED ONE WOULD BE WRONG IN BOTH DIRECTIONS. The index cannot be read off
+// len(res.recipes), because a recipe's list is handed over at the END of its
+// arm and every read that can fall back happens before it; and it cannot be a
+// cursor the walk sets, because a cursor left stale by one arm silently writes
+// a note onto the previous declaration. The parameter is what makes a caller
+// that forgot it a compile error.
+//
+// A RECIPE IS ALSO WHAT SAYS WHICH SENTENCES THE NOTE CARRIES. See
+// fallbackNote: a recipe's note names the engine's input-slot cost and a
+// technology's does not, and the text setting a recipe target reaches is
+// always its ingredient list.
+type noteTarget struct {
+	tech  bool
+	index int
+}
+
 type resolution struct {
 	logs       []string
 	craftTimes []craftTime
 	recipes    [][]resolvedIngredient
 	techs      []resolvedTech
 	rewrites   []rewriteRec
+
+	// recipeNotes and techNotes hold the trailing line each emitted prototype's
+	// description carries, indexed by DECLARATION ORDER rather than by the
+	// order the walk filled them, and empty for a declaration nothing fell back
+	// on.
+	//
+	// ONE NOTE PER PROTOTYPE, THE FIRST IN WALK ORDER, so the sentence a player
+	// hovers is the same string every run. Two settings bound to one recipe can
+	// both fall back in one load; the second adds nothing, exactly as the
+	// refusal's added sentence names only the first.
+	//
+	// A SLICE SIZED UP FRONT, not a map keyed by name: the emit loop reads it
+	// by the same index it reads res.recipes and res.craftTimes by, and a map
+	// would be an iteration order this library does not allow anywhere.
+	recipeNotes []string
+	techNotes   []string
 
 	// packless is the first technology, in declaration order, whose every
 	// declared science pack dropped. It is carried out of resolve rather than
@@ -504,8 +530,9 @@ type resolution struct {
 // bare append anywhere else.
 //
 // FOUR ARMS REACH IT AND A FIFTH WOULD. resolve answers a recipe's ingredients
-// through IngredientsFrom, through a dropdown's Custom arm, through a dropdown
-// on a preset and through a plain declared list; a check written into any one
+// through a text with no dropdown beside it, through a text that takes a
+// dropdown's choice over, through a dropdown on a preset and through a plain
+// declared list; a check written into any one
 // of them would be missing from the other three, and from whichever arm is
 // added next. So the check lives here, where the list is handed over.
 //
@@ -561,9 +588,20 @@ func (r *resolution) addRecipe(subject, product string, list []resolvedIngredien
 	r.recipes = append(r.recipes, list)
 }
 
-// noteFallback records one player-controlled setting falling back and logs the
-// line, unless that setting already fell back in this walk.
-func (r *resolution) noteFallback(setting, line string) {
+// noteFallback records one player-controlled setting falling back: the note the
+// prototype's own description will carry, and the log line, which is written
+// once per SETTING however many declarations read it.
+//
+// THE NOTE COMES FIRST AND IS NOT DEDUPED BY SETTING, and the two rules are
+// different on purpose. One bad field on the settings screen is one problem and
+// gets one line; but two recipes bound to one crafting-time setting are two
+// tooltips, and a player hovering the second one is owed the same sentence as
+// the first. So the dedupe below guards the line and not the note.
+//
+// destroysInputs is the caller's answer to "does this fallback change what the
+// recipe is made of", and it is passed rather than derived: see noteOn.
+func (r *resolution) noteFallback(tgt noteTarget, setting, line string, destroysInputs bool) {
+	r.noteOn(tgt, setting, destroysInputs)
 	for _, seen := range r.fellBack {
 		if seen == setting {
 			return
@@ -571,6 +609,85 @@ func (r *resolution) noteFallback(setting, line string) {
 	}
 	r.fellBack = append(r.fellBack, setting)
 	r.logs = append(r.logs, line)
+}
+
+// noteOn records the trailing line one prototype's description carries, keeping
+// the FIRST in walk order so the sentence is the same every run.
+//
+// destroysInputs IS THE CALLER'S TO ANSWER AND IS NOT THE PROTOTYPE KIND. Which
+// prototype the note lands on says nothing about whether the ingredient list
+// moved: a recipe whose crafting time fell back keeps a byte-identical
+// ingredients list and only its energy_required changes, so telling that player
+// their assemblers are about to be emptied would be false where they look. The
+// sentence belongs to a fallback that changes what the recipe is MADE OF, which
+// is the recipe ingredient text and nothing else, so every caller says which it
+// is. It is the same predicate textFallbackFor picks the ERROR line's tail
+// with, named once in movesIngredients so the tooltip and the log cannot
+// disagree about which fallbacks destroy anything.
+//
+// THE INDEX IS NEVER CHECKED, deliberately. Both slices are sized from the
+// declaration counts at the top of resolve and every index comes from the walk's
+// own loop, so an out-of-range one is this file having gone wrong rather than
+// anything a consumer can reach, and a panic naming the line is a better answer
+// than a note silently dropped.
+func (r *resolution) noteOn(tgt noteTarget, setting string, destroysInputs bool) {
+	notes := r.recipeNotes
+	if tgt.tech {
+		notes = r.techNotes
+	}
+	if notes[tgt.index] != "" {
+		return
+	}
+	notes[tgt.index] = fallbackNote(setting, destroysInputs)
+}
+
+// recipeChangeSentence is what changing a recipe costs a player who has already
+// built with it, and it is the engine's doing rather than this library's.
+//
+// MEASURED on 2.0.77 by the consumer's second migration assessment: an
+// assembling machine whose recipe changes has its input slots emptied of
+// anything the new ingredient list does not use, up to eighty items destroyed
+// outright rather than spilled on the ground, with no line anywhere. Nothing a
+// mod emits can change it, so the only thing left is to say so before the
+// player acts.
+//
+// ONE CONSTANT, TWO READERS. It is the tail of a recipe's tooltip note and the
+// tail of the ERROR line an ingredient text falls back with, and the two must
+// not drift apart.
+const recipeChangeSentence = "Changing a recipe empties an assembling machine's input slots of anything the new list does not use."
+
+// fallbackNote is the trailing line a prototype whose stored value was set
+// aside carries in its own localised_description.
+//
+// THE LOG IS NOT A DISCLOSURE, which is the whole reason this exists. A player
+// reads the settings screen, the recipe or technology tooltip and the
+// changelog; a fkrecipes: line in factorio-current.log is evidence for a
+// maintainer and a courtesy for the curious. Until this line, a player who
+// typed something the library could not use had nothing where they look saying
+// the game is not what they asked for.
+//
+// ENGLISH LITERALS, NEVER A LOCALE KEY, and that is measured rather than
+// preferred. On 2.0.77 a localised string holding an UNDEFINED key drops the
+// whole prototype description silently: no Unknown key marker, no empty line,
+// the title and the ingredients still drawn, exit 0, and the engine's own dump
+// holding the description verbatim, so no gate in this repository could see it.
+// A key wrapped as {"?", {key}, "literal"} survives, but the library has no
+// localisation channel for prototype prose at all: appendLocalised wraps a
+// consumer's own Description as a literal too, and inventing a key would make
+// every consumer owe an entry whose absence deletes the sentence it was meant
+// to carry. Every sentence this library composes onto a SETTING is already an
+// English literal for the same reason.
+//
+// THE TAIL IS SCOPED BY WHAT MOVED, not by what kind of prototype carries it:
+// destroysInputs is true only where the ingredient list itself changed. See
+// noteOn.
+func fallbackNote(setting string, destroysInputs bool) string {
+	note := "The stored value of " + setting +
+		" could not be used, so this mod's own choice applies instead. The reason is in the log."
+	if destroysInputs {
+		return note + " " + recipeChangeSentence
+	}
+	return note
 }
 
 // withFallbackNote adds the ONE sentence a refusal owes a player whose stored
@@ -605,13 +722,20 @@ func (r *resolution) withFallbackNote(err error) error {
 func (l *Lib) resolve(w World, prefix string) resolution {
 	var res resolution
 
+	// THE NOTE SLOTS ARE SIZED FROM THE DECLARATIONS, before the walk, so every
+	// index the walk hands to noteOn is in range by construction and the emit
+	// loop can read one per prototype without asking whether it exists.
+	res.recipeNotes = make([]string, len(l.recipes))
+	res.techNotes = make([]string, len(l.techs))
+
 	// THE OVERLAY IS BUILT BEFORE ANY TEXT IS PARSED, which is the whole point
 	// of it: a player's text may name an item THIS plan emits, and data.raw
 	// does not have one yet. Every text path below takes it; the declared
 	// ladders keep the real World. See planItemWorld.
 	text := l.ownItemWorld(w, prefix)
 
-	for _, r := range l.recipes {
+	for ri, r := range l.recipes {
+		tgt := noteTarget{index: ri}
 		// The crafting time first, then the ingredients: a recipe's own field
 		// before what it is made of, mirroring a technology's enablement
 		// before its tree placement.
@@ -626,7 +750,7 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 			// generated minimum keeps a player from typing one of these, but a
 			// second mod declaring the same setting name can hand one over, and
 			// that is not something to lock a player out of their save for.
-			ct.value = res.craftTimeNumber(w, setting, prefix, r.name)
+			ct.value = res.craftTimeNumber(w, setting, prefix, r.name, tgt)
 		}
 		res.craftTimes = append(res.craftTimes, ct)
 
@@ -636,26 +760,35 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 		// remember to compute it. See resolution.addRecipe.
 		product := recipeProduct(prefix, l, r)
 
+		// THE TEXT IS THE SWITCH, so it is read first and its answer decides
+		// whether anything else is consulted at all. A text that says the
+		// reserved word, and a text this library cannot use, both leave the
+		// decision exactly where a player who typed nothing left it.
 		declared := r.spec.Ingredients
+		usedText := false
+		var parsed parsedList
 		if r.spec.IngredientsFrom.index != 0 {
-			// The whole list is the player's. There is no dropdown in front of
-			// it, so the text is live whatever it says.
-			res.addRecipe(r.name, product,
-				l.resolveIngredientsFrom(w, text, &res, prefix, r, l.settings[r.spec.IngredientsFrom.index-1]))
-			continue
+			from := l.settings[r.spec.IngredientsFrom.index-1]
+			parsed = l.resolveTextList(text, &res, from, prefix, r.spec.Category, listRecipe, tgt)
+			usedText = !parsed.isDefault
+			// Where there is no dropdown, the word default means the SETTING's
+			// own declared list rather than the recipe's Ingredients, which
+			// validateBindings refused beside it anyway.
+			declared = from.defIngredients
 		}
 		if by := r.spec.IngredientsBy; by != nil {
 			setting := l.settings[by.Setting.index-1]
+			// READ WHATEVER THE TEXT SAID, because the line that sets the
+			// choice aside has to name it. It is also the read that refuses a
+			// stored value the dropdown does not offer, and a text in force is
+			// no reason to stop asking that question.
 			chosen := res.readDropdown(w, setting, prefix)
-			if by.Custom.index != 0 {
-				custom := l.settings[by.Custom.index-1]
-				if chosen == by.customValue() {
-					res.addRecipe(r.name, product, l.resolveIngredientsFrom(w, text, &res, prefix, r, custom))
-					continue
-				}
-				// BEFORE THE PRESET APPLIES, so the line reads as the reason
-				// the drops that follow are the preset's and not the text's.
-				l.noteIgnoredText(text, &res, custom, prefix, r.spec.Category, setting.emittedName(prefix), by.customValue())
+			if usedText {
+				res.logs = append(res.logs, l.ingredientsFromLine(r.emittedName(prefix),
+					l.settings[r.spec.IngredientsFrom.index-1].emittedName(prefix),
+					setting.emittedName(prefix), chosen, parsed))
+				res.addRecipe(r.name, product, typedIngredients(parsed))
+				continue
 			}
 			declared = choiceFor(by.Choices, chosen)
 			list := l.resolveIngredients(w, &res, prefix, r.name, declared)
@@ -668,13 +801,18 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 				list = l.resolveIngredients(w, &res, prefix, r.name, choiceFor(by.Choices, setting.defStr))
 			}
 			res.addRecipe(r.name, product, list)
+		} else if usedText {
+			res.logs = append(res.logs, l.ingredientsFromLine(r.emittedName(prefix),
+				l.settings[r.spec.IngredientsFrom.index-1].emittedName(prefix), "", "", parsed))
+			res.addRecipe(r.name, product, typedIngredients(parsed))
 		} else {
 			res.addRecipe(r.name, product, l.resolveIngredients(w, &res, prefix, r.name, declared))
 		}
 	}
 
-	for _, t := range l.techs {
+	for ti, t := range l.techs {
 		var rt resolvedTech
+		tgt := noteTarget{tech: true, index: ti}
 
 		if t.spec.EnabledBy.index != 0 {
 			s := l.settings[t.spec.EnabledBy.index-1]
@@ -691,38 +829,6 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 		if by := t.spec.CostBy; by != nil {
 			setting := l.settings[by.Setting.index-1]
 			chosen := res.readDropdown(w, setting, prefix)
-			if by.Custom != nil {
-				custom := l.settings[by.Custom.Packs.index-1]
-				if chosen == by.customValue() {
-					// THE COST FIRST, THEN THE PLACEMENT, which is the order
-					// every other technology is resolved in and the order a
-					// reader of the transcript expects: what it costs, then
-					// where it hangs.
-					//
-					// THROUGH THE VALUE, NEVER BY NAME. A Custom arm holds a
-					// PacksSettingRef, so packsSetting installed this and
-					// validateTextSettings refused the plan if it had not.
-					// See Lib.lang for the measurement this seam exists for.
-					rt.unit = l.customCost(l, w, text, &res, prefix, t, by.Custom)
-					rt.hasUnit = true
-					rt.prereqs = customPrereqs(w, &res, t.name, by.Custom.Position)
-					res.techs = append(res.techs, rt)
-					continue
-				}
-				// ONE LINE PER EDITED FIELD, in the order the arm reads them
-				// and the order resolveCustomCost logs them: the count, then
-				// the seconds, then the packs. A player who moved all three
-				// reads all three, and reads them before the preset's own
-				// lines, so they stand as the reason those are the preset's.
-				//
-				// The two handles are dereferenced here as freely as
-				// resolveCustomCost dereferences them on the custom side:
-				// validateCustomCost proved all three before either loop ran.
-				dropdown := setting.emittedName(prefix)
-				noteIgnoredNumber(w, &res, l.settings[by.Custom.Count.index-1], prefix, dropdown, by.customValue())
-				noteIgnoredNumber(w, &res, l.settings[by.Custom.Seconds.index-1], prefix, dropdown, by.customValue())
-				l.noteIgnoredText(text, &res, custom, prefix, "", dropdown, by.customValue())
-			}
 			source := ""
 			for _, name := range sourcesFor(by.Choices, chosen) {
 				if w.TechHasResearchTrigger(name) {
@@ -769,10 +875,25 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 					" cost carries a unit, so the fallback cost applies and the technology has no prerequisite")
 				rt.unit = resolveUnit(w, &res, t.name, &by.Fallback)
 			} else {
-				// THE PREREQUISITE MOVES WITH THE UNIT.
+				// THE PREREQUISITE MOVES WITH THE UNIT, and it still does when
+				// the player has written over one of the tier's numbers: the
+				// tier is what named a source, and the settings beside it price
+				// the same rung rather than choosing another one.
 				rt.prereqs = []string{source}
 			}
 			rt.hasUnit = true
+			// THE THREE SETTINGS OVER THE TIER, where the technology declares
+			// them. Through the value, never by name: a CustomCost holds a
+			// PacksSettingRef, so packsSetting installed this and
+			// validateTextSettings refused the plan if it had not. See Lib.lang
+			// for the measurement this seam exists for.
+			if c := t.spec.CostFrom; c != nil {
+				unit, custom := l.customCost(l, w, text, &res, prefix, t, c,
+					costTier{has: true, unit: rt.unit, dropdown: setting.emittedName(prefix), chosen: chosen}, tgt)
+				if custom {
+					rt.unit = unit
+				}
+			}
 			res.techs = append(res.techs, rt)
 			continue
 		}
@@ -790,8 +911,11 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 		// of its own: nothing moves with this unit, because no source
 		// technology was named.
 		if t.spec.CostFrom != nil {
-			// Through the value, for the reason the CostBy arm above is.
-			rt.unit = l.customCost(l, w, text, &res, prefix, t, t.spec.CostFrom)
+			// Through the value, for the reason the CostBy arm above is. With
+			// no tier the answer is always the custom cost: the three settings
+			// are the whole price, and the word default in each of them means
+			// that setting's own declaration.
+			rt.unit, _ = l.customCost(l, w, text, &res, prefix, t, t.spec.CostFrom, costTier{}, tgt)
 			rt.hasUnit = true
 		}
 
@@ -964,7 +1088,7 @@ func itemProto(prefix string, it itemDecl) Value {
 		kv("type", Str("item")),
 		kv("name", Str(it.emittedName(prefix))),
 	}
-	pairs = appendLocalised(pairs, it.spec.DisplayName, it.spec.Description)
+	pairs = appendLocalised(pairs, it.spec.DisplayName, it.spec.Description, "")
 	if it.spec.Icon != "" {
 		pairs = append(pairs, kv("icon", Str(it.spec.Icon)))
 	}
@@ -1005,12 +1129,12 @@ func recipeProduct(prefix string, l *Lib, r recipeDecl) string {
 	return r.spec.ResultNamed
 }
 
-func recipeProto(prefix string, l *Lib, r recipeDecl, ings []resolvedIngredient, ct craftTime, unlocked bool) Value {
+func recipeProto(prefix string, l *Lib, r recipeDecl, ings []resolvedIngredient, ct craftTime, unlocked bool, note string) Value {
 	pairs := []KV{
 		kv("type", Str("recipe")),
 		kv("name", Str(r.emittedName(prefix))),
 	}
-	pairs = appendLocalised(pairs, r.spec.DisplayName, r.spec.Description)
+	pairs = appendLocalised(pairs, r.spec.DisplayName, r.spec.Description, note)
 	if r.spec.Category != "" {
 		pairs = append(pairs, kv("category", Str(r.spec.Category)))
 	}
@@ -1105,12 +1229,12 @@ func extraWithout(extra []KV, key string) []KV {
 	return extra
 }
 
-func techProto(prefix string, l *Lib, w World, t techDecl, rt resolvedTech) Value {
+func techProto(prefix string, l *Lib, w World, t techDecl, rt resolvedTech, note string) Value {
 	pairs := []KV{
 		kv("type", Str("technology")),
 		kv("name", Str(t.emittedName(prefix))),
 	}
-	pairs = appendLocalised(pairs, t.spec.DisplayName, t.spec.Description)
+	pairs = appendLocalised(pairs, t.spec.DisplayName, t.spec.Description, note)
 	if t.spec.Icon != "" {
 		pairs = append(pairs, kv("icon", Str(t.spec.Icon)))
 	}
@@ -1267,12 +1391,41 @@ func resolvePackLadders(w World, res *resolution, tech string, packs []Pack) ing
 	return out
 }
 
-func appendLocalised(pairs []KV, displayName, description string) []KV {
+// appendLocalised is the ONE writer of localised_name and localised_description
+// on every prototype this library emits, and the note is the trailing line a
+// recipe or a technology carries when a stored value was set aside.
+//
+// THREE SHAPES AND NOT FOUR. An author's description with no note is
+// {"", "<description>"} byte for byte as it always was, so a golden taken
+// before this line existed does not move for a load nothing fell back on; a
+// description with a note adds the note as a third parameter opening with a
+// newline; and a note with no description is the note alone in the same
+// two-element shape. Nothing is emitted when there is neither.
+//
+// AN ITEM NEVER CARRIES A NOTE, so itemProto passes the empty string. The
+// fallback is about what a recipe makes or what a technology costs, and an item
+// prototype is neither.
+//
+// THE FLAT HELPER RATHER THAN THE GROUPING ONE, deliberately. localisedGroup
+// and maxLocalisedParams live on the settings side, and the ceiling they answer
+// to is 20 PARAMETERS PER TABLE and 20 LEVELS OF NESTING DEPTH (measured on
+// 2.0.77: the 21st of either refuses the load by name, and a description
+// holding 421 tables at depth 3 loads, so there is no global table budget).
+// This composition is at most three parameters at one level and two tables
+// deep, so there is nothing for a nesting rule to do here; moving the grouping
+// helper across for it would put the settings side's ceiling constant in front
+// of a data-side source property that polices what this side may name.
+func appendLocalised(pairs []KV, displayName, description, note string) []KV {
 	if displayName != "" {
 		pairs = append(pairs, kv("localised_name", localised(displayName)))
 	}
-	if description != "" {
+	switch {
+	case description != "" && note != "":
+		pairs = append(pairs, kv("localised_description", Arr(Str(""), Str(description), Str("\n"+note))))
+	case description != "":
 		pairs = append(pairs, kv("localised_description", localised(description)))
+	case note != "":
+		pairs = append(pairs, kv("localised_description", localised(note)))
 	}
 	return pairs
 }
