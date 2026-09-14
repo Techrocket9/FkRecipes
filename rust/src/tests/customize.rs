@@ -2199,7 +2199,7 @@ fn a_language_refusal_becomes_a_fallback_line() {
             "log fkrecipes: steel-rivet: none of tungsten-carbide, titanium-plate is present, so the ingredient is dropped",
             r#"extend {type="item", name="steelworks-steel-rivet", stack_size=50}"#,
             &(String::from(r#"extend {type="recipe", name="steelworks-steel-rivet", "#)
-                + &note_in("steelworks-rivet-ingredients", true)
+                + &note_in("recipe", "steelworks-steel-rivet", "steelworks-rivet-ingredients", true)
                 + r#"enabled=true, ingredients=[{type="item", name="iron-plate", amount=2}], results=[{type="item", name="steelworks-steel-rivet", amount=1}]}"#),
         ],
     );
@@ -2228,7 +2228,7 @@ fn a_text_setting_holding_something_else_falls_back() {
             "log fkrecipes: steel-rivet: none of tungsten-carbide, titanium-plate is present, so the ingredient is dropped",
             r#"extend {type="item", name="steelworks-steel-rivet", stack_size=50}"#,
             &(String::from(r#"extend {type="recipe", name="steelworks-steel-rivet", "#)
-                + &note_in("steelworks-rivet-ingredients", true)
+                + &note_in("recipe", "steelworks-steel-rivet", "steelworks-rivet-ingredients", true)
                 + r#"enabled=true, ingredients=[{type="item", name="iron-plate", amount=2}], results=[{type="item", name="steelworks-steel-rivet", amount=1}]}"#),
         ],
     );
@@ -2308,7 +2308,7 @@ fn a_refused_text_beside_a_dropdown_falls_back_to_the_dropdown() {
             &with_recipe_tail("log fkrecipes: ERROR: steelworks-quench-ingredients, entry 1 (\"4 unobtanium\"): no item or fluid is named unobtanium. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart."),
             r#"extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}"#,
             &(String::from(r#"extend {type="recipe", name="steelworks-hardened-steel-plate", "#)
-                + &note_in("steelworks-quench-ingredients", true)
+                + &note_in("recipe", "steelworks-hardened-steel-plate", "steelworks-quench-ingredients", true)
                 + r#"category="crafting-with-fluid", enabled=true, ingredients=[{type="item", name="steel-plate", amount=3}], results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}"#),
         ],
     );
@@ -2490,7 +2490,7 @@ fn a_refused_pack_text_beside_a_tier_takes_the_tiers_packs() {
             "log fkrecipes: ERROR: steelworks-tips-packs, entry 1 (\"2 unobtainium\"): no science pack is named unobtainium. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.",
             "log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs: count 40, time 30, packs 1 automation-science-pack, 1 logistic-science-pack; the steelworks-tips-research-tier choice cheap supplies what the settings leave at default",
             &(String::from(r#"extend {type="technology", name="steelworks-hardened-tips", "#)
-                + &note_in("steelworks-tips-packs", false)
+                + &note_in("technology", "steelworks-hardened-tips", "steelworks-tips-packs", false)
                 + r#"prerequisites=["logistics-2"], unit={count=40, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}"#),
         ],
     );
@@ -2511,7 +2511,7 @@ fn a_bad_number_beside_a_tier_leaves_the_tier_deciding() {
             "log fkrecipes: ERROR: steelworks-tips-count holds a value that is not a finite number. The mod loaded as though that number had been left alone; fix the number under Settings > Mod settings > Startup, then restart.",
             &alloc::format!(
                 r#"extend {{type="technology", name="steelworks-hardened-tips", {}prerequisites=["logistics-2"], {}}}"#,
-                note_in("steelworks-tips-count", false),
+                note_in("technology", "steelworks-hardened-tips", "steelworks-tips-count", false),
                 TIER_UNIT
             ),
         ],
@@ -2588,7 +2588,8 @@ fn a_setting_overrides_the_fallback_tier() {
             "log fkrecipes: hardened-tips: no source for the cheap cost carries a unit, so the fallback cost applies and the technology has no prerequisite",
             "log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs: count 45, time 30, packs 1 automation-science-pack; the steelworks-tips-research-tier choice cheap supplies what the settings leave at default",
             &alloc::format!(
-                r#"extend {{type="technology", name="steelworks-hardened-tips", localised_description=["", "{}"], unit={{count=45, time=30, ingredients=[["automation-science-pack", 1]]}}}}"#,
+                r#"extend {{type="technology", name="steelworks-hardened-tips", localised_description=["", {}, "{}"], unit={{count=45, time=30, ingredients=[["automation-science-pack", 1]]}}}}"#,
+                description_ref_in("technology", "steelworks-hardened-tips"),
                 UNPRICED_TOOLTIP
             ),
         ],
@@ -2770,7 +2771,7 @@ fn a_research_number_the_world_cannot_answer_falls_back() {
                 &format!("log fkrecipes: ERROR: {}. The mod loaded as though that number had been left alone; fix the number under Settings > Mod settings > Startup, then restart.", c.want),
                 "log fkrecipes: steelworks-chain-forging takes its research cost from steelworks-chain-packs: count 30, time 15, packs 1 automation-science-pack, 1 logistic-science-pack",
                 &(String::from(r#"extend {type="technology", name="steelworks-chain-forging", "#)
-                    + &note_in(c.setting, false)
+                    + &note_in("technology", "steelworks-chain-forging", c.setting, false)
                     + r#"prerequisites=["steel-processing"], unit={count=30, time=15, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]]}}"#),
             ],
             c.name,
@@ -2926,7 +2927,7 @@ fn every_bad_field_of_a_custom_cost_answers() {
             "log fkrecipes: ERROR: steelworks-chain-packs, entry 1 (\"2 unobtainium\"): no science pack is named unobtainium. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.",
             "log fkrecipes: steelworks-chain-forging takes its research cost from steelworks-chain-packs: count 30, time 15, packs 1 automation-science-pack, 1 logistic-science-pack",
             &(String::from(r#"extend {type="technology", name="steelworks-chain-forging", "#)
-                + &note_in("steelworks-chain-count", false)
+                + &note_in("technology", "steelworks-chain-forging", "steelworks-chain-count", false)
                 + r#"prerequisites=["steel-processing"], unit={count=30, time=15, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]]}}"#),
         ],
     );
@@ -3031,7 +3032,7 @@ fn player_fields_fall_back_while_the_author_channel_still_refuses() {
             &with_recipe_tail("log fkrecipes: ERROR: steelworks-rivet-ingredients, entry 1 (\"2 unobtainium\"): no item or fluid is named unobtainium. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart."),
             r#"extend {type="item", name="steelworks-steel-rivet", stack_size=50}"#,
             &(String::from(r#"extend {type="recipe", name="steelworks-steel-rivet", "#)
-                + &note_in("steelworks-forging-time", false)
+                + &note_in("recipe", "steelworks-steel-rivet", "steelworks-forging-time", false)
                 + r#"energy_required=3, enabled=true, ingredients=[{type="item", name="iron-plate", amount=1}], results=[{type="item", name="steelworks-steel-rivet", amount=1}]}"#),
             r#"extend {type="technology", name="steelworks-steel-riveting", unit={count=50, time=15, ingredients=[["automation-science-pack", 1]]}}"#,
         ],
@@ -3407,7 +3408,7 @@ fn a_text_beside_a_dropdown_whose_bytes_are_not_text_falls_back() {
             &with_recipe_tail("log fkrecipes: ERROR: steelworks-quench-ingredients contains characters that are not text; retype the list. The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart."),
             r#"extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}"#,
             &(String::from(r#"extend {type="recipe", name="steelworks-hardened-steel-plate", "#)
-                + &note_in("steelworks-quench-ingredients", true)
+                + &note_in("recipe", "steelworks-hardened-steel-plate", "steelworks-quench-ingredients", true)
                 + r#"category="crafting-with-fluid", enabled=true, ingredients=[{type="item", name="steel-plate", amount=3}], results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}"#),
         ],
     );
@@ -3683,22 +3684,53 @@ fn a_fallback_note_joins_the_authors_own_description() {
 // the raw fallback is last.
 // ---------------------------------------------------------------------------
 
-/// Every locale section this library composes a key under. Written out rather
-/// than derived, because the property being asserted is "these three and
-/// nothing else goes out bare", and a fourth section added to the library is a
-/// fourth entry somebody has to type here on purpose.
-const COMPOSED_LOCALE_SECTIONS: &[&str] = &[
+/// Every locale section this library composes a key under AT THE SETTINGS
+/// STAGE. Written out rather than derived, because the property being asserted
+/// is "these and nothing else go out bare", and a section added to the library
+/// is an entry somebody has to type here on purpose.
+const COMPOSED_SETTING_SECTIONS: &[&str] = &[
     "mod-setting-description.",
     "string-mod-setting.",
     "technology-name.",
 ];
 
+/// The DATA stage's two, and they are a separate list because the two stages
+/// compose disjoint sets and the test asserts that: a settings key on a
+/// prototype or a prototype key on a setting is a defect neither a golden nor a
+/// count over one merged list could see.
+///
+/// THEY ARE THE AUTHOR'S OWN OPTIONAL ENTRY. A recipe or a technology carrying
+/// a note with no declared `description` references `[recipe-description]` or
+/// `[technology-description]` under its own emitted name, so an author who
+/// wrote their description in a `.cfg` keeps it and the note joins it. See
+/// `description_ref`.
+const COMPOSED_PROTOTYPE_SECTIONS: &[&str] = &["recipe-description.", "technology-description."];
+
+/// How many sections the two lists hold between them, DERIVED rather than
+/// typed: it is the width of the per-section tally below, so a section added to
+/// either half grows the tally with it.
+const COMPOSED_LOCALE_SECTION_COUNT: usize =
+    COMPOSED_SETTING_SECTIONS.len() + COMPOSED_PROTOTYPE_SECTIONS.len();
+
+/// Both lists, which is what the string classifier walks: a key of either kind
+/// in the wrong place is still a key.
+///
+/// IT IS DERIVED FROM THE TWO HALVES AND NEVER TYPED OUT A THIRD TIME, which is
+/// the Go twin's shape and is not cosmetic. A section added to one of the two
+/// lists and forgotten in a hand-written merged one is a section the classifier
+/// never recognises: its keys read as ordinary prose, every fault walk stays
+/// silent over them, and the per-section tally never has a slot to be zero in.
+/// Derived, that failure is unrepresentable in either half.
+fn composed_locale_sections() -> impl Iterator<Item = &'static str> {
+    COMPOSED_SETTING_SECTIONS
+        .iter()
+        .chain(COMPOSED_PROTOTYPE_SECTIONS.iter())
+        .copied()
+}
+
 /// The section a string names, or `None` when it is ordinary prose.
 fn composed_locale_section(s: &str) -> Option<&'static str> {
-    COMPOSED_LOCALE_SECTIONS
-        .iter()
-        .find(|sec| s.starts_with(**sec))
-        .copied()
+    composed_locale_sections().find(|sec| s.starts_with(sec))
 }
 
 /// Whether a value is the one-element table a locale key is referenced
@@ -3724,11 +3756,40 @@ fn is_key_table(v: &Value) -> bool {
 /// falls back onto its last alternative's own `Unknown key: "..."` marker. Both
 /// are silent on a headless run, which is why they are held by a source
 /// property here rather than by a golden alone.
+///
+/// GUARDED IS THE THIRD THING IT TRACKS, and it is a measured fact rather than
+/// a loosening. `description_ref`'s first alternative is a concatenation GROUP
+/// holding the key and the newline that follows it, not the bare key table, and
+/// a group holding an undefined key IS ITSELF A FAILED ALTERNATIVE (measured on
+/// 2.0.77: the whole group renders empty rather than leaving the newline
+/// behind). So a key table anywhere under a wrapper's non-last alternative is
+/// as safe as one sitting directly in that slot, and `guarded` is what says
+/// which slots those are.
+///
+/// WHAT `guarded` IS AND IS NOT PROVED BY, recorded because a relaxation that
+/// LOOKS checked and is not is worse than one that says so. It is load-bearing
+/// rather than dead: recursing with a flat `false` instead goes RED here,
+/// naming the bare key table under each of the two prototype sections. But it
+/// is a pure WIDENING, and widening it further cannot go red at all: recursing
+/// with a flat `true` leaves the whole suite green, because the only thing
+/// `guarded` exempts is a key table under a wrapper's non-last alternative,
+/// which is the measured-safe slot, and no composition this library builds puts
+/// one anywhere a wider exemption would newly reach. So this clause has no red
+/// proof of its own and cannot have one. THE DETECTOR AROUND IT DOES, two ways,
+/// both taken with the `guarded` clause exactly as it stands: a `locale_ref`
+/// returning a bare key table goes red naming all three settings sections
+/// (`mod-setting-description.`, `string-mod-setting.`, `technology-name.`), and
+/// a `description_ref` returning one goes red naming both prototype sections
+/// (`recipe-description.`, `technology-description.`).
 fn locale_ref_faults(v: &Value, out: &mut Vec<String>) {
+    locale_ref_faults_guarded(v, false, out)
+}
+
+fn locale_ref_faults_guarded(v: &Value, guarded: bool, out: &mut Vec<String>) {
     let items = match v {
         Value::Map(pairs) => {
             for (_, val) in pairs {
-                locale_ref_faults(val, out);
+                locale_ref_faults_guarded(val, false, out);
             }
             return;
         }
@@ -3771,20 +3832,21 @@ fn locale_ref_faults(v: &Value, out: &mut Vec<String>) {
             }
             continue;
         }
-        if is_key_table(item) && !(wrapper && i == 1) {
+        let alternative = wrapper && i >= 1 && i + 1 < items.len();
+        if is_key_table(item) && !alternative && !guarded {
             out.push(alloc::format!(
                 "the composed reference {:?} is a bare key rather than the alternatives form: {:?}",
                 item,
                 v
             ));
         }
-        locale_ref_faults(item, out);
+        locale_ref_faults_guarded(item, alternative || (guarded && !wrapper), out);
     }
 }
 
 /// How many references each section contributed, so a walk that found nothing
 /// cannot read as a walk that found nothing wrong.
-fn locale_ref_counts(v: &Value, into: &mut [usize; 3]) {
+fn locale_ref_counts(v: &Value, into: &mut [usize; COMPOSED_LOCALE_SECTION_COUNT]) {
     let items = match v {
         Value::Map(pairs) => {
             for (_, val) in pairs {
@@ -3797,9 +3859,8 @@ fn locale_ref_counts(v: &Value, into: &mut [usize; 3]) {
     };
     if let [Value::Str(s)] = items.as_slice() {
         if let Some(sec) = composed_locale_section(s) {
-            let i = COMPOSED_LOCALE_SECTIONS
-                .iter()
-                .position(|c| *c == sec)
+            let i = composed_locale_sections()
+                .position(|c| c == sec)
                 .expect("the section came from the same list");
             into[i] += 1;
         }
@@ -3885,6 +3946,38 @@ fn every_composed_shape() -> Lib {
             ..Default::default()
         },
     );
+    // THE TWO PROTOTYPE KEY SHAPES, which ONLY a note with NO declared
+    // `description` composes. One of each kind, because the section is the
+    // PROTOTYPE'S OWN and a fixture carrying one of them proves nothing about
+    // the other.
+    //
+    // The recipe's note comes from a stored text the language refuses (the data
+    // half's world supplies it); the technology's from a science pack the
+    // fixture game does not have, which needs no stored value at all.
+    let rivet = lib.item("steel-rivet", ItemSpec::default());
+    let parts = lib.ingredients_setting(
+        "rivet-ingredients",
+        vec![Ingredient::named(1, "iron-plate", &[])],
+    );
+    lib.recipe(
+        rivet,
+        RecipeSpec {
+            name: String::from("steel-rivet-forging"),
+            ingredients_from: Some(parts),
+            ..Default::default()
+        },
+    );
+    lib.technology(
+        "steel-riveting",
+        TechSpec {
+            unit: Some(UnitSpec {
+                count: 10,
+                seconds: 15.0,
+                packs: vec![Pack::new("space-science-pack", 1)],
+            }),
+            ..Default::default()
+        },
+    );
     lib
 }
 
@@ -3909,7 +4002,7 @@ fn every_composed_locale_reference_is_wrapped() {
 
     let ops = lib.plan_settings(&settings_world()).expect("plan refused");
     let mut faults = Vec::new();
-    let mut counts = [0usize; 3];
+    let mut counts = [0usize; COMPOSED_LOCALE_SECTION_COUNT];
     for op in &ops {
         for v in op_values(op) {
             locale_ref_faults(v, &mut faults);
@@ -3917,19 +4010,33 @@ fn every_composed_locale_reference_is_wrapped() {
         }
     }
     assert!(faults.is_empty(), "settings: {}", faults.join("\n"));
-    for (i, sec) in COMPOSED_LOCALE_SECTIONS.iter().enumerate() {
-        assert!(
-            counts[i] > 0,
-            "the walk saw no {} reference, so it proves nothing about one",
-            sec
-        );
+    for (i, sec) in composed_locale_sections().enumerate() {
+        if COMPOSED_SETTING_SECTIONS.contains(&sec) {
+            assert!(
+                counts[i] > 0,
+                "the walk saw no {} reference, so it proves nothing about one",
+                sec
+            );
+        } else {
+            // AND THE SETTINGS STAGE COMPOSES NONE OF THE PROTOTYPE'S TWO. The
+            // two stages reference disjoint sets of sections, and a merged list
+            // would let one stand in for the other in either direction.
+            assert_eq!(
+                counts[i], 0,
+                "the settings stage composed {} {} references; that section belongs to a prototype",
+                counts[i], sec
+            );
+        }
     }
 
     let ops = every_composed_shape()
-        .plan_data(&base_world())
+        .plan_data(&base_world().with_setting(
+            "steelworks-rivet-ingredients",
+            Value::string("1 unobtanium"),
+        ))
         .expect("plan refused");
     let mut faults = Vec::new();
-    let mut counts = [0usize; 3];
+    let mut counts = [0usize; COMPOSED_LOCALE_SECTION_COUNT];
     let mut described = 0usize;
     for op in &ops {
         for v in op_values(op) {
@@ -3946,14 +4053,24 @@ fn every_composed_locale_reference_is_wrapped() {
         described > 0,
         "the data stage composed no localised_description, so the counts below prove nothing"
     );
-    // THE DATA STAGE COMPOSES NO KEY AT ALL, which is the other half of the
-    // measurement: an undefined key anywhere in a recipe's composition deletes
-    // the whole description, the library's own literal sentences included, so
-    // the prototype notes are English literals and this count is zero.
-    for (i, sec) in COMPOSED_LOCALE_SECTIONS.iter().enumerate() {
+    // THE NOTE ITSELF IS STILL AN ENGLISH LITERAL, which is the measurement
+    // that has not changed: an undefined key in a prototype's composition
+    // deletes the WHOLE description on the client, silently, so the library
+    // composes no key it would have to ask the consumer to define. The two it
+    // does compose are the AUTHOR'S OWN OPTIONAL entry, behind an empty
+    // alternative, which is why they cost nothing where nobody wrote one.
+    for (i, sec) in composed_locale_sections().enumerate() {
+        if COMPOSED_PROTOTYPE_SECTIONS.contains(&sec) {
+            assert!(
+                counts[i] > 0,
+                "the walk saw no {} reference, so it proves nothing about one",
+                sec
+            );
+            continue;
+        }
         assert_eq!(
             counts[i], 0,
-            "the data stage composed {} {} references; its notes are literal text",
+            "the data stage composed {} {} references; that section belongs to a setting",
             counts[i], sec
         );
     }

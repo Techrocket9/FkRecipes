@@ -864,6 +864,59 @@ func localeRef(section, key, raw string) Value {
 	return Arr(Str("?"), Arr(Str(section+"."+key)), Str(raw))
 }
 
+// descriptionRef is the OTHER wrapper, and it is a second function rather than
+// a localeRef call because its two slots are not localeRef's two slots.
+//
+// WHAT IT IS FOR. A recipe or a technology that carries a note and declares no
+// Description used to be emitted as {"", "<note>"}, and a prototype's own
+// localised_description field WINS OVER the [recipe-description] or
+// [technology-description] entry the author wrote in their .cfg, so the note
+// stood in that description's place for the whole of that load. The library
+// cannot SEE a locale key; it can reference one that degrades to nothing.
+//
+// THE SHAPE, AND THE CRUX ROW THAT PICKED IT. Measured on Factorio 2.0.77
+// (build 84539, mac-arm64, steam) with a Lua-only probe mod calling
+// localised_print from control.lua and a second probe hanging each shape on a
+// base prototype at data-final-fixes under --dump-data:
+//
+//	{"?", {"", {"technology-description.X"}, "\n"}, ""} with X UNDEFINED
+//	renders EMPTY.
+//
+// A CONCATENATION GROUP HOLDING AN UNDEFINED KEY IS ITSELF A FAILED
+// ALTERNATIVE, so the separator newline rides INSIDE the alternative and dies
+// with it. That is what makes this shape and not the flatter
+// {"", {"?", {key}, ""}, "\n", "<note>"}: the flat one renders a dangling
+// leading newline on every consumer who declares no entry, which is most of
+// them. With the key DEFINED the same shape renders `AUTHOR TECH DESC\n`, and
+// the note follows it; measured on the real base key
+// technology-description.logistics as well, and on recipe-description.
+//
+// THE RAW FALLBACK IS LAST HERE TOO, and it is the EMPTY STRING rather than
+// prose: there is nothing to say where the author wrote no entry. The rule is
+// localeRef's own and the reason is the same, a plain string alternative always
+// resolves and short circuits everything after it, which is why the source
+// property test walks this shape too.
+//
+// THE SECOND RETURN IS THE KEY LENGTH, AND IT IS NOT A FORMALITY. The engine
+// polices the KEY SLOT at localisedElementCeiling bytes like every other string
+// element, and a key is ONE element by definition: it cannot be chunked. The
+// engine's own prototype-name ceiling is 200 bytes (measured; `Name field is
+// too large. Max allowed size is: 200.`) and nothing in this library refuses a
+// shorter one, so `technology-description.` at 23 bytes over a 200-byte name is
+// a 223-byte element the engine refuses, and the composition would be the
+// lock-out the note exists to prevent. Above the length that fits, the key form
+// is DROPPED and the note is emitted alone exactly as it was before this
+// wrapper existed: the author's locale entry is displaced on those two names,
+// which is a tooltip and not a load failure. The fitting lengths are 181 bytes
+// of recipe name and 177 of technology name.
+func descriptionRef(kind, name string) (Value, bool) {
+	key := kind + "-description." + name
+	if len(key) > localisedElementCeiling {
+		return Value{}, false
+	}
+	return Arr(Str("?"), Arr(Str(""), Arr(Str(key)), Str("\n")), Str("")), true
+}
+
 // textDescription is the whole localised_description a TEXT setting is emitted
 // with: the consumer's own entry, then the four things this library owes the
 // player about the field beside it.

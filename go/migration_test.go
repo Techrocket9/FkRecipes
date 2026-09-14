@@ -376,7 +376,7 @@ func TestCostByFallsBackWithNoPrerequisite(t *testing.T) {
 		`log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies`,
 		`log fkrecipes: hardened-tips: no source for the logistics cost carries a unit, so the fallback cost applies and the technology has no prerequisite`,
 		`extend {type="technology", name="steelworks-hardened-tips", ` +
-			`localised_description=["", "` + unpricedTooltip + `"], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-hardened-tips") + `, "` + unpricedTooltip + `"], ` +
 			`unit={count=60, time=30, ingredients=[["automation-science-pack", 1]]}}`,
 	})
 }
@@ -402,7 +402,7 @@ func TestCostByEdgeReachesTheCycleWalk(t *testing.T) {
 		`log fkrecipes: ERROR: hardened-tips: requiring logistics-2 would loop this game's technology tree ` +
 			`(logistics-2 -> steelworks-hardened-tips -> logistics-2), so the prerequisite is dropped`,
 		`extend {type="technology", name="steelworks-hardened-tips", ` +
-			`localised_description=["", "Requiring logistics-2 would loop this game's technology tree, ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-hardened-tips") + `, "Requiring logistics-2 would loop this game's technology tree, ` +
 			`so this research was left without that prerequisite. The reason is in the log."], ` +
 			`unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
 	})
@@ -587,7 +587,7 @@ func TestAFallbackThatKeepsNoPackIsEmittedEmpty(t *testing.T) {
 		`log fkrecipes: hardened-tips: none of military-science-pack is present, so the science pack is dropped`,
 		packlessLog("hardened-tips", "military-science-pack"),
 		`extend {type="technology", name="steelworks-hardened-tips", ` +
-			`localised_description=["", "` + packlessTooltip + `"], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-hardened-tips") + `, "` + packlessTooltip + `"], ` +
 			`unit={count=60, time=30, ingredients=[]}}`,
 	})
 }

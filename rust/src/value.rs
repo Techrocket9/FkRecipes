@@ -148,10 +148,11 @@ pub(crate) fn str_arr(names: &[String]) -> Value {
 /// sides.
 ///
 /// IT IS COMPARED AGAINST AND NEVER COMPUTED WITH, the habit `CRAFT_TIME_FLOOR`
-/// established: nothing here derives the budget from it. The one reader is the
-/// host test that walks every composition this library can build, so it is
-/// gated to the test build rather than carrying a silenced `dead_code`.
-#[cfg(test)]
+/// established: nothing here derives the budget from it. It has TWO readers
+/// now, the host test that walks every composition this library can build and
+/// [`description_ref`](crate::settings::description_ref), which cannot chunk
+/// the key it composes and drops it above this length instead; the second is
+/// why it is no longer gated to the test build.
 pub(crate) const LOCALISED_ELEMENT_CEILING: usize = 200;
 
 /// What a chunk is filled to, twenty bytes short of the engine's ceiling

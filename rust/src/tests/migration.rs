@@ -13,8 +13,8 @@ use crate::plan::{
 };
 use crate::tests::data::{LOGISTICS_2_UNIT, STEEL_PROCESSING_UNIT};
 use crate::tests::{
-    assert_composed, assert_has_line, assert_lines, base_world, packless_log, settings_world,
-    transcript, unit_of, unreadable_source_log, PACKLESS_TOOLTIP, UNPRICED_TOOLTIP,
+    assert_composed, assert_has_line, assert_lines, base_world, description_ref_in, packless_log,
+    settings_world, transcript, unit_of, unreadable_source_log, PACKLESS_TOOLTIP, UNPRICED_TOOLTIP,
 };
 use crate::value::{kv, Value};
 
@@ -852,7 +852,8 @@ fn cost_by_falls_back_with_no_prerequisite() {
         "log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies",
         "log fkrecipes: hardened-tips: no source for the logistics cost carries a unit, so the fallback cost applies and the technology has no prerequisite",
         &alloc::format!(
-            r#"extend {{type="technology", name="steelworks-hardened-tips", localised_description=["", "{}"], unit={{count=60, time=30, ingredients=[["automation-science-pack", 1]]}}}}"#,
+            r#"extend {{type="technology", name="steelworks-hardened-tips", localised_description=["", {}, "{}"], unit={{count=60, time=30, ingredients=[["automation-science-pack", 1]]}}}}"#,
+            description_ref_in("technology", "steelworks-hardened-tips"),
             UNPRICED_TOOLTIP
         ),
     ]);
@@ -920,7 +921,9 @@ fn cost_by_edge_reaches_the_cycle_walk() {
         &[
             "log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies",
             "log fkrecipes: ERROR: hardened-tips: requiring logistics-2 would loop this game's technology tree (logistics-2 -> steelworks-hardened-tips -> logistics-2), so the prerequisite is dropped",
-            r#"extend {type="technology", name="steelworks-hardened-tips", localised_description=["", "Requiring logistics-2 would loop this game's technology tree, so this research was left without that prerequisite. The reason is in the log."], unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}"#,
+            &(String::from(r#"extend {type="technology", name="steelworks-hardened-tips", localised_description=["", "#)
+                + &description_ref_in("technology", "steelworks-hardened-tips")
+                + r#", "Requiring logistics-2 would loop this game's technology tree, so this research was left without that prerequisite. The reason is in the log."], unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}"#),
         ],
     );
 }
@@ -1287,7 +1290,9 @@ fn a_tier_whose_copied_unit_drops_one_pack_keeps_the_rest() {
         &[
             "log fkrecipes: the setting steelworks-tier was not readable, so its default applies",
             "log fkrecipes: steel-axes: logistic-science-pack is not a science pack this game has, so it is left out of the logistics-2 cost",
-            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "This game has no logistic-science-pack, so this research was priced without it. The reason is in the log."], prerequisites=["logistics-2"], unit={count=200, ingredients=[["automation-science-pack", 1]], time=30}}"#,
+            &(String::from(r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "#)
+                + &description_ref_in("technology", "steelworks-steel-axes")
+                + r#", "This game has no logistic-science-pack, so this research was priced without it. The reason is in the log."], prerequisites=["logistics-2"], unit={count=200, ingredients=[["automation-science-pack", 1]], time=30}}"#),
         ],
     );
 }
@@ -1331,7 +1336,9 @@ fn a_tier_whose_copied_unit_loses_every_pack_takes_the_declared_fallback() {
             "log fkrecipes: the setting steelworks-tier was not readable, so its default applies",
             "log fkrecipes: steel-axes: automation-science-pack is not a science pack this game has, so it is left out of the steel-processing cost",
             "log fkrecipes: ERROR: steel-axes: the steel-processing cost names no science pack this game has, so this mod's own declared cost applies instead",
-            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "This game has none of the science packs the steel-processing cost names, so that cost was not used to price this research. The reason is in the log."], prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}"#,
+            &(String::from(r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "#)
+                + &description_ref_in("technology", "steelworks-steel-axes")
+                + r#", "This game has none of the science packs the steel-processing cost names, so that cost was not used to price this research. The reason is in the log."], prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}"#),
         ],
     );
 }
@@ -1390,7 +1397,8 @@ fn a_tier_whose_sources_carry_no_cost_says_so_on_the_technology() {
             "log fkrecipes: the setting steelworks-tier was not readable, so its default applies",
             "log fkrecipes: balancer: no source for the logistics cost carries a unit, so the fallback cost applies and the technology has no prerequisite",
             &format!(
-                r#"extend {{type="technology", name="steelworks-balancer", localised_description=["", "{}"], unit={{count=20, time=15, ingredients=[["automation-science-pack", 1]]}}}}"#,
+                r#"extend {{type="technology", name="steelworks-balancer", localised_description=["", {}, "{}"], unit={{count=20, time=15, ingredients=[["automation-science-pack", 1]]}}}}"#,
+                description_ref_in("technology", "steelworks-balancer"),
                 UNPRICED_TOOLTIP
             ),
         ],
@@ -1445,7 +1453,8 @@ fn a_tier_whose_only_source_carries_an_unusable_cost_says_so_too() {
             "log fkrecipes: the setting steelworks-tier was not readable, so its default applies",
             "log fkrecipes: balancer: no source for the logistics cost carries a unit, so the fallback cost applies and the technology has no prerequisite",
             &format!(
-                r#"extend {{type="technology", name="steelworks-balancer", localised_description=["", "{}"], unit={{count=20, time=15, ingredients=[["automation-science-pack", 1]]}}}}"#,
+                r#"extend {{type="technology", name="steelworks-balancer", localised_description=["", {}, "{}"], unit={{count=20, time=15, ingredients=[["automation-science-pack", 1]]}}}}"#,
+                description_ref_in("technology", "steelworks-balancer"),
                 UNPRICED_TOOLTIP
             ),
         ],
@@ -1500,7 +1509,8 @@ fn an_unpriced_tier_yields_the_slot_to_the_packless_note() {
             "log fkrecipes: balancer: none of military-science-pack is present, so the science pack is dropped",
             &packless_log("balancer", &["military-science-pack"]),
             &format!(
-                r#"extend {{type="technology", name="steelworks-balancer", localised_description=["", "{}"], unit={{count=20, time=15, ingredients=[]}}}}"#,
+                r#"extend {{type="technology", name="steelworks-balancer", localised_description=["", {}, "{}"], unit={{count=20, time=15, ingredients=[]}}}}"#,
+                description_ref_in("technology", "steelworks-balancer"),
                 PACKLESS_TOOLTIP
             ),
         ],
@@ -1593,7 +1603,9 @@ fn a_typed_pack_list_takes_back_the_tiers_packless_sentence() {
             "log fkrecipes: the setting steelworks-axe-count was not readable, so its default applies",
             "log fkrecipes: the setting steelworks-axe-seconds was not readable, so its default applies",
             "log fkrecipes: the setting steelworks-axe-packs was not readable, so its default applies",
-            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "This game has none of the science packs the steel-processing cost names, so that cost was not used to price this research. The reason is in the log."], prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}"#,
+            &(String::from(r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "#)
+                + &description_ref_in("technology", "steelworks-steel-axes")
+                + r#", "This game has none of the science packs the steel-processing cost names, so that cost was not used to price this research. The reason is in the log."], prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}"#),
         ],
     );
 }
@@ -1679,7 +1691,8 @@ fn a_typed_pack_list_takes_back_the_unpriced_tier_sentence() {
             "log fkrecipes: the setting steelworks-axe-seconds was not readable, so its default applies",
             "log fkrecipes: the setting steelworks-axe-packs was not readable, so its default applies",
             &format!(
-                r#"extend {{type="technology", name="steelworks-steel-axes", localised_description=["", "{}"], unit={{count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}}}"#,
+                r#"extend {{type="technology", name="steelworks-steel-axes", localised_description=["", {}, "{}"], unit={{count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}}}"#,
+                description_ref_in("technology", "steelworks-steel-axes"),
                 UNPRICED_TOOLTIP
             ),
         ],
@@ -1721,7 +1734,8 @@ fn a_fallback_that_keeps_no_pack_is_emitted_empty() {
             "log fkrecipes: hardened-tips: none of military-science-pack is present, so the science pack is dropped",
             &packless_log("hardened-tips", &["military-science-pack"]),
             &alloc::format!(
-                r#"extend {{type="technology", name="steelworks-hardened-tips", localised_description=["", "{}"], unit={{count=60, time=30, ingredients=[]}}}}"#,
+                r#"extend {{type="technology", name="steelworks-hardened-tips", localised_description=["", {}, "{}"], unit={{count=60, time=30, ingredients=[]}}}}"#,
+                description_ref_in("technology", "steelworks-hardened-tips"),
                 PACKLESS_TOOLTIP
             ),
         ],
@@ -1775,7 +1789,10 @@ fn a_tier_whose_source_pack_list_is_unreadable_falls_back_to_the_declared_cost()
         &[
             "log fkrecipes: the setting steelworks-tier was not readable, so its default applies",
             &unreadable_source_log("steel-axes", "steel-processing"),
-            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "The steel-processing cost this research copies cannot be read in this game, so that cost was not used to price this research. The reason is in the log."], prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}"#,
+            &(String::from(
+                r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "#,
+            ) + &description_ref_in("technology", "steelworks-steel-axes")
+                + r#", "The steel-processing cost this research copies cannot be read in this game, so that cost was not used to price this research. The reason is in the log."], prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}"#),
         ],
     );
 }
@@ -1852,7 +1869,8 @@ fn a_typed_pack_list_takes_back_the_packless_pair_as_well() {
     assert_has_line(
         &transcript(&ops),
         &alloc::format!(
-            r#"extend {{type="technology", name="steelworks-steel-axes", localised_description=["", "{}"], prerequisites=["steel-processing"], unit={{count=7, time=8, ingredients=[]}}}}"#,
+            r#"extend {{type="technology", name="steelworks-steel-axes", localised_description=["", {}, "{}"], prerequisites=["steel-processing"], unit={{count=7, time=8, ingredients=[]}}}}"#,
+            description_ref_in("technology", "steelworks-steel-axes"),
             PACKLESS_TOOLTIP
         ),
     );
@@ -1938,7 +1956,10 @@ fn a_typed_pack_list_takes_back_a_clamp_the_tier_arm_left_behind() {
         .expect("plan refused");
     assert_has_line(
         &transcript(&ops),
-        r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "Two ingredients resolved onto chemical-science-pack and the total was above what one slot holds, so it was capped at 65535. The reason is in the log."], prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 65535]]}}"#,
+        &(String::from(
+            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "#,
+        ) + &description_ref_in("technology", "steelworks-steel-axes")
+            + r#", "Two ingredients resolved onto chemical-science-pack and the total was above what one slot holds, so it was capped at 65535. The reason is in the log."], prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 65535]]}}"#),
     );
 }
 
@@ -2010,7 +2031,8 @@ fn the_packless_retraction_is_keyed_on_the_declaration_and_not_the_name() {
             "log fkrecipes: the setting steelworks-axe-seconds was not readable, so its default applies",
             "log fkrecipes: steelworks-steel-axes takes its research cost from steelworks-axe-packs: count 50, time 15, packs 3 logistic-science-pack; the steelworks-tier choice early supplies what the settings leave at default",
             &alloc::format!(
-                r#"extend {{type="technology", name="steel-axes", localised_description=["", "{}"], unit={{count=5, time=5, ingredients=[]}}}}"#,
+                r#"extend {{type="technology", name="steel-axes", localised_description=["", {}, "{}"], unit={{count=5, time=5, ingredients=[]}}}}"#,
+                description_ref_in("technology", "steel-axes"),
                 PACKLESS_TOOLTIP
             ),
             r#"extend {type="technology", name="steelworks-steel-axes", prerequisites=["steel-processing"], unit={count=50, ingredients=[["logistic-science-pack", 3]], time=15}}"#,

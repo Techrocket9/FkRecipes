@@ -98,7 +98,9 @@ fn cycle_created_by_insert_between_drops_the_splice() {
         &[
             "log fkrecipes: steel-axes: steel-processing does not require logistics-3, so the new technology is appended to its prerequisites",
             "log fkrecipes: ERROR: steel-axes: making it a prerequisite of steel-processing would loop this game's technology tree (logistics-2 -> steel-processing -> steelworks-steel-axes -> logistics-3 -> logistics-2), so the splice is dropped",
-            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "Making this research a prerequisite of steel-processing would loop this game's technology tree, so it was left out of it. The reason is in the log."], prerequisites=["logistics-3"], unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}"#,
+            &(String::from(r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "#)
+                + &description_ref_in("technology", "steelworks-steel-axes")
+                + r#", "Making this research a prerequisite of steel-processing would loop this game's technology tree, so it was left out of it. The reason is in the log."], prerequisites=["logistics-3"], unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}"#),
         ],
     );
 }
@@ -136,8 +138,12 @@ fn two_rings_are_both_resolved() {
         &[
             "log fkrecipes: ERROR: aaa: requiring logistics-2 would loop this game's technology tree (logistics-2 -> steelworks-aaa -> logistics-2), so the prerequisite is dropped",
             "log fkrecipes: ERROR: bbb: requiring logistics-3 would loop this game's technology tree (logistics-3 -> steelworks-bbb -> logistics-3), so the prerequisite is dropped",
-            r#"extend {type="technology", name="steelworks-aaa", localised_description=["", "Requiring logistics-2 would loop this game's technology tree, so this research was left without that prerequisite. The reason is in the log."], unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}"#,
-            r#"extend {type="technology", name="steelworks-bbb", localised_description=["", "Requiring logistics-3 would loop this game's technology tree, so this research was left without that prerequisite. The reason is in the log."], unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}"#,
+            &(String::from(r#"extend {type="technology", name="steelworks-aaa", localised_description=["", "#)
+                + &description_ref_in("technology", "steelworks-aaa")
+                + r#", "Requiring logistics-2 would loop this game's technology tree, so this research was left without that prerequisite. The reason is in the log."], unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}"#),
+            &(String::from(r#"extend {type="technology", name="steelworks-bbb", localised_description=["", "#)
+                + &description_ref_in("technology", "steelworks-bbb")
+                + r#", "Requiring logistics-3 would loop this game's technology tree, so this research was left without that prerequisite. The reason is in the log."], unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}"#),
         ],
     );
 }
@@ -316,8 +322,12 @@ fn a_dropped_splice_gives_the_anchor_back_to_the_records_built_on_it() {
             "log fkrecipes: plating: automation does not require logistics, so the new technology is appended to its prerequisites",
             "log fkrecipes: ERROR: riveting: making it a prerequisite of automation would loop this game's technology tree (automation -> steelworks-riveting -> electronics -> steelworks-forging -> automation), so the splice is dropped",
             "log fkrecipes: ERROR: forging: making it a prerequisite of electronics would loop this game's technology tree (automation -> electronics -> steelworks-forging -> automation), so the splice is dropped",
-            r#"extend {type="technology", name="steelworks-riveting", localised_description=["", "Making this research a prerequisite of automation would loop this game's technology tree, so it was left out of it. The reason is in the log."], prerequisites=["electronics"], unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}"#,
-            r#"extend {type="technology", name="steelworks-forging", localised_description=["", "Making this research a prerequisite of electronics would loop this game's technology tree, so it was left out of it. The reason is in the log."], prerequisites=["automation"], unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}"#,
+            &(String::from(r#"extend {type="technology", name="steelworks-riveting", localised_description=["", "#)
+                + &description_ref_in("technology", "steelworks-riveting")
+                + r#", "Making this research a prerequisite of automation would loop this game's technology tree, so it was left out of it. The reason is in the log."], prerequisites=["electronics"], unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}"#),
+            &(String::from(r#"extend {type="technology", name="steelworks-forging", localised_description=["", "#)
+                + &description_ref_in("technology", "steelworks-forging")
+                + r#", "Making this research a prerequisite of electronics would loop this game's technology tree, so it was left out of it. The reason is in the log."], prerequisites=["automation"], unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}"#),
             r#"extend {type="technology", name="steelworks-plating", prerequisites=["logistics"], unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}"#,
             // THE ASSERTION THE WHOLE TEST IS FOR. electronics is a prerequisite
             // of automation in the base game and no declaration here asked for

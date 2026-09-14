@@ -315,6 +315,8 @@ fn merged_item_amount_above_the_ceiling_is_clamped() {
             "log fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, and 40000 plus 30000 is above the item ceiling of 65535, so it is capped there",
             r#"extend {type="item", name="steelworks-balancer-part", stack_size=50}"#,
             &(String::from(r#"extend {type="recipe", name="steelworks-balancer-part", localised_description=["", "#)
+                + &description_ref_in("recipe", "steelworks-balancer-part")
+                + ", "
                 + &chunked_params("Two ingredients resolved onto iron-plate and the total was above what one slot holds, so it was capped at 65535. The reason is in the log. Changing a recipe empties an assembling machine's input slots of anything the new list does not use.")
                 + r#"], enabled=true, ingredients=[{type="item", name="iron-plate", amount=65535}], results=[{type="item", name="steelworks-balancer-part", amount=1}]}"#),
         ],
@@ -352,6 +354,8 @@ fn merged_fluid_amount_above_the_ceiling_is_clamped() {
             "log fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, and the added amount is above the fluid ceiling of 1e301, so it is capped there; the ladder from steam resolved onto it",
             r#"extend {type="item", name="steelworks-sulfuric-mix", stack_size=50}"#,
             &(String::from(r#"extend {type="recipe", name="steelworks-sulfuric-mix", localised_description=["", "#)
+                + &description_ref_in("recipe", "steelworks-sulfuric-mix")
+                + ", "
                 + &chunked_params("Two ingredients resolved onto water and the total was above the largest amount the game can hold, so it was capped at 1e301. The reason is in the log. Changing a recipe empties an assembling machine's input slots of anything the new list does not use.")
                 + r#"], category="chemistry", enabled=true, ingredients=[{type="fluid", name="water", amount=1.0000000000000001e301}], results=[{type="item", name="steelworks-sulfuric-mix", amount=1}]}"#),
         ],
@@ -1053,7 +1057,9 @@ fn pack_ladders_that_land_on_one_pack_merge() {
         &[
             "log fkrecipes: steel-axes: automation-science-pack is in the list twice after the fallbacks, so the amounts are added: 40000 plus 30000 is 70000",
             "log fkrecipes: steel-axes: automation-science-pack is in the list twice after the fallbacks, and 40000 plus 30000 is above the item ceiling of 65535, so it is capped there",
-            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "Two ingredients resolved onto automation-science-pack and the total was above what one slot holds, so it was capped at 65535. The reason is in the log."], unit={count=50, time=15, ingredients=[["automation-science-pack", 65535]]}}"#,
+            &(String::from(r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "#)
+                + &description_ref_in("technology", "steelworks-steel-axes")
+                + r#", "Two ingredients resolved onto automation-science-pack and the total was above what one slot holds, so it was capped at 65535. The reason is in the log."], unit={count=50, time=15, ingredients=[["automation-science-pack", 65535]]}}"#),
         ],
     );
 }
@@ -1645,7 +1651,8 @@ fn a_unit_with_every_pack_dropped_is_emitted_empty_and_says_so() {
                 ],
             ),
             &alloc::format!(
-                r#"extend {{type="technology", name="steelworks-steel-axes", localised_description=["", "{}"], unit={{count=75, time=30, ingredients=[]}}}}"#,
+                r#"extend {{type="technology", name="steelworks-steel-axes", localised_description=["", {}, "{}"], unit={{count=75, time=30, ingredients=[]}}}}"#,
+                description_ref_in("technology", "steelworks-steel-axes"),
                 PACKLESS_TOOLTIP
             ),
         ],
@@ -2048,8 +2055,9 @@ fn every_packless_technology_gets_its_own_line_and_tooltip() {
     let ops = lib.plan_data(&base_world()).expect("plan refused");
     let proto = |name: &str| {
         alloc::format!(
-            r#"extend {{type="technology", name="steelworks-{}", localised_description=["", "{}"], unit={{count=50, time=15, ingredients=[]}}}}"#,
+            r#"extend {{type="technology", name="steelworks-{}", localised_description=["", {}, "{}"], unit={{count=50, time=15, ingredients=[]}}}}"#,
             name,
+            description_ref_in("technology", &alloc::format!("steelworks-{}", name)),
             PACKLESS_TOOLTIP
         )
     };
@@ -3464,7 +3472,7 @@ fn a_bound_crafting_time_falls_back() {
                 &alloc::format!("log fkrecipes: ERROR: {}. The mod loaded as though that number had been left alone; fix the number under Settings > Mod settings > Startup, then restart.", c.want),
                 r#"extend {type="item", name="steelworks-steel-axe", stack_size=50}"#,
                 &(String::from(r#"extend {type="recipe", name="steelworks-steel-axe", "#)
-                + &note_in("steelworks-axe-craft-time", false)
+                + &note_in("recipe", "steelworks-steel-axe", "steelworks-axe-craft-time", false)
                 + r#"energy_required=2.5000000000000000e0, enabled=true, ingredients=[], results=[{type="item", name="steelworks-steel-axe", amount=1}]}"#),
             ],
             c.name,
@@ -3519,10 +3527,10 @@ fn one_bad_crafting_time_setting_two_recipes_logs_one_line() {
             r#"extend {type="item", name="steelworks-steel-axe", stack_size=50}"#,
             r#"extend {type="item", name="steelworks-steel-hammer", stack_size=50}"#,
             &(String::from(r#"extend {type="recipe", name="steelworks-steel-axe-forging", "#)
-                + &note_in("steelworks-forging-time", false)
+                + &note_in("recipe", "steelworks-steel-axe-forging", "steelworks-forging-time", false)
                 + r#"energy_required=2.5000000000000000e0, enabled=true, ingredients=[{type="item", name="steel-plate", amount=1}], results=[{type="item", name="steelworks-steel-axe", amount=1}]}"#),
             &(String::from(r#"extend {type="recipe", name="steelworks-steel-hammer-forging", "#)
-                + &note_in("steelworks-forging-time", false)
+                + &note_in("recipe", "steelworks-steel-hammer-forging", "steelworks-forging-time", false)
                 + r#"energy_required=2.5000000000000000e0, enabled=true, ingredients=[{type="item", name="steel-plate", amount=2}], results=[{type="item", name="steelworks-steel-hammer", amount=1}]}"#),
         ],
     );
@@ -3804,7 +3812,9 @@ fn a_copied_unit_drops_a_pack_the_game_does_not_have() {
         &transcript(&ops),
         &[
             "log fkrecipes: steel-axes: logistic-science-pack is not a science pack this game has, so it is left out of the logistics-2 cost",
-            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "This game has no logistic-science-pack, so this research was priced without it. The reason is in the log."], unit={count=200, ingredients=[["automation-science-pack", 1]], time=30}}"#,
+            &(String::from(r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "#)
+                + &description_ref_in("technology", "steelworks-steel-axes")
+                + r#", "This game has no logistic-science-pack, so this research was priced without it. The reason is in the log."], unit={count=200, ingredients=[["automation-science-pack", 1]], time=30}}"#),
         ],
     );
 }
@@ -3851,7 +3861,9 @@ fn a_copied_unit_in_the_long_ingredient_form_is_filtered() {
         &transcript(&ops),
         &[
             "log fkrecipes: steel-axes: military-science-pack is not a science pack this game has, so it is left out of the steel-processing cost",
-            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "This game has no military-science-pack, so this research was priced without it. The reason is in the log."], unit={count=10, ingredients=[{name="automation-science-pack", amount=2, quality="legendary"}], time=15}}"#,
+            &(String::from(r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "#)
+                + &description_ref_in("technology", "steelworks-steel-axes")
+                + r#", "This game has no military-science-pack, so this research was priced without it. The reason is in the log."], unit={count=10, ingredients=[{name="automation-science-pack", amount=2, quality="legendary"}], time=15}}"#),
         ],
     );
 }
@@ -3891,7 +3903,8 @@ fn a_copied_unit_whose_pack_list_is_in_neither_form_is_emptied() {
         &[
             &unreadable_copy_log("steel-axes", "steel-processing"),
             &alloc::format!(
-                r#"extend {{type="technology", name="steelworks-steel-axes", localised_description=["", "{}"], unit={{count=10, ingredients=[], time=15}}}}"#,
+                r#"extend {{type="technology", name="steelworks-steel-axes", localised_description=["", {}, "{}"], unit={{count=10, ingredients=[], time=15}}}}"#,
+                description_ref_in("technology", "steelworks-steel-axes"),
                 unreadable_copy_tooltip("steel-processing")
             ),
         ],
@@ -3925,7 +3938,8 @@ fn a_copied_unit_whose_pack_list_is_in_neither_form_is_emptied() {
         &[
             &unreadable_copy_log("steel-axes", "steel-processing"),
             &alloc::format!(
-                r#"extend {{type="technology", name="steelworks-steel-axes", localised_description=["", "{}"], unit={{count=10, ingredients=[], time=15}}}}"#,
+                r#"extend {{type="technology", name="steelworks-steel-axes", localised_description=["", {}, "{}"], unit={{count=10, ingredients=[], time=15}}}}"#,
+                description_ref_in("technology", "steelworks-steel-axes"),
                 unreadable_copy_tooltip("steel-processing")
             ),
         ],
@@ -3957,7 +3971,8 @@ fn a_copied_unit_that_loses_every_pack_is_emitted_empty() {
             "log fkrecipes: steel-axes: automation-science-pack is not a science pack this game has, so it is left out of the steel-processing cost",
             &packless_log("steel-axes", &["automation-science-pack"]),
             &alloc::format!(
-                r#"extend {{type="technology", name="steelworks-steel-axes", localised_description=["", "{}"], unit={{count=50, ingredients=[], time=15}}}}"#,
+                r#"extend {{type="technology", name="steelworks-steel-axes", localised_description=["", {}, "{}"], unit={{count=50, ingredients=[], time=15}}}}"#,
+                description_ref_in("technology", "steelworks-steel-axes"),
                 PACKLESS_TOOLTIP
             ),
         ],

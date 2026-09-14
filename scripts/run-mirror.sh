@@ -382,8 +382,18 @@ grep -q '^LOG fkrecipes: ERROR: fkrecipes-example-rivet-ingredients, entry 2 ("2
 # player reads the same sentence; what moved is the shape, and the stand-in
 # refuses the old one now, by the same rule and with the same sentence the
 # engine uses.
+#
+# AND IT OPENS WITH THE AUTHOR'S OWN OPTIONAL KEY. This recipe declares a
+# DisplayName and NO Description, which is the arm where the note used to stand
+# in the [recipe-description] entry's place: a prototype's own
+# localised_description field wins over the locale entry, so an author who wrote
+# their description the ordinary Factorio way lost it for the whole of that
+# load. The wrapper here resolves to that entry plus a newline where the author
+# defined it and to NOTHING where they did not (measured on 2.0.77: a
+# concatenation group holding an undefined key is itself a failed alternative,
+# so the newline dies with it and no blank line is left behind).
 grep '^TRANSCRIPT extend#' "$T" |
-  grep -qF '"localised_description"={1="",2="The stored value of fkrecipes-example-rivet-ingredients could not be used, so the game loaded as though that setting had been left alone. The reason is in the log. Changing a ",3="recipe empties an assembling machine'"'"'s input slots of anything the new list does not use."},"localised_name"={1="",2="Steel rivets"},"name"="fkrecipes-example-steel-rivet"' ||
+  grep -qF '"localised_description"={1="",2={1="?",2={1="",2={1="recipe-description.fkrecipes-example-steel-rivet"},3="\n"},3=""},3="The stored value of fkrecipes-example-rivet-ingredients could not be used, so the game loaded as though that setting had been left alone. The reason is in the log. Changing a ",4="recipe empties an assembling machine'"'"'s input slots of anything the new list does not use."},"localised_name"={1="",2="Steel rivets"},"name"="fkrecipes-example-steel-rivet"' ||
   fail "the recipe whose text was set aside carries no note in its own description"
 # AND A RECIPE NOTHING FELL BACK ON CARRIES NONE, which is what says the note is
 # a consequence of the fallback rather than something every prototype now has.

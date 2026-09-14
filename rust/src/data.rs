@@ -10,7 +10,7 @@ use crate::plan::{
     Amount, CostChoice, CustomCost, Ingredient, IngredientChoice, ItemDecl, Lib, Pack, RecipeDecl,
     SettingDecl, TechDecl, UnitSpec,
 };
-use crate::settings::{localised_group, named_cost_sources};
+use crate::settings::{description_ref, localised_group, named_cost_sources};
 use crate::value::{
     finite, kv, localised, localised_chunks, str_arr, Value, CRAFT_TIME_FLOOR, MAX_EXACT_INT,
     MAX_FLUID_AMOUNT, MAX_ITEM_AMOUNT,
@@ -2071,9 +2071,17 @@ pub(crate) const RECIPE_CHANGE_SENTENCE: &str = "Changing a recipe empties an as
 /// could see it. A key wrapped as `{"?", {key}, "literal"}` survives, but the
 /// library has no localisation channel for prototype prose at all:
 /// `append_localised` wraps a consumer's own `description` as a literal too,
-/// and inventing a key would make every consumer owe an entry whose absence
+/// and INVENTING a key would make every consumer owe an entry whose absence
 /// deletes the sentence it was meant to carry. Every sentence this library
 /// composes onto a SETTING is already an English literal for the same reason.
+///
+/// THE ONE KEY A PROTOTYPE DOES CARRY IS NOT INVENTED AND IS NOT THIS SENTENCE.
+/// A note with no declared `description` opens with
+/// [`description_ref`](crate::settings::description_ref)'s wrapper over the
+/// prototype's own `[recipe-description]` or `[technology-description]` entry,
+/// which is a key the author may already have written and owes nothing for; the
+/// note itself is still the literal after it. See that function for the shape
+/// and for the measurement that makes it safe.
 ///
 /// THE TAIL IS SCOPED BY WHAT MOVED, not by what kind of prototype carries it:
 /// `destroys_inputs` is true only where the ingredient list itself changed. See
@@ -2519,7 +2527,14 @@ fn item_proto(prefix: &str, it: &ItemDecl) -> Value {
         kv("type", Value::string("item")),
         kv("name", Value::Str(it.emitted_name(prefix))),
     ];
-    append_localised(&mut pairs, &it.spec.display_name, &it.spec.description, "");
+    append_localised(
+        &mut pairs,
+        "item",
+        &it.emitted_name(prefix),
+        &it.spec.display_name,
+        &it.spec.description,
+        "",
+    );
     if !it.spec.icon.is_empty() {
         pairs.push(kv("icon", Value::string(&it.spec.icon)));
     }
@@ -2576,7 +2591,14 @@ fn recipe_proto(
         kv("type", Value::string("recipe")),
         kv("name", Value::Str(r.emitted_name(prefix))),
     ];
-    append_localised(&mut pairs, &r.spec.display_name, &r.spec.description, note);
+    append_localised(
+        &mut pairs,
+        "recipe",
+        &r.emitted_name(prefix),
+        &r.spec.display_name,
+        &r.spec.description,
+        note,
+    );
     if !r.spec.category.is_empty() {
         pairs.push(kv("category", Value::string(&r.spec.category)));
     }
@@ -2652,7 +2674,14 @@ fn tech_proto(
         kv("type", Value::string("technology")),
         kv("name", Value::Str(t.emitted_name(prefix))),
     ];
-    append_localised(&mut pairs, &t.spec.display_name, &t.spec.description, note);
+    append_localised(
+        &mut pairs,
+        "technology",
+        &t.emitted_name(prefix),
+        &t.spec.display_name,
+        &t.spec.description,
+        note,
+    );
     if !t.spec.icon.is_empty() {
         pairs.push(kv("icon", Value::string(&t.spec.icon)));
     }
@@ -2736,18 +2765,33 @@ fn tech_unit(t: &TechDecl, rt: &ResolvedTech) -> Value {
 /// prototype this library emits, and the note is the trailing line a recipe or
 /// a technology carries when a stored value was set aside.
 ///
-/// THREE SHAPES AND NOT FOUR. An author's description with no note is
+/// FOUR SHAPES. An author's description with no note is
 /// `{"", "<description>"}` byte for byte as it always was, so a golden taken
 /// before this line existed does not move for a load nothing fell back on; a
 /// description with a note adds the note as a further parameter opening with a
-/// newline; and a note with no description is the note alone in the same
-/// two-element shape. Nothing is emitted when there is neither. Each of the
-/// three is the shape of the SHORT case: a part over the chunk budget is more
-/// than one parameter, and the parameters concatenate to the same bytes.
+/// newline; a note with NO description opens with
+/// [`description_ref`](crate::settings::description_ref)'s wrapper, which
+/// resolves to the author's own `[<kind>-description]` entry plus a newline
+/// where they wrote one and to nothing where they did not; and nothing at all
+/// is emitted when there is neither, so the engine resolves that entry on its
+/// own exactly as it always did. Each is the shape of the SHORT case: a part
+/// over the chunk budget is more than one parameter, and the parameters
+/// concatenate to the same bytes.
+///
+/// THE THIRD SHAPE IS WHY THE KIND AND THE EMITTED NAME ARE PARAMETERS. A
+/// prototype's own `localised_description` field WINS OVER the locale entry, so
+/// before that wrapper an author who wrote their description the ordinary
+/// Factorio way, in a `.cfg` rather than in the plan, had it DISPLACED by the
+/// note for the whole of that load. The declared `description` arm does NOT
+/// compose the key, and that is the deliberate half of it: an author who put
+/// their description in the plan wrote the literal that takes the entry's place
+/// already, and composing both would print it twice.
 ///
 /// AN ITEM NEVER CARRIES A NOTE, so `item_proto` passes the empty string. The
 /// fallback is about what a recipe makes or what a technology costs, and an
-/// item prototype is neither.
+/// item prototype is neither, so an item never reaches the third shape and
+/// never composes a key. Keep it that way: the kind and the name an item passes
+/// are never read.
 ///
 /// EVERY PARAMETER IS CHUNKED AND THE WHOLE IS GROUPED, because the engine
 /// polices ONE STRING ELEMENT at 200 BYTES on a data-stage prototype and the
@@ -2792,6 +2836,8 @@ fn tech_unit(t: &TechDecl, rt: &ResolvedTech) -> Value {
 /// rule.
 fn append_localised(
     pairs: &mut Vec<(String, Value)>,
+    kind: &str,
+    name: &str,
     display_name: &str,
     description: &str,
     note: &str,
@@ -2806,7 +2852,17 @@ fn append_localised(
             pairs.push(kv("localised_description", localised_group(&params)));
         }
         (false, true) => pairs.push(kv("localised_description", localised(description))),
-        (true, false) => pairs.push(kv("localised_description", localised(note))),
+        (true, false) => {
+            let mut params = Vec::new();
+            // The key form is dropped rather than composed where it would not
+            // fit the engine's element ceiling, which leaves the shape this arm
+            // had before the wrapper existed. See `description_ref`.
+            if let Some(reference) = description_ref(kind, name) {
+                params.push(reference);
+            }
+            params.extend(localised_chunks(note));
+            pairs.push(kv("localised_description", localised_group(&params)));
+        }
         (true, true) => {}
     }
 }

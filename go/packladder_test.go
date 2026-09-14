@@ -217,7 +217,7 @@ func TestPackLaddersThatLandOnOnePackMerge(t *testing.T) {
 		`log fkrecipes: steel-axes: automation-science-pack is in the list twice after the fallbacks, so the amounts are added: 40000 plus 30000 is 70000`,
 		`log fkrecipes: steel-axes: automation-science-pack is in the list twice after the fallbacks, and 40000 plus 30000 is above the item ceiling of 65535, so it is capped there`,
 		`extend {type="technology", name="steelworks-steel-axes", ` +
-			`localised_description=["", "Two ingredients resolved onto automation-science-pack and the total was above what one slot holds, so it was capped at 65535. The reason is in the log."], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-steel-axes") + `, "Two ingredients resolved onto automation-science-pack and the total was above what one slot holds, so it was capped at 65535. The reason is in the log."], ` +
 			`unit={count=50, time=15, ingredients=[["automation-science-pack", 65535]]}}`,
 	})
 }
@@ -341,7 +341,7 @@ func TestAUnitWithEveryPackDroppedIsEmittedEmptyAndSaysSo(t *testing.T) {
 		`log fkrecipes: steel-axes: none of space-science-pack, metallurgic-science-pack is present, so the science pack is dropped`,
 		packlessLog("steel-axes", "military-science-pack", "space-science-pack", "metallurgic-science-pack"),
 		`extend {type="technology", name="steelworks-steel-axes", ` +
-			`localised_description=["", "` + packlessTooltip + `"], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-steel-axes") + `, "` + packlessTooltip + `"], ` +
 			`unit={count=50, time=15, ingredients=[]}}`,
 	})
 }
@@ -372,10 +372,10 @@ func TestEveryPacklessTechnologyGetsItsOwnLineAndTooltip(t *testing.T) {
 		`log fkrecipes: aaa-first: none of military-science-pack is present, so the science pack is dropped`,
 		packlessLog("aaa-first", "military-science-pack"),
 		`extend {type="technology", name="steelworks-bbb-second", ` +
-			`localised_description=["", "` + packlessTooltip + `"], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-bbb-second") + `, "` + packlessTooltip + `"], ` +
 			`unit={count=50, time=15, ingredients=[]}}`,
 		`extend {type="technology", name="steelworks-aaa-first", ` +
-			`localised_description=["", "` + packlessTooltip + `"], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-aaa-first") + `, "` + packlessTooltip + `"], ` +
 			`unit={count=50, time=15, ingredients=[]}}`,
 	})
 }
@@ -602,7 +602,7 @@ func TestFallbackPacksAreProbedOnlyWhenTheFallbackApplies(t *testing.T) {
 			`log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies`,
 			`log fkrecipes: hardened-tips: no source for the logistics cost carries a unit, so the fallback cost applies and the technology has no prerequisite`,
 			`extend {type="technology", name="steelworks-hardened-tips", ` +
-				`localised_description=["", "` + unpricedTooltip + `"], ` +
+				`localised_description=["", ` + descriptionRefIn("technology", "steelworks-hardened-tips") + `, "` + unpricedTooltip + `"], ` +
 				`unit={count=60, time=30, ingredients=[["logistic-science-pack", 1]]}}`,
 		})
 		if !w.wasAsked("logistic-science-pack") {
@@ -640,7 +640,7 @@ func TestFallbackPackDropsInLogOrder(t *testing.T) {
 		`log fkrecipes: hardened-tips: no source for the logistics cost carries a unit, so the fallback cost applies and the technology has no prerequisite`,
 		`log fkrecipes: hardened-tips: none of military-science-pack, space-science-pack is present, so the science pack is dropped`,
 		`extend {type="technology", name="steelworks-hardened-tips", ` +
-			`localised_description=["", "` + unpricedTooltip + `"], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-hardened-tips") + `, "` + unpricedTooltip + `"], ` +
 			`unit={count=60, time=30, ingredients=[["automation-science-pack", 1]]}}`,
 	})
 }
@@ -728,7 +728,7 @@ func TestACopiedUnitDropsAPackTheGameDoesNotHave(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: steel-axes: logistic-science-pack is not a science pack this game has, so it is left out of the logistics-2 cost`,
 		`extend {type="technology", name="steelworks-steel-axes", ` +
-			`localised_description=["", "This game has no logistic-science-pack, so this research was priced without it. The reason is in the log."], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-steel-axes") + `, "This game has no logistic-science-pack, so this research was priced without it. The reason is in the log."], ` +
 			`unit={count=200, ingredients=[["automation-science-pack", 1]], time=30}}`,
 	})
 }
@@ -756,7 +756,7 @@ func TestACopiedUnitInTheLongIngredientFormIsFiltered(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: steel-axes: military-science-pack is not a science pack this game has, so it is left out of the steel-processing cost`,
 		`extend {type="technology", name="steelworks-steel-axes", ` +
-			`localised_description=["", "This game has no military-science-pack, so this research was priced without it. The reason is in the log."], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-steel-axes") + `, "This game has no military-science-pack, so this research was priced without it. The reason is in the log."], ` +
 			`unit={count=10, ingredients=[{name="automation-science-pack", amount=2, quality="legendary"}], time=15}}`,
 	})
 }
@@ -849,7 +849,7 @@ func TestACopiedUnitWhosePackListIsInNeitherFormIsEmptied(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		unreadableCopyLog("steel-axes", "steel-processing"),
 		`extend {type="technology", name="steelworks-steel-axes", ` +
-			`localised_description=["", "` + unreadableCopyTooltip("steel-processing") + `"], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-steel-axes") + `, "` + unreadableCopyTooltip("steel-processing") + `"], ` +
 			`unit={count=10, ingredients=[], time=15}}`,
 	})
 
@@ -869,7 +869,7 @@ func TestACopiedUnitWhosePackListIsInNeitherFormIsEmptied(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		unreadableCopyLog("steel-axes", "steel-processing"),
 		`extend {type="technology", name="steelworks-steel-axes", ` +
-			`localised_description=["", "` + unreadableCopyTooltip("steel-processing") + `"], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-steel-axes") + `, "` + unreadableCopyTooltip("steel-processing") + `"], ` +
 			`unit={count=10, ingredients=[], time=15}}`,
 	})
 }
@@ -910,7 +910,7 @@ func TestACopiedUnitThatLosesEveryPackIsEmittedEmpty(t *testing.T) {
 		`log fkrecipes: steel-axes: automation-science-pack is not a science pack this game has, so it is left out of the steel-processing cost`,
 		packlessLog("steel-axes", "automation-science-pack"),
 		`extend {type="technology", name="steelworks-steel-axes", ` +
-			`localised_description=["", "` + packlessTooltip + `"], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-steel-axes") + `, "` + packlessTooltip + `"], ` +
 			`unit={count=50, ingredients=[], time=15}}`,
 	})
 }
@@ -955,7 +955,7 @@ func TestATierWhoseCopiedUnitDropsOnePackKeepsTheRest(t *testing.T) {
 		`log fkrecipes: the setting steelworks-tier was not readable, so its default applies`,
 		`log fkrecipes: steel-axes: logistic-science-pack is not a science pack this game has, so it is left out of the logistics-2 cost`,
 		`extend {type="technology", name="steelworks-steel-axes", ` +
-			`localised_description=["", "This game has no logistic-science-pack, so this research was priced without it. The reason is in the log."], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-steel-axes") + `, "This game has no logistic-science-pack, so this research was priced without it. The reason is in the log."], ` +
 			`prerequisites=["logistics-2"], unit={count=200, ingredients=[["automation-science-pack", 1]], time=30}}`,
 	})
 }
@@ -986,7 +986,7 @@ func TestATierWhoseCopiedUnitLosesEveryPackTakesTheDeclaredFallback(t *testing.T
 		`log fkrecipes: steel-axes: automation-science-pack is not a science pack this game has, so it is left out of the steel-processing cost`,
 		`log fkrecipes: ERROR: steel-axes: the steel-processing cost names no science pack this game has, so this mod's own declared cost applies instead`,
 		`extend {type="technology", name="steelworks-steel-axes", ` +
-			`localised_description=["", "This game has none of the science packs the steel-processing cost names, so that cost was not used to price this research. The reason is in the log."], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-steel-axes") + `, "This game has none of the science packs the steel-processing cost names, so that cost was not used to price this research. The reason is in the log."], ` +
 			`prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}`,
 	})
 }
@@ -1027,7 +1027,7 @@ func TestATierWhoseSourcesCarryNoCostSaysSoOnTheTechnology(t *testing.T) {
 		`log fkrecipes: the setting steelworks-tier was not readable, so its default applies`,
 		`log fkrecipes: balancer: no source for the logistics cost carries a unit, so the fallback cost applies and the technology has no prerequisite`,
 		`extend {type="technology", name="steelworks-balancer", ` +
-			`localised_description=["", "` + unpricedTooltip + `"], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-balancer") + `, "` + unpricedTooltip + `"], ` +
 			`unit={count=20, time=15, ingredients=[["automation-science-pack", 1]]}}`,
 	})
 }
@@ -1066,7 +1066,7 @@ func TestATierWhoseOnlySourceCarriesAnUnusableCostSaysSoToo(t *testing.T) {
 		`log fkrecipes: the setting steelworks-tier was not readable, so its default applies`,
 		`log fkrecipes: balancer: no source for the logistics cost carries a unit, so the fallback cost applies and the technology has no prerequisite`,
 		`extend {type="technology", name="steelworks-balancer", ` +
-			`localised_description=["", "` + unpricedTooltip + `"], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-balancer") + `, "` + unpricedTooltip + `"], ` +
 			`unit={count=20, time=15, ingredients=[["automation-science-pack", 1]]}}`,
 	})
 }
@@ -1099,7 +1099,7 @@ func TestAnUnpricedTierYieldsTheSlotToThePacklessNote(t *testing.T) {
 		`log fkrecipes: balancer: none of military-science-pack is present, so the science pack is dropped`,
 		packlessLog("balancer", "military-science-pack"),
 		`extend {type="technology", name="steelworks-balancer", ` +
-			`localised_description=["", "` + packlessTooltip + `"], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-balancer") + `, "` + packlessTooltip + `"], ` +
 			`unit={count=20, time=15, ingredients=[]}}`,
 	})
 
@@ -1166,7 +1166,7 @@ func TestATypedPackListTakesBackTheTiersPacklessSentence(t *testing.T) {
 		`log fkrecipes: the setting steelworks-axe-seconds was not readable, so its default applies`,
 		`log fkrecipes: the setting steelworks-axe-packs was not readable, so its default applies`,
 		`extend {type="technology", name="steelworks-steel-axes", ` +
-			`localised_description=["", "This game has none of the science packs the steel-processing cost names, so that cost was not used to price this research. The reason is in the log."], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-steel-axes") + `, "This game has none of the science packs the steel-processing cost names, so that cost was not used to price this research. The reason is in the log."], ` +
 			`prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}`,
 	})
 }
@@ -1230,7 +1230,7 @@ func TestATypedPackListTakesBackTheUnpricedTierSentence(t *testing.T) {
 		`log fkrecipes: the setting steelworks-axe-seconds was not readable, so its default applies`,
 		`log fkrecipes: the setting steelworks-axe-packs was not readable, so its default applies`,
 		`extend {type="technology", name="steelworks-steel-axes", ` +
-			`localised_description=["", "` + unpricedTooltip + `"], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-steel-axes") + `, "` + unpricedTooltip + `"], ` +
 			`unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}`,
 	})
 }
@@ -1379,7 +1379,7 @@ func TestATierWhoseSourcePackListIsUnreadableFallsBackToTheDeclaredCost(t *testi
 		`log fkrecipes: the setting steelworks-tier was not readable, so its default applies`,
 		unreadableSourceLog("steel-axes", "steel-processing"),
 		`extend {type="technology", name="steelworks-steel-axes", ` +
-			`localised_description=["", "The steel-processing cost this research copies cannot be read in this game, ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-steel-axes") + `, "The steel-processing cost this research copies cannot be read in this game, ` +
 			`so that cost was not used to price this research. The reason is in the log."], ` +
 			`prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}`,
 	})
@@ -1430,7 +1430,7 @@ func TestATypedPackListTakesBackThePacklessPairAsWell(t *testing.T) {
 		packlessLog("steel-axes", "automation-science-pack", "military-science-pack"))
 	assertHasLine(t, transcript(ops),
 		`extend {type="technology", name="steelworks-steel-axes", `+
-			`localised_description=["", "`+packlessTooltip+`"], `+
+			`localised_description=["", `+descriptionRefIn("technology", "steelworks-steel-axes")+`, "`+packlessTooltip+`"], `+
 			`prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[]}}`)
 }
 
@@ -1493,7 +1493,7 @@ func TestATypedPackListTakesBackAClampTheTierArmLeftBehind(t *testing.T) {
 	assertNoError(t, err)
 	assertHasLine(t, transcript(ops),
 		`extend {type="technology", name="steelworks-steel-axes", `+
-			`localised_description=["", "Two ingredients resolved onto chemical-science-pack and the total `+
+			`localised_description=["", `+descriptionRefIn("technology", "steelworks-steel-axes")+`, "Two ingredients resolved onto chemical-science-pack and the total `+
 			`was above what one slot holds, so it was capped at 65535. The reason is in the log."], `+
 			`prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 65535]]}}`)
 }
@@ -1540,7 +1540,7 @@ func TestThePacklessRetractionIsKeyedOnTheDeclarationAndNotTheName(t *testing.T)
 		`log fkrecipes: the setting steelworks-axe-seconds was not readable, so its default applies`,
 		`log fkrecipes: steelworks-steel-axes takes its research cost from steelworks-axe-packs: count 50, time 15, packs 3 logistic-science-pack; the steelworks-tier choice early supplies what the settings leave at default`,
 		`extend {type="technology", name="steel-axes", ` +
-			`localised_description=["", "` + packlessTooltip + `"], ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steel-axes") + `, "` + packlessTooltip + `"], ` +
 			`unit={count=5, time=5, ingredients=[]}}`,
 		`extend {type="technology", name="steelworks-steel-axes", prerequisites=["steel-processing"], ` +
 			`unit={count=50, ingredients=[["logistic-science-pack", 3]], time=15}}`,

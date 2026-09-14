@@ -128,8 +128,8 @@ fn no_composition_reaches_the_element_ceiling() {
         }
     }
     assert_eq!(
-        described, 28,
-        "the fixture emitted {} localised_description fields, not the 28 it declares; \
+        described, 30,
+        "the fixture emitted {} localised_description fields, not the 30 it declares; \
          the walk below would prove nothing about the ones it lost",
         described
     );
@@ -245,7 +245,7 @@ fn walk_value_for_ceilings(where_: &str, path: &str, v: &Value, localised: bool)
 /// reached from the PUBLIC surface and each one with the longest legal name in
 /// the slot its sentence names.
 ///
-/// TWENTY-EIGHT DESCRIPTIONS, and the count is asserted above:
+/// THIRTY DESCRIPTIONS, and the count is asserted above:
 ///
 /// - an item with a display name and a description;
 /// - a recipe carrying the FALLBACK note, with a description and without;
@@ -261,6 +261,8 @@ fn walk_value_for_ceilings(where_: &str, path: &str, v: &Value, localised: bool)
 /// - a technology carrying the CYCLE-PREREQUISITE note, with and without;
 /// - a technology carrying the CYCLE-SPLICE note, with and without;
 /// - a technology carrying the clamped PACK note, with and without;
+/// - a recipe and a technology at the longest name whose composed
+///   `[<kind>-description]` key FITS the element ceiling, both undescribed;
 /// - and an item whose description alone is long enough to NEST.
 ///
 /// THE LAST TWO ROWS ADDED ARE THE ONES THE COUNT ALONE COULD NOT HAVE CAUGHT.
@@ -627,6 +629,46 @@ fn worst_case_plan() -> (Lib, FixtureWorld) {
         );
     }
 
+    // THE COMPOSED DESCRIPTION KEY AT EXACTLY THE ELEMENT CEILING, one of each
+    // kind. Every other row here is named at `FIXTURE_NAME_BYTES`, where the
+    // composed key is over the ceiling and `description_ref` DROPS it, so
+    // without these two the walk would measure the drop twice and a composed
+    // key never. The names are the longest whose key fits, which makes the key
+    // element the walk reads exactly `LOCALISED_ELEMENT_CEILING` bytes: see
+    // `description_key_ceiling` for the arithmetic and for why the case is
+    // reachable at all.
+    let keyed_recipe = pad_name(
+        "keyed-recipe",
+        description_key_ceiling("recipe") - FIXTURE_PREFIX.len(),
+    );
+    let keyed_result = lib.item(&declared_name("keyed-recipe-item"), ItemSpec::default());
+    let keyed_parts = lib.ingredients_setting(
+        &declared_name("keyed-recipe-setting"),
+        alloc::vec![Ingredient::named(1, &item, &[])],
+    );
+    lib.recipe(
+        keyed_result,
+        RecipeSpec {
+            name: keyed_recipe,
+            ingredients_from: Some(keyed_parts),
+            ..Default::default()
+        },
+    );
+    lib.technology(
+        &pad_name(
+            "keyed-tech",
+            description_key_ceiling("technology") - FIXTURE_PREFIX.len(),
+        ),
+        TechSpec {
+            unit: Some(UnitSpec {
+                count: 10,
+                seconds: 15.0,
+                packs: alloc::vec![Pack::named(1, &absent_pack, &[])],
+            }),
+            ..Default::default()
+        },
+    );
+
     // The copied unit the DROPPED-PACK note reads names one pack the game has
     // and one it does not; the PACKLESS-SOURCE one names only the pack it does
     // not.
@@ -714,6 +756,14 @@ fn worst_case_plan() -> (Lib, FixtureWorld) {
             Value::Str(format!("1 {}", existing_name("nothing-is-named-this"))),
         );
     }
+    w = w.with_setting(
+        &format!(
+            "{}{}",
+            FIXTURE_PREFIX,
+            declared_name("keyed-recipe-setting")
+        ),
+        Value::Str(format!("1 {}", existing_name("nothing-is-named-this"))),
+    );
     (lib, w)
 }
 
@@ -832,5 +882,334 @@ fn the_chunker_splits_on_spaces_within_the_budget() {
                 LOCALISED_CHUNK_BUDGET
             );
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// THE AUTHOR'S OWN DESCRIPTION SURVIVES A NOTE.
+//
+// A prototype's own `localised_description` field WINS OVER the
+// `[recipe-description]` or `[technology-description]` entry a `.cfg` defines,
+// so a note emitted as `{"", "<note>"}` DISPLACED the description of every
+// author who wrote one the ordinary Factorio way. `description_ref` is the
+// answer: the note opens with the author's own key behind an empty
+// alternative, so the engine renders their sentence and a newline where they
+// wrote one and nothing where they did not.
+// ---------------------------------------------------------------------------
+
+/// The longest EMITTED prototype name of a kind whose composed
+/// `[<kind>-description]` key is exactly [`LOCALISED_ELEMENT_CEILING`] bytes.
+///
+/// THE ARITHMETIC IS THE WHOLE POINT OF THIS TEST. A key is ONE element by
+/// definition and cannot be chunked, the engine polices the key slot at 200
+/// bytes like every other element, and the engine's own prototype-name ceiling
+/// is 200 bytes with nothing shorter refused anywhere in this library. So
+/// `technology-description.` at 23 bytes over a 200-byte name is a 223-byte
+/// element the engine refuses: the case is REACHABLE, and `description_ref`
+/// drops the key form above the length below rather than composing a load
+/// failure.
+fn description_key_ceiling(kind: &str) -> usize {
+    LOCALISED_ELEMENT_CEILING - format!("{}-description.", kind).len()
+}
+
+/// One plan reaching all four of `append_localised`'s cases at once: a recipe
+/// and a technology each carrying a note, one of each WITH a declared
+/// `description` and one WITHOUT, plus an item that carries no note at all.
+///
+/// THE TWO KINDS ARE BOTH HERE BECAUSE THE SECTION IS THE PROTOTYPE'S OWN. A
+/// composer that typed one kind in as a constant would satisfy a fixture
+/// holding only recipes, so the assertions below name `recipe-description` on a
+/// recipe and `technology-description` on a technology and would go red one at
+/// a time.
+fn note_fixture() -> (Lib, FixtureWorld) {
+    let mut lib = Lib::new();
+
+    // A recipe whose stored ingredient text the language refuses: a note, and
+    // no description of its own.
+    let bare = lib.item("bare-rivet", ItemSpec::default());
+    let bare_parts = lib.ingredients_setting(
+        "bare-ingredients",
+        alloc::vec![Ingredient::named(1, "iron-plate", &[])],
+    );
+    lib.recipe(
+        bare,
+        RecipeSpec {
+            name: String::from("bare-forging"),
+            ingredients_from: Some(bare_parts),
+            ..Default::default()
+        },
+    );
+
+    // The same recipe WITH a description, which is the case that must not
+    // compose a key: the author's literal already takes the entry's place.
+    let described = lib.item("described-rivet", ItemSpec::default());
+    let described_parts = lib.ingredients_setting(
+        "described-ingredients",
+        alloc::vec![Ingredient::named(1, "iron-plate", &[])],
+    );
+    lib.recipe(
+        described,
+        RecipeSpec {
+            name: String::from("described-forging"),
+            description: String::from("Forged from plate."),
+            ingredients_from: Some(described_parts),
+            ..Default::default()
+        },
+    );
+
+    // A technology the game has no science pack for: a note, and no
+    // description; and its described twin.
+    lib.technology(
+        "bare-riveting",
+        TechSpec {
+            unit: Some(UnitSpec {
+                count: 10,
+                seconds: 15.0,
+                packs: alloc::vec![Pack::named(1, "space-science-pack", &[])],
+            }),
+            ..Default::default()
+        },
+    );
+    lib.technology(
+        "described-riveting",
+        TechSpec {
+            description: String::from("Teaches riveting."),
+            unit: Some(UnitSpec {
+                count: 10,
+                seconds: 15.0,
+                packs: alloc::vec![Pack::named(1, "space-science-pack", &[])],
+            }),
+            ..Default::default()
+        },
+    );
+
+    // And the two prototypes NOTHING fell back on, which is what proves the
+    // unchanged cases are unchanged.
+    let quiet = lib.item(
+        "quiet-plate",
+        ItemSpec {
+            description: String::from("An ordinary plate."),
+            ..Default::default()
+        },
+    );
+    lib.recipe(
+        quiet,
+        RecipeSpec {
+            name: String::from("quiet-forging"),
+            ingredients: alloc::vec![Ingredient::named(1, "iron-plate", &[])],
+            ..Default::default()
+        },
+    );
+    lib.technology(
+        "quiet-research",
+        TechSpec {
+            unit: Some(UnitSpec {
+                count: 10,
+                seconds: 15.0,
+                packs: alloc::vec![Pack::named(1, "automation-science-pack", &[])],
+            }),
+            ..Default::default()
+        },
+    );
+
+    let w = base_world()
+        .with_setting("steelworks-bare-ingredients", Value::string("1 unobtanium"))
+        .with_setting(
+            "steelworks-described-ingredients",
+            Value::string("1 unobtanium"),
+        );
+    (lib, w)
+}
+
+/// Every prototype a plan emits, by emitted name.
+fn emitted_protos(lib: &Lib, w: &FixtureWorld) -> Vec<(String, Value)> {
+    let ops = lib.plan_data(w).expect("plan refused");
+    let mut out = Vec::new();
+    for op in &ops {
+        if let Op::Extend(proto) = op {
+            if let Some(Value::Str(name)) = field(proto, "name") {
+                out.push((name, proto.clone()));
+            }
+        }
+    }
+    out
+}
+
+fn description_of(protos: &[(String, Value)], name: &str) -> Option<String> {
+    let proto = protos
+        .iter()
+        .find(|(n, _)| n == name)
+        .unwrap_or_else(|| panic!("the plan emitted no prototype named {}", name));
+    field(&proto.1, "localised_description").map(|v| render_value(&v))
+}
+
+/// A NOTE WITH NO DECLARED DESCRIPTION REFERENCES THE AUTHOR'S OWN ENTRY, and
+/// the section is the PROTOTYPE'S: a recipe composes `recipe-description` and a
+/// technology `technology-description`.
+#[test]
+fn a_note_with_no_description_composes_the_prototypes_own_key() {
+    let (lib, w) = note_fixture();
+    let protos = emitted_protos(&lib, &w);
+
+    for (proto, kind, note) in [
+        (
+            "steelworks-bare-forging",
+            "recipe",
+            crate::data::fallback_note("steelworks-bare-ingredients", true),
+        ),
+        (
+            "steelworks-bare-riveting",
+            "technology",
+            String::from(PACKLESS_TOOLTIP),
+        ),
+    ] {
+        let want = format!(
+            r#"["", {}, {}]"#,
+            description_ref_in(kind, proto),
+            chunked_params(&note)
+        );
+        assert_eq!(
+            description_of(&protos, proto).unwrap_or_default(),
+            want,
+            "{}",
+            proto
+        );
+    }
+}
+
+/// A DECLARED DESCRIPTION BESIDE A NOTE COMPOSES NO KEY AT ALL, which is what
+/// says the two cases did not get crossed. The author put their description in
+/// the plan, so that literal IS their description.
+#[test]
+fn a_declared_description_beside_a_note_composes_no_key() {
+    let (lib, w) = note_fixture();
+    let protos = emitted_protos(&lib, &w);
+
+    for (proto, description, note) in [
+        (
+            "steelworks-described-forging",
+            "Forged from plate.",
+            crate::data::fallback_note("steelworks-described-ingredients", true),
+        ),
+        (
+            "steelworks-described-riveting",
+            "Teaches riveting.",
+            String::from(PACKLESS_TOOLTIP),
+        ),
+    ] {
+        let want = format!(
+            r#"["", "{}", {}]"#,
+            description,
+            chunked_params(&format!("\n{}", note))
+        );
+        let got = description_of(&protos, proto).unwrap_or_default();
+        assert_eq!(got, want, "{}", proto);
+        assert!(
+            !got.contains("-description."),
+            "{} composed a locale key beside the author's own literal: {}",
+            proto,
+            got
+        );
+    }
+}
+
+/// A PROTOTYPE WITH NO NOTE IS WHAT IT ALWAYS WAS, byte for byte, declared
+/// description or not. A golden taken before this change must not move for a
+/// load nothing fell back on.
+#[test]
+fn a_prototype_with_no_note_is_unchanged() {
+    let (lib, w) = note_fixture();
+    let protos = emitted_protos(&lib, &w);
+
+    // A declared description with no note stays the two-element literal.
+    assert_eq!(
+        description_of(&protos, "steelworks-quiet-plate").unwrap_or_default(),
+        r#"["", "An ordinary plate."]"#,
+        "an item with a description and no note"
+    );
+    // And neither with a note nor a description emits the field at all, so the
+    // engine resolves the author's own entry exactly as it always did.
+    for name in ["steelworks-quiet-forging", "steelworks-quiet-research"] {
+        assert_eq!(
+            description_of(&protos, name),
+            None,
+            "{} emitted a localised_description with neither a description nor a note",
+            name
+        );
+    }
+}
+
+/// THE KEY FORM IS COMPOSED UP TO THE ELEMENT CEILING AND DROPPED ABOVE IT, one
+/// byte either side, on both kinds.
+#[test]
+fn the_description_key_is_dropped_where_it_would_not_fit() {
+    for kind in ["recipe", "technology"] {
+        let fits = description_key_ceiling(kind);
+        for (what, bytes, want) in [
+            ("the longest name whose key fits", fits, true),
+            ("one byte more", fits + 1, false),
+        ] {
+            let name = pad_name("q", bytes);
+            let composed = crate::settings::description_ref(kind, &name);
+            assert_eq!(
+                composed.is_some(),
+                want,
+                "{}, {}: a {}-byte name",
+                kind,
+                what,
+                bytes
+            );
+            // EVERY STEP DOWN TO THE KEY IS UNCONDITIONAL, which is not a
+            // style choice: nested `if let`s with no `else` make a differently
+            // shaped return skip the assertion below and leave this test green
+            // over the very thing it exists to measure. The Go twin indexes
+            // straight down and panics on a wrong shape; these arms do the
+            // same, and each names the value it actually got.
+            let Some(composed) = composed else {
+                continue;
+            };
+            let Value::Arr(outer) = &composed else {
+                panic!(
+                    "{}, {}: description_ref returned {:?}, not an array",
+                    kind, what, composed
+                );
+            };
+            let Value::Arr(group) = &outer[1] else {
+                panic!(
+                    "{}, {}: the wrapper's second slot is {:?}, not the concatenation group",
+                    kind, what, outer[1]
+                );
+            };
+            let Value::Arr(table) = &group[1] else {
+                panic!(
+                    "{}, {}: the group's second slot is {:?}, not the key table",
+                    kind, what, group[1]
+                );
+            };
+            let Value::Str(key) = &table[0] else {
+                panic!(
+                    "{}, {}: the key table holds {:?}, not a string key",
+                    kind, what, table[0]
+                );
+            };
+            assert_eq!(
+                key.len(),
+                LOCALISED_ELEMENT_CEILING,
+                "{}, {}: the key is not exactly the ceiling",
+                kind,
+                what
+            );
+        }
+        // AND THE FIXTURE PLAN'S OWN NAMES ARE ABOVE IT, which is what the
+        // element walk above measures: at `FIXTURE_NAME_BYTES` every composed
+        // key would be over the ceiling, so the walk sees the drop rather than
+        // a refusal.
+        assert!(
+            FIXTURE_NAME_BYTES > description_key_ceiling(kind),
+            "a {}-byte {} name composes a key that fits, so worst_case_plan no longer \
+             reaches the drop arm at all",
+            FIXTURE_NAME_BYTES,
+            kind
+        );
     }
 }

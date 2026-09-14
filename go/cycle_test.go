@@ -70,7 +70,7 @@ func TestCycleCreatedByInsertBetweenDropsTheSplice(t *testing.T) {
 			`this game's technology tree (logistics-2 -> steel-processing -> steelworks-steel-axes -> ` +
 			`logistics-3 -> logistics-2), so the splice is dropped`,
 		`extend {type="technology", name="steelworks-steel-axes", ` +
-			`localised_description=["", "Making this research a prerequisite of steel-processing would loop ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-steel-axes") + `, "Making this research a prerequisite of steel-processing would loop ` +
 			`this game's technology tree, so it was left out of it. The reason is in the log."], ` +
 			`prerequisites=["logistics-3"], unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}`,
 	})
@@ -184,11 +184,11 @@ func TestTwoRingsAreBothResolved(t *testing.T) {
 		`log fkrecipes: ERROR: bbb: requiring logistics-3 would loop this game's technology tree ` +
 			`(logistics-3 -> steelworks-bbb -> logistics-3), so the prerequisite is dropped`,
 		`extend {type="technology", name="steelworks-aaa", ` +
-			`localised_description=["", "Requiring logistics-2 would loop this game's technology tree, ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-aaa") + `, "Requiring logistics-2 would loop this game's technology tree, ` +
 			`so this research was left without that prerequisite. The reason is in the log."], ` +
 			`unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}`,
 		`extend {type="technology", name="steelworks-bbb", ` +
-			`localised_description=["", "Requiring logistics-3 would loop this game's technology tree, ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-bbb") + `, "Requiring logistics-3 would loop this game's technology tree, ` +
 			`so this research was left without that prerequisite. The reason is in the log."], ` +
 			`unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}`,
 	})
@@ -232,11 +232,11 @@ func TestADroppedSpliceGivesTheAnchorBackToTheRecordsBuiltOnIt(t *testing.T) {
 		`log fkrecipes: ERROR: forging: making it a prerequisite of electronics would loop this game's technology tree ` +
 			`(automation -> electronics -> steelworks-forging -> automation), so the splice is dropped`,
 		`extend {type="technology", name="steelworks-riveting", ` +
-			`localised_description=["", "Making this research a prerequisite of automation would loop this game's ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-riveting") + `, "Making this research a prerequisite of automation would loop this game's ` +
 			`technology tree, so it was left out of it. The reason is in the log."], ` +
 			`prerequisites=["electronics"], unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}`,
 		`extend {type="technology", name="steelworks-forging", ` +
-			`localised_description=["", "Making this research a prerequisite of electronics would loop this game's ` +
+			`localised_description=["", ` + descriptionRefIn("technology", "steelworks-forging") + `, "Making this research a prerequisite of electronics would loop this game's ` +
 			`technology tree, so it was left out of it. The reason is in the log."], ` +
 			`prerequisites=["automation"], unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}`,
 		`extend {type="technology", name="steelworks-plating", prerequisites=["logistics"], ` +

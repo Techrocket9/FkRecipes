@@ -106,8 +106,8 @@ func TestNoCompositionReachesTheElementCeiling(t *testing.T) {
 			described += localisedDescriptions(op.Proto)
 		}
 	}
-	if described != 28 {
-		t.Fatalf("the fixture emitted %d localised_description fields, not the 28 it declares;"+
+	if described != 30 {
+		t.Fatalf("the fixture emitted %d localised_description fields, not the 30 it declares;"+
 			" the walk below would prove nothing about the ones it lost", described)
 	}
 
@@ -204,7 +204,7 @@ func walkValueForCeilings(t *testing.T, where, path string, v Value, localised b
 // prototype, each one reached from the PUBLIC surface and each one with the
 // longest legal name in the slot its sentence names.
 //
-// TWENTY-EIGHT DESCRIPTIONS, and the count is asserted above:
+// THIRTY DESCRIPTIONS, and the count is asserted above:
 //
 //	an item with a display name and a description;
 //	a recipe carrying the FALLBACK note, with a Description and without;
@@ -220,6 +220,8 @@ func walkValueForCeilings(t *testing.T, where, path string, v Value, localised b
 //	a technology carrying the CYCLE-PREREQUISITE note, with and without;
 //	a technology carrying the CYCLE-SPLICE note, with and without;
 //	a technology carrying the clamped PACK note, with and without;
+//	a recipe and a technology at the longest name whose composed
+//	  [<kind>-description] key FITS the element ceiling, both undescribed;
 //	and an item whose Description alone is long enough to NEST.
 //
 // THE LAST TWO ROWS ADDED ARE THE ONES THE COUNT ALONE COULD NOT HAVE CAUGHT.
@@ -448,6 +450,23 @@ func worstCasePlan() (*Lib, *fixtureWorld) {
 		})
 	}
 
+	// THE COMPOSED DESCRIPTION KEY AT EXACTLY THE ELEMENT CEILING, one of each
+	// kind. Every other row here is named at fixtureNameBytes, where the
+	// composed key is over the ceiling and descriptionRef DROPS it, so without
+	// these two the walk would measure the drop twice and a composed key never.
+	// The names are the longest whose key fits, which makes the key element the
+	// walk reads exactly localisedElementCeiling bytes: see
+	// descriptionKeyCeiling for the arithmetic and for why the case is
+	// reachable at all.
+	keyedRecipe := padName("keyed-recipe", descriptionKeyCeiling("recipe")-len(fixturePrefix))
+	keyedResult := lib.Item(declaredName("keyed-recipe-item"), ItemSpec{})
+	keyedParts := lib.IngredientsSetting(declaredName("keyed-recipe-setting"),
+		[]Ingredient{IngredientNamed(1, item)})
+	lib.Recipe(keyedResult, RecipeSpec{Name: keyedRecipe, IngredientsFrom: keyedParts})
+	lib.Technology(padName("keyed-tech", descriptionKeyCeiling("technology")-len(fixturePrefix)), TechSpec{
+		Unit: &UnitSpec{Count: 10, Seconds: 15, Packs: []Pack{{Name: absentPack, Amount: 1}}},
+	})
+
 	// The copied unit the DROPPED-PACK note reads names one pack the game has
 	// and one it does not; the PACKLESS-SOURCE one names only the pack it
 	// does not.
@@ -494,6 +513,8 @@ func worstCasePlan() (*Lib, *fixtureWorld) {
 		w = w.withSetting(fixturePrefix+declaredName("fallback-tech-"+strconv.Itoa(i)+"-packs"),
 			Str("1 "+existingName("nothing-is-named-this")))
 	}
+	w = w.withSetting(fixturePrefix+declaredName("keyed-recipe-setting"),
+		Str("1 "+existingName("nothing-is-named-this")))
 	return lib, w
 }
 
@@ -592,6 +613,242 @@ func TestTheChunkerSplitsOnSpacesWithinTheBudget(t *testing.T) {
 			if len(p) > localisedChunkBudget {
 				t.Errorf("%s: chunk %d is %d bytes, over the budget of %d", c.what, i, len(p), localisedChunkBudget)
 			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// THE AUTHOR'S OWN DESCRIPTION SURVIVES A NOTE.
+//
+// A prototype's own localised_description field WINS OVER the
+// [recipe-description] or [technology-description] entry a .cfg defines, so a
+// note emitted as {"", "<note>"} DISPLACED the description of every author who
+// wrote one the ordinary Factorio way. descriptionRef is the answer: the note
+// opens with the author's own key behind an empty alternative, so the engine
+// renders their sentence and a newline where they wrote one and nothing where
+// they did not.
+// ---------------------------------------------------------------------------
+
+// descriptionRefRendered is descriptionRef's wrapper as renderValue prints it.
+func descriptionRefRendered(kind, name string) string {
+	return `["?", ["", ["` + kind + `-description.` + name + `"], "` + "\n" + `"], ""]`
+}
+
+// noteFixture is one plan reaching all four of appendLocalised's cases at once:
+// a recipe and a technology each carrying a note, one of each WITH a declared
+// Description and one WITHOUT, plus an item that carries no note at all.
+//
+// THE TWO KINDS ARE BOTH HERE BECAUSE THE SECTION IS THE PROTOTYPE'S OWN. A
+// composer that typed one kind in as a constant would satisfy a fixture holding
+// only recipes, so the assertions below name recipe-description on a recipe and
+// technology-description on a technology and would go red one at a time.
+func noteFixture() (*Lib, *fixtureWorld) {
+	lib := New()
+
+	// A recipe whose stored ingredient text the language refuses: a note, and
+	// no Description of its own.
+	bare := lib.Item("bare-rivet", ItemSpec{})
+	bareParts := lib.IngredientsSetting("bare-ingredients", []Ingredient{IngredientNamed(1, "iron-plate")})
+	lib.Recipe(bare, RecipeSpec{Name: "bare-forging", IngredientsFrom: bareParts})
+
+	// The same recipe WITH a Description, which is the case that must not
+	// compose a key: the author's literal already takes the entry's place.
+	described := lib.Item("described-rivet", ItemSpec{})
+	describedParts := lib.IngredientsSetting("described-ingredients", []Ingredient{IngredientNamed(1, "iron-plate")})
+	lib.Recipe(described, RecipeSpec{
+		Name:            "described-forging",
+		Description:     "Forged from plate.",
+		IngredientsFrom: describedParts,
+	})
+
+	// A technology the game has no science pack for: a note, and no
+	// Description; and its described twin.
+	lib.Technology("bare-riveting", TechSpec{
+		Unit: &UnitSpec{Count: 10, Seconds: 15, Packs: []Pack{{Name: "space-science-pack", Amount: 1}}},
+	})
+	lib.Technology("described-riveting", TechSpec{
+		Description: "Teaches riveting.",
+		Unit:        &UnitSpec{Count: 10, Seconds: 15, Packs: []Pack{{Name: "space-science-pack", Amount: 1}}},
+	})
+
+	// And the two prototypes NOTHING fell back on, which is what proves the
+	// unchanged cases are unchanged.
+	quiet := lib.Item("quiet-plate", ItemSpec{Description: "An ordinary plate."})
+	lib.Recipe(quiet, RecipeSpec{Name: "quiet-forging", Ingredients: []Ingredient{IngredientNamed(1, "iron-plate")}})
+	lib.Technology("quiet-research", TechSpec{
+		Unit: &UnitSpec{Count: 10, Seconds: 15, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+	})
+
+	w := baseWorld().
+		withSetting("steelworks-bare-ingredients", Str("1 unobtanium")).
+		withSetting("steelworks-described-ingredients", Str("1 unobtanium"))
+	return lib, w
+}
+
+// describedProtos is every prototype a plan emits, by emitted name.
+func describedProtos(t *testing.T, lib *Lib, w World) map[string]Value {
+	t.Helper()
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+	out := map[string]Value{}
+	for _, op := range ops {
+		if op.Kind != OpExtend {
+			continue
+		}
+		name, ok := field(op.Proto, "name")
+		if !ok {
+			continue
+		}
+		out[name.Str] = op.Proto
+	}
+	return out
+}
+
+func descriptionOf(t *testing.T, protos map[string]Value, name string) string {
+	t.Helper()
+	proto, ok := protos[name]
+	if !ok {
+		t.Fatalf("the plan emitted no prototype named %s, so nothing below is about it", name)
+	}
+	desc, ok := field(proto, "localised_description")
+	if !ok {
+		return ""
+	}
+	return renderValue(desc)
+}
+
+// A NOTE WITH NO DECLARED DESCRIPTION REFERENCES THE AUTHOR'S OWN ENTRY, and
+// the section is the PROTOTYPE'S: a recipe composes recipe-description and a
+// technology technology-description.
+func TestANoteWithNoDescriptionComposesThePrototypesOwnKey(t *testing.T) {
+	lib, w := noteFixture()
+	protos := describedProtos(t, lib, w)
+
+	for _, c := range []struct{ proto, kind, note string }{
+		{
+			proto: "steelworks-bare-forging",
+			kind:  "recipe",
+			note:  fallbackNote("steelworks-bare-ingredients", true),
+		},
+		{
+			proto: "steelworks-bare-riveting",
+			kind:  "technology",
+			note:  packlessNote(),
+		},
+	} {
+		want := `["", ` + descriptionRefRendered(c.kind, c.proto) + `, ` + chunkedParams(c.note) + `]`
+		if got := descriptionOf(t, protos, c.proto); got != want {
+			t.Errorf("%s:\n got: %s\nwant: %s", c.proto, got, want)
+		}
+	}
+}
+
+// A DECLARED DESCRIPTION BESIDE A NOTE COMPOSES NO KEY AT ALL, which is what
+// says the two cases did not get crossed. The author put their description in
+// the plan, so that literal IS their description.
+func TestADeclaredDescriptionBesideANoteComposesNoKey(t *testing.T) {
+	lib, w := noteFixture()
+	protos := describedProtos(t, lib, w)
+
+	for _, c := range []struct{ proto, description, note string }{
+		{
+			proto:       "steelworks-described-forging",
+			description: "Forged from plate.",
+			note:        fallbackNote("steelworks-described-ingredients", true),
+		},
+		{
+			proto:       "steelworks-described-riveting",
+			description: "Teaches riveting.",
+			note:        packlessNote(),
+		},
+	} {
+		want := `["", "` + c.description + `", ` + chunkedParams("\n"+c.note) + `]`
+		got := descriptionOf(t, protos, c.proto)
+		if got != want {
+			t.Errorf("%s:\n got: %s\nwant: %s", c.proto, got, want)
+		}
+		if strings.Contains(got, "-description.") {
+			t.Errorf("%s composed a locale key beside the author's own literal: %s", c.proto, got)
+		}
+	}
+}
+
+// A PROTOTYPE WITH NO NOTE IS WHAT IT ALWAYS WAS, byte for byte, declared
+// description or not. A golden taken before this change must not move for a
+// load nothing fell back on.
+func TestAPrototypeWithNoNoteIsUnchanged(t *testing.T) {
+	lib, w := noteFixture()
+	protos := describedProtos(t, lib, w)
+
+	// A declared description with no note stays the two-element literal.
+	if got, want := descriptionOf(t, protos, "steelworks-quiet-plate"), `["", "An ordinary plate."]`; got != want {
+		t.Errorf("an item with a description and no note:\n got: %s\nwant: %s", got, want)
+	}
+	// And neither with a note nor a description emits the field at all, so the
+	// engine resolves the author's own entry exactly as it always did.
+	for _, name := range []string{"steelworks-quiet-forging", "steelworks-quiet-research"} {
+		proto, ok := protos[name]
+		if !ok {
+			t.Fatalf("the plan emitted no prototype named %s", name)
+		}
+		if _, ok := field(proto, "localised_description"); ok {
+			t.Errorf("%s emitted a localised_description with neither a description nor a note: %s",
+				name, descriptionOf(t, protos, name))
+		}
+	}
+}
+
+// descriptionKeyCeiling is the longest EMITTED prototype name of a kind whose
+// composed [<kind>-description] key is exactly localisedElementCeiling bytes.
+//
+// THE ARITHMETIC IS THE WHOLE POINT OF THIS TEST. A key is ONE element by
+// definition and cannot be chunked, the engine polices the key slot at 200
+// bytes like every other element, and the engine's own prototype-name ceiling
+// is 200 bytes with nothing shorter refused anywhere in this library. So
+// `technology-description.` at 23 bytes over a 200-byte name is a 223-byte
+// element the engine refuses: the case is REACHABLE, and descriptionRef drops
+// the key form above the length below rather than composing a load failure.
+func descriptionKeyCeiling(kind string) int {
+	return localisedElementCeiling - len(kind+"-description.")
+}
+
+// THE KEY FORM IS COMPOSED UP TO THE ELEMENT CEILING AND DROPPED ABOVE IT, one
+// byte either side, on both kinds.
+func TestTheDescriptionKeyIsDroppedWhereItWouldNotFit(t *testing.T) {
+	for _, kind := range []string{"recipe", "technology"} {
+		fits := descriptionKeyCeiling(kind)
+		for _, c := range []struct {
+			what  string
+			bytes int
+			want  bool
+		}{
+			{what: "the longest name whose key fits", bytes: fits, want: true},
+			{what: "one byte more", bytes: fits + 1, want: false},
+		} {
+			name := padName("q", c.bytes)
+			ref, ok := descriptionRef(kind, name)
+			if ok != c.want {
+				t.Errorf("%s, %s: a %d-byte name composed=%v, want %v",
+					kind, c.what, c.bytes, ok, c.want)
+				continue
+			}
+			if !ok {
+				continue
+			}
+			key := ref.Arr[1].Arr[1].Arr[0].Str
+			if len(key) != localisedElementCeiling {
+				t.Errorf("%s, %s: the key is %d bytes, want exactly the ceiling of %d",
+					kind, c.what, len(key), localisedElementCeiling)
+			}
+		}
+	}
+	// AND THE FIXTURE PLAN'S OWN NAMES ARE ABOVE IT, which is what the element
+	// walk above measures: at fixtureNameBytes every composed key would be over
+	// the ceiling, so the walk sees the drop rather than a refusal.
+	for _, kind := range []string{"recipe", "technology"} {
+		if fixtureNameBytes <= descriptionKeyCeiling(kind) {
+			t.Errorf("a %d-byte %s name composes a key that fits, so worstCasePlan no longer"+
+				" reaches the drop arm at all", fixtureNameBytes, kind)
 		}
 	}
 }

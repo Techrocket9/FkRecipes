@@ -1286,7 +1286,7 @@ func TestTextSettingThatIsNotTextFallsBack(t *testing.T) {
 			` The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
 		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-steel-rivet-forging", ` +
-			noteIn("steelworks-rivet-ingredients", true) +
+			noteIn("recipe", "steelworks-steel-rivet-forging", "steelworks-rivet-ingredients", true) +
 			`enabled=true,` +
 			` ingredients=[{type="item", name="steel-plate", amount=2}, {type="item", name="iron-stick", amount=1}],` +
 			` results=[{type="item", name="steelworks-steel-rivet", amount=1}]}`,
@@ -1316,7 +1316,7 @@ func TestTextSettingFallsBackOnTheLanguageRefusal(t *testing.T) {
 			` The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
 		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-steel-rivet-forging", ` +
-			noteIn("steelworks-rivet-ingredients", true) +
+			noteIn("recipe", "steelworks-steel-rivet-forging", "steelworks-rivet-ingredients", true) +
 			`enabled=true,` +
 			` ingredients=[{type="item", name="steel-plate", amount=2}, {type="item", name="iron-stick", amount=1}],` +
 			` results=[{type="item", name="steelworks-steel-rivet", amount=1}]}`,
@@ -1340,7 +1340,7 @@ func TestRefusedTextFallsBackOntoTheDeclaredLadders(t *testing.T) {
 			` The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
 		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-steel-rivet-forging", ` +
-			noteIn("steelworks-rivet-ingredients", true) +
+			noteIn("recipe", "steelworks-steel-rivet-forging", "steelworks-rivet-ingredients", true) +
 			`enabled=true,` +
 			` ingredients=[{type="item", name="steel-plate", amount=2}, {type="item", name="iron-plate", amount=1}],` +
 			` results=[{type="item", name="steelworks-steel-rivet", amount=1}]}`,
@@ -1394,7 +1394,7 @@ func TestTextSettingSuggestsThePlansOwnItem(t *testing.T) {
 		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
 		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-steel-axe-forging", ` +
-			noteIn("steelworks-axe-ingredients", true) +
+			noteIn("recipe", "steelworks-steel-axe-forging", "steelworks-axe-ingredients", true) +
 			`enabled=true,` +
 			` ingredients=[{type="item", name="steelworks-steel-rivet", amount=2}, {type="item", name="iron-plate", amount=1}],` +
 			` results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
@@ -1426,7 +1426,7 @@ func TestPackTextNamingAPlanItemIsToldItIsAnItem(t *testing.T) {
 			` count 20, time 10, packs 1 automation-science-pack`,
 		`extend {type="item", name="steelworks-steel-rivet", stack_size=50}`,
 		`extend {type="technology", name="steelworks-steel-axes", ` +
-			noteIn("steelworks-axe-packs", false) +
+			noteIn("technology", "steelworks-steel-axes", "steelworks-axe-packs", false) +
 			`unit={count=20, time=10, ingredients=[["automation-science-pack", 1]]}}`,
 	})
 }
@@ -1590,7 +1590,7 @@ func TestARefusedTextBesideADropdownFallsBackToTheDropdown(t *testing.T) {
 			` The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
 		`extend {type="item", name="steelworks-hardened-steel-plate", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-plate-quenching", ` +
-			noteIn("steelworks-quench-ingredients", true) +
+			noteIn("recipe", "steelworks-plate-quenching", "steelworks-quench-ingredients", true) +
 			`category="chemistry", enabled=true,` +
 			` ingredients=[{type="item", name="copper-plate", amount=1}],` +
 			` results=[{type="item", name="steelworks-hardened-steel-plate", amount=1}]}`,
@@ -1794,7 +1794,7 @@ func TestCustomResearchCostGoesPacklessWhenEveryDeclaredPackDrops(t *testing.T) 
 		`log fkrecipes: steelworks-chain-forging takes its research cost from steelworks-chain-packs: count 20, time 10, packs no science pack`)
 	assertHasLine(t, transcript(ops),
 		`extend {type="technology", name="steelworks-chain-forging", `+
-			`localised_description=["", "`+packlessTooltip+`"], `+
+			`localised_description=["", `+descriptionRefIn("technology", "steelworks-chain-forging")+`, "`+packlessTooltip+`"], `+
 			`prerequisites=["steel-processing"], unit={count=20, time=10, ingredients=[]}}`)
 }
 
@@ -1868,7 +1868,7 @@ func TestCustomResearchCostFallsBackOnANumberTheEngineWouldNotTake(t *testing.T)
 				`log fkrecipes: steelworks-chain-forging takes its research cost from steelworks-chain-packs:` +
 					` count 20, time 10, packs 1 automation-science-pack`,
 				`extend {type="technology", name="steelworks-chain-forging", ` +
-					noteIn(c.setting, false) +
+					noteIn("technology", "steelworks-chain-forging", c.setting, false) +
 					`prerequisites=["steel-processing"],` +
 					` unit={count=20, time=10, ingredients=[["automation-science-pack", 1]]}}`,
 			})
@@ -2129,7 +2129,7 @@ func TestARefusedPackTextBesideATierTakesTheTiersPacks(t *testing.T) {
 			` count 40, time 30, packs 1 automation-science-pack, 1 logistic-science-pack;` +
 			` the steelworks-tips-tier choice cheap supplies what the settings leave at default`,
 		`extend {type="technology", name="steelworks-hardened-tips", ` +
-			noteIn("steelworks-tips-packs", false) +
+			noteIn("technology", "steelworks-hardened-tips", "steelworks-tips-packs", false) +
 			`prerequisites=["logistics-2"],` +
 			` unit={count=40, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
 	})
@@ -2154,7 +2154,7 @@ func TestABadNumberBesideATierLeavesTheTierDeciding(t *testing.T) {
 		`log fkrecipes: ERROR: steelworks-tips-count holds a value that is not a finite number.` +
 			` The mod loaded as though that number had been left alone; fix the number under Settings > Mod settings > Startup, then restart.`,
 		`extend {type="technology", name="steelworks-hardened-tips", ` +
-			noteIn("steelworks-tips-count", false) +
+			noteIn("technology", "steelworks-hardened-tips", "steelworks-tips-count", false) +
 			`prerequisites=["logistics-2"],` +
 			` unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
 	})
@@ -2253,7 +2253,7 @@ func TestASettingOverridesTheFallbackTier(t *testing.T) {
 			` count 45, time 30, packs 1 automation-science-pack;` +
 			` the steelworks-tips-tier choice cheap supplies what the settings leave at default`,
 		`extend {type="technology", name="steelworks-hardened-tips",` +
-			` localised_description=["", "` + unpricedTooltip + `"],` +
+			` localised_description=["", ` + descriptionRefIn("technology", "steelworks-hardened-tips") + `, "` + unpricedTooltip + `"],` +
 			` unit={count=45, time=30, ingredients=[["automation-science-pack", 1]]}}`,
 	})
 }
@@ -2643,7 +2643,7 @@ func TestPlayerFieldsFallBackWhileTheAuthorChannelStillRefuses(t *testing.T) {
 			` The mod loaded as though that text had been left alone; fix the text under Settings > Mod settings > Startup, then restart.` + recipeFallbackTail,
 		`extend {type="item", name="steelworks-steel-axe", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-steel-axe-forging", ` +
-			noteIn("steelworks-forging-time", false) +
+			noteIn("recipe", "steelworks-steel-axe-forging", "steelworks-forging-time", false) +
 			`energy_required=3, enabled=true,` +
 			` ingredients=[{type="item", name="steel-plate", amount=1}],` +
 			` results=[{type="item", name="steelworks-steel-axe", amount=1}]}`,
@@ -3053,8 +3053,21 @@ func TestARecipeTextFallbackNamesWhatChangingARecipeCosts(t *testing.T) {
 // through playerFallback. The sentence itself is pinned by TestFallbackNoteShape
 // and the line by TestPlayerFallbackLineShape, so a drift in either is one
 // failure with the whole text in it rather than thirty.
-func noteIn(setting string, destroysInputs bool) string {
-	return `localised_description=["", ` + chunkedParams(fallbackNote(setting, destroysInputs)) + `], `
+// THE KIND AND THE EMITTED NAME ARE THE FIRST TWO ARGUMENTS because a note
+// with no declared Description opens with descriptionRef's wrapper, which
+// carries the prototype's own [<kind>-description] key: the shape is the
+// prototype's and not the note's, so a transcript that hard-coded one shape
+// would pass a recipe's key onto a technology.
+func noteIn(kind, name, setting string, destroysInputs bool) string {
+	return `localised_description=["", ` + descriptionRefIn(kind, name) + `, ` +
+		chunkedParams(fallbackNote(setting, destroysInputs)) + `], `
+}
+
+// descriptionRefIn is descriptionRef's wrapper as a transcript prints it, which
+// is one spelling shared by every expectation that carries a note with no
+// declared Description.
+func descriptionRefIn(kind, name string) string {
+	return `["?", ["", ["` + kind + `-description.` + name + `"], "` + "\n" + `"], ""]`
 }
 
 // chunkedParams is one sentence as the PARAMETERS appendLocalised splits it
@@ -3121,15 +3134,35 @@ func assertFindings(t *testing.T, got, want []string) {
 // the raw fallback is last.
 // ---------------------------------------------------------------------------
 
-// composedLocaleSections is every locale section this library composes a key
-// under. Written out rather than derived, because the property being asserted
-// is "these three and nothing else goes out bare", and a fourth section added
-// to the library is a fourth entry somebody has to type here on purpose.
-var composedLocaleSections = []string{
+// composedSettingSections is every locale section this library composes a key
+// under AT THE SETTINGS STAGE. Written out rather than derived, because the
+// property being asserted is "these and nothing else go out bare", and a
+// section added to the library is an entry somebody has to type here on
+// purpose.
+var composedSettingSections = []string{
 	"mod-setting-description.",
 	"string-mod-setting.",
 	"technology-name.",
 }
+
+// composedPrototypeSections is the DATA stage's two, and they are a separate
+// list because the two stages compose disjoint sets and the test asserts that:
+// a settings key on a prototype or a prototype key on a setting is a defect
+// neither a golden nor a count over one merged list could see.
+//
+// THEY ARE THE AUTHOR'S OWN OPTIONAL ENTRY. A recipe or a technology carrying a
+// note with no declared Description references [recipe-description] or
+// [technology-description] under its own emitted name, so an author who wrote
+// their description in a .cfg keeps it and the note joins it. See
+// descriptionRef.
+var composedPrototypeSections = []string{
+	"recipe-description.",
+	"technology-description.",
+}
+
+// composedLocaleSections is both lists, which is what the string classifier
+// walks: a key of either kind in the wrong place is still a key.
+var composedLocaleSections = append(append([]string{}, composedSettingSections...), composedPrototypeSections...)
 
 // composedLocaleSection is the section a string names, or the empty string
 // when it is ordinary prose.
@@ -3160,13 +3193,38 @@ func isKeyTable(v Value) bool {
 // falls back onto its last alternative's own `Unknown key: "..."` marker. Both
 // are silent on a headless run, which is why they are held by a source
 // property here rather than by a golden alone.
+//
+// GUARDED IS THE THIRD THING IT TRACKS, and it is a measured fact rather than a
+// loosening. descriptionRef's first alternative is a concatenation GROUP
+// holding the key and the newline that follows it, not the bare key table, and
+// a group holding an undefined key IS ITSELF A FAILED ALTERNATIVE (measured on
+// 2.0.77: the whole group renders empty rather than leaving the newline
+// behind). So a key table anywhere under a wrapper's non-last alternative is as
+// safe as one sitting directly in that slot, and guarded is what says which
+// slots those are.
+//
+// WHAT GUARDED IS AND IS NOT PROVED BY, recorded because a relaxation that
+// LOOKS checked and is not is worse than one that says so. It is load-bearing
+// rather than dead: recursing with a flat false instead goes RED here, naming
+// the bare key table under each of the two prototype sections. But it is a pure
+// WIDENING, and widening it further cannot go red at all: recursing with a flat
+// true leaves the whole suite green, because the only thing guarded exempts is
+// a key table under a wrapper's non-last alternative, which is the
+// measured-safe slot, and no composition this library builds puts one anywhere
+// a wider exemption would newly reach. So this clause has no red proof of its
+// own and cannot have one. THE DETECTOR AROUND IT DOES, two ways, both taken
+// with the guarded clause exactly as it stands: a localeRef returning a bare
+// key table goes red naming all three settings sections
+// (mod-setting-description., string-mod-setting., technology-name.), and a
+// descriptionRef returning one goes red naming both prototype sections
+// (recipe-description., technology-description.).
 func localeRefFaults(v Value) []string {
 	var out []string
-	var walk func(Value)
-	walk = func(v Value) {
+	var walk func(Value, bool)
+	walk = func(v Value, guarded bool) {
 		if v.Kind == KindMap {
 			for _, kv := range v.Map {
-				walk(kv.Val)
+				walk(kv.Val, false)
 			}
 			return
 		}
@@ -3199,14 +3257,15 @@ func localeRefFaults(v Value) []string {
 				}
 				continue
 			}
-			if isKeyTable(item) && !(wrapper && i == 1) {
+			alternative := wrapper && i >= 1 && i < len(v.Arr)-1
+			if isKeyTable(item) && !alternative && !guarded {
 				out = append(out, "the composed reference "+renderValue(item)+
 					" is a bare key rather than the alternatives form: "+renderValue(v))
 			}
-			walk(item)
+			walk(item, alternative || (guarded && !wrapper))
 		}
 	}
-	walk(v)
+	walk(v, false)
 	return out
 }
 
@@ -3314,6 +3373,20 @@ func everyComposedShape() *Lib {
 		CostFrom:    &CustomCost{Packs: packs, Count: count, Seconds: seconds},
 		Description: "Priced from the tier the research setting says.",
 	})
+	// THE TWO PROTOTYPE KEY SHAPES, which ONLY a note with NO declared
+	// Description composes. One of each kind, because the section is the
+	// PROTOTYPE'S OWN and a fixture carrying one of them proves nothing about
+	// the other.
+	//
+	// The recipe's note comes from a stored text the language refuses (the data
+	// half's world supplies it); the technology's from a science pack the
+	// fixture game does not have, which needs no stored value at all.
+	rivet := lib.Item("steel-rivet", ItemSpec{})
+	parts := lib.IngredientsSetting("rivet-ingredients", []Ingredient{IngredientNamed(1, "iron-plate")})
+	lib.Recipe(rivet, RecipeSpec{Name: "steel-rivet-forging", IngredientsFrom: parts})
+	lib.Technology("steel-riveting", TechSpec{
+		Unit: &UnitSpec{Count: 10, Seconds: 15, Packs: []Pack{{Name: "space-science-pack", Amount: 1}}},
+	})
 	return lib
 }
 
@@ -3333,13 +3406,22 @@ func TestEveryComposedLocaleReferenceIsWrapped(t *testing.T) {
 		localeRefCounts(op.Proto, counts)
 		localeRefCounts(op.Val, counts)
 	}
-	for _, sec := range composedLocaleSections {
+	for _, sec := range composedSettingSections {
 		if counts[sec] == 0 {
 			t.Errorf("the walk saw no %s reference, so it proves nothing about one", sec)
 		}
 	}
+	// AND THE SETTINGS STAGE COMPOSES NONE OF THE PROTOTYPE'S TWO. The two
+	// stages reference disjoint sets of sections, and a merged list would let
+	// one stand in for the other in either direction.
+	for _, sec := range composedPrototypeSections {
+		if counts[sec] != 0 {
+			t.Errorf("the settings stage composed %d %s references; that section belongs to a prototype", counts[sec], sec)
+		}
+	}
 
-	dataOps, err := everyComposedShape().PlanData(baseWorld())
+	dataOps, err := everyComposedShape().PlanData(
+		baseWorld().withSetting("steelworks-rivet-ingredients", Str("1 unobtanium")))
 	assertNoError(t, err)
 	dataCounts := map[string]int{}
 	described := 0
@@ -3360,13 +3442,20 @@ func TestEveryComposedLocaleReferenceIsWrapped(t *testing.T) {
 	if described == 0 {
 		t.Errorf("the data stage composed no localised_description, so the counts below prove nothing")
 	}
-	// THE DATA STAGE COMPOSES NO KEY AT ALL, which is the other half of the
-	// measurement: an undefined key anywhere in a recipe's composition deletes
-	// the whole description, the library's own literal sentences included, so
-	// the prototype notes are English literals and this count is zero.
-	for _, sec := range composedLocaleSections {
+	// THE NOTE ITSELF IS STILL AN ENGLISH LITERAL, which is the measurement
+	// that has not changed: an undefined key in a prototype's composition
+	// deletes the WHOLE description on the client, silently, so the library
+	// composes no key it would have to ask the consumer to define. The two it
+	// does compose are the AUTHOR'S OWN OPTIONAL entry, behind an empty
+	// alternative, which is why they cost nothing where nobody wrote one.
+	for _, sec := range composedSettingSections {
 		if dataCounts[sec] != 0 {
-			t.Errorf("the data stage composed %d %s references; its notes are literal text", dataCounts[sec], sec)
+			t.Errorf("the data stage composed %d %s references; that section belongs to a setting", dataCounts[sec], sec)
+		}
+	}
+	for _, sec := range composedPrototypeSections {
+		if dataCounts[sec] == 0 {
+			t.Errorf("the walk saw no %s reference, so it proves nothing about one", sec)
 		}
 	}
 }

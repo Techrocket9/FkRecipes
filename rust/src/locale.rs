@@ -67,6 +67,22 @@ impl Lib {
     /// elsewhere, it polices those two sections against the complete set of
     /// the mod's setting names instead of against the prefix.
     ///
+    /// A PROTOTYPE'S OWN DESCRIPTION KEY IS NEVER ASKED FOR, and that is a
+    /// third class beside REQUIRED and ADVISORY rather than an omission. The
+    /// data stage composes `recipe-description.<emitted name>` and
+    /// `technology-description.<name>` onto a prototype carrying a note with
+    /// no declared `description`, and both are inside the mod's prefix, which
+    /// by the rule above would make them REQUIRED. They must not be: they are
+    /// the AUTHOR'S OWN OPTIONAL entry, referenced precisely so an author who
+    /// wrote one keeps it, and requiring them would make every consumer owe a
+    /// description for every recipe and technology they emit in a report
+    /// `docs/migration.md` tells them to assert is EMPTY. They are not
+    /// advisory either, because an advisory says the key is somebody else's
+    /// and these are the consumer's own. This function walks SETTINGS and
+    /// never recipes or technologies, so the silence is structural: there is
+    /// no exclusion to forget. See
+    /// [`description_ref`](crate::settings::description_ref).
+    ///
     /// A DESCRIPTION IS OPTIONAL HERE, AND THAT IS A DELIBERATE DIVERGENCE
     /// from BetterBeltBalancer, which requires one. The engine's failure mode
     /// for a missing description is a lost tooltip, not an `Unknown key`

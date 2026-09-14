@@ -116,7 +116,13 @@ func strArr(names []string) Value {
 // testdata/locale/findings.golden. Do not unify the two sides.
 //
 // The ceiling is COMPARED AGAINST AND NEVER COMPUTED WITH, the habit
-// craftTimeFloor established: nothing here derives the budget from it.
+// craftTimeFloor established: nothing here derives the budget from it. It has
+// TWO readers now, the host test that walks every composition this library can
+// build and descriptionRef, which cannot chunk the key it composes and drops it
+// above this length instead. The second is a COMPARISON and not a derivation
+// (localisedChunkBudget is still the only thing a chunk is filled to, and it is
+// its own constant), so the rule holds with a production reader beside the
+// test.
 const localisedElementCeiling = 200
 
 // localisedChunkBudget is what a chunk is filled to, and it is twenty bytes

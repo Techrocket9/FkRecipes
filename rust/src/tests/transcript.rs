@@ -301,10 +301,25 @@ fn format_num_matches_the_go_mirror() {
 /// itself is pinned by `fallback_note_shape` and the line by
 /// `player_fallback_line_shape`, so a drift in either is one failure with the
 /// whole text in it rather than thirty.
-pub(crate) fn note_in(setting: &str, destroys_inputs: bool) -> String {
+/// THE KIND AND THE EMITTED NAME ARE THE FIRST TWO ARGUMENTS because a note
+/// with no declared `description` opens with `description_ref`'s wrapper, which
+/// carries the prototype's own `[<kind>-description]` key: the shape is the
+/// prototype's and not the note's, so a transcript that hard-coded one shape
+/// would pass a recipe's key onto a technology.
+pub(crate) fn note_in(kind: &str, name: &str, setting: &str, destroys_inputs: bool) -> String {
     format!(
-        r#"localised_description=["", {}], "#,
+        r#"localised_description=["", {}, {}], "#,
+        description_ref_in(kind, name),
         chunked_params(&crate::data::fallback_note(setting, destroys_inputs))
+    )
+}
+
+/// `description_ref`'s wrapper as a transcript prints it, which is one spelling
+/// shared by every expectation carrying a note with no declared `description`.
+pub(crate) fn description_ref_in(kind: &str, name: &str) -> String {
+    format!(
+        "[\"?\", [\"\", [\"{}-description.{}\"], \"\n\"], \"\"]",
+        kind, name
     )
 }
 

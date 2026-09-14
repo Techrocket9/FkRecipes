@@ -7,7 +7,9 @@ use crate::op::Op;
 use crate::plan::{
     Amount, CostChoice, Ingredient, IngredientChoice, Lib, Pack, SettingDecl, SettingKind, TechSpec,
 };
-use crate::value::{finite, kv, str_arr, Value, CRAFT_TIME_FLOOR, MAX_EXACT_INT};
+use crate::value::{
+    finite, kv, str_arr, Value, CRAFT_TIME_FLOOR, LOCALISED_ELEMENT_CEILING, MAX_EXACT_INT,
+};
 use crate::world::{Named, World};
 
 impl Lib {
@@ -1169,6 +1171,70 @@ pub(crate) fn locale_ref(section: &str, key: &str, raw: &str) -> Value {
         Value::Arr(alloc::vec![Value::Str(format!("{}.{}", section, key))]),
         Value::string(raw),
     ])
+}
+
+/// The OTHER wrapper, and it is a second function rather than a [`locale_ref`]
+/// call because its two slots are not [`locale_ref`]'s two slots.
+///
+/// WHAT IT IS FOR. A recipe or a technology that carries a note and declares no
+/// `description` used to be emitted as `{"", "<note>"}`, and a prototype's own
+/// `localised_description` field WINS OVER the `[recipe-description]` or
+/// `[technology-description]` entry the author wrote in their `.cfg`, so the
+/// note stood in that description's place for the whole of that load. The
+/// library cannot SEE a locale key; it can reference one that degrades to
+/// nothing.
+///
+/// THE SHAPE, AND THE CRUX ROW THAT PICKED IT. Measured on Factorio 2.0.77
+/// (build 84539, mac-arm64, steam) with a Lua-only probe mod calling
+/// `localised_print` from `control.lua` and a second probe hanging each shape
+/// on a base prototype at `data-final-fixes` under `--dump-data`:
+///
+/// ```text
+/// {"?", {"", {"technology-description.X"}, "\n"}, ""} with X UNDEFINED
+/// renders EMPTY.
+/// ```
+///
+/// A CONCATENATION GROUP HOLDING AN UNDEFINED KEY IS ITSELF A FAILED
+/// ALTERNATIVE, so the separator newline rides INSIDE the alternative and dies
+/// with it. That is what makes this shape and not the flatter
+/// `{"", {"?", {key}, ""}, "\n", "<note>"}`: the flat one renders a dangling
+/// leading newline on every consumer who declares no entry, which is most of
+/// them. With the key DEFINED the same shape renders `AUTHOR TECH DESC\n`, and
+/// the note follows it; measured on the real base key
+/// `technology-description.logistics` as well, and on `recipe-description`.
+///
+/// THE RAW FALLBACK IS LAST HERE TOO, and it is the EMPTY STRING rather than
+/// prose: there is nothing to say where the author wrote no entry. The rule is
+/// [`locale_ref`]'s own and the reason is the same, a plain string alternative
+/// always resolves and short circuits everything after it, which is why the
+/// source property test walks this shape too.
+///
+/// `None` IS THE KEY LENGTH, AND IT IS NOT A FORMALITY. The engine polices the
+/// KEY SLOT at [`LOCALISED_ELEMENT_CEILING`] bytes like every other string
+/// element, and a key is ONE element by definition: it cannot be chunked. The
+/// engine's own prototype-name ceiling is 200 bytes (measured; `Name field is
+/// too large. Max allowed size is: 200.`) and nothing in this library refuses a
+/// shorter one, so `technology-description.` at 23 bytes over a 200-byte name
+/// is a 223-byte element the engine refuses, and the composition would be the
+/// lock-out the note exists to prevent. Above the length that fits, the key
+/// form is DROPPED and the note is emitted alone exactly as it was before this
+/// wrapper existed: the author's locale entry is displaced on those two names,
+/// which is a tooltip and not a load failure. The fitting lengths are 181 bytes
+/// of recipe name and 177 of technology name.
+pub(crate) fn description_ref(kind: &str, name: &str) -> Option<Value> {
+    let key = format!("{}-description.{}", kind, name);
+    if key.len() > LOCALISED_ELEMENT_CEILING {
+        return None;
+    }
+    Some(Value::Arr(alloc::vec![
+        Value::string("?"),
+        Value::Arr(alloc::vec![
+            Value::string(""),
+            Value::Arr(alloc::vec![Value::Str(key)]),
+            Value::string("\n"),
+        ]),
+        Value::string(""),
+    ]))
 }
 
 /// The sentence that says what to type and how much of it.

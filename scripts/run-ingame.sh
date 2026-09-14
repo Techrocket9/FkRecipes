@@ -643,12 +643,29 @@ jqassert "a technology left with no science pack emits an empty unit" "$MDUMP" \
 # pass over a prototype that is not in the dump at all (jq's `select` yields
 # nothing rather than false, so `all` over an empty generator is true), which is
 # what the adversarial review measured this row doing.
+#
+# THIS IS THE ENGINE ARM THAT WALKS THE DESCRIPTION-KEY WRAPPER, because both of
+# these technologies declare a DisplayName and NO Description, which is the one
+# arm where a note used to stand in the author's own [technology-description]
+# entry's place: a prototype's own localised_description field WINS OVER the
+# locale entry, so an author who wrote their description the ordinary Factorio
+# way lost it for the whole of that load. The key the wrapper carries is that
+# author's OWN OPTIONAL entry: where they defined it the engine renders it ABOVE
+# the note with the newline between, and where they did not the whole
+# alternative fails and the note stands alone with no blank line in front of it.
+# Measured on 2.0.77 (build 84539) with a Lua-only localised_print probe and a
+# data-stage probe under --dump-data; the crux is that a concatenation group
+# holding an undefined key is ITSELF a failed alternative, which is why the
+# newline rides inside it. These two expectations are taken out of a real dump
+# rather than typed.
 jqassert "the technology left with no science pack says so in its own tooltip" "$MDUMP" \
   '.technology["fkrecipes-example-steel-riveting"].localised_description ==
-   ["", "This game has none of the science packs this research names, so it takes no science pack at all. The reason is in the log."]'
+   ["", ["?", ["", ["technology-description.fkrecipes-example-steel-riveting"], "\n"], ""],
+    "This game has none of the science packs this research names, so it takes no science pack at all. The reason is in the log."]'
 jqassert "the custom-cost technology left with no science pack says so in its own tooltip" "$MDUMP" \
   '.technology["fkrecipes-example-chain-forging"].localised_description ==
-   ["", "This game has none of the science packs this research names, so it takes no science pack at all. The reason is in the log."]'
+   ["", ["?", ["", ["technology-description.fkrecipes-example-chain-forging"], "\n"], ""],
+    "This game has none of the science packs this research names, so it takes no science pack at all. The reason is in the log."]'
 
 # ---------------------------------------------------------------------------
 # ANTI-VACUITY AND CAUSE-NAMING. A hash says "different"; these say WHICH
