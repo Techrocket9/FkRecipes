@@ -2032,6 +2032,44 @@ fn the_all_dropped_refusal_names_the_first_technology_declared() {
     }
 }
 
+/// AND TWO DIFFERENT PACKS WHOSE LADDERS END ON ONE ABSENT RUNG NAME IT ONCE.
+/// That is `append_once`'s own stated property, held up here rather than
+/// argued: the walk asks the game about space-science-pack twice, once per
+/// ladder, and the sentence says it once.
+#[test]
+fn two_ladders_ending_on_one_absent_rung_name_it_once() {
+    let mut lib = Lib::new();
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            unit: Some(UnitSpec {
+                count: 50,
+                seconds: 15.0,
+                packs: vec![
+                    Pack::named(1, "military-science-pack", &["space-science-pack"]),
+                    Pack::named(1, "metallurgic-science-pack", &["space-science-pack"]),
+                ],
+            }),
+            ..Default::default()
+        },
+    );
+
+    match lib.plan_data(&base_world()) {
+        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
+        Err(got) => assert_eq!(
+            got,
+            packless_refusal(
+                "steel-axes",
+                &[
+                    "military-science-pack",
+                    "space-science-pack",
+                    "metallurgic-science-pack"
+                ]
+            )
+        ),
+    }
+}
+
 #[test]
 fn plan_data_refusals() {
     struct Case {

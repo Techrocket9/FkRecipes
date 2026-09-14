@@ -6,8 +6,8 @@ import (
 )
 
 // packlessRefusal is the ONE sentence a technology left with no science pack
-// earns, composed here so the ten tests that assert it cannot drift apart from
-// each other, exactly as noteIn composes the tooltip note.
+// earns, composed here so the tests that assert it cannot drift apart from each
+// other, exactly as noteIn composes the tooltip note.
 //
 // IT NAMES THE NAMES, which is the whole of what the sentence gained: an author
 // reading it is one whose ladders all missed, and the rungs they wrote are the
@@ -1017,6 +1017,104 @@ func TestATierWhoseFallbackIsAlsoUnpayableStillRefuses(t *testing.T) {
 		t.Fatal("a tier whose fallback is also unpayable was accepted")
 	}
 	want := packlessRefusal("steel-axes", "automation-science-pack", "military-science-pack", "space-science-pack")
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+}
+
+// AND A NAME ASKED ABOUT TWICE IS NAMED ONCE. Two producers feed that list:
+// the chosen tier's copied unit, whose lost packs come first, and the declared
+// fallback's own ladders. Each deduped only itself, so a fallback rung that
+// repeats a copied pack used to print the name twice in one sentence.
+func TestAPackAskedAboutTwiceIsNamedOnce(t *testing.T) {
+	lib := New()
+	tier := lib.DropdownSettingNeedingLocale("tier", "early", []string{"early"})
+	lib.Technology("steel-axes", TechSpec{CostBy: &CostChoices{
+		Setting: tier,
+		Choices: []CostChoice{{Value: "early", Sources: []string{"steel-processing"}}},
+		Fallback: UnitSpec{Count: 7, Seconds: 8, Packs: []Pack{
+			{Name: "automation-science-pack", Amount: 2},
+		}},
+	}})
+
+	_, err := lib.PlanData(baseWorld().withoutTool("automation-science-pack"))
+	if err == nil {
+		t.Fatal("a tier whose fallback repeats the copied pack was accepted")
+	}
+	want := packlessRefusal("steel-axes", "automation-science-pack")
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+}
+
+// AND THE COPIED UNIT'S OWN LIST IS DEDUPED TOO, with no fallback anywhere in
+// the picture: a source technology that names one absent pack twice is one
+// producer repeating itself, and the sentence names the pack once.
+func TestACopiedUnitNamingOneAbsentPackTwiceNamesItOnce(t *testing.T) {
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{CostOf: "steel-processing"})
+
+	_, err := lib.PlanData(baseWorld().
+		withUnit("steel-processing", unitOf(50, 15, "automation-science-pack", "automation-science-pack")).
+		withoutTool("automation-science-pack"))
+	if err == nil {
+		t.Fatal("a copied unit naming one absent pack twice was accepted")
+	}
+	want := packlessRefusal("steel-axes", "automation-science-pack")
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+}
+
+// AND TWO DIFFERENT PACKS WHOSE LADDERS END ON ONE ABSENT RUNG NAME IT ONCE.
+// That is appendOnce's own stated property, held up here rather than argued:
+// the walk asks the game about space-science-pack twice, once per ladder, and
+// the sentence says it once.
+func TestTwoLaddersEndingOnOneAbsentRungNameItOnce(t *testing.T) {
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{Unit: &UnitSpec{Count: 50, Seconds: 15, Packs: []Pack{
+		{Name: "military-science-pack", Amount: 1, Fallbacks: []string{"space-science-pack"}},
+		{Name: "metallurgic-science-pack", Amount: 1, Fallbacks: []string{"space-science-pack"}},
+	}}})
+
+	_, err := lib.PlanData(baseWorld())
+	if err == nil {
+		t.Fatal("a unit whose ladders all missed was accepted")
+	}
+	want := packlessRefusal("steel-axes",
+		"military-science-pack", "space-science-pack", "metallurgic-science-pack")
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+}
+
+// AND THE NAMES KEEP FIRST-SEEN ORDER, which uniqueness alone does not pin: an
+// implementation keeping the LAST occurrence, or moving the survivor to the
+// end, would name the same three names in another order. Six asks here, in
+// three names: the copied unit lost automation, military and automation again,
+// then the fallback's ladders asked about military, chemical and automation.
+func TestThePacklessNamesKeepFirstSeenOrder(t *testing.T) {
+	lib := New()
+	tier := lib.DropdownSettingNeedingLocale("tier", "early", []string{"early"})
+	lib.Technology("steel-axes", TechSpec{CostBy: &CostChoices{
+		Setting: tier,
+		Choices: []CostChoice{{Value: "early", Sources: []string{"steel-processing"}}},
+		Fallback: UnitSpec{Count: 7, Seconds: 8, Packs: []Pack{
+			{Name: "military-science-pack", Amount: 2, Fallbacks: []string{"chemical-science-pack"}},
+			{Name: "automation-science-pack", Amount: 2},
+		}},
+	}})
+
+	_, err := lib.PlanData(baseWorld().
+		withUnit("steel-processing", unitOf(50, 15,
+			"automation-science-pack", "military-science-pack", "automation-science-pack")).
+		withoutTool("automation-science-pack").
+		withoutTool("chemical-science-pack"))
+	if err == nil {
+		t.Fatal("a tier and a fallback that both missed everything were accepted")
+	}
+	want := packlessRefusal("steel-axes",
+		"automation-science-pack", "military-science-pack", "chemical-science-pack")
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}

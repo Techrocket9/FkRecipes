@@ -14,6 +14,7 @@ use crate::plan::{
 use crate::tests::data::{LOGISTICS_2_UNIT, STEEL_PROCESSING_UNIT};
 use crate::tests::{
     assert_composed, assert_lines, base_world, packless_refusal, settings_world, transcript,
+    unit_of,
 };
 use crate::value::Value;
 
@@ -1468,6 +1469,131 @@ fn a_tier_whose_fallback_is_also_unpayable_still_refuses() {
                     "automation-science-pack",
                     "military-science-pack",
                     "space-science-pack"
+                ]
+            )
+        ),
+    }
+}
+
+/// AND A NAME ASKED ABOUT TWICE IS NAMED ONCE. Two producers feed that list:
+/// the chosen tier's copied unit, whose lost packs come first, and the declared
+/// fallback's own ladders. Each deduped only itself, so a fallback rung that
+/// repeats a copied pack used to print the name twice in one sentence.
+#[test]
+fn a_pack_asked_about_twice_is_named_once() {
+    let mut lib = Lib::new();
+    let tier = lib.dropdown_setting_needing_locale("tier", "early", &["early"]);
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            cost_by: Some(CostChoices {
+                setting: tier,
+                choices: vec![cost_choice("early", &["steel-processing"])],
+                fallback: UnitSpec {
+                    count: 7,
+                    seconds: 8.0,
+                    packs: vec![Pack::named(2, "automation-science-pack", &[])],
+                },
+            }),
+            ..Default::default()
+        },
+    );
+
+    match lib.plan_data(&base_world().without_tool("automation-science-pack")) {
+        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
+        Err(got) => assert_eq!(
+            got,
+            packless_refusal("steel-axes", &["automation-science-pack"])
+        ),
+    }
+}
+
+/// AND THE COPIED UNIT'S OWN LIST IS DEDUPED TOO, with no fallback anywhere in
+/// the picture: a source technology that names one absent pack twice is one
+/// producer repeating itself, and the sentence names the pack once.
+#[test]
+fn a_copied_unit_naming_one_absent_pack_twice_names_it_once() {
+    let mut lib = Lib::new();
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            cost_of: String::from("steel-processing"),
+            ..Default::default()
+        },
+    );
+
+    let w = base_world()
+        .with_unit(
+            "steel-processing",
+            unit_of(
+                50,
+                15.0,
+                &["automation-science-pack", "automation-science-pack"],
+            ),
+        )
+        .without_tool("automation-science-pack");
+    match lib.plan_data(&w) {
+        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
+        Err(got) => assert_eq!(
+            got,
+            packless_refusal("steel-axes", &["automation-science-pack"])
+        ),
+    }
+}
+
+/// AND THE NAMES KEEP FIRST-SEEN ORDER, which uniqueness alone does not pin: an
+/// implementation keeping the LAST occurrence, or moving the survivor to the
+/// end, would name the same three names in another order. Six asks here, in
+/// three names: the copied unit lost automation, military and automation again,
+/// then the fallback's ladders asked about military, chemical and automation.
+#[test]
+fn the_packless_names_keep_first_seen_order() {
+    let mut lib = Lib::new();
+    let tier = lib.dropdown_setting_needing_locale("tier", "early", &["early"]);
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            cost_by: Some(CostChoices {
+                setting: tier,
+                choices: vec![cost_choice("early", &["steel-processing"])],
+                fallback: UnitSpec {
+                    count: 7,
+                    seconds: 8.0,
+                    packs: vec![
+                        Pack::named(2, "military-science-pack", &["chemical-science-pack"]),
+                        Pack::named(2, "automation-science-pack", &[]),
+                    ],
+                },
+            }),
+            ..Default::default()
+        },
+    );
+
+    let w = base_world()
+        .with_unit(
+            "steel-processing",
+            unit_of(
+                50,
+                15.0,
+                &[
+                    "automation-science-pack",
+                    "military-science-pack",
+                    "automation-science-pack",
+                ],
+            ),
+        )
+        .without_tool("automation-science-pack")
+        .without_tool("chemical-science-pack");
+    match lib.plan_data(&w) {
+        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
+        Err(got) => assert_eq!(
+            got,
+            packless_refusal(
+                "steel-axes",
+                &[
+                    "automation-science-pack",
+                    "military-science-pack",
+                    "chemical-science-pack"
                 ]
             )
         ),

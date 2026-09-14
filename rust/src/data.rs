@@ -1057,7 +1057,8 @@ impl Lib {
                             // refusal is one whose ladders all missed: the
                             // whole list of names, in the order they were
                             // asked, is the one thing that says which mod set
-                            // this is.
+                            // this is. ONCE EACH is `mark_packless`'s rule and
+                            // not this caller's: see there.
                             let mut asked = filtered.dropped.clone();
                             asked.extend(tried);
                             res.mark_packless(&t.name, asked);
@@ -1623,11 +1624,26 @@ impl Resolution {
     /// technology that also lost everything must not overwrite the first one's
     /// names and leave the sentence naming one technology's rungs under
     /// another's name.
+    ///
+    /// AND THIS IS THE ONE PLACE THE ONCE-EACH RULE IS APPLIED, on the way
+    /// into the only state the sentence is composed from. It belongs to the
+    /// single WRITER rather than to any caller because no caller can see
+    /// another's list: two declared ladders ending on one absent rung would
+    /// print that rung twice, a copied unit naming one absent pack twice would
+    /// print it twice, and a fallback rung repeating a pack the copied unit
+    /// already lost would print it twice across two producers. FIRST-SEEN
+    /// ORDER, because the sentence is the walk's own order: the copied unit's
+    /// lost packs first, then the declared ladders in declaration order with
+    /// each ladder's rungs in ladder order.
     fn mark_packless(&mut self, tech: &str, tried: Vec<String>) {
         if self.packless.is_some() {
             return;
         }
-        self.packless = Some((String::from(tech), tried));
+        let mut names: Vec<String> = Vec::with_capacity(tried.len());
+        for name in tried {
+            append_once(&mut names, &name);
+        }
+        self.packless = Some((String::from(tech), names));
     }
 }
 
@@ -3711,10 +3727,13 @@ fn merged_from(from: &str) -> String {
 /// items in a research unit and nothing else (measured: "Invalid research
 /// unit (iron-plate). Research unit(s) can only be tool type items at the
 /// moment."), so a rung that is an item but not a tool is not a rung.
-/// IT ALSO ANSWERS WHAT IT TRIED, in declaration order and once each, because
-/// the refusal a unit that kept nothing gets has to name the names: see
-/// `check_resolved_packs`. Collected on every walk rather than only on the
-/// empty one, so the answer costs the same branch whatever the game holds.
+/// IT ALSO ANSWERS WHAT IT TRIED, in declaration order, because the refusal a
+/// unit that kept nothing gets has to name the names: see
+/// `check_resolved_packs`. REPEATS ARE LEFT IN, because this walk is one of
+/// four callers feeding that sentence and none of them can see the others:
+/// `mark_packless` is the one place the once-each rule is applied. Collected on
+/// every walk rather than only on the empty one, so the answer costs the same
+/// branch whatever the game holds.
 fn resolve_packs(
     w: &dyn World,
     res: &mut Resolution,
@@ -3729,13 +3748,13 @@ fn resolve_packs(
         if w.tool_exists(&p.name) {
             picked = Some(p.name.clone());
         } else {
-            append_once(&mut tried, &p.name);
+            tried.push(p.name.clone());
             for f in &p.fallbacks {
                 if w.tool_exists(f) {
                     picked = Some(f.clone());
                     break;
                 }
-                append_once(&mut tried, f);
+                tried.push(String::from(f));
             }
         }
         match picked {
@@ -3762,9 +3781,8 @@ fn resolve_packs(
     (list, tried)
 }
 
-/// Keeps a vector in first-seen order with no repeats, which is what a sentence
-/// naming several names needs: two ladders ending on one absent rung would
-/// otherwise print it twice.
+/// Keeps a vector in first-seen order with no repeats. Its one caller is
+/// `mark_packless`, which is where the reason it is needed is written.
 fn append_once(list: &mut Vec<String>, name: &str) {
     if list.iter().any(|seen| seen == name) {
         return;

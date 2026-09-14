@@ -1704,7 +1704,8 @@ func resolveUnit(w World, res *resolution, tgt noteTarget, tech string, u *UnitS
 		// science packs a chosen tier's copied unit named and lost. An author
 		// reading the refusal is one whose ladders all missed, and the one
 		// thing that says which mod set this is is the whole list of names,
-		// in the order they were asked.
+		// in the order they were asked. ONCE EACH is markPackless's rule and
+		// not this caller's: see there.
 		res.markPackless(tech, append(append([]string{}, alreadyTried...), tried...))
 	}
 	return Obj(
@@ -1727,10 +1728,12 @@ func resolveUnit(w World, res *resolution, tgt noteTarget, tech string, u *UnitS
 // Research unit(s) can only be tool type items at the moment", and a fluid name
 // in a unit refuses with "Error in assignID: item with name 'water' does not
 // exist". Asking ItemExists would let either of those through as a rung.
-// IT ALSO ANSWERS WHAT IT TRIED, in declaration order and once each, because
-// the refusal a unit that kept nothing gets has to name the names: see
-// checkResolvedPacks. Collected on every walk rather than only on the empty
-// one, so the answer costs the same branch whatever the game holds.
+// IT ALSO ANSWERS WHAT IT TRIED, in declaration order, because the refusal a
+// unit that kept nothing gets has to name the names: see checkResolvedPacks.
+// REPEATS ARE LEFT IN, because this walk is one of four callers feeding that
+// sentence and none of them can see the others: markPackless is the one place
+// the once-each rule is applied. Collected on every walk rather than only on
+// the empty one, so the answer costs the same branch whatever the game holds.
 func resolvePackLadders(w World, res *resolution, tgt noteTarget, tech string, packs []Pack) (ingredientList, []string) {
 	out := make(ingredientList, 0, len(packs))
 	tried := make([]string, 0, len(packs))
@@ -1742,7 +1745,7 @@ func resolvePackLadders(w World, res *resolution, tgt noteTarget, tech string, p
 				picked = c
 				break
 			}
-			tried = appendOnce(tried, c)
+			tried = append(tried, c)
 		}
 		if picked == "" {
 			res.logs = append(res.logs, "fkrecipes: "+tech+": none of "+strings.Join(candidates, ", ")+
@@ -1757,9 +1760,8 @@ func resolvePackLadders(w World, res *resolution, tgt noteTarget, tech string, p
 	return out, tried
 }
 
-// appendOnce keeps a slice in first-seen order with no repeats, which is what
-// a sentence naming several names needs: two ladders ending on one absent rung
-// would otherwise print it twice.
+// appendOnce keeps a slice in first-seen order with no repeats. Its one caller
+// is markPackless, which is where the reason it is needed is written.
 func appendOnce(list []string, name string) []string {
 	for _, seen := range list {
 		if seen == name {
@@ -1775,12 +1777,26 @@ func appendOnce(list []string, name string) []string {
 // THE NAMES RIDE WITH THE TECHNOLOGY, never separately: a second technology
 // that also lost everything must not overwrite the first one's names and leave
 // the sentence naming one technology's rungs under another's name.
+//
+// AND THIS IS THE ONE PLACE THE ONCE-EACH RULE IS APPLIED, on the way into the
+// only state the sentence is composed from. It belongs to the single WRITER
+// rather than to any caller because no caller can see another's list: two
+// declared ladders ending on one absent rung would print that rung twice, a
+// copied unit naming one absent pack twice would print it twice, and a
+// fallback rung repeating a pack the copied unit already lost would print it
+// twice across two producers. FIRST-SEEN ORDER, because the sentence is the
+// walk's own order: the copied unit's lost packs first, then the declared
+// ladders in declaration order with each ladder's rungs in ladder order.
 func (r *resolution) markPackless(tech string, tried []string) {
 	if r.packless != "" {
 		return
 	}
 	r.packless = tech
-	r.packlessNames = tried
+	names := make([]string, 0, len(tried))
+	for _, name := range tried {
+		names = appendOnce(names, name)
+	}
+	r.packlessNames = names
 }
 
 // appendLocalised is the ONE writer of localised_name and localised_description
