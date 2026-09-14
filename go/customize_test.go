@@ -2221,6 +2221,20 @@ func TestATimeBesideACountFormulaLeavesItAlone(t *testing.T) {
 // and what they leave alone; the line saying why comes first, because it is the
 // reason the numbers under it are the fallback's. The Rust half holds the same
 // transcript.
+//
+// THE TIER ARM'S NOTE STAYS, because the PACK TEXT was left alone: the snapshot
+// that takes back everything the tier arm wrote is the typed pack list's, and
+// here only a number was typed. That is the same rule the packless and the
+// unreadable arms beside it follow.
+//
+// AND THIS TRANSCRIPT IS WHY ALL THREE OF THOSE SENTENCES STATE AN
+// ENVIRONMENTAL FACT AND NAME NO PRICE. The declared Fallback here is
+// count 200; the emitted unit is count=45, which is the player's own. A note
+// saying this mod's own declared cost applied would be a false sentence in a
+// tooltip beside a number the player chose, which is finding 19 one arm over.
+// What every one of the three says instead is true whatever the numbers beside
+// it are: the copied cost did not price this research, and this one adds that
+// there is no prerequisite either, which no setting touches.
 func TestASettingOverridesTheFallbackTier(t *testing.T) {
 	lib := tipsPlan()
 	w := customWorld().withoutTech("logistics-2").
@@ -2239,6 +2253,7 @@ func TestASettingOverridesTheFallbackTier(t *testing.T) {
 			` count 45, time 30, packs 1 automation-science-pack;` +
 			` the steelworks-tips-tier choice cheap supplies what the settings leave at default`,
 		`extend {type="technology", name="steelworks-hardened-tips",` +
+			` localised_description=["", "` + unpricedTooltip + `"],` +
 			` unit={count=45, time=30, ingredients=[["automation-science-pack", 1]]}}`,
 	})
 }

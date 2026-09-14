@@ -1871,3 +1871,308 @@ fn sentence_at(code: &[char], literals: &[(usize, String)], at: usize) -> String
     }
     out
 }
+
+// ---------------------------------------------------------------------------
+// Every note call site, accounted for, as a source property.
+// ---------------------------------------------------------------------------
+
+/// THE NOTE SET, MADE MECHANICAL.
+///
+/// THE LOG IS NOT A DISCLOSURE, so every degradation this library makes leaves
+/// a trailing line in the prototype's own description. The defect that rule
+/// exists to prevent is a degradation that writes NO note, and until this test
+/// the only thing standing against it was four hand-maintained prose
+/// enumerations that nothing read: the block comment over the composers in each
+/// half, the fixture list in `localised.rs`, `docs/usage.md`'s fenced block and
+/// the design record. A prose list is a list somebody forgets, which is exactly
+/// how the arm this round repaired went silent for a whole cycle.
+///
+/// WHAT IS GUARDED IS THE CALL SITES AND NOT THE SENTENCES. Whether a given
+/// sentence is the right sentence is what the behavioural tests and the corpus
+/// are for. This asks one narrower question the behavioural tests cannot: is
+/// every composer the source hands to `note_on` accounted for, and is every
+/// composer the table carries still handed to it.
+///
+/// THE PLAYER'S FALLBACK IS IN THE SET. `fallback_note` is not an environmental
+/// degradation at all, and it is here anyway: the property is "every call site
+/// is accounted for", and a set with a hand-written exclusion in it is a set
+/// with a hole where the exclusion is. The row says which kind it is instead.
+///
+/// THE BYTE LENGTH IS PINNED AT AN EMPTY ARGUMENT SLOT, which is the one length
+/// a sentence has that does not depend on a mod set: the composer is called
+/// with nothing in the slot its name goes in. It is what the chunker's budget
+/// and `append_localised`'s arithmetic are stated against. The number moving is
+/// a sentence moving, which is a corpus change and a documents change, so it is
+/// pinned here to make that one failure rather than a silent drift.
+struct NoteComposer {
+    /// The identifier the source calls, exactly.
+    name: &'static str,
+    /// `note_at_empty_slot(name).len()`, pinned.
+    bytes: usize,
+    /// The one composer that is a PLAYER's fallback rather than an
+    /// environmental degradation: something the player typed was set aside.
+    player: bool,
+    /// One line saying what the degradation is.
+    what: &'static str,
+}
+
+const NOTE_COMPOSERS: &[NoteComposer] = &[
+    NoteComposer {
+        name: "fallback_note",
+        bytes: 128,
+        player: true,
+        what: "a stored value the player typed could not be used, so the field behaved as though it had been left alone",
+    },
+    NoteComposer {
+        name: "pack_dropped_note",
+        bytes: 84,
+        player: false,
+        what: "the chosen source lost SOME of its science packs to the tool probe",
+    },
+    NoteComposer {
+        name: "packless_source_note",
+        bytes: 132,
+        player: false,
+        what: "the chosen source lost EVERY pack to the tool probe, and a declared cost sits behind it",
+    },
+    NoteComposer {
+        name: "unpriced_source_note",
+        bytes: 168,
+        player: false,
+        what: "no source in the chosen ladder handed the library a cost it could copy, so the research has no prerequisite either",
+    },
+    NoteComposer {
+        name: "packless_note",
+        bytes: 122,
+        player: false,
+        what: "every pack the research names was put to the game and the game had none of them",
+    },
+    NoteComposer {
+        name: "unreadable_source_note",
+        bytes: 135,
+        player: false,
+        what: "the chosen source's pack list is in neither engine form, and a declared cost sits behind it",
+    },
+    NoteComposer {
+        name: "unreadable_copy_note",
+        bytes: 121,
+        player: false,
+        what: "the same list with nothing declared behind it, so the unit is emitted with no packs at all",
+    },
+    NoteComposer {
+        name: "clamped_item_note",
+        bytes: 128,
+        player: false,
+        what: "two ladders landed on one item above the engine's 65535",
+    },
+    NoteComposer {
+        name: "clamped_fluid_note",
+        bytes: 145,
+        player: false,
+        what: "two ladders landed on one fluid above the engine's 1e301",
+    },
+    NoteComposer {
+        name: "cycle_prereq_note",
+        bytes: 129,
+        player: false,
+        what: "a prerequisite this plan made would loop the technology tree, so it was dropped",
+    },
+    NoteComposer {
+        name: "cycle_splice_note",
+        bytes: 131,
+        player: false,
+        what: "a splice this plan made would loop the technology tree, so it was dropped",
+    },
+];
+
+/// The wrappers a composer's sentence may be handed to on the way into
+/// `note_on`. They compose no sentence of their own, so they are looked THROUGH
+/// rather than counted: see `with_destruction`, which joins the engine's own
+/// permanent cost to a note whose ingredient list moved.
+const NOTE_DECORATORS: &[&str] = &["with_destruction"];
+
+/// Each composer's sentence with nothing in the slot a name goes in. `None` for
+/// a name the crate does not define, which is how a call site naming something
+/// that is not a composer reaches its own failure.
+fn note_at_empty_slot(name: &str) -> Option<String> {
+    use crate::data::*;
+    Some(match name {
+        "fallback_note" => fallback_note("", false),
+        "pack_dropped_note" => pack_dropped_note(""),
+        "packless_source_note" => packless_source_note(""),
+        "unpriced_source_note" => unpriced_source_note(),
+        "packless_note" => packless_note(),
+        "unreadable_source_note" => unreadable_source_note(""),
+        "unreadable_copy_note" => unreadable_copy_note(""),
+        "clamped_item_note" => clamped_item_note(""),
+        "clamped_fluid_note" => clamped_fluid_note(""),
+        "cycle_prereq_note" => cycle_prereq_note(""),
+        "cycle_splice_note" => cycle_splice_note(""),
+        _ => return None,
+    })
+}
+
+/// Every function called inside the argument list of the `note_on` starting at
+/// `at`, with the decorators looked through. A composer is what is left.
+fn note_composers_at(code: &[char], at: usize) -> Vec<String> {
+    let mut i = at;
+    while i < code.len() && code[i] != '(' {
+        i += 1;
+    }
+    let from = i;
+    let mut depth = 0usize;
+    let mut end = code.len();
+    while i < code.len() {
+        match code[i] {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = i;
+                    break;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    let mut out: Vec<String> = Vec::new();
+    let mut j = from + 1;
+    while j < end {
+        if !is_name_char(code[j]) || (j > 0 && is_name_char(code[j - 1])) {
+            j += 1;
+            continue;
+        }
+        let start = j;
+        while j < end && is_name_char(code[j]) {
+            j += 1;
+        }
+        // A NAME IS A CALL ONLY WHEN A PAREN FOLLOWS IT, and a name reached
+        // through a path or a field is somebody else's: `String::from(` and
+        // `self.foo(` are not composers in this crate.
+        if code.get(j) != Some(&'(') {
+            continue;
+        }
+        if start > 0 && (code[start - 1] == '.' || code[start - 1] == ':') {
+            continue;
+        }
+        let name: String = code[start..j].iter().collect();
+        if NOTE_DECORATORS.contains(&name.as_str()) {
+            continue;
+        }
+        out.push(name);
+    }
+    out
+}
+
+/// The property. It reads the crate's own modules, finds every `note_on` call,
+/// names the composer each one hands over, and holds that set to the table
+/// above in both directions.
+#[test]
+fn every_note_call_site_is_accounted_for() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+    let sources = crate_modules(&root);
+    assert!(
+        sources.len() >= 5,
+        "only {} modules found under {}; the scan would prove nothing",
+        sources.len(),
+        root.display()
+    );
+
+    let mut problems: Vec<String> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    let mut sites = 0usize;
+    for path in &sources {
+        let text = fs::read_to_string(path).expect("a module is not readable");
+        let code: Vec<char> = scan(&text).code.chars().collect();
+        let module = path
+            .strip_prefix(&root)
+            .expect("a module outside the tree that produced it")
+            .to_string_lossy()
+            .to_string();
+        for at in needle_hits(&code, "note_on") {
+            // `fn note_on(` is the recorder itself, not a call of it.
+            if at >= 3 && code[at - 3..at].iter().collect::<String>() == "fn " {
+                continue;
+            }
+            sites += 1;
+            let named = note_composers_at(&code, at);
+            match named.len() {
+                1 => seen.push(named[0].clone()),
+                0 => problems.push(format!(
+                    "{}:{}: a note_on call hands over a sentence no composer built; every note is one named composer so this test can account for it",
+                    module,
+                    line_of(&code, at)
+                )),
+                _ => problems.push(format!(
+                    "{}:{}: a note_on call names {:?}; exactly one of them is the composer and the rest have to be decorators listed in NOTE_DECORATORS",
+                    module,
+                    line_of(&code, at),
+                    named
+                )),
+            }
+        }
+    }
+
+    // A WALK THAT FOUND NOTHING WOULD PASS EVERY ASSERTION BELOW that is not
+    // about the table, so the floor is here as it is in the other properties.
+    assert!(
+        sites >= NOTE_COMPOSERS.len(),
+        "only {} note_on call sites were found across {} modules; the table carries {} composers and the walk is not reaching them",
+        sites,
+        sources.len(),
+        NOTE_COMPOSERS.len()
+    );
+
+    for nc in NOTE_COMPOSERS {
+        if !seen.iter().any(|s| s == nc.name) {
+            problems.push(format!(
+                "NOTE_COMPOSERS carries {} ({}) and no note_on call hands it over any more; a composer nothing records is a row that has stopped guarding something, so delete both or restore the call",
+                nc.name, nc.what
+            ));
+            continue;
+        }
+        let sentence = note_at_empty_slot(nc.name).unwrap_or_else(|| {
+            panic!(
+                "{} is in the table and note_at_empty_slot does not build it",
+                nc.name
+            )
+        });
+        if sentence.len() != nc.bytes {
+            problems.push(format!(
+                "{} composes {} bytes with an empty argument slot and the table pins {}; the sentence moved, so move testdata, docs/usage.md and the design record with it\n  {:?}",
+                nc.name,
+                sentence.len(),
+                nc.bytes,
+                sentence
+            ));
+        }
+    }
+    for name in &seen {
+        if !NOTE_COMPOSERS.iter().any(|nc| nc.name == name) {
+            problems.push(format!(
+                "{} is handed to note_on and NOTE_COMPOSERS does not carry it; add a row with the sentence's byte length at an empty argument slot and one line saying what the degradation is, and add the composition to worst_case_plan, docs/usage.md and the design record in the same commit",
+                name
+            ));
+        }
+    }
+
+    // EXACTLY ONE PLAYER'S FALLBACK, which is the one asymmetry in the table
+    // and the one worth a check of its own: a second composer marked that way
+    // would mean an environmental degradation had been relabelled as something
+    // the player typed, which is the confusion the two voices exist to prevent.
+    let players = NOTE_COMPOSERS.iter().filter(|nc| nc.player).count();
+    if players != 1 {
+        problems.push(format!(
+            "{} composers are marked a PLAYER's fallback; there is one, and everything else this library writes into a description is an ENVIRONMENTAL degradation nobody typed",
+            players
+        ));
+    }
+
+    assert!(
+        problems.is_empty(),
+        "the note set and the source disagree, so a degradation could ship with no disclosure:\n{}",
+        problems.join("\n")
+    );
+}

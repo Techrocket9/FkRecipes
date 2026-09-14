@@ -1122,3 +1122,238 @@ func typeName(e ast.Expr) string {
 	})
 	return b.String()
 }
+
+// ---------------------------------------------------------------------------
+// Every note call site, accounted for, as a source property.
+// ---------------------------------------------------------------------------
+
+// THE NOTE SET, MADE MECHANICAL.
+//
+// THE LOG IS NOT A DISCLOSURE, so every degradation this library makes leaves a
+// trailing line in the prototype's own description. The defect that rule exists
+// to prevent is a degradation that writes NO note, and until this test the only
+// thing standing against it was four hand-maintained prose enumerations that
+// nothing read: the block comment over the composers in each half, the fixture
+// list in localised_test.go, docs/usage.md's fenced block and the design
+// record. A prose list is a list somebody forgets, which is exactly how the arm
+// this round repaired went silent for a whole cycle.
+//
+// WHAT IS GUARDED IS THE CALL SITES AND NOT THE SENTENCES. Whether a given
+// sentence is the right sentence is what the behavioural tests and the corpus
+// are for. This asks one narrower question the behavioural tests cannot: is
+// every composer the source hands to noteOn accounted for, and is every
+// composer the table carries still handed to it. A note added without a row
+// goes red naming the composer, and a row left behind by a deleted call goes
+// red naming it too.
+//
+// THE PLAYER'S FALLBACK IS IN THE SET. fallbackNote is not an environmental
+// degradation at all, and it is here anyway: the property is "every call site
+// is accounted for", and a set with a hand-written exclusion in it is a set
+// with a hole where the exclusion is. The row says which kind it is instead.
+//
+// THE BYTE LENGTH IS PINNED AT AN EMPTY ARGUMENT SLOT, which is the one length
+// a sentence has that does not depend on a mod set: the composer is called with
+// nothing in the slot its name goes in. It is what the chunker's budget and
+// appendLocalised's arithmetic are stated against, and a sentence that grows
+// past 180 bytes with an empty slot is one whose every composition is chunked
+// on every mod set. The number moving is a sentence moving, which is a corpus
+// change and a documents change, so it is pinned here to make that one failure
+// rather than a silent drift.
+type noteComposer struct {
+	// name is the identifier the source calls, exactly.
+	name string
+	// bytes is len(empty()), pinned.
+	bytes int
+	// player marks the one composer that is a PLAYER's fallback rather than an
+	// environmental degradation: something the player typed was set aside.
+	player bool
+	// what is one line saying what the degradation is.
+	what string
+	// empty is the sentence with nothing in the slot a name goes in.
+	empty func() string
+}
+
+var noteComposers = []noteComposer{
+	{
+		name: "fallbackNote", bytes: 128, player: true,
+		what:  "a stored value the player typed could not be used, so the field behaved as though it had been left alone",
+		empty: func() string { return fallbackNote("", false) },
+	},
+	{
+		name: "packDroppedNote", bytes: 84,
+		what:  "the chosen source lost SOME of its science packs to the tool probe",
+		empty: func() string { return packDroppedNote("") },
+	},
+	{
+		name: "packlessSourceNote", bytes: 132,
+		what:  "the chosen source lost EVERY pack to the tool probe, and a declared cost sits behind it",
+		empty: func() string { return packlessSourceNote("") },
+	},
+	{
+		name: "unpricedSourceNote", bytes: 168,
+		what:  "no source in the chosen ladder handed the library a cost it could copy, so the research has no prerequisite either",
+		empty: unpricedSourceNote,
+	},
+	{
+		name: "packlessNote", bytes: 122,
+		what:  "every pack the research names was put to the game and the game had none of them",
+		empty: packlessNote,
+	},
+	{
+		name: "unreadableSourceNote", bytes: 135,
+		what:  "the chosen source's pack list is in neither engine form, and a declared cost sits behind it",
+		empty: func() string { return unreadableSourceNote("") },
+	},
+	{
+		name: "unreadableCopyNote", bytes: 121,
+		what:  "the same list with nothing declared behind it, so the unit is emitted with no packs at all",
+		empty: func() string { return unreadableCopyNote("") },
+	},
+	{
+		name: "clampedItemNote", bytes: 128,
+		what:  "two ladders landed on one item above the engine's 65535",
+		empty: func() string { return clampedItemNote("") },
+	},
+	{
+		name: "clampedFluidNote", bytes: 145,
+		what:  "two ladders landed on one fluid above the engine's 1e301",
+		empty: func() string { return clampedFluidNote("") },
+	},
+	{
+		name: "cyclePrereqNote", bytes: 129,
+		what:  "a prerequisite this plan made would loop the technology tree, so it was dropped",
+		empty: func() string { return cyclePrereqNote("") },
+	},
+	{
+		name: "cycleSpliceNote", bytes: 131,
+		what:  "a splice this plan made would loop the technology tree, so it was dropped",
+		empty: func() string { return cycleSpliceNote("") },
+	},
+}
+
+// noteDecorators are the wrappers a composer's sentence may be handed to on the
+// way into noteOn. They compose no sentence of their own, so they are looked
+// THROUGH rather than counted: see withDestruction, which joins the engine's
+// own permanent cost to a note whose ingredient list moved.
+var noteDecorators = []string{"withDestruction"}
+
+// TestEveryNoteCallSiteIsAccountedFor is the property. It reads the package's
+// own files, finds every noteOn call, names the composer each one hands over,
+// and holds that set to the table above in both directions.
+func TestEveryNoteCallSiteIsAccountedFor(t *testing.T) {
+	sources := packageSources(t)
+
+	fset := token.NewFileSet()
+	seen := make(map[string]int)
+	sites := 0
+	for _, path := range sources {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("the source is the thing under test and it is not readable: %v", err)
+		}
+		file, err := parser.ParseFile(fset, path, src, 0)
+		if err != nil {
+			t.Fatalf("%s does not parse: %v", path, err)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "noteOn" || len(call.Args) != 2 {
+				return true
+			}
+			sites++
+			named := composersIn(call.Args[1])
+			switch len(named) {
+			case 1:
+				seen[named[0]]++
+			case 0:
+				t.Errorf("%s: a noteOn call hands over a sentence no composer built;"+
+					" every note is one named composer so this test can account for it",
+					fset.Position(call.Pos()))
+			default:
+				t.Errorf("%s: a noteOn call names %v; exactly one of them is the composer and"+
+					" the rest have to be decorators listed in noteDecorators",
+					fset.Position(call.Pos()), named)
+			}
+			return true
+		})
+	}
+
+	// A WALK THAT FOUND NOTHING WOULD PASS EVERY ASSERTION BELOW that is not
+	// about the table, so the floor is here as it is in the other properties.
+	if sites < len(noteComposers) {
+		t.Fatalf("only %d noteOn call sites were found across %d files; the table carries %d composers"+
+			" and the walk is not reaching them", sites, len(sources), len(noteComposers))
+	}
+
+	for _, nc := range noteComposers {
+		if seen[nc.name] == 0 {
+			t.Errorf("noteComposers carries %s (%s) and no noteOn call hands it over any more;"+
+				" a composer nothing records is a row that has stopped guarding something, so delete both or restore the call",
+				nc.name, nc.what)
+		}
+		if got := len(nc.empty()); got != nc.bytes {
+			t.Errorf("%s composes %d bytes with an empty argument slot and the table pins %d;"+
+				" the sentence moved, so move testdata, docs/usage.md and the design record with it\n  %q",
+				nc.name, got, nc.bytes, nc.empty())
+		}
+	}
+	for name := range seen {
+		if noteComposerFor(name) < 0 {
+			t.Errorf("%s is handed to noteOn and noteComposers does not carry it;"+
+				" add a row with the sentence's byte length at an empty argument slot and one line saying what the degradation is,"+
+				" and add the composition to worstCasePlan, docs/usage.md and the design record in the same commit",
+				name)
+		}
+	}
+
+	// EXACTLY ONE PLAYER'S FALLBACK, which is the one asymmetry in the table
+	// and the one worth a check of its own: a second composer marked that way
+	// would mean an environmental degradation had been relabelled as something
+	// the player typed, which is the confusion the two voices exist to prevent.
+	players := 0
+	for _, nc := range noteComposers {
+		if nc.player {
+			players++
+		}
+	}
+	if players != 1 {
+		t.Errorf("%d composers are marked a PLAYER's fallback; there is one, and everything else"+
+			" this library writes into a description is an ENVIRONMENTAL degradation nobody typed", players)
+	}
+	t.Logf("accounted for %d noteOn call sites across %d composers", sites, len(noteComposers))
+}
+
+func noteComposerFor(name string) int {
+	for i, nc := range noteComposers {
+		if nc.name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+// composersIn reports every function a note argument calls, with the decorators
+// looked through. A composer is what is left.
+func composersIn(arg ast.Expr) []string {
+	var out []string
+	ast.Inspect(arg, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		id, ok := call.Fun.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		if contains(noteDecorators, id.Name) {
+			return true
+		}
+		out = append(out, id.Name)
+		return true
+	})
+	return out
+}

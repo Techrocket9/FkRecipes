@@ -128,8 +128,8 @@ fn no_composition_reaches_the_element_ceiling() {
         }
     }
     assert_eq!(
-        described, 24,
-        "the fixture emitted {} localised_description fields, not the 24 it declares; \
+        described, 28,
+        "the fixture emitted {} localised_description fields, not the 28 it declares; \
          the walk below would prove nothing about the ones it lost",
         described
     );
@@ -245,7 +245,7 @@ fn walk_value_for_ceilings(where_: &str, path: &str, v: &Value, localised: bool)
 /// reached from the PUBLIC surface and each one with the longest legal name in
 /// the slot its sentence names.
 ///
-/// TWENTY-FOUR DESCRIPTIONS, and the count is asserted above:
+/// TWENTY-EIGHT DESCRIPTIONS, and the count is asserted above:
 ///
 /// - an item with a display name and a description;
 /// - a recipe carrying the FALLBACK note, with a description and without;
@@ -254,12 +254,25 @@ fn walk_value_for_ceilings(where_: &str, path: &str, v: &Value, localised: bool)
 /// - a technology carrying the FALLBACK note, with and without;
 /// - a technology carrying the DROPPED-PACK note, with and without;
 /// - a technology carrying the PACKLESS-SOURCE note, with and without;
+/// - a technology carrying the UNPRICED-SOURCE note, with and without;
 /// - a technology carrying the PACKLESS note, with and without;
 /// - a technology carrying the UNREADABLE-SOURCE note, with and without;
+/// - a technology carrying the UNREADABLE-COPY note, with and without;
 /// - a technology carrying the CYCLE-PREREQUISITE note, with and without;
 /// - a technology carrying the CYCLE-SPLICE note, with and without;
 /// - a technology carrying the clamped PACK note, with and without;
 /// - and an item whose description alone is long enough to NEST.
+///
+/// THE LAST TWO ROWS ADDED ARE THE ONES THE COUNT ALONE COULD NOT HAVE CAUGHT.
+/// `unpriced_source_note` and `unreadable_copy_note` were composed by the
+/// library and walked by nothing here, which made the claim over this file
+/// ("every composition this library can write onto a data prototype") false
+/// while every assertion in it passed. A composition missing from the fixture
+/// is invisible to the count, because the count is of what the fixture emits;
+/// the only guard is that the fixture is extended in the same commit as the
+/// composer. The note SET is now held mechanically by
+/// `every_note_call_site_is_accounted_for`, and a composer that appears there
+/// and not in this list is the next thing to add.
 ///
 /// THE PAIRS ARE PAIRS BECAUSE THE COMPOSITION IS WHAT IS WALKED, not the note:
 /// a note beside an author's description and a note alone are two different
@@ -283,6 +296,9 @@ fn worst_case_plan() -> (Lib, FixtureWorld) {
     let drop_source = existing_name("logistics-2");
     let packless_source = existing_name("steel-processing");
     let unreadable_source = existing_name("electronics");
+    // A source the fixture World is never given, which is what the
+    // unpriced-source arm needs: every rung of the tier's ladder absent.
+    let absent_source = existing_name("nothing-carries-this-cost");
 
     // A description that forces `localised_group` to NEST: 7200 bytes is forty
     // chunks at the budget, and one level holds twenty.
@@ -445,6 +461,56 @@ fn worst_case_plan() -> (Lib, FixtureWorld) {
                         packs: alloc::vec![Pack::named(2, "automation-science-pack", &[])],
                     },
                 }),
+                ..Default::default()
+            },
+        );
+    }
+
+    // THE UNPRICED-SOURCE NOTE: a tier whose every source is absent from this
+    // game, so nothing was copied at all and the technology is priced by the
+    // author's own declared fallback with no prerequisite. The fallback names a
+    // pack the game HAS and one amount, so nothing worse than this takes the
+    // slot: `packless_at` and `merge_pack` are both offered the slot first, by
+    // construction, and the two rows here would be measuring one of those
+    // sentences instead if either fired.
+    for (i, describe) in [false, true].into_iter().enumerate() {
+        let stem = format!("unpriced-tech-{}", i);
+        let tier = lib.dropdown_setting_needing_locale(
+            &declared_name(&format!("{}-tier", stem)),
+            "early",
+            &["early"],
+        );
+        lib.technology(
+            &declared_name(&stem),
+            TechSpec {
+                description: described_prose(describe, &fixture_prose(400)),
+                cost_by: Some(CostChoices {
+                    setting: tier,
+                    choices: alloc::vec![CostChoice {
+                        value: String::from("early"),
+                        sources: alloc::vec![absent_source.clone()],
+                    }],
+                    fallback: UnitSpec {
+                        count: 7,
+                        seconds: 8.0,
+                        packs: alloc::vec![Pack::named(2, &pack, &[])],
+                    },
+                }),
+                ..Default::default()
+            },
+        );
+    }
+
+    // THE UNREADABLE-COPY NOTE: the unreadable source again, this time behind a
+    // bare `cost_of` with nothing declared to fall back to, so the unit is
+    // emitted with an empty ingredient list and the sentence says what could not
+    // be read rather than what the game does not have.
+    for (i, describe) in [false, true].into_iter().enumerate() {
+        lib.technology(
+            &declared_name(&format!("unreadable-copy-tech-{}", i)),
+            TechSpec {
+                description: described_prose(describe, &fixture_prose(400)),
+                cost_of: unreadable_source.clone(),
                 ..Default::default()
             },
         );

@@ -875,9 +875,36 @@ func withDestruction(note string, destroysInputs bool) string {
 	return note
 }
 
-// The three notes an ENVIRONMENTAL degradation leaves in the prototype's own
+// The notes an ENVIRONMENTAL degradation leaves in the prototype's own
 // description, in the voice fallbackNote established and for the same reason:
 // THE LOG IS NOT A DISCLOSURE.
+//
+// TEN OF THEM, AND THIS IS THE WHOLE LIST. Eight are below, in the order this
+// file defines them; the last two are cycle.go's, beside the cycle LINES they
+// go with, because the cycle walk runs after resolution. (The Rust half keeps
+// that pair in data.rs, which is the one placement difference between the two
+// lists.) A degradation added without a row here
+// is the defect the consumer's third assessment measured: one arm of this same
+// switch logged a line, wrote no note, and moved a technology to the root of the
+// technology tree without saying so anywhere a player looks.
+//
+//	packDroppedNote       the chosen source lost SOME of its science packs
+//	packlessSourceNote    the chosen source lost EVERY pack to the tool probe,
+//	                      and a declared cost sits behind it
+//	unpricedSourceNote    no source in the chosen ladder handed the library a
+//	                      cost it could copy, so the declared fallback prices it
+//	                      and the prerequisite goes with the source that never
+//	                      answered
+//	packlessNote          every pack the research names was put to the game and
+//	                      the game had none of them
+//	unreadableSourceNote  the chosen source's pack list is in neither engine
+//	                      form, and a declared cost sits behind it
+//	unreadableCopyNote    the same list with nothing declared behind it, so the
+//	                      unit is emitted with no packs at all
+//	clampedItemNote       two ladders landed on one item above 65535
+//	clampedFluidNote      two ladders landed on one fluid above 1e301
+//	cyclePrereqNote       a prerequisite this plan made would loop the tree
+//	cycleSpliceNote       a splice this plan made would loop the tree
 //
 // THEY ARE NOT FALLBACK NOTES AND MUST NOT READ AS ONE. Nothing was stored, so
 // there is no field to go and fix and no "stored value" to name: the game
@@ -885,19 +912,86 @@ func withDestruction(note string, destroysInputs bool) string {
 // is what is missing and what the library did instead. That is also why they do
 // not go through playerFallback on the log side.
 //
-// SCOPED TO THIS COMMIT'S DEGRADATIONS AND NOT TO THE LADDER. A resolve-or-drop
+// SCOPED TO THE DEGRADATIONS AND NOT TO THE LADDER. A resolve-or-drop
 // ingredient ladder is the library's advertised contract and the dropdown's own
 // composed description already discloses it ("where one names something your
 // mods do not have, the nearest thing they do have is used instead"); a clamped
-// amount and a dropped science pack are arithmetic and presence a player cannot
-// check anywhere.
+// amount, a dropped science pack, an emptied unit, a dropped prerequisite and a
+// technology left hanging off nothing are arithmetic and presence a player
+// cannot check anywhere.
 func packDroppedNote(name string) string {
 	return "This game has no " + name + ", so this research was priced without it. The reason is in the log."
 }
 
+// packlessSourceNote is what a technology carries when the cost it copies named
+// science packs and this game has none of them.
+//
+// IT STATES THE ENVIRONMENTAL FACT AND STOPS THERE, and that is a correction
+// rather than a style. The sentence used to end "so this mod's own declared
+// cost applies", which is a claim about the PRICE the player ends up with, and
+// the price is not this branch's to describe: a CostFrom beside the tier lets
+// the player override the count or the seconds while leaving the pack text at
+// default, restoreNote fires only on a typed PACK LIST, so the note survives
+// and a number in the emitted unit is the player's own. That is finding 19 one
+// arm over, telling a player the mod's default applied where their own choice
+// did, in a tooltip. What IS true whatever the settings beside it say is that
+// the cost this research copies did not price it, so that is the whole
+// sentence.
+//
+// THE ERROR LINE BESIDE IT KEEPS ITS OWN WORDING (packlessSourceLine, "so this
+// mod's own declared cost applies instead"), and the two now differ on purpose.
+// The line is AUTHOR-FACING and is written where the decision was made, before
+// any player field is read, so "the declared cost applies" is exactly what the
+// library did next and is true at that point in the walk. The note is
+// PLAYER-FACING and is read after the whole resolution, beside numbers the
+// player may have moved. Same event, two readers, two moments.
 func packlessSourceNote(source string) string {
 	return "This game has none of the science packs the " + source +
-		" cost names, so this mod's own declared cost applies. The reason is in the log."
+		" cost names, so that cost was not used to price this research. The reason is in the log."
+}
+
+// unpricedSourceNote is what a technology carries when NOT ONE source in the
+// chosen tier's ladder handed this library a cost it could copy: the research
+// is priced without one and hangs off nothing at all.
+//
+// IT IS THE LARGEST OF THESE DEGRADATIONS AND IT WAS THE ONLY SILENT ONE. The
+// two arms beside it move a PRICE; this one also removes the PREREQUISITE, so
+// the research sits at the root of the technology tree, researchable from the
+// first minute, at whatever it is priced at instead. Measured by the consumer
+// on a pack that renames one base technology: eight rows, every one exit 0, a
+// log line, no note, and a research nobody had to earn. The criterion the other
+// notes are written to, presence a player cannot check anywhere, applies to a
+// missing prerequisite at least as strongly as to a dropped science pack.
+//
+// "A COST THIS MOD CAN USE HERE" IS THE WHOLE CLAIM, and each of its two halves
+// is load-bearing. It does not say the sources carry no cost, because one of
+// the ways this branch is reached is a source that EXISTS and carries a unit
+// this library cannot copy: a unit that is not a dictionary, or one holding a
+// subtree the copy drops. unreadableSourceNote's own comment already refuses
+// that move one level down, where a sentence saying this game has none of those
+// packs "would be stating something the library does not know"; the first draft
+// of this one made exactly that mistake one level up. The phrase as written is
+// true of an ABSENT source, a research_trigger source and a PRESENT BUT
+// UNCOPYABLE one alike, which is every way the walk gets here.
+//
+// AND IT DOES NOT NAME THE PRICE IT LANDED ON, for the reason packlessSourceNote
+// does not: a CostFrom beside the tier lets the player move the count or the
+// seconds while the pack text stays at default, so "priced at this mod's own
+// declared cost" is a claim about a number that may be theirs. "No copied cost"
+// is true whatever the settings beside it say, and the prerequisite half is a
+// fact about tree shape no setting touches.
+//
+// IT NAMES NO DROPDOWN VALUE, deliberately. The value the tier is on is a raw
+// setting string an author picked for a settings file, and this sentence goes
+// into a player's tooltip, where every other note is English prose. The ERROR
+// line beside it already carries that value for an author reading a log, which
+// is the reader it is a name for.
+//
+// AND IT TAKES NO ARGUMENT AT ALL, for the reason packlessNote takes none:
+// there is no source to name, because not one of them answered.
+func unpricedSourceNote() string {
+	return "No technology this research takes its cost from carries a cost this mod can use here," +
+		" so this research has no prerequisite and no copied cost. The reason is in the log."
 }
 
 // packlessNote is what a technology priced in NO science pack at all carries
@@ -923,9 +1017,17 @@ func packlessNote() string {
 // packlessSourceNote, because nothing was dropped: the list was never read at
 // all, and a sentence saying this game has none of those packs would be stating
 // something the library does not know.
+//
+// IT ENDS ON THE ENVIRONMENTAL FACT for the reason packlessSourceNote does, and
+// the reason is worth having in both places: the price this technology ends up
+// at may hold a count or a seconds the player typed beside the tier, so a note
+// claiming the mod's own declared cost applied can be false in a tooltip. What
+// the walk knows, and all it knows, is that the copied cost did not price this
+// research. The ERROR line beside it (unreadableSourceLine) keeps the author's
+// wording and is unchanged.
 func unreadableSourceNote(source string) string {
 	return "The " + source + " cost this research copies cannot be read in this game," +
-		" so this mod's own declared cost applies. The reason is in the log."
+		" so that cost was not used to price this research. The reason is in the log."
 }
 
 // unreadableCopyNote is unreadableSourceNote's twin for the arm with NOTHING
@@ -1136,6 +1238,38 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 				res.logs = append(res.logs, "fkrecipes: "+t.name+": no source for the "+chosen+
 					" cost carries a unit, so the fallback cost applies and the technology has no prerequisite")
 				rt.unit = resolveUnit(w, &res, tgt, t.name, &by.Fallback, nil)
+				// THE NOTE IS RECORDED AFTER THE FALLBACK IS RESOLVED, which
+				// is how the two arms below do it and is load-bearing here for
+				// the same reason. noteOn keeps the FIRST note per prototype,
+				// and the fallback resolveUnit has just walked can leave this
+				// technology with NO SCIENCE PACK AT ALL (packlessAt) or CLAMP
+				// two of its own ladders landing on one name above the item
+				// ceiling (mergePack). Offering this sentence last hands the
+				// one slot to whichever of those happened.
+				//
+				// WHAT THE ORDERING BUYS IS THE PACKLESS CASE, and that one is
+				// not a trade at all: a research with no science pack completes
+				// for free the moment it is queued, so a player reading only
+				// "no prerequisite and no copied cost" would be told about the
+				// tree and left to discover the price by watching it finish.
+				// The packless sentence is strictly the more urgent of the two.
+				//
+				// ON THE CLAMP PATH IT IS A TRADE AND THE PLAYER LOSES SOMETHING.
+				// The clamp sentence names an amount capped at a ceiling and
+				// says nothing about tree position, so a technology that both
+				// lost its prerequisite and clamped a merged pack discloses only
+				// the clamp: the ONE sentence that would have mentioned the tree
+				// is the one that is dropped. That is ACCEPTED here, and the
+				// reason is the slot rather than the ranking. noteOn keeps one
+				// note per prototype (see the Fix round 3 open list in
+				// agents/implementation-notes.md, where the one-note rule is
+				// recorded as the thing to revisit), so with two degradations
+				// and one slot SOMETHING is lost whichever order is chosen, and
+				// a wrong price is the one a player acts on: they build for it.
+				// A prerequisite they no longer need is visible in the
+				// technology screen the moment they open it. Widening this to
+				// two disclosures is the fix; reordering it is not.
+				res.noteOn(tgt, unpricedSourceNote())
 			} else {
 				// THE PREREQUISITE MOVES WITH THE UNIT, and it still does when
 				// the player has written over one of the tier's numbers: the
@@ -2066,11 +2200,26 @@ func (r *resolution) retractPacklessLine(tgt noteTarget) {
 //
 // EVERY PARAMETER IS CHUNKED AND THE WHOLE IS GROUPED, because the engine
 // polices ONE STRING ELEMENT at 200 BYTES on a data-stage prototype and the
-// three notes a recipe can carry are 208, 229 and 246 bytes before any name
+// three notes a RECIPE can carry reach 229, 229 and 246 bytes before any name
 // goes into them: before the splitter, no consumer on any mod name could bind a
 // text setting to a recipe's ingredient list and have the resulting fallback
-// load at all. See localisedChunkBudget and chunkLocalised for the measurement
-// and for the properties the split has by construction.
+// load at all. Each figure is a sentence of its own plus one space plus the 100
+// bytes of recipeChangeSentence: 128 + 1 + 100 for fallbackNote, 128 + 1 + 100
+// for clampedItemNote and 145 + 1 + 100 for clampedFluidNote.
+//
+// THE TAIL IS WHAT MOVED AND NOT WHAT CARRIES IT, which is withDestruction's
+// whole rule and is why those three are MAXIMA rather than fixed widths. A
+// recipe whose CRAFTING TIME fell back takes fallbackNote with destroysInputs
+// false (craftTimeNumber in customize.go), so its note is the bare 128 bytes
+// and no tail at all: an ingredient list that did not move empties no
+// assembling machine. TestFallbackNoteShape pins both halves of that.
+//
+// A TECHNOLOGY's notes never take the tail, because a research costs no
+// assembling machine anything, and the longest of them before a name goes in is
+// unpricedSourceNote's 168, which takes no name at all and so is one element on
+// every mod set; it is chunked all the same, because nothing here decides per
+// sentence. See localisedChunkBudget and chunkLocalised for the measurement and
+// for the properties the split has by construction.
 //
 // THE DESCRIPTION AND THE NOTE ARE CHUNKED SEPARATELY, so the newline stays at
 // the head of the note's first chunk; a short description with a short note is

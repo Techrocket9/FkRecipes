@@ -14,7 +14,7 @@ use crate::plan::{
 use crate::tests::data::{LOGISTICS_2_UNIT, STEEL_PROCESSING_UNIT};
 use crate::tests::{
     assert_composed, assert_has_line, assert_lines, base_world, packless_log, settings_world,
-    transcript, unit_of, unreadable_source_log, PACKLESS_TOOLTIP,
+    transcript, unit_of, unreadable_source_log, PACKLESS_TOOLTIP, UNPRICED_TOOLTIP,
 };
 use crate::value::{kv, Value};
 
@@ -835,7 +835,9 @@ fn cost_by_steps_past_a_research_trigger_source() {
 }
 
 /// When no source in the chosen ladder carries a unit, the fallback cost
-/// applies and the technology hangs off nothing.
+/// applies and the technology hangs off nothing, and the technology's own
+/// description says so: a prerequisite that is gone is presence a player cannot
+/// check anywhere. See `unpriced_source_note`.
 #[test]
 fn cost_by_falls_back_with_no_prerequisite() {
     let choices = vec![
@@ -849,7 +851,10 @@ fn cost_by_falls_back_with_no_prerequisite() {
     assert_lines(&transcript(&ops), &[
         "log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies",
         "log fkrecipes: hardened-tips: no source for the logistics cost carries a unit, so the fallback cost applies and the technology has no prerequisite",
-        r#"extend {type="technology", name="steelworks-hardened-tips", unit={count=60, time=30, ingredients=[["automation-science-pack", 1]]}}"#,
+        &alloc::format!(
+            r#"extend {{type="technology", name="steelworks-hardened-tips", localised_description=["", "{}"], unit={{count=60, time=30, ingredients=[["automation-science-pack", 1]]}}}}"#,
+            UNPRICED_TOOLTIP
+        ),
     ]);
 }
 
@@ -1326,9 +1331,188 @@ fn a_tier_whose_copied_unit_loses_every_pack_takes_the_declared_fallback() {
             "log fkrecipes: the setting steelworks-tier was not readable, so its default applies",
             "log fkrecipes: steel-axes: automation-science-pack is not a science pack this game has, so it is left out of the steel-processing cost",
             "log fkrecipes: ERROR: steel-axes: the steel-processing cost names no science pack this game has, so this mod's own declared cost applies instead",
-            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "This game has none of the science packs the steel-processing cost names, so this mod's own declared cost applies. The reason is in the log."], prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}"#,
+            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "This game has none of the science packs the steel-processing cost names, so that cost was not used to price this research. The reason is in the log."], prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}"#,
         ],
     );
+}
+
+/// AND A TIER WHOSE SOURCES CARRY NO COST AT ALL SAYS SO ON THE TECHNOLOGY,
+/// which is the only degradation of this set that changes WHERE IN THE TREE a
+/// technology sits: the two arms above move a PRICE, and this one also takes
+/// the PREREQUISITE away, so the research sits at the root of the technology
+/// tree and is researchable from the first minute.
+///
+/// THAT IS NOT A CLAIM THAT IT OUTRANKS EVERY OTHER SENTENCE, and the test
+/// below is where the ordering is actually settled: a research left with no
+/// science pack at all completes for free, which is the more urgent thing to
+/// say, so that sentence takes the slot from this one where both are true.
+///
+/// THE FIXTURE IS THE CONSUMER'S OWN, reduced: a pack that renames the base
+/// technology the chosen tier names, so every rung of the chosen ladder is
+/// absent and not one of them carries a unit. The declared fallback KEEPS a
+/// pack here, which is what leaves this sentence the only one competing for the
+/// slot; the test below is the other half of that.
+///
+/// THE WHOLE `localised_description` IS ASSERTED, because the note is the thing
+/// under test and a substring match would pass on a prototype carrying somebody
+/// else's sentence.
+#[test]
+fn a_tier_whose_sources_carry_no_cost_says_so_on_the_technology() {
+    let mut lib = Lib::new();
+    let tier = lib.dropdown_setting_needing_locale("tier", "logistics", &["logistics"]);
+    lib.technology(
+        "balancer",
+        TechSpec {
+            cost_by: Some(CostChoices {
+                setting: tier,
+                choices: vec![cost_choice("logistics", &["logistics", "logistics-2"])],
+                fallback: UnitSpec {
+                    count: 20,
+                    seconds: 15.0,
+                    packs: vec![Pack::new("automation-science-pack", 1)],
+                },
+            }),
+            ..Default::default()
+        },
+    );
+
+    let ops = lib
+        .plan_data(
+            &base_world()
+                .without_tech("logistics")
+                .without_tech("logistics-2"),
+        )
+        .expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: the setting steelworks-tier was not readable, so its default applies",
+            "log fkrecipes: balancer: no source for the logistics cost carries a unit, so the fallback cost applies and the technology has no prerequisite",
+            &format!(
+                r#"extend {{type="technology", name="steelworks-balancer", localised_description=["", "{}"], unit={{count=20, time=15, ingredients=[["automation-science-pack", 1]]}}}}"#,
+                UNPRICED_TOOLTIP
+            ),
+        ],
+    );
+}
+
+/// AND THE SAME SENTENCE ON THE OTHER WAY INTO THAT ARM, which is the path the
+/// sentence was FALSE on until this round.
+///
+/// THE SOURCE HERE IS PRESENT AND ITS COST IS UNUSABLE, rather than absent: the
+/// technology is in this game, `tech_unit` answers `Some`, and the value is not
+/// a dictionary (a present nil, which is what a lossy read leaves behind for a
+/// unit whose table carried a key this library drops). The ladder steps past it
+/// on the SHAPE term rather than on absence, lands on no source at all, and the
+/// same arm runs. The first draft of this note said "carries a cost in this
+/// game", which is plainly false here, and the test that was meant to guard it
+/// only ever exercised the absent path: an absent source makes the false clause
+/// true by accident, so nothing went red. "A cost this mod can use here" is
+/// what is true of both.
+///
+/// THE WHOLE `localised_description` IS ASSERTED, for the reason the test above
+/// asserts it: the note is the thing under test.
+#[test]
+fn a_tier_whose_only_source_carries_an_unusable_cost_says_so_too() {
+    let mut lib = Lib::new();
+    let tier = lib.dropdown_setting_needing_locale("tier", "logistics", &["logistics"]);
+    lib.technology(
+        "balancer",
+        TechSpec {
+            cost_by: Some(CostChoices {
+                setting: tier,
+                choices: vec![cost_choice("logistics", &["steel-processing"])],
+                fallback: UnitSpec {
+                    count: 20,
+                    seconds: 15.0,
+                    packs: vec![Pack::new("automation-science-pack", 1)],
+                },
+            }),
+            ..Default::default()
+        },
+    );
+
+    // steel-processing IS in this world; only its unit is a shape the copy
+    // cannot use.
+    let ops = lib
+        .plan_data(&base_world().with_nil_unit("steel-processing"))
+        .expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: the setting steelworks-tier was not readable, so its default applies",
+            "log fkrecipes: balancer: no source for the logistics cost carries a unit, so the fallback cost applies and the technology has no prerequisite",
+            &format!(
+                r#"extend {{type="technology", name="steelworks-balancer", localised_description=["", "{}"], unit={{count=20, time=15, ingredients=[["automation-science-pack", 1]]}}}}"#,
+                UNPRICED_TOOLTIP
+            ),
+        ],
+    );
+}
+
+/// AND THE NOTE IS OFFERED AFTER THE FALLBACK IS RESOLVED, SO A WORSE OUTCOME
+/// WINS THE SLOT. The same plan with a declared fallback this game cannot pay
+/// either leaves the technology with NO SCIENCE PACK, which is a research that
+/// completes for free: that is what the tooltip says, and the missing
+/// prerequisite stays in the log line where an author reads it.
+///
+/// WITHOUT THIS THE ORDERING IS A COMMENT NOBODY CHECKS. `note_on` keeps the
+/// FIRST note per prototype, so recording this arm's sentence before the
+/// fallback is resolved would leave a technology that costs nothing at all
+/// saying only that it has no prerequisite, which is the less urgent half of
+/// what happened to it.
+#[test]
+fn an_unpriced_tier_yields_the_slot_to_the_packless_note() {
+    let mut lib = Lib::new();
+    let tier = lib.dropdown_setting_needing_locale("tier", "logistics", &["logistics"]);
+    lib.technology(
+        "balancer",
+        TechSpec {
+            cost_by: Some(CostChoices {
+                setting: tier,
+                choices: vec![cost_choice("logistics", &["logistics", "logistics-2"])],
+                fallback: UnitSpec {
+                    count: 20,
+                    seconds: 15.0,
+                    packs: vec![Pack::new("military-science-pack", 1)],
+                },
+            }),
+            ..Default::default()
+        },
+    );
+
+    let ops = lib
+        .plan_data(
+            &base_world()
+                .without_tech("logistics")
+                .without_tech("logistics-2"),
+        )
+        .expect("plan refused");
+
+    let lines = transcript(&ops);
+    assert_lines(
+        &lines,
+        &[
+            "log fkrecipes: the setting steelworks-tier was not readable, so its default applies",
+            "log fkrecipes: balancer: no source for the logistics cost carries a unit, so the fallback cost applies and the technology has no prerequisite",
+            "log fkrecipes: balancer: none of military-science-pack is present, so the science pack is dropped",
+            &packless_log("balancer", &["military-science-pack"]),
+            &format!(
+                r#"extend {{type="technology", name="steelworks-balancer", localised_description=["", "{}"], unit={{count=20, time=15, ingredients=[]}}}}"#,
+                PACKLESS_TOOLTIP
+            ),
+        ],
+    );
+
+    for line in &lines {
+        assert!(
+            !line.contains(UNPRICED_TOOLTIP),
+            "the unpriced-tier note took a slot the packless note had to have: {}",
+            line
+        );
+    }
 }
 
 /// AND WHEN THE PLAYER HAS TYPED A PACK LIST, THE TIER'S SENTENCE IS TAKEN
@@ -1337,10 +1521,9 @@ fn a_tier_whose_copied_unit_loses_every_pack_takes_the_declared_fallback() {
 /// THE SHAPE IS THE EXAMPLE GUEST'S OWN: a technology declaring `cost_by` and
 /// `cost_from` together, on a mod set where the tier's source loses every pack.
 /// The tier arm writes the ERROR line and the tooltip note BEFORE the custom
-/// cost is read, so without the retraction the technology says "this mod's own
-/// declared cost applies instead" while the packs, and the count and the
-/// seconds beside them, are the player's. A false statement in a tooltip is
-/// worse than none.
+/// cost is read, so without the retraction the technology says the copied cost
+/// did not price it while the packs, and the count and the seconds beside them,
+/// are the player's. A false statement in a tooltip is worse than none.
 ///
 /// THE DROP LINE STAYS, because it is still true: that pack really is absent.
 #[test]
@@ -1410,7 +1593,95 @@ fn a_typed_pack_list_takes_back_the_tiers_packless_sentence() {
             "log fkrecipes: the setting steelworks-axe-count was not readable, so its default applies",
             "log fkrecipes: the setting steelworks-axe-seconds was not readable, so its default applies",
             "log fkrecipes: the setting steelworks-axe-packs was not readable, so its default applies",
-            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "This game has none of the science packs the steel-processing cost names, so this mod's own declared cost applies. The reason is in the log."], prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}"#,
+            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "This game has none of the science packs the steel-processing cost names, so that cost was not used to price this research. The reason is in the log."], prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}"#,
+        ],
+    );
+}
+
+/// AND THE SAME RETRACTION FOR THE UNPRICED-TIER SENTENCE, which the test above
+/// does not reach: it exercises the packless-SOURCE arm, where a source
+/// answered and then lost every pack, and this is the arm where no source
+/// answered at all.
+///
+/// ONE `restore_note` CALL IS WHAT IS BEING WITNESSED. The tier arm's whole
+/// note slot goes back to what it held before that arm ran, whichever of its
+/// sentences was in it, and the claim that this sentence rides on the same
+/// mechanism was an assertion in the notes with no test under it.
+///
+/// THE LOG LINE IS NOT RETRACTED HERE, and that is the shape rather than an
+/// oversight in this test: the unpriced arm's line has no named retraction
+/// beside `packless_source_line` and `unreadable_source_line`, so it stays. It
+/// is author-facing and its second clause, that the technology has no
+/// prerequisite, is still true of the emitted prototype.
+#[test]
+fn a_typed_pack_list_takes_back_the_unpriced_tier_sentence() {
+    let plan = || {
+        let mut lib = Lib::new();
+        let tier = lib.dropdown_setting_needing_locale("tier", "early", &["early"]);
+        let packs = lib.packs_setting("axe-packs", vec![Pack::new("chemical-science-pack", 2)]);
+        let count = lib.int_setting("axe-count", 0, NumericSpec::between(0.0, 1000.0));
+        let seconds = lib.int_setting("axe-seconds", 0, NumericSpec::between(0.0, 600.0));
+        lib.technology(
+            "steel-axes",
+            TechSpec {
+                cost_by: Some(CostChoices {
+                    setting: tier,
+                    choices: vec![cost_choice("early", &["steel-processing"])],
+                    fallback: UnitSpec {
+                        count: 7,
+                        seconds: 8.0,
+                        packs: vec![Pack::new("chemical-science-pack", 2)],
+                    },
+                }),
+                cost_from: Some(CustomCost {
+                    packs,
+                    count,
+                    seconds,
+                }),
+                ..Default::default()
+            },
+        );
+        lib
+    };
+
+    // The tier's only source is gone, so no source answers and the arm under
+    // test runs; then the player types a pack list over it.
+    let typed = base_world().without_tech("steel-processing").with_setting(
+        "steelworks-axe-packs",
+        Value::string("3 logistic-science-pack"),
+    );
+    let ops = plan().plan_data(&typed).expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: the setting steelworks-tier was not readable, so its default applies",
+            "log fkrecipes: steel-axes: no source for the early cost carries a unit, so the fallback cost applies and the technology has no prerequisite",
+            "log fkrecipes: the setting steelworks-axe-count was not readable, so its default applies",
+            "log fkrecipes: the setting steelworks-axe-seconds was not readable, so its default applies",
+            "log fkrecipes: steelworks-steel-axes takes its research cost from steelworks-axe-packs: count 7, time 8, packs 3 logistic-science-pack; the steelworks-tier choice early supplies what the settings leave at default",
+            r#"extend {type="technology", name="steelworks-steel-axes", unit={count=7, time=8, ingredients=[["logistic-science-pack", 3]]}}"#,
+        ],
+    );
+
+    // AND THE SAME PLAN WITH THE FIELD LEFT ALONE KEEPS IT, which is what
+    // scopes the retraction to the case that made it false.
+    let ops = plan()
+        .plan_data(&base_world().without_tech("steel-processing"))
+        .expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: the setting steelworks-tier was not readable, so its default applies",
+            "log fkrecipes: steel-axes: no source for the early cost carries a unit, so the fallback cost applies and the technology has no prerequisite",
+            "log fkrecipes: the setting steelworks-axe-count was not readable, so its default applies",
+            "log fkrecipes: the setting steelworks-axe-seconds was not readable, so its default applies",
+            "log fkrecipes: the setting steelworks-axe-packs was not readable, so its default applies",
+            &format!(
+                r#"extend {{type="technology", name="steelworks-steel-axes", localised_description=["", "{}"], unit={{count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}}}"#,
+                UNPRICED_TOOLTIP
+            ),
         ],
     );
 }
@@ -1504,7 +1775,7 @@ fn a_tier_whose_source_pack_list_is_unreadable_falls_back_to_the_declared_cost()
         &[
             "log fkrecipes: the setting steelworks-tier was not readable, so its default applies",
             &unreadable_source_log("steel-axes", "steel-processing"),
-            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "The steel-processing cost this research copies cannot be read in this game, so this mod's own declared cost applies. The reason is in the log."], prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}"#,
+            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "The steel-processing cost this research copies cannot be read in this game, so that cost was not used to price this research. The reason is in the log."], prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}"#,
         ],
     );
 }

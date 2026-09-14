@@ -106,8 +106,8 @@ func TestNoCompositionReachesTheElementCeiling(t *testing.T) {
 			described += localisedDescriptions(op.Proto)
 		}
 	}
-	if described != 24 {
-		t.Fatalf("the fixture emitted %d localised_description fields, not the 24 it declares;"+
+	if described != 28 {
+		t.Fatalf("the fixture emitted %d localised_description fields, not the 28 it declares;"+
 			" the walk below would prove nothing about the ones it lost", described)
 	}
 
@@ -204,7 +204,7 @@ func walkValueForCeilings(t *testing.T, where, path string, v Value, localised b
 // prototype, each one reached from the PUBLIC surface and each one with the
 // longest legal name in the slot its sentence names.
 //
-// TWENTY-FOUR DESCRIPTIONS, and the count is asserted above:
+// TWENTY-EIGHT DESCRIPTIONS, and the count is asserted above:
 //
 //	an item with a display name and a description;
 //	a recipe carrying the FALLBACK note, with a Description and without;
@@ -213,12 +213,24 @@ func walkValueForCeilings(t *testing.T, where, path string, v Value, localised b
 //	a technology carrying the FALLBACK note, with and without;
 //	a technology carrying the DROPPED-PACK note, with and without;
 //	a technology carrying the PACKLESS-SOURCE note, with and without;
+//	a technology carrying the UNPRICED-SOURCE note, with and without;
 //	a technology carrying the PACKLESS note, with and without;
 //	a technology carrying the UNREADABLE-SOURCE note, with and without;
+//	a technology carrying the UNREADABLE-COPY note, with and without;
 //	a technology carrying the CYCLE-PREREQUISITE note, with and without;
 //	a technology carrying the CYCLE-SPLICE note, with and without;
 //	a technology carrying the clamped PACK note, with and without;
 //	and an item whose Description alone is long enough to NEST.
+//
+// THE LAST TWO ROWS ADDED ARE THE ONES THE COUNT ALONE COULD NOT HAVE CAUGHT.
+// unpricedSourceNote and unreadableCopyNote were composed by the library and
+// walked by nothing here, which made the claim over this file ("every
+// composition this library can write onto a data prototype") false while every
+// assertion in it passed. A composition missing from the fixture is invisible
+// to the count, because the count is of what the fixture emits; the only guard
+// is that the fixture is extended in the same commit as the composer. The note
+// SET is now held mechanically by TestEveryNoteCallSiteIsAccountedFor, and a
+// composer that appears there and not in this list is the next thing to add.
 //
 // THE PAIRS ARE PAIRS BECAUSE THE COMPOSITION IS WHAT IS WALKED, not the note:
 // a note beside an author's Description and a note alone are two different
@@ -242,6 +254,9 @@ func worstCasePlan() (*Lib, *fixtureWorld) {
 	dropSource := existingName("logistics-2")
 	packlessSource := existingName("steel-processing")
 	unreadableSource := existingName("electronics")
+	// A source the fixture World is never given, which is what the
+	// unpriced-source arm needs: every rung of the tier's ladder absent.
+	absentSource := existingName("nothing-carries-this-cost")
 
 	// A Description that forces localisedGroup to NEST: 7200 bytes is forty
 	// chunks at the budget, and one level holds twenty.
@@ -336,6 +351,37 @@ func worstCasePlan() (*Lib, *fixtureWorld) {
 				Choices:  []CostChoice{{Value: "early", Sources: []string{packlessSource}}},
 				Fallback: UnitSpec{Count: 7, Seconds: 8, Packs: []Pack{{Name: "automation-science-pack", Amount: 2}}},
 			},
+		})
+	}
+
+	// THE UNPRICED-SOURCE NOTE: a tier whose every source is absent from this
+	// game, so nothing was copied at all and the technology is priced by the
+	// author's own declared fallback with no prerequisite. The Fallback names a
+	// pack the game HAS and one amount, so nothing worse than this takes the
+	// slot: packlessAt and mergePack are both offered the slot first, by
+	// construction, and the two rows here would be measuring one of those
+	// sentences instead if either fired.
+	for i, describe := range []bool{false, true} {
+		stem := "unpriced-tech-" + strconv.Itoa(i)
+		tier := lib.DropdownSettingNeedingLocale(declaredName(stem+"-tier"), "early", []string{"early"})
+		lib.Technology(declaredName(stem), TechSpec{
+			Description: describedProse(describe, fixtureProse(400)),
+			CostBy: &CostChoices{
+				Setting:  tier,
+				Choices:  []CostChoice{{Value: "early", Sources: []string{absentSource}}},
+				Fallback: UnitSpec{Count: 7, Seconds: 8, Packs: []Pack{{Name: pack, Amount: 2}}},
+			},
+		})
+	}
+
+	// THE UNREADABLE-COPY NOTE: the unreadable source again, this time behind a
+	// bare CostOf with nothing declared to fall back to, so the unit is emitted
+	// with an empty ingredient list and the sentence says what could not be
+	// read rather than what the game does not have.
+	for i, describe := range []bool{false, true} {
+		lib.Technology(declaredName("unreadable-copy-tech-"+strconv.Itoa(i)), TechSpec{
+			Description: describedProse(describe, fixtureProse(400)),
+			CostOf:      unreadableSource,
 		})
 	}
 

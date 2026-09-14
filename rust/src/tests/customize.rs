@@ -2558,6 +2558,20 @@ fn a_time_beside_a_count_formula_leaves_it_alone() {
 /// carries a unit, so the author's own fallback is what the settings write over
 /// and what they leave alone; the line saying why comes first, because it is
 /// the reason the numbers under it are the fallback's.
+///
+/// THE TIER ARM'S NOTE STAYS, because the PACK TEXT was left alone: the
+/// snapshot that takes back everything the tier arm wrote is the typed pack
+/// list's, and here only a number was typed. That is the same rule the packless
+/// and the unreadable arms beside it follow.
+///
+/// AND THIS TRANSCRIPT IS WHY ALL THREE OF THOSE SENTENCES STATE AN
+/// ENVIRONMENTAL FACT AND NAME NO PRICE. The declared fallback here is
+/// count 200; the emitted unit is count=45, which is the player's own. A note
+/// saying this mod's own declared cost applied would be a false sentence in a
+/// tooltip beside a number the player chose, which is finding 19 one arm over.
+/// What every one of the three says instead is true whatever the numbers beside
+/// it are: the copied cost did not price this research, and this one adds that
+/// there is no prerequisite either, which no setting touches.
 #[test]
 fn a_setting_overrides_the_fallback_tier() {
     let w = base_world()
@@ -2573,7 +2587,10 @@ fn a_setting_overrides_the_fallback_tier() {
         &[
             "log fkrecipes: hardened-tips: no source for the cheap cost carries a unit, so the fallback cost applies and the technology has no prerequisite",
             "log fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips-packs: count 45, time 30, packs 1 automation-science-pack; the steelworks-tips-research-tier choice cheap supplies what the settings leave at default",
-            r#"extend {type="technology", name="steelworks-hardened-tips", unit={count=45, time=30, ingredients=[["automation-science-pack", 1]]}}"#,
+            &alloc::format!(
+                r#"extend {{type="technology", name="steelworks-hardened-tips", localised_description=["", "{}"], unit={{count=45, time=30, ingredients=[["automation-science-pack", 1]]}}}}"#,
+                UNPRICED_TOOLTIP
+            ),
         ],
     );
 }

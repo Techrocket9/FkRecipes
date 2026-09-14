@@ -302,15 +302,26 @@ A fallback on a recipe's **ingredient text** carries one sentence more, because 
 
 The line above is ONE SENTENCE TO A PLAYER AND MAY BE SEVERAL ELEMENTS in the prototype. A localised string element may hold 200 bytes and the engine refuses the whole load over it, naming the element, and the sentences here run past that as soon as a setting name is in them. So every literal this library writes into a `localised_name` or a `localised_description` is filled to at most 180 bytes and broken at a space, and the engine joins the pieces back together with nothing between them. Your own `Description` and `DisplayName` go the same way, so neither has a length you have to keep under. Nothing about the text a player reads changes; what changes is a test that compares a whole `localised_description` value rather than the sentence it renders.
 
-A degradation the player's mod set caused writes its own trailing line in the same place and in the same voice, and it names no setting, because nothing was stored and there is nothing for anybody to go and fix:
+A degradation the player's mod set caused writes its own trailing line in the same place and in the same voice, and it names no setting, because nothing was stored and there is nothing for anybody to go and fix. There are ten of them, and this is all of them:
 
 ```
 This game has no military-science-pack, so this research was priced without it. The reason is in the log.
-This game has none of the science packs the steel-processing cost names, so this mod's own declared cost applies. The reason is in the log.
+This game has none of the science packs the steel-processing cost names, so that cost was not used to price this research. The reason is in the log.
+No technology this research takes its cost from carries a cost this mod can use here, so this research has no prerequisite and no copied cost. The reason is in the log.
+This game has none of the science packs this research names, so it takes no science pack at all. The reason is in the log.
+The steel-processing cost this research copies cannot be read in this game, so that cost was not used to price this research. The reason is in the log.
+The steel-processing cost this research copies cannot be read in this game, so it takes no science pack at all. The reason is in the log.
 Two ingredients resolved onto iron-plate and the total was above what one slot holds, so it was capped at 65535. The reason is in the log.
+Two ingredients resolved onto water and the total was above the largest amount the game can hold, so it was capped at 1e301. The reason is in the log.
+Requiring logistics-3 would loop this game's technology tree, so this research was left without that prerequisite. The reason is in the log.
+Making this research a prerequisite of logistics-3 would loop this game's technology tree, so it was left out of it. The reason is in the log.
 ```
 
-A resolve-or-drop ingredient ladder gets no such line, on purpose: it is what the ladder is for, and a dropdown's own composed description already tells the player that the nearest thing their mods do have is used instead. A dropped science pack and a capped amount are presence and arithmetic a player cannot check anywhere.
+A resolve-or-drop ingredient ladder gets no such line, on purpose: it is what the ladder is for, and a dropdown's own composed description already tells the player that the nearest thing their mods do have is used instead. Everything above it is presence, arithmetic or tree shape a player cannot check anywhere: a science pack that is no longer in a price, a research that now costs nothing, a cost copied from a technology whose own price could not be read, an amount capped at a ceiling, a prerequisite dropped to open a loop, and a research that hangs off nothing because no technology it takes its cost from has a cost this library can use.
+
+Each of these sentences states the environmental fact and stops there. None of them says what the research ended up priced at, because a `CostFrom` beside a `CostBy` tier lets a player set the count or the seconds while leaving the pack text alone, in which case a number in the emitted unit is theirs and a sentence naming your declared cost would be wrong in a tooltip. The `ERROR:` lines in the log say what the library did next, which is the author's question rather than the player's.
+
+A prototype carries at most one of these lines: the first the walk reaches. Two of them can be true of one technology, and where they are, the more urgent one is what is written. A research left with no science pack at all completes for free the moment it is queued, so that sentence takes the slot from the one about a missing prerequisite. Where a capped amount and a missing prerequisite land on one technology, the capped amount takes it, and the player is left with no sentence mentioning where in the tree the research now sits. That is the accepted cost of one line per prototype: a wrong price is what a player builds around, and a research that no longer needs its prerequisite shows in the technology screen the first time they open it.
 
 The line is English for every player, and that is deliberate rather than an omission: a locale key the game does not define deletes a prototype's whole description on the client, silently and with the load still exiting 0, so composing one would risk the sentence it was meant to carry. Every sentence this library composes onto a recipe or a technology is an English literal for the same reason.
 

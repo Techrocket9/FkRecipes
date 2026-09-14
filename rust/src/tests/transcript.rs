@@ -378,6 +378,14 @@ pub(crate) fn packless_log(tech: &str, tried: &[&str]) -> String {
 /// where a player who never reads a log finds out that the research is free.
 pub(crate) const PACKLESS_TOOLTIP: &str = "This game has none of the science packs this research names, so it takes no science pack at all. The reason is in the log.";
 
+/// What a technology carries when not one source in the chosen tier's ladder
+/// handed the library a cost it could copy. It states the environmental fact
+/// and stops there: it names no dropdown value, because the value is a raw
+/// setting string and this line is prose a player reads, and it names no price,
+/// because a `cost_from` beside the tier can put the player's own count or
+/// seconds into the unit beside it. See `unpriced_source_note`.
+pub(crate) const UNPRICED_TOOLTIP: &str = "No technology this research takes its cost from carries a cost this mod can use here, so this research has no prerequisite and no copied cost. The reason is in the log.";
+
 /// The OTHER emptied-unit tooltip, and the difference between the two is a fact
 /// the library has against one it does not. Both technologies are emitted with
 /// an empty unit; `PACKLESS_TOOLTIP`'s walk PUT every pack to the game and the

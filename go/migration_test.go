@@ -361,7 +361,9 @@ func TestCostByStepsPastAResearchTriggerSource(t *testing.T) {
 }
 
 // When no source in the chosen ladder carries a unit, the fallback cost
-// applies and the technology hangs off nothing.
+// applies and the technology hangs off nothing, and the technology's own
+// description says so: a prerequisite that is gone is presence a player cannot
+// check anywhere. See unpricedSourceNote.
 func TestCostByFallsBackWithNoPrerequisite(t *testing.T) {
 	choices := []CostChoice{
 		{Value: "logistics", Sources: []string{"logistics-4", "steam-power"}},
@@ -373,7 +375,9 @@ func TestCostByFallsBackWithNoPrerequisite(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		`log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies`,
 		`log fkrecipes: hardened-tips: no source for the logistics cost carries a unit, so the fallback cost applies and the technology has no prerequisite`,
-		`extend {type="technology", name="steelworks-hardened-tips", unit={count=60, time=30, ingredients=[["automation-science-pack", 1]]}}`,
+		`extend {type="technology", name="steelworks-hardened-tips", ` +
+			`localised_description=["", "` + unpricedTooltip + `"], ` +
+			`unit={count=60, time=30, ingredients=[["automation-science-pack", 1]]}}`,
 	})
 }
 
