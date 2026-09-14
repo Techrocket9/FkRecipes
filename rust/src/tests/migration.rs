@@ -267,12 +267,12 @@ fn order_after_places_generated_settings_behind_a_named_order() {
         &transcript(&ops),
         &[
             r#"extend {type="string-setting", name="bbb-recipe-cost", setting_type="startup", default_value="vanilla", order="a", allowed_values=["vanilla", "cheap", "custom"]}"#,
-            r#"extend {type="string-setting", name="steelworks-recipe-ingredients", setting_type="startup", default_value="default", order="aab", auto_trim=true, localised_description=["", ["mod-setting-description.steelworks-recipe-ingredients"], "\ndefault: 2 steel-plate"<text tail>]}"#,
+            r#"extend {type="string-setting", name="steelworks-recipe-ingredients", setting_type="startup", default_value="default", order="aab", auto_trim=true, localised_description=["", ["?", ["mod-setting-description.steelworks-recipe-ingredients"], "steelworks-recipe-ingredients"], "\ndefault: 2 steel-plate"<text tail>]}"#,
             r#"extend {type="bool-setting", name="steelworks-recipe-hint", setting_type="startup", default_value=true, order="aac"}"#,
             r#"extend {type="string-setting", name="bbb-tech-cost", setting_type="startup", default_value="logistics", order="b", allowed_values=["logistics", "custom"]}"#,
-            r#"extend {type="string-setting", name="steelworks-tech-packs", setting_type="startup", default_value="default", order="bae", auto_trim=true, localised_description=["", ["mod-setting-description.steelworks-tech-packs"], "\ndefault: 1 automation-science-pack"<text tail>]}"#,
-            r#"extend {type="int-setting", name="steelworks-tech-count", setting_type="startup", default_value=20, order="baf", minimum_value=1, maximum_value=1000000, localised_description=["", ["mod-setting-description.steelworks-tech-count"], "\nA whole number from 1 to 1000000."]}"#,
-            r#"extend {type="int-setting", name="steelworks-tech-seconds", setting_type="startup", default_value=15, order="bag", minimum_value=1, maximum_value=3600, localised_description=["", ["mod-setting-description.steelworks-tech-seconds"], "\nA whole number from 1 to 3600."]}"#,
+            r#"extend {type="string-setting", name="steelworks-tech-packs", setting_type="startup", default_value="default", order="bae", auto_trim=true, localised_description=["", ["?", ["mod-setting-description.steelworks-tech-packs"], "steelworks-tech-packs"], "\ndefault: 1 automation-science-pack"<text tail>]}"#,
+            r#"extend {type="int-setting", name="steelworks-tech-count", setting_type="startup", default_value=20, order="baf", minimum_value=1, maximum_value=1000000, localised_description=["", ["?", ["mod-setting-description.steelworks-tech-count"], "steelworks-tech-count"], "\nA whole number from 1 to 1000000."]}"#,
+            r#"extend {type="int-setting", name="steelworks-tech-seconds", setting_type="startup", default_value=15, order="bag", minimum_value=1, maximum_value=3600, localised_description=["", ["?", ["mod-setting-description.steelworks-tech-seconds"], "steelworks-tech-seconds"], "\nA whole number from 1 to 3600."]}"#,
             r#"extend {type="string-setting", name="steelworks-tech-style", setting_type="startup", default_value="plain", order="bah", allowed_values=["plain", "fancy"]}"#,
         ],
     );
@@ -354,7 +354,7 @@ fn a_legacy_setting_declared_under_a_placement_keeps_its_own_order() {
     assert_composed(
         &transcript(&ops),
         &[
-            r#"extend {type="string-setting", name="bbb-recipe-parts", setting_type="startup", default_value="default", order="c", auto_trim=true, localised_description=["", ["mod-setting-description.bbb-recipe-parts"], "\ndefault: 2 steel-plate"<text tail>]}"#,
+            r#"extend {type="string-setting", name="bbb-recipe-parts", setting_type="startup", default_value="default", order="c", auto_trim=true, localised_description=["", ["?", ["mod-setting-description.bbb-recipe-parts"], "bbb-recipe-parts"], "\ndefault: 2 steel-plate"<text tail>]}"#,
         ],
     );
 }

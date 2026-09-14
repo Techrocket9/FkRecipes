@@ -310,7 +310,9 @@ Two ingredients resolved onto iron-plate and the total was above what one slot h
 
 A resolve-or-drop ingredient ladder gets no such line, on purpose: it is what the ladder is for, and a dropdown's own composed description already tells the player that the nearest thing their mods do have is used instead. A dropped science pack and a capped amount are presence and arithmetic a player cannot check anywhere.
 
-The line is English for every player, and that is deliberate rather than an omission: a locale key the game does not define deletes a prototype's whole description on the client, silently and with the load still exiting 0, so composing one would risk the sentence it was meant to carry. Every sentence this library composes is an English literal for the same reason.
+The line is English for every player, and that is deliberate rather than an omission: a locale key the game does not define deletes a prototype's whole description on the client, silently and with the load still exiting 0, so composing one would risk the sentence it was meant to carry. Every sentence this library composes onto a recipe or a technology is an English literal for the same reason.
+
+**`RecipeSpec.Description` and `TechSpec.Description` are literal text, not a locale key.** Whatever you put there is emitted as the string itself, joined with the library's own trailing lines. If you write a locale key into one, the library cannot wrap it: the alternatives form it uses for the keys it composes itself is only available for keys it composed, and an undefined key anywhere in a recipe's composition drops the whole description silently, the literal sentences beside it included (measured on Factorio 2.0.77, build 84539). Ship the text, or ship the locale entry and be sure of it.
 
 Anything **you** declare still refuses at plan time, and should: your own default list, your presets, your ladders and your setting bounds are bugs to catch while you are building the mod, not choices a player made.
 
@@ -347,6 +349,8 @@ fkrecipes: steelworks-hardened-steel-plate-quenching takes its ingredients from 
 A text the language refuses behaves exactly as `default` does, so the dropdown decides and the ERROR line above is the only difference. Nothing is ever edited and ignored: every value that is not at its default is live.
 
 The dropdown's description is composed for you: your own `[mod-setting-description]` entry, then two lines per preset, its localised label and then, on a second indented line opening with `type:`, its ingredients written out in the language, so a player about to type can start from the preset they were on; and last a line saying that the text setting above or below it applies while it does not say `default` (a cost dropdown's preset stays on one line and names the technology it copies, through that technology's own localised name; see below). The text setting's own description carries the mirror of that sentence, naming the option above or below it. Which word each of them uses is decided by the emitted `order` strings, so the sentence is true whichever order you declared them in; the settings screen has no conditional visibility at all (measured on Factorio 2.0.77, build 84539), so those two lines are the only place the pairing can be stated.
+
+Every locale key the library composes into a description, yours and the game's alike, goes out in the engine's alternatives form with a raw fallback last, so a key nothing defines degrades to legible text rather than costing the whole tooltip. A `[mod-setting-description]` entry falls back to the emitted setting name, a `[string-mod-setting]` entry to the dropdown value itself, and a `technology-name` entry to the technology's internal name. That is a safety net and not a substitute: the checker still requires the two entries inside your prefix, and the fallback is what a player sees in a modpack you did not anticipate.
 
 The ingredient line is a line of its own because it is written in a different vocabulary from the label above it. Your label is display prose ("Default: 4 iron plates, 2 gears") and the line under it is the internal names the text field takes (`4 iron-plate, 2 iron-gear-wheel`); only the second can be pasted into the field. The client truncates a closed dropdown's label at about 37 characters (measured on Factorio 2.0.77, build 84539), so joining the two with a colon would put the half that works past the truncation with nothing to say which half was which.
 
@@ -560,7 +564,7 @@ Each of the two number settings is emitted with a description of its own: your `
 A whole number from 0 to 100000. While it is 0 the option chosen above decides.
 ```
 
-The composed description of a cost dropdown names, after each tier's localised label and on the same line, the technology whose cost that tier copies, through the technology's own localised name (`{"technology-name.<first source>"}` after `: cost of`), or `: the fallback cost` for a tier with no source. It stays on one line where an ingredient preset takes two, because a localised label followed by a localised technology name is one vocabulary and there is nothing in it to copy. Where the game has no such technology or no entry for it, the tooltip shows the game's `Unknown key:` marker for that key, so order the ladder with the technology a stock install has first, or ship the entry. A last line says that the pack text above or below it applies while it does not say `default`, exactly as an ingredient dropdown's does.
+The composed description of a cost dropdown names, after each tier's localised label and on the same line, the technology whose cost that tier copies, through the technology's own localised name (after `: cost of`), or `: the fallback cost` for a tier with no source. It stays on one line where an ingredient preset takes two, because a localised label followed by a localised technology name is one vocabulary and there is nothing in it to copy. Where the game has no such technology or no entry for it, the line degrades to the raw internal name and the rest of the tooltip is unaffected. A last line says that the pack text above or below it applies while it does not say `default`, exactly as an ingredient dropdown's does.
 
 ### Unlocks and enablement
 
@@ -651,6 +655,34 @@ the setting steelworks-bonus-research has no [mod-setting-name] entry
 the [mod-setting-name] entry steelworks-scrap-recovery matches no setting this plan declares
 the [string-mod-setting] entry steelworks-quench-medium-brine matches no dropdown value this plan declares
 ```
+
+### Advisories, which are not findings
+
+A key **inside your mod's prefix** is required, and everything above is about those. A key **outside it** is never required, and the difference is the locale namespace itself: Factorio's is flat and shared, so a `[technology-name]` entry in your `.cfg` sets the displayed name of that technology for every mod in the game. The library will not ask you to do that, and the collision scan above exists to catch the same hazard.
+
+The one key the library composes out of your prefix is `technology-name.<source>`, in a cost dropdown's preset lines. `CheckLocaleAdvisories` (`check_locale_advisories`) is where the library says so, once per such key, in composition order:
+
+```go
+for _, note := range plan().CheckLocaleAdvisories("steelworks") {
+	t.Log(note)
+}
+```
+
+```rust
+for note in plan().check_locale_advisories("steelworks") {
+    println!("{}", note);
+}
+```
+
+```
+note: the dropdown setting steelworks-tips-research-tier composes the game's own key technology-name.military-4, which this plan does not own; where the game does not define it the tooltip shows military-4 instead, and defining it here would rename it for every mod
+```
+
+**This is information, not a checklist, and a test suite must not fail on it.** `CheckLocale` and `CheckLocaleWith` never return an advisory: an empty report from either still means a clean file, which is what your suite should assert. An advisory is not asking for anything either, because there is nothing to do: where the game does not define the key the composed line degrades to the raw internal name, which is legible, and the tooltip survives whole. Defining the key would be the one action that makes things worse.
+
+It takes no `.cfg`, and that is the shape of the fact rather than a convenience: an advisory is about your plan and the game's namespace, so a file that defines the key produces exactly the same sentence. It has a cap of its own, with the same closing line the findings cap uses, so neither report can crowd out the other.
+
+### The mod name, and what the checker cannot see
 
 **Pass the name your mod is packaged under.** Every other prefix in this library is derived from the packaged mod at emit time, where it cannot disagree; a host test has no `fkdata` to ask, so this one is a parameter.
 

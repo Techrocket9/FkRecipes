@@ -746,25 +746,43 @@ impl Lib {
             }
         }
         for t in &self.techs {
-            if named_cost_sources(&t.spec) != 1 {
+            if !self.cost_dropdown_composes_preset_lines(&t.spec) {
                 continue;
             }
-            let by = match &t.spec.cost_by {
-                Some(by) => by,
-                None => continue,
-            };
-            let cc = match &t.spec.cost_from {
-                Some(cc) => cc,
-                None => continue,
-            };
-            if !self.valid_dropdown_setting(by.setting) || !self.valid_packs_setting(cc.packs) {
-                continue;
-            }
+            let by = t
+                .spec
+                .cost_by
+                .as_ref()
+                .expect("the predicate saw a dropdown");
+            let cc = t.spec.cost_from.as_ref().expect("the predicate saw a cost");
             if by.setting.index == index {
                 found = Some(Presets::Cost(&by.choices, cc.packs.index));
             }
         }
         found
+    }
+
+    /// The ONE SPELLING of "this technology's cost dropdown has a preset list
+    /// composed onto its description". Two readers need exactly this predicate
+    /// and neither may spell it again: `presets_beside_text`, which is what
+    /// composes the lines AND what makes that dropdown's
+    /// `[mod-setting-description]` entry required, and
+    /// `composed_game_key_advisories`, which says the one thing this library
+    /// has to say about the GAME's key those lines name.
+    ///
+    /// A SECOND SPELLING WAS WHAT MADE THE GUARDS UNTESTABLE. Each of the four
+    /// conditions here is the composition's own, so a dropped one is a composed
+    /// line the walk does not know about or a walk naming a line nothing
+    /// composes; with one spelling, the required-description findings exercise
+    /// every one of them and the advisory walk inherits that for free.
+    pub(crate) fn cost_dropdown_composes_preset_lines(&self, spec: &TechSpec) -> bool {
+        let (by, cc) = match (&spec.cost_by, &spec.cost_from) {
+            (Some(by), Some(cc)) => (by, cc),
+            _ => return false,
+        };
+        named_cost_sources(spec) == 1
+            && self.valid_dropdown_setting(by.setting)
+            && self.valid_packs_setting(cc.packs)
     }
 
     /// The word that says where the setting at `other` sits on the settings
@@ -909,10 +927,7 @@ impl Lib {
     /// The dropdown's composed description: the consumer's own entry, then one
     /// line per preset, its LOCALISED label followed by what it means.
     fn dropdown_description(&self, prefix: &str, full: &str, presets: &Presets<'_>) -> Value {
-        let mut params = alloc::vec![Value::Arr(alloc::vec![Value::Str(format!(
-            "mod-setting-description.{}",
-            full
-        ))])];
+        let mut params = alloc::vec![locale_ref("mod-setting-description", full, full)];
         let text = match *presets {
             Presets::Ingredients(choices, text) => {
                 for c in choices {
@@ -1038,9 +1053,10 @@ fn validate_declared_packs(at: &str, who: &str, packs: &[Pack]) -> Result<(), St
 /// consumer's own entry, then the three things this library owes the player
 /// about the field beside it.
 ///
-/// FIVE PARAMETERS, and none of them a table beyond the consumer's key, so the
-/// twenty-parameter ceiling [`MAX_LOCALISED_PARAMS`] records is nowhere near
-/// reached and this shape needs no nesting rule of its own.
+/// FIVE PARAMETERS, and none of them a table beyond the consumer's key and the
+/// [`locale_ref`] wrapper around it, so the twenty-parameter ceiling
+/// [`MAX_LOCALISED_PARAMS`] records is nowhere near reached and this shape
+/// needs no nesting rule of its own.
 ///
 /// THE FOUR LINES ARE THE ANSWER TO WHAT A CLIENT MEASUREMENT FOUND. A player
 /// standing in the Mod Settings screen reads the tooltip whole (measured on
@@ -1065,10 +1081,7 @@ fn validate_declared_packs(at: &str, who: &str, packs: &[Pack]) -> Result<(), St
 pub(crate) fn text_description(full: &str, rendered: &str, switch_line: &str) -> Value {
     Value::Arr(alloc::vec![
         Value::string(""),
-        Value::Arr(alloc::vec![Value::Str(format!(
-            "mod-setting-description.{}",
-            full
-        ))]),
+        locale_ref("mod-setting-description", full, full),
         Value::Str(format!("\ndefault: {}", rendered)),
         Value::Str(text_format_line()),
         Value::string(switch_line),
@@ -1086,11 +1099,50 @@ pub(crate) fn text_description(full: &str, rendered: &str, switch_line: &str) ->
 pub(crate) fn number_description(full: &str, range_line: &str) -> Value {
     Value::Arr(alloc::vec![
         Value::string(""),
-        Value::Arr(alloc::vec![Value::Str(format!(
-            "mod-setting-description.{}",
-            full
-        ))]),
+        locale_ref("mod-setting-description", full, full),
         Value::string(range_line),
+    ])
+}
+
+/// How this library references a locale key: the engine's own ALTERNATIVES
+/// form, `{"?", {"section.key"}, "raw"}`, and never the bare `{"section.key"}`
+/// it used to emit.
+///
+/// A BARE KEY THE GAME DOES NOT DEFINE COSTS THE WHOLE THING IT SITS IN, which
+/// is measured and not argued (Factorio 2.0.77 build 84539, this repository's
+/// client probe and its headless arm agreeing). On a SETTING, a composed
+/// description holding one undefined key leaves the row with no info icon and
+/// no tooltip at all, while every other row keeps both; on a RECIPE, the entire
+/// description block disappears from the tooltip, taking the literal sentences
+/// this library wrote itself with it. Neither costs an exit code, an engine
+/// warning or a `fkrecipes: ` line, and the engine's own `--dump-data` says the
+/// description is present either way, so no headless gate can see it.
+///
+/// AN UNDEFINED KEY IS A FAILED ALTERNATIVE for `?`, which is the fact the
+/// whole form rests on: it does not resolve to the text `Unknown key: "..."`
+/// and win, it fails, and the next alternative renders. Measured on the client
+/// beside the failure it cures, in one screen: every `?` row renders and the
+/// plain join does not.
+///
+/// THE RAW FALLBACK IS LAST, AND THAT IS A RULE AND NOT A STYLE. A plain string
+/// alternative ALWAYS resolves, so a raw string anywhere but the end
+/// short-circuits every alternative after it and the key would never be
+/// consulted; and when every alternative fails the result is the LAST
+/// alternative's own `Unknown key: "..."` marker, so a key in the last slot is
+/// the marker this form exists to avoid. Both reasons point the same way.
+///
+/// IT COSTS ONE LEVEL OF DEPTH AND NOTHING ELSE. The wrapper occupies exactly
+/// one parameter slot of the table holding it, the same as the bare key table
+/// it replaces, against the measured ceilings [`MAX_LOCALISED_PARAMS`] records
+/// (20 parameters per table, 20 levels of depth, no global table budget). The
+/// library's realistic worst composition loses nothing it can reach: the
+/// theoretical preset ceiling drops from 342 to 323, and a 323-preset
+/// description carrying 647 wrappers both loads and resolves in full.
+pub(crate) fn locale_ref(section: &str, key: &str, raw: &str) -> Value {
+    Value::Arr(alloc::vec![
+        Value::string("?"),
+        Value::Arr(alloc::vec![Value::Str(format!("{}.{}", section, key))]),
+        Value::string(raw),
     ])
 }
 
@@ -1139,7 +1191,10 @@ pub(crate) const TEXT_FALLBACK_LINE: &str =
 /// One preset's line: a newline, the value's own locale entry, and what it
 /// means. The LABEL IS THE LOCALISED ONE, because that is what the settings
 /// screen shows in the dropdown itself; naming the raw key here would tell the
-/// player about a value they never see.
+/// player about a value they never see. That entry is REQUIRED by the locale
+/// checker, so where it is missing the checker has already said so and
+/// [`locale_ref`]'s raw fallback shows the player the internal value, which is
+/// a thing they can type.
 ///
 /// THE TAIL IS VALUES, NOT A STRING, because what a preset means is not always
 /// text this library can spell: a research preset ends in the source
@@ -1149,10 +1204,7 @@ fn preset_element(full: &str, value: &str, tail: Vec<Value>) -> Value {
     let mut items = alloc::vec![
         Value::string(""),
         Value::string("\n"),
-        Value::Arr(alloc::vec![Value::Str(format!(
-            "string-mod-setting.{}-{}",
-            full, value
-        ))]),
+        locale_ref("string-mod-setting", &format!("{}-{}", full, value), value),
     ];
     items.extend(tail);
     Value::Arr(items)
@@ -1183,27 +1235,24 @@ pub(crate) const INGREDIENT_PRESET_HEAD: &str = "\n  type: ";
 /// rest are what a modpack missing it falls back to, and a description that
 /// listed them would be about this library rather than about the choice.
 ///
-/// THE NAME KEY IS THE GAME'S, NOT THIS MOD'S, so the locale checker gains no
-/// obligation from this composition: `technology-name.<source>` belongs to
-/// whoever ships that technology, and a key this library never prefixed is
-/// not a key it can report on. The internal name appears in the key and
-/// nowhere else, which is the point: the line used to read the raw name
-/// straight out at the player.
+/// THE NAME KEY IS THE GAME'S, NOT THIS MOD'S, so the locale checker REQUIRES
+/// nothing from this composition: `technology-name.<source>` belongs to
+/// whoever ships that technology, and requiring it would be requiring the
+/// consumer to squat in a namespace the same checker's collision scan exists
+/// to police. It says so once as an ADVISORY instead; see
+/// `Lib::composed_game_key_advisories`.
 ///
-/// THE TRADE IS NAMED RATHER THAN WISHED AWAY. Where the technology and its
-/// locale entry are there, the player reads the name they read everywhere
-/// else in the game. Where they are not, the engine renders the key as the
-/// MARKER `Unknown key: "technology-name.<source>"`, which is the shape a
-/// live session produced for `entity-name.bbb-linked-belt`; see the note on
-/// [`Lib::check_locale`]. So a preset naming a technology the modpack does
-/// not ship reads worse than the bare internal name did, and that is the
-/// consumer's to decide: they order the ladder, and their modpack supplies
-/// the locale.
+/// WHERE THE TECHNOLOGY OR ITS ENTRY IS MISSING, THE LINE DEGRADES TO THE RAW
+/// INTERNAL NAME rather than to the marker or to nothing, because
+/// [`locale_ref`] wraps it: the preset line reads `"\n<value>: cost of
+/// <source>"` and the tooltip survives whole. Before the wrapper a source no
+/// installed mod declared cost the consumer the entire tooltip, silently,
+/// which is what the client probe measured.
 fn cost_preset_tail(c: &CostChoice) -> Vec<Value> {
     match c.sources.first() {
         Some(name) => alloc::vec![
             Value::string(": cost of "),
-            Value::Arr(alloc::vec![Value::Str(format!("technology-name.{}", name))]),
+            locale_ref("technology-name", name, name),
         ],
         None => alloc::vec![Value::string(": the fallback cost")],
     }

@@ -15,6 +15,20 @@ use crate::plan::{
 use crate::tests::*;
 use crate::value::Value;
 
+/// One composed locale reference as the engine renders it: the alternatives
+/// form, the key table, and the raw fallback LAST.
+///
+/// SPELLED OUT HERE RATHER THAN TAKEN FROM THE SOURCE, which is what a golden
+/// is for: a test that asked `locale_ref` for the shape would move with any
+/// edit to it, and the Go twin writes the same bytes out by hand.
+fn wrapped(key: &str, raw: &str) -> Value {
+    Value::Arr(vec![
+        Value::string("?"),
+        Value::Arr(vec![Value::string(key)]),
+        Value::string(raw),
+    ])
+}
+
 /// A research dropdown with one preset, so a refusal about the settings BESIDE
 /// it is the sentence under test rather than one about the dropdown's own
 /// shape.
@@ -94,10 +108,10 @@ fn plan_settings_text_setting_prototypes() {
     assert_composed(
         &transcript(&ops),
         &[
-            r#"extend {type="string-setting", name="steelworks-rivet-ingredients", setting_type="startup", default_value="default", order="aa", auto_trim=true, localised_description=["", ["mod-setting-description.steelworks-rivet-ingredients"], "\ndefault: 2 tungsten-plate, 4 steelworks-steel-rivet, 0.5 [fluid=water]"<text tail>]}"#,
-            r#"extend {type="string-setting", name="steelworks-research-packs", setting_type="startup", default_value="default", order="z", auto_trim=true, localised_description=["", ["mod-setting-description.steelworks-research-packs"], "\ndefault: 1 military-science-pack"<text tail>]}"#,
-            r#"extend {type="int-setting", name="steelworks-tips-count", setting_type="startup", default_value=30, order="ac", minimum_value=1, maximum_value=100000, localised_description=["", ["mod-setting-description.steelworks-tips-count"], "\nA whole number from 1 to 100000."]}"#,
-            r#"extend {type="int-setting", name="steelworks-tips-seconds", setting_type="startup", default_value=15, order="ad", minimum_value=1, maximum_value=600, localised_description=["", ["mod-setting-description.steelworks-tips-seconds"], "\nA whole number from 1 to 600."]}"#,
+            r#"extend {type="string-setting", name="steelworks-rivet-ingredients", setting_type="startup", default_value="default", order="aa", auto_trim=true, localised_description=["", ["?", ["mod-setting-description.steelworks-rivet-ingredients"], "steelworks-rivet-ingredients"], "\ndefault: 2 tungsten-plate, 4 steelworks-steel-rivet, 0.5 [fluid=water]"<text tail>]}"#,
+            r#"extend {type="string-setting", name="steelworks-research-packs", setting_type="startup", default_value="default", order="z", auto_trim=true, localised_description=["", ["?", ["mod-setting-description.steelworks-research-packs"], "steelworks-research-packs"], "\ndefault: 1 military-science-pack"<text tail>]}"#,
+            r#"extend {type="int-setting", name="steelworks-tips-count", setting_type="startup", default_value=30, order="ac", minimum_value=1, maximum_value=100000, localised_description=["", ["?", ["mod-setting-description.steelworks-tips-count"], "steelworks-tips-count"], "\nA whole number from 1 to 100000."]}"#,
+            r#"extend {type="int-setting", name="steelworks-tips-seconds", setting_type="startup", default_value=15, order="ad", minimum_value=1, maximum_value=600, localised_description=["", ["?", ["mod-setting-description.steelworks-tips-seconds"], "steelworks-tips-seconds"], "\nA whole number from 1 to 600."]}"#,
         ],
     );
 }
@@ -121,7 +135,7 @@ fn an_empty_declared_ingredient_list_reads_as_none() {
     assert_composed(
         &transcript(&ops)[..1],
         &[
-            r#"extend {type="string-setting", name="steelworks-rivet-ingredients", setting_type="startup", default_value="default", order="aa", auto_trim=true, localised_description=["", ["mod-setting-description.steelworks-rivet-ingredients"], "\ndefault: none"<text tail>]}"#,
+            r#"extend {type="string-setting", name="steelworks-rivet-ingredients", setting_type="startup", default_value="default", order="aa", auto_trim=true, localised_description=["", ["?", ["mod-setting-description.steelworks-rivet-ingredients"], "steelworks-rivet-ingredients"], "\ndefault: none"<text tail>]}"#,
         ],
     );
 }
@@ -200,7 +214,7 @@ fn plan_settings_composes_a_dropdown_with_a_custom_arm() {
     assert_composed(
         &transcript(&ops)[..1],
         &[
-            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="aa", allowed_values=["water", "oil"], localised_description=["", ["mod-setting-description.steelworks-quench-medium"], ["", "\n", ["string-mod-setting.steelworks-quench-medium-water"], "\n  type: 2 steel-plate, 10 [fluid=water]"], ["", "\n", ["string-mod-setting.steelworks-quench-medium-oil"], "\n  type: 3 steel-plate"], "\nThe setting below applies instead while it does not say default."]}"#,
+            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="aa", allowed_values=["water", "oil"], localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "\n  type: 2 steel-plate, 10 [fluid=water]"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "\n  type: 3 steel-plate"], "\nThe setting below applies instead while it does not say default."]}"#,
         ],
     );
 }
@@ -255,8 +269,8 @@ fn the_switch_lines_follow_the_emitted_order() {
     assert_composed(
         &transcript(&ops),
         &[
-            r#"extend {type="string-setting", name="steelworks-quench-ingredients", setting_type="startup", default_value="default", order="aa", auto_trim=true, localised_description=["", ["mod-setting-description.steelworks-quench-ingredients"], "\ndefault: 2 steel-plate"<text tail below>]}"#,
-            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="z", allowed_values=["water", "oil"], localised_description=["", ["mod-setting-description.steelworks-quench-medium"], ["", "\n", ["string-mod-setting.steelworks-quench-medium-water"], "\n  type: 2 steel-plate"], ["", "\n", ["string-mod-setting.steelworks-quench-medium-oil"], "\n  type: 3 steel-plate"], "\nThe setting above applies instead while it does not say default."]}"#,
+            r#"extend {type="string-setting", name="steelworks-quench-ingredients", setting_type="startup", default_value="default", order="aa", auto_trim=true, localised_description=["", ["?", ["mod-setting-description.steelworks-quench-ingredients"], "steelworks-quench-ingredients"], "\ndefault: 2 steel-plate"<text tail below>]}"#,
+            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="z", allowed_values=["water", "oil"], localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "\n  type: 2 steel-plate"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "\n  type: 3 steel-plate"], "\nThe setting above applies instead while it does not say default."]}"#,
         ],
     );
 }
@@ -309,7 +323,7 @@ fn plan_settings_composes_a_cost_dropdown_with_a_custom_arm() {
     assert_composed(
         &transcript(&ops)[..1],
         &[
-            r#"extend {type="string-setting", name="steelworks-tips-research-tier", setting_type="startup", default_value="projectile", order="aa", allowed_values=["projectile", "military"], localised_description=["", ["mod-setting-description.steelworks-tips-research-tier"], ["", "\n", ["string-mod-setting.steelworks-tips-research-tier-projectile"], ": cost of ", ["technology-name.tungsten-hardening"]], ["", "\n", ["string-mod-setting.steelworks-tips-research-tier-military"], ": cost of ", ["technology-name.logistics-3"]], "\nThe setting below applies instead while it does not say default."]}"#,
+            r#"extend {type="string-setting", name="steelworks-tips-research-tier", setting_type="startup", default_value="projectile", order="aa", allowed_values=["projectile", "military"], localised_description=["", ["?", ["mod-setting-description.steelworks-tips-research-tier"], "steelworks-tips-research-tier"], ["", "\n", ["?", ["string-mod-setting.steelworks-tips-research-tier-projectile"], "projectile"], ": cost of ", ["?", ["technology-name.tungsten-hardening"], "tungsten-hardening"]], ["", "\n", ["?", ["string-mod-setting.steelworks-tips-research-tier-military"], "military"], ": cost of ", ["?", ["technology-name.logistics-3"], "logistics-3"]], "\nThe setting below applies instead while it does not say default."]}"#,
         ],
     );
 }
@@ -353,7 +367,7 @@ fn a_cost_preset_with_no_source_reads_as_the_fallback() {
     assert_composed(
         &transcript(&ops)[..1],
         &[
-            r#"extend {type="string-setting", name="steelworks-tier", setting_type="startup", default_value="cheap", order="aa", allowed_values=["cheap"], localised_description=["", ["mod-setting-description.steelworks-tier"], ["", "\n", ["string-mod-setting.steelworks-tier-cheap"], ": the fallback cost"], "\nThe setting below applies instead while it does not say default."]}"#,
+            r#"extend {type="string-setting", name="steelworks-tier", setting_type="startup", default_value="cheap", order="aa", allowed_values=["cheap"], localised_description=["", ["?", ["mod-setting-description.steelworks-tier"], "steelworks-tier"], ["", "\n", ["?", ["string-mod-setting.steelworks-tier-cheap"], "cheap"], ": the fallback cost"], "\nThe setting below applies instead while it does not say default."]}"#,
         ],
     );
 }
@@ -427,38 +441,45 @@ fn a_cost_preset_names_its_source_by_its_localised_name() {
         field(proto, "localised_description").expect("no description"),
         Value::Arr(vec![
             Value::string(""),
-            Value::Arr(vec![Value::string(
-                "mod-setting-description.steelworks-tips-research-tier"
-            )]),
+            wrapped(
+                "mod-setting-description.steelworks-tips-research-tier",
+                "steelworks-tips-research-tier"
+            ),
             // FIVE PARAMETERS: the concatenating key, the newline, the
             // dropdown's own label, the words, and the technology's name key.
+            // Each key rides inside the alternatives form with its raw
+            // fallback LAST, which is what keeps an undefined key from taking
+            // the whole tooltip.
             Value::Arr(vec![
                 Value::string(""),
                 Value::string("\n"),
-                Value::Arr(vec![Value::string(
-                    "string-mod-setting.steelworks-tips-research-tier-projectile"
-                )]),
+                wrapped(
+                    "string-mod-setting.steelworks-tips-research-tier-projectile",
+                    "projectile"
+                ),
                 Value::string(": cost of "),
-                Value::Arr(vec![Value::string("technology-name.tungsten-hardening")]),
+                wrapped("technology-name.tungsten-hardening", "tungsten-hardening"),
             ]),
             // The FIRST rung is the one named; the rest are what a modpack
             // missing it falls back to.
             Value::Arr(vec![
                 Value::string(""),
                 Value::string("\n"),
-                Value::Arr(vec![Value::string(
-                    "string-mod-setting.steelworks-tips-research-tier-military"
-                )]),
+                wrapped(
+                    "string-mod-setting.steelworks-tips-research-tier-military",
+                    "military"
+                ),
                 Value::string(": cost of "),
-                Value::Arr(vec![Value::string("technology-name.logistics-3")]),
+                wrapped("technology-name.logistics-3", "logistics-3"),
             ]),
             // FOUR: nothing to name, so nothing is nested.
             Value::Arr(vec![
                 Value::string(""),
                 Value::string("\n"),
-                Value::Arr(vec![Value::string(
-                    "string-mod-setting.steelworks-tips-research-tier-cheap"
-                )]),
+                wrapped(
+                    "string-mod-setting.steelworks-tips-research-tier-cheap",
+                    "cheap"
+                ),
                 Value::string(": the fallback cost"),
             ]),
             Value::string("\nThe setting below applies instead while it does not say default."),
@@ -547,8 +568,9 @@ fn a_composed_description_nests_past_nineteen_presets() {
 ///
 /// THE NAME TABLE IS A SIBLING OF THE LABEL, not a level under it: both are
 /// direct children of the preset line, so the deepest table in a flat
-/// description is three levels down and was three levels down before this
-/// composition existed, nowhere near the twenty the engine takes.
+/// description is FOUR levels down, which is the three that composition had
+/// before `locale_ref` plus the one level every wrapper spends, nowhere near
+/// the twenty the engine takes.
 #[test]
 fn a_cost_dropdown_description_nests_past_nineteen_presets() {
     let composed = |presets: usize| -> Value {
@@ -606,11 +628,14 @@ fn a_cost_dropdown_description_nests_past_nineteen_presets() {
             _ => 0,
         }
     }
-    // Two presets, so nothing nests: description, preset line, name table.
+    // Two presets, so nothing nests: description, preset line, the wrapper
+    // around the technology name, and the name table inside it. The fourth
+    // level is the one every `locale_ref` spends, against twenty the engine
+    // takes.
     assert_eq!(
         deepest_table(&composed(2), 1),
-        3,
-        "a flat cost description is not three tables deep"
+        4,
+        "a flat cost description is not four tables deep"
     );
 
     // MEASURED (2.0.77): twenty parameters load and twenty-one refuse. The
@@ -3570,4 +3595,315 @@ fn a_fallback_note_joins_the_authors_own_description() {
                 + r#""], unit={count=20, time=10, ingredients=[["automation-science-pack", 1]]}}"#),
         ],
     );
+}
+
+// ---------------------------------------------------------------------------
+// The alternatives form: every composed locale reference, and the rule that
+// the raw fallback is last.
+// ---------------------------------------------------------------------------
+
+/// Every locale section this library composes a key under. Written out rather
+/// than derived, because the property being asserted is "these three and
+/// nothing else goes out bare", and a fourth section added to the library is a
+/// fourth entry somebody has to type here on purpose.
+const COMPOSED_LOCALE_SECTIONS: &[&str] = &[
+    "mod-setting-description.",
+    "string-mod-setting.",
+    "technology-name.",
+];
+
+/// The section a string names, or `None` when it is ordinary prose.
+fn composed_locale_section(s: &str) -> Option<&'static str> {
+    COMPOSED_LOCALE_SECTIONS
+        .iter()
+        .find(|sec| s.starts_with(**sec))
+        .copied()
+}
+
+/// Whether a value is the one-element table a locale key is referenced
+/// through: `{"section.key"}`.
+fn is_key_table(v: &Value) -> bool {
+    match v {
+        Value::Arr(items) => match items.as_slice() {
+            [Value::Str(s)] => composed_locale_section(s).is_some(),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Walks one composed value and reports every place the alternatives rule is
+/// broken, along with what it saw.
+///
+/// THE TWO RULES ARE THE TWO MEASURED FACTS. A key table that is not wrapped is
+/// a reference that costs the whole tooltip where the game does not define it;
+/// and inside a wrapper a plain string is always a SUCCESSFUL alternative, so
+/// one anywhere but the last slot short circuits every alternative after it and
+/// the key is never consulted, while a wrapper not ending in a plain string
+/// falls back onto its last alternative's own `Unknown key: "..."` marker. Both
+/// are silent on a headless run, which is why they are held by a source
+/// property here rather than by a golden alone.
+fn locale_ref_faults(v: &Value, out: &mut Vec<String>) {
+    let items = match v {
+        Value::Map(pairs) => {
+            for (_, val) in pairs {
+                locale_ref_faults(val, out);
+            }
+            return;
+        }
+        Value::Arr(items) => items,
+        _ => return,
+    };
+    let wrapper = matches!(items.first(), Some(Value::Str(s)) if s == "?");
+    if wrapper {
+        if items.len() < 3 {
+            out.push(alloc::format!(
+                "a wrapper offers fewer than two alternatives: {:?}",
+                v
+            ));
+        } else {
+            if items[1..items.len() - 1]
+                .iter()
+                .any(|a| !matches!(a, Value::Arr(_)))
+            {
+                out.push(alloc::format!(
+                    "a raw fallback sits before the last alternative, which short circuits every alternative after it: {:?}",
+                    v
+                ));
+            }
+            if !matches!(items.last(), Some(Value::Str(_))) {
+                out.push(alloc::format!(
+                    "a wrapper does not end in a raw fallback, so a game defining none of its keys renders the last one's Unknown key marker: {:?}",
+                    v
+                ));
+            }
+        }
+    }
+    for (i, item) in items.iter().enumerate() {
+        if let Value::Str(s) = item {
+            if composed_locale_section(s).is_some() && !(i == 0 && items.len() == 1) {
+                out.push(alloc::format!(
+                    "the locale key {} is not referenced through a key table: {:?}",
+                    s,
+                    v
+                ));
+            }
+            continue;
+        }
+        if is_key_table(item) && !(wrapper && i == 1) {
+            out.push(alloc::format!(
+                "the composed reference {:?} is a bare key rather than the alternatives form: {:?}",
+                item,
+                v
+            ));
+        }
+        locale_ref_faults(item, out);
+    }
+}
+
+/// How many references each section contributed, so a walk that found nothing
+/// cannot read as a walk that found nothing wrong.
+fn locale_ref_counts(v: &Value, into: &mut [usize; 3]) {
+    let items = match v {
+        Value::Map(pairs) => {
+            for (_, val) in pairs {
+                locale_ref_counts(val, into);
+            }
+            return;
+        }
+        Value::Arr(items) => items,
+        _ => return,
+    };
+    if let [Value::Str(s)] = items.as_slice() {
+        if let Some(sec) = composed_locale_section(s) {
+            let i = COMPOSED_LOCALE_SECTIONS
+                .iter()
+                .position(|c| *c == sec)
+                .expect("the section came from the same list");
+            into[i] += 1;
+        }
+    }
+    for item in items {
+        locale_ref_counts(item, into);
+    }
+}
+
+/// A plan that composes all three key shapes: a recipe behind an ingredient
+/// dropdown with a text setting beside it, and a technology behind a cost
+/// dropdown whose presets name technologies the GAME owns.
+/// A plan that reaches ALL THREE composed key shapes at the settings stage and
+/// carries a literal description at the data stage, which is exactly what
+/// `every_composed_locale_reference_is_wrapped` walks.
+///
+/// IT IS THE SAME FIXTURE AS THE GO HALF'S `everyComposedShape`, declaration for
+/// declaration, and the two walks run it against the same two worlds. They were
+/// different fixtures until the round that added the description-count witness,
+/// and the difference hid the same defect twice: neither plan composed a single
+/// data-stage description, so both halves asserted a count of zero over nothing
+/// at all.
+fn every_composed_shape() -> Lib {
+    let mut lib = Lib::new();
+    let plate = lib.item("hardened-steel-plate", ItemSpec::default());
+    let medium = lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "oil"]);
+    let quench = lib.ingredients_setting(
+        "quench-ingredients",
+        vec![Ingredient::named(2, "steel-plate", &[])],
+    );
+    let tier =
+        lib.dropdown_setting_needing_locale("tips-research-tier", "projectile", &["projectile"]);
+    let packs = lib.packs_setting("tips-packs", vec![Pack::new("automation-science-pack", 1)]);
+    let count = lib.int_setting("tips-count", 0, NumericSpec::between(0.0, 100000.0));
+    let seconds = lib.int_setting("tips-seconds", 0, NumericSpec::between(0.0, 600.0));
+    lib.recipe(
+        plate,
+        RecipeSpec {
+            ingredients_by: Some(IngredientChoices {
+                setting: medium,
+                choices: vec![
+                    IngredientChoice {
+                        value: "water".into(),
+                        ingredients: vec![Ingredient::named(2, "steel-plate", &[])],
+                    },
+                    IngredientChoice {
+                        value: "oil".into(),
+                        ingredients: vec![Ingredient::named(3, "steel-plate", &[])],
+                    },
+                ],
+            }),
+            ingredients_from: Some(quench),
+            // A LITERAL DESCRIPTION, because the data stage's half of the
+            // wrapper test needs something to walk: without one this plan
+            // composes no `localised_description` at all and every assertion
+            // over it is vacuous. It is also the shape decision C fixed, plain
+            // English with no key, which is what the zero counts assert.
+            description: String::from("Quenched in whatever the medium setting says."),
+            ..Default::default()
+        },
+    );
+    lib.technology(
+        "hardened-tips",
+        TechSpec {
+            cost_by: Some(crate::plan::CostChoices {
+                setting: tier,
+                choices: vec![crate::plan::CostChoice {
+                    value: "projectile".into(),
+                    sources: strings(&["logistics-2"]),
+                }],
+                fallback: UnitSpec {
+                    count: 200,
+                    seconds: 30.0,
+                    packs: vec![Pack::new("automation-science-pack", 1)],
+                },
+            }),
+            cost_from: Some(CustomCost {
+                packs,
+                count,
+                seconds,
+            }),
+            description: String::from("Priced from the tier the research setting says."),
+            ..Default::default()
+        },
+    );
+    lib
+}
+
+/// EVERY COMPOSED LOCALE REFERENCE GOES THROUGH THE ALTERNATIVES FORM, and the
+/// raw fallback is LAST in each one.
+///
+/// THIS IS THE PROPERTY A GOLDEN CANNOT HOLD. A golden pins the shapes somebody
+/// thought to write down; this walks everything both stages emit for a plan
+/// that exercises all three key shapes and asserts the rule over each. It is
+/// also the only reader of the rule that can see a REORDERED wrapper:
+/// `["?", "raw", {key}]` renders identically to `["?", {key}, "raw"]` in every
+/// dump and in every transcript, because the engine's own dump holds the table
+/// verbatim, and differs only on a client, where the raw string wins every time
+/// and the key is never consulted.
+///
+/// BOTH STAGES, because the data stage composes descriptions too. What it must
+/// carry is the OPPOSITE property: the prototype notes are English literals
+/// with no key at all, and the counts below say so.
+#[test]
+fn every_composed_locale_reference_is_wrapped() {
+    let lib = every_composed_shape();
+
+    let ops = lib.plan_settings(&settings_world()).expect("plan refused");
+    let mut faults = Vec::new();
+    let mut counts = [0usize; 3];
+    for op in &ops {
+        for v in op_values(op) {
+            locale_ref_faults(v, &mut faults);
+            locale_ref_counts(v, &mut counts);
+        }
+    }
+    assert!(faults.is_empty(), "settings: {}", faults.join("\n"));
+    for (i, sec) in COMPOSED_LOCALE_SECTIONS.iter().enumerate() {
+        assert!(
+            counts[i] > 0,
+            "the walk saw no {} reference, so it proves nothing about one",
+            sec
+        );
+    }
+
+    let ops = every_composed_shape()
+        .plan_data(&base_world())
+        .expect("plan refused");
+    let mut faults = Vec::new();
+    let mut counts = [0usize; 3];
+    let mut described = 0usize;
+    for op in &ops {
+        for v in op_values(op) {
+            locale_ref_faults(v, &mut faults);
+            locale_ref_counts(v, &mut counts);
+            described += localised_descriptions(v);
+        }
+    }
+    assert!(faults.is_empty(), "data: {}", faults.join("\n"));
+    // THE ZERO BELOW IS ONLY WORTH SOMETHING IF THERE WAS SOMETHING TO FIND. A
+    // stage that stopped composing descriptions altogether would satisfy every
+    // assertion in this half, so the walk says how many it saw first.
+    assert!(
+        described > 0,
+        "the data stage composed no localised_description, so the counts below prove nothing"
+    );
+    // THE DATA STAGE COMPOSES NO KEY AT ALL, which is the other half of the
+    // measurement: an undefined key anywhere in a recipe's composition deletes
+    // the whole description, the library's own literal sentences included, so
+    // the prototype notes are English literals and this count is zero.
+    for (i, sec) in COMPOSED_LOCALE_SECTIONS.iter().enumerate() {
+        assert_eq!(
+            counts[i], 0,
+            "the data stage composed {} {} references; its notes are literal text",
+            counts[i], sec
+        );
+    }
+}
+
+/// How many `localised_description` fields a value carries, which is what turns
+/// "no bare key was found" into "descriptions were composed and no bare key was
+/// in them". Without it the data-stage half of the wrapper test is green over a
+/// stage that stopped composing descriptions at all.
+fn localised_descriptions(v: &Value) -> usize {
+    match v {
+        Value::Map(entries) => entries
+            .iter()
+            .map(|(k, val)| usize::from(k == "localised_description") + localised_descriptions(val))
+            .sum(),
+        Value::Arr(items) => items.iter().map(localised_descriptions).sum(),
+        _ => 0,
+    }
+}
+
+/// Every value one op carries, so a walk over a plan is a walk over these.
+///
+/// EXHAUSTIVE ON PURPOSE, with no wildcard arm: a fourth `Op` variant carrying a
+/// `Value` would be a shape the wrapper walk silently stopped covering, and the
+/// walk's whole claim is that it sees everything both stages emit. `Log` holds a
+/// `String` and no value, so it contributes none; a new variant is a build error
+/// here, which is where the decision belongs.
+fn op_values(op: &crate::op::Op) -> Vec<&Value> {
+    match op {
+        crate::op::Op::Extend(proto) => vec![proto],
+        crate::op::Op::Set(_, value) => vec![value],
+        crate::op::Op::Log(_) => Vec::new(),
+    }
 }

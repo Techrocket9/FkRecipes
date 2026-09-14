@@ -277,8 +277,22 @@ fi
 # own (the engine would store 98000 characters), so the sentence IS the limit as
 # far as the screen goes; and the settings screen has no conditional visibility
 # at all (measured), so the switch line is the only place the pairing is stated.
-grep -qF '{1="",2={1="mod-setting-description.fkrecipes-example-rivet-ingredients"},3="\ndefault: 1 iron-plate",4="\nWrite internal names, as the default line above does, in at most 2000 characters.",5="\nWhile this says default this mod'"'"'s own list applies.",6="\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."}' "$T" ||
+grep -qF '{1="",2={1="?",2={1="mod-setting-description.fkrecipes-example-rivet-ingredients"},3="fkrecipes-example-rivet-ingredients"},3="\ndefault: 1 iron-plate",4="\nWrite internal names, as the default line above does, in at most 2000 characters.",5="\nWhile this says default this mod'"'"'s own list applies.",6="\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."}' "$T" ||
   fail "the text setting's composed description is not in the transcript"
+# ONE WHOLE WRAPPED REFERENCE, PINNED ON ITS OWN. Every composed locale key
+# rides in the engine's alternatives form with the raw fallback LAST, and a
+# regression to the bare {"section.key"} is invisible everywhere a headless run
+# can look: the engine's dump holds either table verbatim, exit 0, no warning
+# and no fkrecipes: line, while on the CLIENT an undefined key costs the setting
+# its info icon and its whole tooltip (measured, 2.0.77 build 84539). So the
+# shape is pinned here, and the bare form is refused by name below.
+grep -qF '{1="?",2={1="mod-setting-description.fkrecipes-example-rivet-ingredients"},3="fkrecipes-example-rivet-ingredients"}' "$T" ||
+  fail "the composed description key is not in the engine's alternatives form"
+for bare in '{1="",2={1="mod-setting-description.' '3={1="string-mod-setting.' '5={1="technology-name.'; do
+  if grep -qF "$bare" "$T"; then
+    fail "a composed locale reference went out bare rather than wrapped: $bare"
+  fi
+done
 # AND THE OTHER SWITCH LINE, on a text setting that HAS a dropdown beside it:
 # the sentence names which way the settings screen sorts the two rather than
 # guessing at a declaration order the consumer is free to choose.
@@ -300,7 +314,7 @@ grep -qF '3="\nA whole number from 1 to 600."' "$T" ||
 # about 37 characters; the internal names the field beside it takes are on
 # their own line, under the word a player acts on, so the copyable half is
 # never the truncated half.
-grep -qF '{1="",2="\n",3={1="string-mod-setting.fkrecipes-example-chain-links-long"},4="\n  type: 8 fkrecipes-example-steel-rivet, 1 steel-plate"}' "$T" ||
+grep -qF '{1="",2="\n",3={1="?",2={1="string-mod-setting.fkrecipes-example-chain-links-long"},3="long"},4="\n  type: 8 fkrecipes-example-steel-rivet, 1 steel-plate"}' "$T" ||
   fail "the dropdown's composed preset line is not in the transcript"
 if grep -qF '4=": 8 fkrecipes-example-steel-rivet, 1 steel-plate"' "$T"; then
   fail "an ingredient preset line still joins the two vocabularies with a colon"
@@ -363,7 +377,7 @@ if grep -q "is edited, but" "$T"; then
 fi
 # A COST PRESET NAMES ITS TECHNOLOGY THROUGH ITS LOCALE KEY, not by its
 # internal name: the tooltip shows the player the technology's own name.
-grep -qF '4=": cost of ",5={1="technology-name.military-4"}' "$T" ||
+grep -qF '4=": cost of ",5={1="?",2={1="technology-name.military-4"},3="military-4"}' "$T" ||
   fail "the cost dropdown's composed preset line does not name the technology through its locale key"
 if grep -qF '": cost of military-4"' "$T"; then
   fail "a cost preset line still carries the internal technology name"

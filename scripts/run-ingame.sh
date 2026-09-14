@@ -564,10 +564,31 @@ jqassert "the Extra passthrough reached the dump" "$DDUMP" \
 jqassert "the generated craft-time minimum reached the settings dump" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-forging-time") | .minimum_value] | any(. == 0.002)'
 # A COST PRESET NAMES ITS TECHNOLOGY THROUGH ITS LOCALE KEY, in the engine's
-# own settings dump: the composed description of the tier dropdown carries a
-# nested {"technology-name.<source>"} where the internal name used to sit.
-jqassert "the cost dropdown's composed description names its technology through its locale key" "$DSDUMP" \
-  '[.. | objects | select(.name? == "fkrecipes-example-tips-research-tier") | .localised_description | .. | arrays | select(.[0]? == "technology-name.military-4")] | length > 0'
+# own settings dump, and the whole WRAPPED reference is what is pinned: the
+# alternatives form, the key table, and the raw internal name LAST. A bare
+# {"technology-name.<source>"} would still sit inside the wrapper, so an assert
+# that only looked for the key table would go on passing after a regression;
+# this one names all three slots. The cost is real: on the client an undefined
+# key in a composed description costs the setting its info icon and its whole
+# tooltip, while the dump says the description is present either way.
+jqassert "the cost dropdown's composed description names its technology through the alternatives form" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-tips-research-tier") | .localised_description | .. | arrays
+    | select(.[0]? == "?" and .[1]? == ["technology-name.military-4"] and .[2]? == "military-4")]
+   | length > 0'
+# AND NOTHING ANYWHERE IN THE SETTINGS DUMP IS A BARE KEY. Every string that
+# names one of the three sections this library composes under must sit in slot 1
+# of a wrapper whose LAST slot is a raw string, so the two counts agree. It
+# catches the reordered wrapper too: with the raw fallback first, slot 1 is a
+# string rather than the key table and the wrapped count drops.
+# The $d and $all below are JQ variables inside a jq program, which is why the
+# program is single quoted; shellcheck reads them as shell expansions.
+# shellcheck disable=SC2016
+jqassert "every composed locale key in the settings dump rides in the alternatives form" "$DSDUMP" \
+  '[.. | objects | select(.name? // "" | startswith("fkrecipes-example-")) | .localised_description // empty] as $d
+   | def isKey: type == "string" and (startswith("mod-setting-description.") or startswith("string-mod-setting.") or startswith("technology-name."));
+     ([$d[] | .. | strings | select(isKey)] | length) as $all
+   | ([$d[] | .. | arrays | select(.[0]? == "?") | select(.[-1] | type == "string") | .[1] | select(type == "array") | .[0] | select(isKey)] | length) as $wrapped
+   | $all > 0 and $all == $wrapped'
 # WHAT THE SCREEN OWES A PLAYER TYPING INTO A TEXT FIELD, in the engine's own
 # settings dump. Both sentences are the library's own composition, and both
 # answer something a client measurement found stated nowhere a player looks:
@@ -619,7 +640,8 @@ jqassert "a research number with no dropdown states its range" "$DSDUMP" \
 jqassert "an ingredient preset puts the internal names on their own line" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-quench-medium") | .localised_description | .. | arrays
     | select(.[2]? | type == "array")
-    | select(.[2][0]? | startswith("string-mod-setting."))
+    | select(.[2][1]? | type == "array")
+    | select(.[2][1][0]? | startswith("string-mod-setting."))
     | .[3]]
    | length > 0 and all(startswith("\n  type: "))'
 

@@ -11,6 +11,12 @@ import (
 // the same reason and in the same shape.
 const localeFindingCap = 100
 
+// localeAdvisoryCap is the same ceiling over the ADVISORIES, which are a
+// report of their own: see CheckLocaleAdvisories. Two caps rather than one is
+// what keeps the promise that an advisory can never displace a finding, and the
+// separate accessor is what keeps it from being one.
+const localeAdvisoryCap = 100
+
 // CheckLocale reads a mod's .cfg and reports what a player would not be able
 // to read, in both directions. It returns one sentence per problem and an
 // empty slice for a clean file.
@@ -254,6 +260,91 @@ func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, compl
 	return findings
 }
 
+// CheckLocaleAdvisories is what this library has to SAY about a consumer's
+// locale file without asking anything of it: one note per locale key the
+// composition references from OUTSIDE the mod's own prefix, in composition
+// order. It is INFORMATIONAL, and a test suite must not fail on it.
+//
+// IT IS NOT PART OF CheckLocale, AND THAT IS THE POINT. An empty return from
+// CheckLocale means a clean file, and a consumer's suite is told in
+// docs/migration.md to assert exactly that; an advisory in that return would
+// be a permanent red test over a thing the consumer is told NOT to fix, which
+// is the defect this separation closes. It does not depend on the .cfg at all,
+// so it takes no cfg: it is a property of the PLAN.
+//
+// WHAT IT COVERS is today exactly technology-name.<source>, from a cost
+// dropdown's preset lines. Factorio's locale namespace is FLAT and shared:
+// defining technology-name.logistics-2 in this mod's own .cfg sets the
+// displayed name of BASE's technology for every mod in the game. Requiring the
+// key would therefore be requiring exactly the hazard CheckLocale's own
+// collision scan exists to catch, so the sentence names the key, says what the
+// tooltip shows where the game does not define it, and pointedly does not tell
+// the consumer to define it.
+//
+// A MISSING KEY IS NOT A DEFECT. localeRef wraps every composed reference in
+// the engine's alternatives form, so an undefined technology-name key degrades
+// to the raw internal name and the tooltip survives whole; before that wrapper
+// it cost the consumer the entire tooltip, silently.
+//
+// IT HAS A CAP OF ITS OWN, localeAdvisoryCap, with the same closing line
+// CheckLocale's cap uses. Two reports, two budgets, and neither can crowd out
+// the other.
+func (l *Lib) CheckLocaleAdvisories(modName string) []string {
+	advisories := l.composedGameKeyAdvisories(modName + "-")
+	if len(advisories) > localeAdvisoryCap {
+		rest := len(advisories) - localeAdvisoryCap
+		// A singular arm, for the reason the findings cap has one.
+		tail := "(and " + strconv.Itoa(rest) + " more advisories)"
+		if rest == 1 {
+			tail = "(and 1 more advisory)"
+		}
+		advisories = append(advisories[:localeAdvisoryCap], tail)
+	}
+	return advisories
+}
+
+// composedGameKeyAdvisories is CheckLocaleAdvisories' uncapped walk: one
+// sentence per locale key the composition references from outside this mod's
+// prefix, which today is exactly technology-name.<source>.
+//
+// THE ORDER IS THE COMPOSITION'S, technology by technology in declaration
+// order and choice by choice within one, and it steps past exactly what
+// settingDescriptions steps past, because it asks the same function:
+// costDropdownComposesPresetLines is the composition's own condition and the
+// only spelling of it. One dropdown naming one key twice says the same
+// sentence twice, so it is said once.
+func (l *Lib) composedGameKeyAdvisories(prefix string) []string {
+	var out []string
+	var seen []string
+	for _, t := range l.techs {
+		if !l.costDropdownComposesPresetLines(&t.spec) {
+			continue
+		}
+		by := t.spec.CostBy
+		full := l.settings[by.Setting.index-1].emittedName(prefix)
+		for _, choice := range by.Choices {
+			if len(choice.Sources) == 0 {
+				continue
+			}
+			line := gameKeyAdvisory(full, "technology-name."+choice.Sources[0], choice.Sources[0])
+			if nameListed(seen, line) {
+				continue
+			}
+			seen = append(seen, line)
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// gameKeyAdvisory is the advisory's one sentence, and it is one function in
+// each half so that the two cannot drift apart a word at a time.
+func gameKeyAdvisory(full, key, raw string) string {
+	return "note: the dropdown setting " + full + " composes the game's own key " + key +
+		", which this plan does not own; where the game does not define it the tooltip shows " + raw +
+		" instead, and defining it here would rename it for every mod"
+}
+
 // checkComposedTextLines is the DRIFT GUARD over what this library composes
 // onto a text setting's description: the format line, the switch line and the
 // fallback line, each reported by name when the composition stops carrying it.
@@ -445,7 +536,9 @@ func nameListed(handRolled []string, key string) bool {
 // all: a recipe that names Ingredients beside IngredientsBy is one the settings
 // planner composes nothing for, so demanding a description for its dropdown
 // would be a finding about a string the mod never emits. settingDescriptions is
-// the condition this mirrors.
+// the condition this mirrors, and on the technology side it does not mirror it
+// but SHARES it: costDropdownComposesPresetLines is the one spelling, read here,
+// there and by composedGameKeyAdvisories.
 func (l *Lib) dropdownsWithComposedDescription() []bool {
 	marks := make([]bool, len(l.settings))
 	for _, r := range l.recipes {
@@ -456,11 +549,8 @@ func (l *Lib) dropdownsWithComposedDescription() []bool {
 		}
 	}
 	for _, t := range l.techs {
-		by := t.spec.CostBy
-		c := t.spec.CostFrom
-		if by != nil && c != nil && namedCostSources(&t.spec) == 1 &&
-			l.validDropdownSetting(by.Setting) && l.validPacksSetting(c.Packs) {
-			marks[by.Setting.index-1] = true
+		if l.costDropdownComposesPresetLines(&t.spec) {
+			marks[t.spec.CostBy.Setting.index-1] = true
 		}
 	}
 	return marks

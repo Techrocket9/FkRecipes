@@ -12,6 +12,12 @@ use crate::value::Value;
 /// and in the same shape.
 const LOCALE_FINDING_CAP: usize = 100;
 
+/// The same ceiling over the ADVISORIES, which are a report of their own: see
+/// [`Lib::check_locale_advisories`]. Two caps rather than one is what keeps the
+/// promise that an advisory can never displace a finding, and the separate
+/// accessor is what keeps it from being one.
+const LOCALE_ADVISORY_CAP: usize = 100;
+
 impl Lib {
     /// Reads a mod's .cfg and reports what a player would not be able to read,
     /// in both directions. It returns one sentence per problem and an empty
@@ -292,6 +298,92 @@ impl Lib {
         findings
     }
 
+    /// What this library has to SAY about a consumer's locale file without
+    /// asking anything of it: one note per locale key the composition
+    /// references from OUTSIDE the mod's own prefix, in composition order. It
+    /// is INFORMATIONAL, and a test suite must not fail on it.
+    ///
+    /// IT IS NOT PART OF [`check_locale`](Lib::check_locale), AND THAT IS THE
+    /// POINT. An empty return from `check_locale` means a clean file, and a
+    /// consumer's suite is told in `docs/migration.md` to assert exactly that;
+    /// an advisory in that return would be a permanent red test over a thing
+    /// the consumer is told NOT to fix, which is the defect this separation
+    /// closes. It does not depend on the .cfg at all, so it takes no cfg: it is
+    /// a property of the PLAN.
+    ///
+    /// WHAT IT COVERS is today exactly `technology-name.<source>`, from a cost
+    /// dropdown's preset lines. Factorio's locale namespace is FLAT and shared:
+    /// defining `technology-name.logistics-2` in this mod's own .cfg sets the
+    /// displayed name of BASE's technology for every mod in the game. Requiring
+    /// the key would therefore be requiring exactly the hazard `check_locale`'s
+    /// own collision scan exists to catch, so the sentence names the key, says
+    /// what the tooltip shows where the game does not define it, and pointedly
+    /// does not tell the consumer to define it.
+    ///
+    /// A MISSING KEY IS NOT A DEFECT.
+    /// [`locale_ref`](crate::settings::locale_ref) wraps every composed
+    /// reference in the engine's alternatives form, so an undefined
+    /// `technology-name` key degrades to the raw internal name and the tooltip
+    /// survives whole; before that wrapper it cost the consumer the entire
+    /// tooltip, silently.
+    ///
+    /// IT HAS A CAP OF ITS OWN, [`LOCALE_ADVISORY_CAP`], with the same closing
+    /// line the findings cap uses. Two reports, two budgets, and neither can
+    /// crowd out the other.
+    pub fn check_locale_advisories(&self, mod_name: &str) -> Vec<String> {
+        let prefix = format!("{}-", mod_name);
+        let mut advisories = self.composed_game_key_advisories(&prefix);
+        if advisories.len() > LOCALE_ADVISORY_CAP {
+            let rest = advisories.len() - LOCALE_ADVISORY_CAP;
+            advisories.truncate(LOCALE_ADVISORY_CAP);
+            // A singular arm, for the reason the findings cap has one.
+            advisories.push(if rest == 1 {
+                String::from("(and 1 more advisory)")
+            } else {
+                format!("(and {} more advisories)", rest)
+            });
+        }
+        advisories
+    }
+
+    /// [`check_locale_advisories`](Lib::check_locale_advisories)' uncapped
+    /// walk: one sentence per locale key the composition references from
+    /// outside this mod's prefix, which today is exactly
+    /// `technology-name.<source>`.
+    ///
+    /// THE ORDER IS THE COMPOSITION'S, technology by technology in declaration
+    /// order and choice by choice within one, and it steps past exactly what
+    /// `presets_beside_text` steps past, because it asks the same function:
+    /// `cost_dropdown_composes_preset_lines` is the composition's own condition
+    /// and the only spelling of it. One dropdown naming one key twice says the
+    /// same sentence twice, so it is said once.
+    fn composed_game_key_advisories(&self, prefix: &str) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for t in &self.techs {
+            if !self.cost_dropdown_composes_preset_lines(&t.spec) {
+                continue;
+            }
+            let by = t
+                .spec
+                .cost_by
+                .as_ref()
+                .expect("the predicate saw a dropdown");
+            let full = self.settings[by.setting.index - 1].emitted_name(prefix);
+            for choice in &by.choices {
+                let source = match choice.sources.first() {
+                    Some(s) => s,
+                    None => continue,
+                };
+                let line = game_key_advisory(&full, &format!("technology-name.{}", source), source);
+                if out.contains(&line) {
+                    continue;
+                }
+                out.push(line);
+            }
+        }
+        out
+    }
+
     fn declares_setting(&self, prefix: &str, key: &str) -> bool {
         self.settings.iter().any(|s| s.emitted_name(prefix) == key)
     }
@@ -531,6 +623,15 @@ fn locale_has(sections: &[LocaleSect], section: &str, key: &str) -> bool {
 /// anything from it is the guessing this parameter exists to replace.
 fn name_listed(hand_rolled: &[&str], key: &str) -> bool {
     hand_rolled.contains(&key)
+}
+
+/// The advisory's one sentence, and it is one function in each half so that
+/// the two cannot drift apart a word at a time.
+fn game_key_advisory(full: &str, key: &str, raw: &str) -> String {
+    format!(
+        "note: the dropdown setting {} composes the game's own key {}, which this plan does not own; where the game does not define it the tooltip shows {} instead, and defining it here would rename it for every mod",
+        full, key, raw
+    )
 }
 
 fn locale_show(s: &str) -> String {
@@ -869,6 +970,298 @@ mod tests {
             .join("\n");
         got.push('\n');
         assert_eq!(got, golden, "the findings do not match the golden");
+    }
+
+    /// What this plan's cost dropdown composes out of the GAME's namespace, in
+    /// composition order: one note per out-of-prefix key its presets
+    /// reference. They are ADVISORIES rather than findings, so they are in no
+    /// findings report at all, and no .cfg makes them appear or go away. PINNED
+    /// HERE RATHER THAN IN A GOLDEN FILE, because the two halves carry the same
+    /// two literal sentences and a third copy on disk would be a third place to
+    /// forget.
+    const ADVISORY_NOTES: &[&str] = &[
+        "note: the dropdown setting fkrecipes-example-tips-research-tier composes the game's own key technology-name.physical-projectile-damage-7, which this plan does not own; where the game does not define it the tooltip shows physical-projectile-damage-7 instead, and defining it here would rename it for every mod",
+        "note: the dropdown setting fkrecipes-example-tips-research-tier composes the game's own key technology-name.military-4, which this plan does not own; where the game does not define it the tooltip shows military-4 instead, and defining it here would rename it for every mod",
+    ];
+
+    /// THE OUT-OF-PREFIX KEY IS AN ADVISORY AND THE IN-PREFIX ONE IS REQUIRED,
+    /// which is the whole distinction this rule turns on.
+    ///
+    /// FACTORIO'S LOCALE NAMESPACE IS FLAT AND SHARED. Defining
+    /// `technology-name.military-4` in this mod's .cfg sets the displayed name
+    /// of BASE's technology for every mod in the game, and this checker's own
+    /// collision scan exists for exactly that hazard, so requiring the key
+    /// would be requiring what the same checker flags. The note names the key,
+    /// says what the tooltip shows where the game does not define it, and does
+    /// not ask for an entry.
+    ///
+    /// AN ADVISORY IS NOT IN A FINDINGS REPORT AT ALL, and that is the property
+    /// this test exists for. `docs/migration.md` tells a consumer to run
+    /// `check_locale_with` from their own suite and that it should be CLEAN; an
+    /// advisory in that return would be a permanent red test over a key the
+    /// consumer is told NOT to define. So the accessor carries them and neither
+    /// `check_locale` nor `check_locale_with` does, over a file that names
+    /// nothing and over a file that names everything.
+    ///
+    /// IT READS NO .cfg, which is why the accessor takes none.
+    #[test]
+    fn check_locale_advisories() {
+        let got = steelworks_settings().check_locale_advisories("fkrecipes-example");
+        assert_eq!(got, ADVISORY_NOTES, "the advisories moved");
+
+        let complete = read_testdata("../testdata/locale/example.cfg");
+        for (name, cfg) in [("an empty file", ""), ("the fixture", complete.as_str())] {
+            let reports = [
+                (
+                    "check_locale",
+                    steelworks_settings().check_locale("fkrecipes-example", cfg),
+                ),
+                (
+                    "check_locale_with",
+                    steelworks_settings().check_locale_with("fkrecipes-example", cfg, &[]),
+                ),
+            ];
+            for (call, report) in &reports {
+                for (i, f) in report.iter().enumerate() {
+                    assert!(
+                        !f.starts_with("note: "),
+                        "{} over {} carries an advisory at {}: {}",
+                        call,
+                        name,
+                        i,
+                        f
+                    );
+                }
+            }
+        }
+    }
+
+    /// THE ADVISORY IS ABOUT THE PLAN AND NOT ABOUT THE FILE, so a .cfg that
+    /// DEFINES both of the game's keys, which is the squat the last clause
+    /// warns about, gets the same two sentences. The accessor takes no cfg at
+    /// all, which is what makes that unarguable; this holds the findings side
+    /// of it, where a squatting file could have produced an orphan or a note
+    /// and produces neither.
+    #[test]
+    fn check_locale_advisories_do_not_depend_on_the_file() {
+        let squatting = "[technology-name]
+physical-projectile-damage-7=Projectile damage 7
+military-4=Military 4
+";
+        assert_eq!(
+            steelworks_settings().check_locale_advisories("fkrecipes-example"),
+            ADVISORY_NOTES,
+            "the advisories moved"
+        );
+        for f in steelworks_settings().check_locale("fkrecipes-example", squatting) {
+            assert!(
+                !f.starts_with("note: "),
+                "a squatting file put an advisory in the findings: {}",
+                f
+            );
+        }
+    }
+
+    /// A plan whose one technology prices itself through a cost dropdown of
+    /// `n` tiers, each naming its own source unless `sources` says otherwise.
+    fn cost_ladder(sources: &[&str]) -> Lib {
+        let mut lib = Lib::new();
+        let values: Vec<String> = (0..sources.len())
+            .map(|i| alloc::format!("t{}", i))
+            .collect();
+        let refs: Vec<&str> = values.iter().map(|v| v.as_str()).collect();
+        let tier = lib.dropdown_setting_needing_locale("tier", refs[0], &refs);
+        let packs = lib.packs_setting(
+            "packs",
+            alloc::vec![Pack::new("automation-science-pack", 1)],
+        );
+        let count = lib.int_setting("count", 0, NumericSpec::between(0.0, 100000.0));
+        let seconds = lib.int_setting("seconds", 0, NumericSpec::between(0.0, 600.0));
+        lib.technology(
+            "hardened-tips",
+            TechSpec {
+                cost_by: Some(CostChoices {
+                    setting: tier,
+                    choices: sources
+                        .iter()
+                        .enumerate()
+                        .map(|(i, s)| CostChoice {
+                            value: values[i].clone(),
+                            sources: alloc::vec![String::from(*s)],
+                        })
+                        .collect(),
+                    fallback: UnitSpec {
+                        count: 200,
+                        seconds: 30.0,
+                        packs: alloc::vec![Pack::new("automation-science-pack", 1)],
+                    },
+                }),
+                cost_from: Some(CustomCost {
+                    packs,
+                    count,
+                    seconds,
+                }),
+                ..Default::default()
+            },
+        );
+        lib
+    }
+
+    /// ONE DROPDOWN NAMING ONE KEY TWICE SAYS THE SENTENCE ONCE. A cost ladder
+    /// may put the same first source under two tiers, which is an ordinary
+    /// declaration and not a mistake, and the advisory is per (dropdown, key):
+    /// without the dedupe the report repeats itself, and a consumer reading the
+    /// same sentence twice learns nothing the second time.
+    ///
+    /// THE WITNESS IS THE COUNT AND THE ORDER TOGETHER: three tiers, two of
+    /// them on the same source, produce two sentences, the repeated one at its
+    /// FIRST position.
+    #[test]
+    fn check_locale_advisories_say_a_repeated_key_once() {
+        let want = [
+            super::game_key_advisory("mymod-tier", "technology-name.logistics", "logistics"),
+            super::game_key_advisory("mymod-tier", "technology-name.military-4", "military-4"),
+        ];
+        let got =
+            cost_ladder(&["logistics", "military-4", "logistics"]).check_locale_advisories("mymod");
+        assert_eq!(got, want, "the advisories are not the deduped pair");
+    }
+
+    /// THE ADVISORIES HAVE A CAP OF THEIR OWN, with the shape the findings cap
+    /// has and a budget no finding can spend: one dropdown with more
+    /// distinctly-sourced choices than the cap takes is all it needs, and a
+    /// plan can carry one.
+    #[test]
+    fn check_locale_advisories_are_capped() {
+        let report = |n: usize| {
+            let names: Vec<String> = (0..n).map(|i| alloc::format!("src{}", i)).collect();
+            let refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+            cost_ladder(&refs).check_locale_advisories("mymod")
+        };
+
+        let got = report(super::LOCALE_ADVISORY_CAP + 50);
+        assert_eq!(
+            got.len(),
+            super::LOCALE_ADVISORY_CAP + 1,
+            "got {} advisories, want the cap plus one closing line",
+            got.len()
+        );
+        assert_eq!(
+            got.last().map(String::as_str),
+            Some("(and 50 more advisories)")
+        );
+
+        // The boundary: exactly one advisory past the cap reads as one.
+        let got = report(super::LOCALE_ADVISORY_CAP + 1);
+        assert_eq!(got.len(), super::LOCALE_ADVISORY_CAP + 1);
+        assert_eq!(
+            got.last().map(String::as_str),
+            Some("(and 1 more advisory)")
+        );
+
+        // One below it is not capped at all, so no closing line is added.
+        let got = report(super::LOCALE_ADVISORY_CAP);
+        assert_eq!(got.len(), super::LOCALE_ADVISORY_CAP);
+        assert!(!got.last().unwrap().starts_with("(and "));
+    }
+
+    /// THE COMPOSITION'S CONDITION IS ONE FUNCTION AND THIS IS WHAT HOLDS ITS
+    /// CLAUSES. `cost_dropdown_composes_preset_lines` decides, for a
+    /// technology, whether its cost dropdown has a preset list composed onto
+    /// its description, and THREE readers ask it: the composition in
+    /// `presets_beside_text`, the checker's required-description rule through
+    /// the same function, and the advisory walk. One spelling means one place
+    /// to break, and this is the test that notices.
+    ///
+    /// IT IS HERE BECAUSE CONSOLIDATION ALONE DID NOT COVER THEM, which was
+    /// measured rather than assumed: with the spellings reduced to one,
+    /// dropping `valid_packs_setting`, `valid_dropdown_setting` or the
+    /// `named_cost_sources` clause each left the suite green, so the
+    /// required-description findings do NOT exercise these guards and no
+    /// fixture in the suite reaches them.
+    ///
+    /// A HANDLE FROM ANOTHER PLAN IS THE SHAPE, because it is the one an author
+    /// actually produces and the one every validator in this library already
+    /// names. The checker validates nothing by design, so it must SKIP such a
+    /// declaration: it may not demand a description for a preset list nobody
+    /// composes, and it may not say anything about the game's keys in lines
+    /// nobody emits.
+    #[test]
+    fn a_cost_dropdown_with_a_handle_from_another_plan_composes_nothing() {
+        let mut other = Lib::new();
+        let foreign_dropdown = other.dropdown_setting_needing_locale("tier", "a", &["a", "b"]);
+        let foreign_packs = other.packs_setting(
+            "packs",
+            alloc::vec![Pack::new("automation-science-pack", 1)],
+        );
+
+        let build = |use_foreign_dropdown: bool| {
+            let mut lib = Lib::new();
+            let mut tier = lib.dropdown_setting_needing_locale("tier", "a", &["a", "b"]);
+            let mut packs = lib.packs_setting(
+                "packs",
+                alloc::vec![Pack::new("automation-science-pack", 1)],
+            );
+            let count = lib.int_setting("count", 0, NumericSpec::between(0.0, 100000.0));
+            let seconds = lib.int_setting("seconds", 0, NumericSpec::between(0.0, 600.0));
+            if use_foreign_dropdown {
+                tier = foreign_dropdown;
+            } else {
+                packs = foreign_packs;
+            }
+            lib.technology(
+                "hardened-tips",
+                TechSpec {
+                    cost_by: Some(CostChoices {
+                        setting: tier,
+                        choices: alloc::vec![
+                            CostChoice {
+                                value: String::from("a"),
+                                sources: alloc::vec![String::from("logistics")],
+                            },
+                            CostChoice {
+                                value: String::from("b"),
+                                sources: alloc::vec![String::from("military-4")],
+                            },
+                        ],
+                        fallback: UnitSpec {
+                            count: 200,
+                            seconds: 30.0,
+                            packs: alloc::vec![Pack::new("automation-science-pack", 1)],
+                        },
+                    }),
+                    cost_from: Some(CustomCost {
+                        packs,
+                        count,
+                        seconds,
+                    }),
+                    ..Default::default()
+                },
+            );
+            lib
+        };
+
+        for (name, foreign) in [
+            ("the dropdown handle is another plan's", true),
+            ("the packs handle is another plan's", false),
+        ] {
+            let lib = build(foreign);
+            let advisories = lib.check_locale_advisories("mymod");
+            assert!(
+                advisories.is_empty(),
+                "{}: a composition nobody emits produced advisories:\n{}",
+                name,
+                advisories.join("\n")
+            );
+            for f in lib.check_locale("mymod", "") {
+                assert!(
+                    !f.contains("composes its preset list onto that entry"),
+                    "{}: a preset list nobody composes was required: {}",
+                    name,
+                    f
+                );
+            }
+        }
     }
 
     /// A file with every entry the plan needs and nothing it does not.

@@ -80,7 +80,7 @@ func TestPlanSettingsEmitsATextSetting(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		`extend {type="string-setting", name="steelworks-rivet-ingredients", setting_type="startup",` +
 			` default_value="default", order="aa", auto_trim=true,` +
-			` localised_description=["", ["mod-setting-description.steelworks-rivet-ingredients"],` +
+			` localised_description=["", ["?", ["mod-setting-description.steelworks-rivet-ingredients"], "steelworks-rivet-ingredients"],` +
 			` "` + "\n" + `default: 2 tungsten-plate, 4 steelworks-steel-rivet"` + wantTextTail + `]}`,
 	})
 }
@@ -109,15 +109,15 @@ func TestPlanSettingsEmitsAPacksSettingAndAnEmptyList(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		`extend {type="string-setting", name="steelworks-axe-ingredients", setting_type="startup",` +
 			` default_value="default", order="aa", auto_trim=true,` +
-			` localised_description=["", ["mod-setting-description.steelworks-axe-ingredients"], "` + "\n" + `default: none"` + wantTextTail + `]}`,
+			` localised_description=["", ["?", ["mod-setting-description.steelworks-axe-ingredients"], "steelworks-axe-ingredients"], "` + "\n" + `default: none"` + wantTextTail + `]}`,
 		`extend {type="string-setting", name="steelworks-axe-packs", setting_type="startup",` +
 			` default_value="default", order="ab", auto_trim=true,` +
-			` localised_description=["", ["mod-setting-description.steelworks-axe-packs"],` +
+			` localised_description=["", ["?", ["mod-setting-description.steelworks-axe-packs"], "steelworks-axe-packs"],` +
 			` "` + "\n" + `default: 1 automation-science-pack, 2 military-science-pack"` + wantTextTail + `]}`,
 		`extend {type="int-setting", name="steelworks-axe-count", setting_type="startup", default_value=20, order="ac", minimum_value=1, maximum_value=100000,` +
-			` localised_description=["", ["mod-setting-description.steelworks-axe-count"], "` + "\n" + `A whole number from 1 to 100000."]}`,
+			` localised_description=["", ["?", ["mod-setting-description.steelworks-axe-count"], "steelworks-axe-count"], "` + "\n" + `A whole number from 1 to 100000."]}`,
 		`extend {type="int-setting", name="steelworks-axe-seconds", setting_type="startup", default_value=10, order="ad", minimum_value=1, maximum_value=600,` +
-			` localised_description=["", ["mod-setting-description.steelworks-axe-seconds"], "` + "\n" + `A whole number from 1 to 600."]}`,
+			` localised_description=["", ["?", ["mod-setting-description.steelworks-axe-seconds"], "steelworks-axe-seconds"], "` + "\n" + `A whole number from 1 to 600."]}`,
 	})
 }
 
@@ -137,7 +137,7 @@ func TestPlanSettingsEmitsALegacyTextSetting(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		`extend {type="string-setting", name="bbb-part-ingredients", setting_type="startup",` +
 			` default_value="default", order="c", auto_trim=true,` +
-			` localised_description=["", ["mod-setting-description.bbb-part-ingredients"], "` + "\n" + `default: 3 steel-plate"` + wantTextTail + `]}`,
+			` localised_description=["", ["?", ["mod-setting-description.bbb-part-ingredients"], "bbb-part-ingredients"], "` + "\n" + `default: 3 steel-plate"` + wantTextTail + `]}`,
 	})
 }
 
@@ -167,13 +167,13 @@ func TestPlanSettingsComposesADropdownDescription(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		`extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup",` +
 			` default_value="water", order="aa", allowed_values=["water", "oil"],` +
-			` localised_description=["", ["mod-setting-description.steelworks-quench-medium"],` +
-			` ["", "` + "\n" + `", ["string-mod-setting.steelworks-quench-medium-water"], "` + "\n" + `  type: 2 steel-plate, 10 [fluid=water]"],` +
-			` ["", "` + "\n" + `", ["string-mod-setting.steelworks-quench-medium-oil"], "` + "\n" + `  type: 2 steel-plate, 0.5 [fluid=lubricant]"]` +
+			` localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"],` +
+			` ["", "` + "\n" + `", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "` + "\n" + `  type: 2 steel-plate, 10 [fluid=water]"],` +
+			` ["", "` + "\n" + `", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "` + "\n" + `  type: 2 steel-plate, 0.5 [fluid=lubricant]"]` +
 			wantDropdownSwitch("below") + `]}`,
 		`extend {type="string-setting", name="steelworks-quench-ingredients", setting_type="startup",` +
 			` default_value="default", order="ab", auto_trim=true,` +
-			` localised_description=["", ["mod-setting-description.steelworks-quench-ingredients"], "` + "\n" + `default: 2 steel-plate"` +
+			` localised_description=["", ["?", ["mod-setting-description.steelworks-quench-ingredients"], "steelworks-quench-ingredients"], "` + "\n" + `default: 2 steel-plate"` +
 			wantTextFormat + wantSwitchBy("above") + wantTextFallback + `]}`,
 	})
 }
@@ -212,9 +212,9 @@ func TestPlanSettingsComposesACostDropdownDescription(t *testing.T) {
 	if !ok {
 		t.Fatalf("the dropdown carries no composed description")
 	}
-	want := `["", ["mod-setting-description.steelworks-tips-tier"],` +
-		` ["", "` + "\n" + `", ["string-mod-setting.steelworks-tips-tier-projectile"], ": cost of ", ["technology-name.mining-productivity-4"]],` +
-		` ["", "` + "\n" + `", ["string-mod-setting.steelworks-tips-tier-none"], ": the fallback cost"], "` + "\n" +
+	want := `["", ["?", ["mod-setting-description.steelworks-tips-tier"], "steelworks-tips-tier"],` +
+		` ["", "` + "\n" + `", ["?", ["string-mod-setting.steelworks-tips-tier-projectile"], "projectile"], ": cost of ", ["?", ["technology-name.mining-productivity-4"], "mining-productivity-4"]],` +
+		` ["", "` + "\n" + `", ["?", ["string-mod-setting.steelworks-tips-tier-none"], "none"], ": the fallback cost"], "` + "\n" +
 		`The setting below applies instead while it does not say default."]`
 	if renderValue(got) != want {
 		t.Errorf("\n got: %s\nwant: %s", renderValue(got), want)
@@ -254,16 +254,37 @@ func TestTheSwitchLinesFollowTheEmittedOrder(t *testing.T) {
 	assertLines(t, transcript(ops), []string{
 		`extend {type="string-setting", name="steelworks-quench-ingredients", setting_type="startup",` +
 			` default_value="default", order="aa", auto_trim=true,` +
-			` localised_description=["", ["mod-setting-description.steelworks-quench-ingredients"], "` + "\n" +
+			` localised_description=["", ["?", ["mod-setting-description.steelworks-quench-ingredients"], "steelworks-quench-ingredients"], "` + "\n" +
 			`default: 2 steel-plate"` + wantTextFormat + wantSwitchBy("below") + wantTextFallback + `]}`,
 		`extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup",` +
 			` default_value="water", order="z", allowed_values=["water", "oil"],` +
-			` localised_description=["", ["mod-setting-description.steelworks-quench-medium"],` +
-			` ["", "` + "\n" + `", ["string-mod-setting.steelworks-quench-medium-water"], "` + "\n" +
+			` localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"],` +
+			` ["", "` + "\n" + `", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "` + "\n" +
 			`  type: 2 steel-plate"],` +
-			` ["", "` + "\n" + `", ["string-mod-setting.steelworks-quench-medium-oil"], "` + "\n" +
+			` ["", "` + "\n" + `", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "` + "\n" +
 			`  type: 3 steel-plate"]` + wantDropdownSwitch("above") + `]}`,
 	})
+}
+
+// deepestTable is how far down the deepest TABLE sits, counting the value
+// handed in as level one. Tables are what the engine counts against its
+// twenty-level ceiling; a string is not a level.
+//
+// IT IS THE GO TWIN OF rust/src/tests/customize.rs's deepest_table, and the two
+// exist because the wrapper's whole measured cost is ONE LEVEL and nothing
+// else: a count of parameters cannot see it, and a golden can only see it where
+// somebody wrote the shape out.
+func deepestTable(v Value, depth int) int {
+	if v.Kind != KindArr {
+		return 0
+	}
+	deepest := depth
+	for _, item := range v.Arr {
+		if d := deepestTable(item, depth+1); d > deepest {
+			deepest = d
+		}
+	}
+	return deepest
 }
 
 // PAST NINETEEN PRESETS THE COMPOSITION STILL NESTS, AND THE NEW LINE IS WHAT
@@ -271,39 +292,51 @@ func TestTheSwitchLinesFollowTheEmittedOrder(t *testing.T) {
 // tables sit inside it, so the five-parameter cost line does not eat into the
 // ceiling and the flat-then-nested shape is exactly the one a four-parameter
 // line produced. The technology-name table rides BESIDE the label, at the same
-// level, and a one-preset description is three table levels deep either way,
-// nowhere near the twenty levels the engine takes.
+// level, so a flat cost description is FOUR table levels deep: the description,
+// the preset line, the localeRef wrapper around the technology name and the key
+// table inside it. The fourth is the one level every localeRef spends, against
+// twenty the engine takes.
 func TestCostDropdownDescriptionNestsPastNineteenPresets(t *testing.T) {
+	composed := func(presets int) Value {
+		t.Helper()
+		values := make([]string, 0, presets+1)
+		choices := make([]CostChoice, 0, presets)
+		for i := 0; i < presets; i++ {
+			v := "tier" + strconv.Itoa(i)
+			values = append(values, v)
+			choices = append(choices, CostChoice{Value: v, Sources: []string{"source" + strconv.Itoa(i)}})
+		}
+
+		lib := New()
+		tier := lib.DropdownSettingNeedingLocale("tips-tier", values[0], values)
+		packs := lib.PacksSetting("tips-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+		count := lib.IntSetting("tips-count", 0, Between(0, 100000))
+		seconds := lib.IntSetting("tips-seconds", 0, Between(0, 600))
+		lib.Technology("hardened-tips", TechSpec{
+			CostBy: &CostChoices{
+				Setting:  tier,
+				Choices:  choices,
+				Fallback: UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+			},
+			CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
+		})
+
+		ops, err := lib.PlanSettings(settingsWorld())
+		assertNoError(t, err)
+		v, ok := field(ops[0].Proto, "localised_description")
+		if !ok {
+			t.Fatalf("the dropdown carries no composed description")
+		}
+		return v
+	}
+
+	// Two presets, so nothing nests, and the depth is the shape's own.
+	if d := deepestTable(composed(2), 1); d != 4 {
+		t.Errorf("a flat cost description is %d tables deep, want 4", d)
+	}
+
 	const presets = 21
-	values := make([]string, 0, presets+1)
-	choices := make([]CostChoice, 0, presets)
-	for i := 0; i < presets; i++ {
-		v := "tier" + strconv.Itoa(i)
-		values = append(values, v)
-		choices = append(choices, CostChoice{Value: v, Sources: []string{"source" + strconv.Itoa(i)}})
-	}
-
-	lib := New()
-	tier := lib.DropdownSettingNeedingLocale("tips-tier", values[0], values)
-	packs := lib.PacksSetting("tips-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
-	count := lib.IntSetting("tips-count", 0, Between(0, 100000))
-	seconds := lib.IntSetting("tips-seconds", 0, Between(0, 600))
-	lib.Technology("hardened-tips", TechSpec{
-		CostBy: &CostChoices{
-			Setting:  tier,
-			Choices:  choices,
-			Fallback: UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
-		},
-		CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
-	})
-
-	ops, err := lib.PlanSettings(settingsWorld())
-	assertNoError(t, err)
-
-	got, ok := field(ops[0].Proto, "localised_description")
-	if !ok {
-		t.Fatalf("the dropdown carries no composed description")
-	}
+	got := composed(presets)
 	// Twenty-three parameters (the key, twenty-one presets and the switch
 	// line), so nineteen stay and the twentieth slot nests.
 	if got.Kind != KindArr || len(got.Arr) != maxLocalisedParams+1 {
@@ -2173,7 +2206,7 @@ func TestComposedTextLinesMissingGuardsTheComposedLines(t *testing.T) {
 	})
 	// All three gone: all three reported, in the order the lines sit in, which
 	// is the order every other rule here reports in.
-	stripped := Arr(Str(""), localeRef("mod-setting-description", full))
+	stripped := Arr(Str(""), localeRef("mod-setting-description", full, full))
 	assertFindings(t, composedTextLinesMissing(stripped, switchLine), []string{
 		"the library composes no line about the format and the length limit onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
 		"the library composes no line about which field decides while the text says default onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
@@ -2890,5 +2923,260 @@ func assertFindings(t *testing.T, got, want []string) {
 	t.Helper()
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("findings\n got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The alternatives form: every composed locale reference, and the rule that
+// the raw fallback is last.
+// ---------------------------------------------------------------------------
+
+// composedLocaleSections is every locale section this library composes a key
+// under. Written out rather than derived, because the property being asserted
+// is "these three and nothing else goes out bare", and a fourth section added
+// to the library is a fourth entry somebody has to type here on purpose.
+var composedLocaleSections = []string{
+	"mod-setting-description.",
+	"string-mod-setting.",
+	"technology-name.",
+}
+
+// composedLocaleSection is the section a string names, or the empty string
+// when it is ordinary prose.
+func composedLocaleSection(s string) string {
+	for _, sec := range composedLocaleSections {
+		if strings.HasPrefix(s, sec) {
+			return sec
+		}
+	}
+	return ""
+}
+
+// isKeyTable reports whether a value is the one-element table a locale key is
+// referenced through: {"section.key"}.
+func isKeyTable(v Value) bool {
+	return v.Kind == KindArr && len(v.Arr) == 1 && v.Arr[0].Kind == KindStr &&
+		composedLocaleSection(v.Arr[0].Str) != ""
+}
+
+// localeRefFaults walks one composed value and reports every place the
+// alternatives rule is broken, along with what it saw.
+//
+// THE TWO RULES ARE THE TWO MEASURED FACTS. A key table that is not wrapped is
+// a reference that costs the whole tooltip where the game does not define it;
+// and inside a wrapper a plain string is always a SUCCESSFUL alternative, so
+// one anywhere but the last slot short circuits every alternative after it and
+// the key is never consulted, while a wrapper not ending in a plain string
+// falls back onto its last alternative's own `Unknown key: "..."` marker. Both
+// are silent on a headless run, which is why they are held by a source
+// property here rather than by a golden alone.
+func localeRefFaults(v Value) []string {
+	var out []string
+	var walk func(Value)
+	walk = func(v Value) {
+		if v.Kind == KindMap {
+			for _, kv := range v.Map {
+				walk(kv.Val)
+			}
+			return
+		}
+		if v.Kind != KindArr {
+			return
+		}
+		wrapper := len(v.Arr) > 0 && v.Arr[0].Kind == KindStr && v.Arr[0].Str == "?"
+		if wrapper {
+			switch {
+			case len(v.Arr) < 3:
+				out = append(out, "a wrapper offers fewer than two alternatives: "+renderValue(v))
+			default:
+				for i := 1; i < len(v.Arr)-1; i++ {
+					if v.Arr[i].Kind != KindArr {
+						out = append(out, "a raw fallback sits before the last alternative, "+
+							"which short circuits every alternative after it: "+renderValue(v))
+						break
+					}
+				}
+				if last := v.Arr[len(v.Arr)-1]; last.Kind != KindStr {
+					out = append(out, "a wrapper does not end in a raw fallback, "+
+						"so a game defining none of its keys renders the last one's Unknown key marker: "+renderValue(v))
+				}
+			}
+		}
+		for i, item := range v.Arr {
+			if item.Kind == KindStr {
+				if composedLocaleSection(item.Str) != "" && !(i == 0 && len(v.Arr) == 1) {
+					out = append(out, "the locale key "+item.Str+" is not referenced through a key table: "+renderValue(v))
+				}
+				continue
+			}
+			if isKeyTable(item) && !(wrapper && i == 1) {
+				out = append(out, "the composed reference "+renderValue(item)+
+					" is a bare key rather than the alternatives form: "+renderValue(v))
+			}
+			walk(item)
+		}
+	}
+	walk(v)
+	return out
+}
+
+// localisedDescriptions counts the localised_description fields in a value,
+// which is what turns "no bare key was found" into "descriptions were composed
+// and no bare key was in them". Without it the data-stage half of the wrapper
+// test below is green over a stage that stopped composing descriptions at all.
+func localisedDescriptions(v Value) int {
+	n := 0
+	switch v.Kind {
+	case KindMap:
+		for _, kv := range v.Map {
+			if kv.Key == "localised_description" {
+				n++
+			}
+			n += localisedDescriptions(kv.Val)
+		}
+	case KindArr:
+		for _, item := range v.Arr {
+			n += localisedDescriptions(item)
+		}
+	}
+	return n
+}
+
+// localeRefCounts is how many references each section contributed, so a walk
+// that found nothing cannot read as a walk that found nothing wrong.
+func localeRefCounts(v Value, into map[string]int) {
+	if v.Kind == KindMap {
+		for _, kv := range v.Map {
+			localeRefCounts(kv.Val, into)
+		}
+		return
+	}
+	if v.Kind != KindArr {
+		return
+	}
+	if isKeyTable(v) {
+		into[composedLocaleSection(v.Arr[0].Str)]++
+	}
+	for _, item := range v.Arr {
+		localeRefCounts(item, into)
+	}
+}
+
+// EVERY COMPOSED LOCALE REFERENCE GOES THROUGH THE ALTERNATIVES FORM, and the
+// raw fallback is LAST in each one.
+//
+// THIS IS THE PROPERTY A GOLDEN CANNOT HOLD. A golden pins the shapes somebody
+// thought to write down; this walks everything both stages emit for a plan that
+// exercises all three key shapes and asserts the rule over each. It is also the
+// only reader of the rule that can see a REORDERED wrapper: `["?", "raw",
+// {key}]` renders identically to `["?", {key}, "raw"}` in every dump and in
+// every transcript, because the engine's own dump holds the table verbatim, and
+// differs only on a client, where the raw string wins every time and the key is
+// never consulted.
+//
+// BOTH STAGES, because the data stage composes descriptions too. What it must
+// carry is the OPPOSITE property: decision C's trailing notes are English
+// literals with no key at all, and the counts below say so.
+// everyComposedShape is a plan that reaches ALL THREE composed key shapes at the
+// settings stage and carries a literal description at the data stage, which is
+// exactly what TestEveryComposedLocaleReferenceIsWrapped walks.
+//
+// IT IS THE SAME FIXTURE AS THE RUST HALF'S every_composed_shape, declaration
+// for declaration, and the two walks run it against the same two worlds. They
+// were different fixtures until the round that added the description-count
+// witness, and the difference hid the same defect twice: neither plan composed a
+// single data-stage description, so both halves asserted a count of zero over
+// nothing at all.
+func everyComposedShape() *Lib {
+	lib := New()
+	plate := lib.Item("hardened-steel-plate", ItemSpec{})
+	medium := lib.DropdownSettingNeedingLocale("quench-medium", "water", []string{"water", "oil"})
+	quench := lib.IngredientsSetting("quench-ingredients", []Ingredient{IngredientNamed(2, "steel-plate")})
+	tier := lib.DropdownSettingNeedingLocale("tips-research-tier", "projectile", []string{"projectile"})
+	packs := lib.PacksSetting("tips-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+	count := lib.IntSetting("tips-count", 0, Between(0, 100000))
+	seconds := lib.IntSetting("tips-seconds", 0, Between(0, 600))
+	lib.Recipe(plate, RecipeSpec{
+		IngredientsBy: &IngredientChoices{
+			Setting: medium,
+			Choices: []IngredientChoice{
+				{Value: "water", Ingredients: []Ingredient{IngredientNamed(2, "steel-plate")}},
+				{Value: "oil", Ingredients: []Ingredient{IngredientNamed(3, "steel-plate")}},
+			},
+		},
+		IngredientsFrom: quench,
+		// A LITERAL DESCRIPTION, because the data stage's half of the wrapper
+		// test needs something to walk: without one this plan composes no
+		// localised_description at all and every assertion over it is vacuous.
+		// It is also the shape decision C fixed, plain English with no key,
+		// which is what the zero counts assert.
+		Description: "Quenched in whatever the medium setting says.",
+	})
+	lib.Technology("hardened-tips", TechSpec{
+		CostBy: &CostChoices{
+			Setting: tier,
+			Choices: []CostChoice{{Value: "projectile", Sources: []string{"logistics-2"}}},
+			Fallback: UnitSpec{
+				Count: 200, Seconds: 30,
+				Packs: []Pack{{Name: "automation-science-pack", Amount: 1}},
+			},
+		},
+		CostFrom:    &CustomCost{Packs: packs, Count: count, Seconds: seconds},
+		Description: "Priced from the tier the research setting says.",
+	})
+	return lib
+}
+
+func TestEveryComposedLocaleReferenceIsWrapped(t *testing.T) {
+	lib := everyComposedShape()
+
+	settingOps, err := lib.PlanSettings(settingsWorld())
+	assertNoError(t, err)
+	counts := map[string]int{}
+	for _, op := range settingOps {
+		for _, f := range localeRefFaults(op.Proto) {
+			t.Errorf("settings: %s", f)
+		}
+		for _, f := range localeRefFaults(op.Val) {
+			t.Errorf("settings: %s", f)
+		}
+		localeRefCounts(op.Proto, counts)
+		localeRefCounts(op.Val, counts)
+	}
+	for _, sec := range composedLocaleSections {
+		if counts[sec] == 0 {
+			t.Errorf("the walk saw no %s reference, so it proves nothing about one", sec)
+		}
+	}
+
+	dataOps, err := everyComposedShape().PlanData(baseWorld())
+	assertNoError(t, err)
+	dataCounts := map[string]int{}
+	described := 0
+	for _, op := range dataOps {
+		for _, f := range localeRefFaults(op.Proto) {
+			t.Errorf("data: %s", f)
+		}
+		for _, f := range localeRefFaults(op.Val) {
+			t.Errorf("data: %s", f)
+		}
+		localeRefCounts(op.Proto, dataCounts)
+		localeRefCounts(op.Val, dataCounts)
+		described += localisedDescriptions(op.Proto) + localisedDescriptions(op.Val)
+	}
+	// THE ZERO BELOW IS ONLY WORTH SOMETHING IF THERE WAS SOMETHING TO FIND. A
+	// stage that stopped composing descriptions altogether would satisfy every
+	// assertion in this half, so the walk says how many it saw first.
+	if described == 0 {
+		t.Errorf("the data stage composed no localised_description, so the counts below prove nothing")
+	}
+	// THE DATA STAGE COMPOSES NO KEY AT ALL, which is the other half of the
+	// measurement: an undefined key anywhere in a recipe's composition deletes
+	// the whole description, the library's own literal sentences included, so
+	// the prototype notes are English literals and this count is zero.
+	for _, sec := range composedLocaleSections {
+		if dataCounts[sec] != 0 {
+			t.Errorf("the data stage composed %d %s references; its notes are literal text", dataCounts[sec], sec)
+		}
 	}
 }

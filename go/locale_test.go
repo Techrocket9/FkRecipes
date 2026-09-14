@@ -2,6 +2,7 @@ package fkrecipes
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -163,8 +164,187 @@ fkrecipes-example-tips-research-tier-military=As military research
 fkrecipes-example-chain-links-short=Short links
 fkrecipes-example-chain-links-long=Long links
 `
+	// A COMPLETE FILE PRODUCES NOTHING, which is the contract CheckLocale
+	// keeps and the one a consumer's own suite is told to assert. The
+	// advisories are not findings and are not here: they are a report of their
+	// own, and TestCheckLocaleAdvisories is what pins them.
 	if findings := steelworksSettings().CheckLocale("fkrecipes-example", cfg); len(findings) != 0 {
 		t.Errorf("a complete file produced findings:\n%s", strings.Join(findings, "\n"))
+	}
+}
+
+// equalLines is slice equality on report lines, which is all any caller here
+// wants of it.
+func equalLines(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// THE OUT-OF-PREFIX KEY IS AN ADVISORY AND THE IN-PREFIX ONE IS REQUIRED, which
+// is the whole distinction this rule turns on.
+//
+// FACTORIO'S LOCALE NAMESPACE IS FLAT AND SHARED. Defining
+// technology-name.military-4 in this mod's .cfg sets the displayed name of
+// BASE's technology for every mod in the game, and this checker's own collision
+// scan exists for exactly that hazard, so requiring the key would be requiring
+// what the same checker flags. The note names the key, says what the tooltip
+// shows where the game does not define it, and does not ask for an entry.
+//
+// AN ADVISORY IS NOT IN A FINDINGS REPORT AT ALL, and that is the property this
+// test exists for. docs/migration.md tells a consumer to run CheckLocaleWith
+// from their own suite and that it should be CLEAN; an advisory in that return
+// would be a permanent red test over a key the consumer is told NOT to define.
+// So the accessor carries them and neither CheckLocale nor CheckLocaleWith
+// does, over a file that names nothing and over a file that names everything.
+//
+// IT READS NO .cfg, which is why the accessor takes none.
+func TestCheckLocaleAdvisories(t *testing.T) {
+	got := steelworksSettings().CheckLocaleAdvisories("fkrecipes-example")
+	if !equalLines(got, advisoryNotes) {
+		t.Errorf("the advisories are:\n%s", strings.Join(got, "\n"))
+	}
+
+	complete, err := os.ReadFile(filepath.Join("..", "testdata", "locale", "example.cfg"))
+	if err != nil {
+		t.Fatalf("reading the fixture cfg: %v", err)
+	}
+	for _, c := range []struct{ name, cfg string }{
+		{"an empty file", ""},
+		{"the fixture", string(complete)},
+	} {
+		reports := []struct {
+			call string
+			got  []string
+		}{
+			{"CheckLocale", steelworksSettings().CheckLocale("fkrecipes-example", c.cfg)},
+			{"CheckLocaleWith", steelworksSettings().CheckLocaleWith("fkrecipes-example", c.cfg, nil)},
+		}
+		for _, r := range reports {
+			for i, f := range r.got {
+				if strings.HasPrefix(f, "note: ") {
+					t.Errorf("%s over %s carries an advisory at %d: %s", r.call, c.name, i, f)
+				}
+			}
+		}
+	}
+}
+
+// THE ADVISORY IS ABOUT THE PLAN AND NOT ABOUT THE FILE, so a .cfg that DEFINES
+// both of the game's keys, which is the squat the last clause warns about, gets
+// the same two sentences. The accessor takes no cfg at all, which is what makes
+// that unarguable; this holds the findings side of it, where a squatting file
+// could have produced an orphan or a note and produces neither.
+func TestCheckLocaleAdvisoriesDoNotDependOnTheFile(t *testing.T) {
+	squatting := `[technology-name]
+physical-projectile-damage-7=Projectile damage 7
+military-4=Military 4
+`
+	if got := steelworksSettings().CheckLocaleAdvisories("fkrecipes-example"); !equalLines(got, advisoryNotes) {
+		t.Errorf("the advisories moved:\n%s", strings.Join(got, "\n"))
+	}
+	for _, f := range steelworksSettings().CheckLocale("fkrecipes-example", squatting) {
+		if strings.HasPrefix(f, "note: ") {
+			t.Errorf("a squatting file put an advisory in the findings: %s", f)
+		}
+	}
+}
+
+// ONE DROPDOWN NAMING ONE KEY TWICE SAYS THE SENTENCE ONCE. A cost ladder may
+// put the same first source under two tiers, which is an ordinary declaration
+// and not a mistake, and the advisory is per (dropdown, key): without the
+// dedupe the report repeats itself, and a consumer reading the same sentence
+// twice learns nothing the second time.
+//
+// THE WITNESS IS THE COUNT AND THE ORDER TOGETHER: three tiers, two of them on
+// the same source, produce two sentences, the repeated one at its FIRST
+// position.
+func TestCheckLocaleAdvisoriesSayARepeatedKeyOnce(t *testing.T) {
+	lib := New()
+	tier := lib.DropdownSettingNeedingLocale("tier", "a", []string{"a", "b", "c"})
+	packs := lib.PacksSetting("packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+	count := lib.IntSetting("count", 0, Between(0, 100000))
+	seconds := lib.IntSetting("seconds", 0, Between(0, 600))
+	lib.Technology("hardened-tips", TechSpec{
+		CostBy: &CostChoices{
+			Setting: tier,
+			Choices: []CostChoice{
+				{Value: "a", Sources: []string{"logistics"}},
+				{Value: "b", Sources: []string{"military-4"}},
+				{Value: "c", Sources: []string{"logistics"}},
+			},
+			Fallback: UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+		},
+		CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
+	})
+
+	want := []string{
+		gameKeyAdvisory("mymod-tier", "technology-name.logistics", "logistics"),
+		gameKeyAdvisory("mymod-tier", "technology-name.military-4", "military-4"),
+	}
+	if got := lib.CheckLocaleAdvisories("mymod"); !equalLines(got, want) {
+		t.Errorf("the advisories are:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// THE ADVISORIES HAVE A CAP OF THEIR OWN, with the shape the findings cap has
+// and a budget no finding can spend: one dropdown with more distinctly-sourced
+// choices than the cap takes is all it needs, and a plan can carry one.
+func TestCheckLocaleAdvisoriesAreCapped(t *testing.T) {
+	report := func(n int) []string {
+		values := make([]string, 0, n)
+		choices := make([]CostChoice, 0, n)
+		for i := 0; i < n; i++ {
+			v := "t" + strconv.Itoa(i)
+			values = append(values, v)
+			choices = append(choices, CostChoice{Value: v, Sources: []string{"src" + strconv.Itoa(i)}})
+		}
+		lib := New()
+		tier := lib.DropdownSettingNeedingLocale("tier", values[0], values)
+		packs := lib.PacksSetting("packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+		count := lib.IntSetting("count", 0, Between(0, 100000))
+		seconds := lib.IntSetting("seconds", 0, Between(0, 600))
+		lib.Technology("hardened-tips", TechSpec{
+			CostBy: &CostChoices{
+				Setting:  tier,
+				Choices:  choices,
+				Fallback: UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+			},
+			CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
+		})
+		return lib.CheckLocaleAdvisories("mymod")
+	}
+
+	got := report(localeAdvisoryCap + 50)
+	if len(got) != localeAdvisoryCap+1 {
+		t.Fatalf("got %d advisories, want the cap plus one closing line", len(got))
+	}
+	if got[localeAdvisoryCap] != "(and 50 more advisories)" {
+		t.Errorf("the closing line is %q", got[localeAdvisoryCap])
+	}
+
+	// The boundary: exactly one advisory past the cap reads as one.
+	got = report(localeAdvisoryCap + 1)
+	if len(got) != localeAdvisoryCap+1 {
+		t.Fatalf("got %d advisories at the boundary", len(got))
+	}
+	if got[localeAdvisoryCap] != "(and 1 more advisory)" {
+		t.Errorf("the closing line at the boundary is %q", got[localeAdvisoryCap])
+	}
+
+	// One below it is not capped at all, so no closing line is added.
+	got = report(localeAdvisoryCap)
+	if len(got) != localeAdvisoryCap {
+		t.Fatalf("got %d advisories just below the cap", len(got))
+	}
+	if strings.HasPrefix(got[localeAdvisoryCap-1], "(and ") {
+		t.Errorf("a report at the cap gained a closing line: %q", got[localeAdvisoryCap-1])
 	}
 }
 
@@ -209,6 +389,18 @@ var everyNameMissing = []string{
 	"the setting fkrecipes-example-chain-count has no [mod-setting-description] entry, and a research number needs one to say what the number is for; the library composes the range onto it",
 	"the setting fkrecipes-example-chain-seconds has no [mod-setting-name] entry",
 	"the setting fkrecipes-example-chain-seconds has no [mod-setting-description] entry, and a research number needs one to say what the number is for; the library composes the range onto it",
+}
+
+// advisoryNotes is what this plan's cost dropdown composes out of the GAME's
+// namespace, in composition order: one note per out-of-prefix key its presets
+// reference. They are ADVISORIES rather than findings, so they are in no
+// findings report at all, and no .cfg this file can write makes them appear or
+// go away. PINNED HERE RATHER THAN IN A GOLDEN FILE, because the two halves
+// carry the same two literal sentences and a third copy on disk would be a
+// third place to forget.
+var advisoryNotes = []string{
+	"note: the dropdown setting fkrecipes-example-tips-research-tier composes the game's own key technology-name.physical-projectile-damage-7, which this plan does not own; where the game does not define it the tooltip shows physical-projectile-damage-7 instead, and defining it here would rename it for every mod",
+	"note: the dropdown setting fkrecipes-example-tips-research-tier composes the game's own key technology-name.military-4, which this plan does not own; where the game does not define it the tooltip shows military-4 instead, and defining it here would rename it for every mod",
 }
 
 // alsoFinding is everyNameMissing with more findings after it, copied so a
@@ -462,6 +654,11 @@ fkrecipes-example-orphan =Trailing space in the key
 
 // A generated or badly encoded file produces one finding per line, and a
 // thousand sentences help nobody read the first.
+//
+// THE ADVISORIES ARE COUNTED SEPARATELY AND ARE NOT HERE AT ALL: they are a
+// report of their own with a cap of their own, so a file with a thousand
+// orphans loses none of its findings to a note and none of its notes to a
+// finding. TestCheckLocaleAdvisoriesAreCapped is the other budget.
 func TestCheckLocaleCapsItsFindings(t *testing.T) {
 	// everyNameMissing comes first, so its length is what the orphan count is
 	// measured from: a report is that many findings plus one per orphan.
@@ -473,7 +670,6 @@ func TestCheckLocaleCapsItsFindings(t *testing.T) {
 		}
 		return steelworksSettings().CheckLocale("fkrecipes-example", b.String())
 	}
-
 	got := reportWithOrphans(150)
 	if len(got) != localeFindingCap+1 {
 		t.Fatalf("got %d findings, want the cap plus one closing line", len(got))
@@ -619,4 +815,75 @@ bbb-multi-edge-parts-aggressive=Aggressive
 `
 	assertLines(t, bbbPlan().CheckLocaleWith("better-belt-balancer", cfg,
 		[]string{"bbb-multi-edge-parts"}), nil)
+}
+
+// THE COMPOSITION'S CONDITION IS ONE FUNCTION AND THIS IS WHAT HOLDS ITS
+// CLAUSES. costDropdownComposesPresetLines decides, for a technology, whether
+// its cost dropdown has a preset list composed onto its description, and THREE
+// readers ask it: the composition in settingDescriptions, the checker's
+// required-description rule through dropdownsWithComposedDescription, and the
+// advisory walk. One spelling means one place to break, and this is the test
+// that notices.
+//
+// IT IS HERE BECAUSE CONSOLIDATION ALONE DID NOT COVER THEM, which was measured
+// rather than assumed: with the three spellings reduced to one, dropping
+// l.validPacksSetting, l.validDropdownSetting or the namedCostSources clause
+// each left `go test ./...` green, so the required-description findings do NOT
+// exercise these guards and no fixture in the suite reaches them.
+//
+// A HANDLE FROM ANOTHER PLAN IS THE SHAPE, because it is the one an author
+// actually produces and the one every validator in this library already names.
+// The checker validates nothing by design, so it must SKIP such a declaration:
+// it may not demand a description for a preset list nobody composes, it may not
+// say anything about the game's keys in lines nobody emits, and on the dropdown
+// arm it may not follow the handle at all, which would be an index of -1.
+func TestACostDropdownWithAHandleFromAnotherPlanComposesNothing(t *testing.T) {
+	other := New()
+	foreignDropdown := other.DropdownSettingNeedingLocale("tier", "a", []string{"a", "b"})
+	foreignPacks := other.PacksSetting("packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+
+	build := func(useForeignDropdown bool) *Lib {
+		lib := New()
+		tier := lib.DropdownSettingNeedingLocale("tier", "a", []string{"a", "b"})
+		packs := lib.PacksSetting("packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+		count := lib.IntSetting("count", 0, Between(0, 100000))
+		seconds := lib.IntSetting("seconds", 0, Between(0, 600))
+		if useForeignDropdown {
+			tier = foreignDropdown
+		} else {
+			packs = foreignPacks
+		}
+		lib.Technology("hardened-tips", TechSpec{
+			CostBy: &CostChoices{
+				Setting: tier,
+				Choices: []CostChoice{
+					{Value: "a", Sources: []string{"logistics"}},
+					{Value: "b", Sources: []string{"military-4"}},
+				},
+				Fallback: UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+			},
+			CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
+		})
+		return lib
+	}
+
+	for _, c := range []struct {
+		name    string
+		foreign bool
+	}{
+		{"the dropdown handle is another plan's", true},
+		{"the packs handle is another plan's", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			lib := build(c.foreign)
+			if got := lib.CheckLocaleAdvisories("mymod"); len(got) != 0 {
+				t.Errorf("a composition nobody emits produced advisories:\n%s", strings.Join(got, "\n"))
+			}
+			for _, f := range lib.CheckLocale("mymod", "") {
+				if strings.Contains(f, "composes its preset list onto that entry") {
+					t.Errorf("a preset list nobody composes was required: %s", f)
+				}
+			}
+		})
+	}
 }

@@ -649,7 +649,7 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		i := by.Setting.index - 1
 		full := l.settings[i].emittedName(prefix)
 		params := make([]Value, 0, len(by.Choices)+2)
-		params = append(params, localeRef("mod-setting-description", full))
+		params = append(params, localeRef("mod-setting-description", full, full))
 		// THE TEXT SETTING IS WHAT GUARANTEES THE LANGUAGE. It is an
 		// IngredientsSettingRef, which only IngredientsSetting issues, and that
 		// constructor installs the renderer.
@@ -661,18 +661,15 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		out[i] = localisedGroup(params)
 	}
 	for _, t := range l.techs {
+		if !l.costDropdownComposesPresetLines(&t.spec) {
+			continue
+		}
 		by := t.spec.CostBy
-		if by == nil || namedCostSources(&t.spec) != 1 || !l.validDropdownSetting(by.Setting) {
-			continue
-		}
 		c := t.spec.CostFrom
-		if c == nil || !l.validPacksSetting(c.Packs) {
-			continue
-		}
 		i := by.Setting.index - 1
 		full := l.settings[i].emittedName(prefix)
 		params := make([]Value, 0, len(by.Choices)+2)
-		params = append(params, localeRef("mod-setting-description", full))
+		params = append(params, localeRef("mod-setting-description", full, full))
 		for _, c := range by.Choices {
 			params = append(params, presetLine(full, c.Value, costPresetTail(c)...))
 		}
@@ -680,6 +677,27 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		out[i] = localisedGroup(params)
 	}
 	return out
+}
+
+// costDropdownComposesPresetLines is the ONE SPELLING of "this technology's
+// cost dropdown has a preset list composed onto its description". Three readers
+// need exactly this predicate and none of them may spell it again:
+// settingDescriptions, which composes the lines; the locale checker's
+// dropdownsWithComposedDescription, which is what makes that dropdown's
+// [mod-setting-description] entry required; and composedGameKeyAdvisories,
+// which says the one thing this library has to say about the GAME's key those
+// lines name.
+//
+// A THIRD SPELLING WAS WHAT MADE THE GUARDS UNTESTABLE. Each of the four
+// conditions here is the composition's own, so a dropped one is a composed line
+// this walk does not know about or a walk that names a line nothing composes;
+// with one spelling, the required-description findings exercise every one of
+// them and the advisory walk inherits that for free.
+func (l *Lib) costDropdownComposesPresetLines(spec *TechSpec) bool {
+	by := spec.CostBy
+	c := spec.CostFrom
+	return by != nil && c != nil && namedCostSources(spec) == 1 &&
+		l.validDropdownSetting(by.Setting) && l.validPacksSetting(c.Packs)
 }
 
 // relativeOrder is the word that says where the setting at other sits on the
@@ -801,16 +819,52 @@ func (l *Lib) researchRangeLine(i int, s settingDecl, dropdown int) string {
 	return "\nA whole number from " + l.lang.amount(s.spec.Min) + " to " + l.lang.amount(s.spec.Max) + "."
 }
 
-// localeRef is a localised string that is nothing but a key: {"section.key"}.
-func localeRef(section, key string) Value { return Arr(Str(section + "." + key)) }
+// localeRef is how this library references a locale key: the engine's own
+// ALTERNATIVES form, {"?", {"section.key"}, "raw"}, and never the bare
+// {"section.key"} it used to emit.
+//
+// A BARE KEY THE GAME DOES NOT DEFINE COSTS THE WHOLE THING IT SITS IN, which
+// is measured and not argued (Factorio 2.0.77 build 84539, this repository's
+// client probe and its headless arm agreeing). On a SETTING, a composed
+// description holding one undefined key leaves the row with no info icon and no
+// tooltip at all, while every other row keeps both; on a RECIPE, the entire
+// description block disappears from the tooltip, taking the literal sentences
+// this library wrote itself with it. Neither costs an exit code, an engine
+// warning or a fkrecipes: line, and the engine's own --dump-data says the
+// description is present either way, so no headless gate can see it.
+//
+// AN UNDEFINED KEY IS A FAILED ALTERNATIVE for `?`, which is the fact the whole
+// form rests on: it does not resolve to the text `Unknown key: "..."` and win,
+// it fails, and the next alternative renders. Measured on the client beside the
+// failure it cures, in one screen: every `?` row renders and the plain join
+// does not.
+//
+// THE RAW FALLBACK IS LAST, AND THAT IS A RULE AND NOT A STYLE. A plain string
+// alternative ALWAYS resolves, so a raw string anywhere but the end
+// short-circuits every alternative after it and the key would never be
+// consulted; and when every alternative fails the result is the LAST
+// alternative's own `Unknown key: "..."` marker, so a key in the last slot is
+// the marker this form exists to avoid. Both reasons point the same way.
+//
+// IT COSTS ONE LEVEL OF DEPTH AND NOTHING ELSE. The wrapper occupies exactly
+// one parameter slot of the table holding it, the same as the bare key table it
+// replaces, against the measured ceilings maxLocalisedParams records (20
+// parameters per table, 20 levels of depth, no global table budget). The
+// library's realistic worst composition loses nothing it can reach: the
+// theoretical preset ceiling drops from 342 to 323, and a 323-preset
+// description carrying 647 wrappers both loads and resolves in full.
+func localeRef(section, key, raw string) Value {
+	return Arr(Str("?"), Arr(Str(section+"."+key)), Str(raw))
+}
 
 // textDescription is the whole localised_description a TEXT setting is emitted
 // with: the consumer's own entry, then the three things this library owes the
 // player about the field beside it.
 //
-// FIVE PARAMETERS, and none of them a table beyond the consumer's key, so the
-// twenty-parameter ceiling maxLocalisedParams records is nowhere near reached
-// and the shape needs no nesting rule of its own.
+// FIVE PARAMETERS, and none of them a table beyond the consumer's key and the
+// localeRef wrapper around it, so the twenty-parameter ceiling
+// maxLocalisedParams records is nowhere near reached and the shape needs no
+// nesting rule of its own.
 //
 // THE FOUR LINES ARE THE ANSWER TO WHAT A CLIENT MEASUREMENT FOUND. A player
 // standing in the Mod Settings screen reads the tooltip whole (measured on
@@ -834,7 +888,7 @@ func localeRef(section, key string) Value { return Arr(Str(section + "." + key))
 func textDescription(full, rendered, switchLine string) Value {
 	return Arr(
 		Str(""),
-		localeRef("mod-setting-description", full),
+		localeRef("mod-setting-description", full, full),
 		Str("\ndefault: "+rendered),
 		Str(textFormatLine()),
 		Str(switchLine),
@@ -852,7 +906,7 @@ func textDescription(full, rendered, switchLine string) Value {
 func numberDescription(full, rangeLine string) Value {
 	return Arr(
 		Str(""),
-		localeRef("mod-setting-description", full),
+		localeRef("mod-setting-description", full, full),
 		Str(rangeLine),
 	)
 }
@@ -900,19 +954,23 @@ const textFallbackLine = "\nA text this mod cannot use is set aside and that def
 // the settings screen shows the player the localised label and a description
 // naming the key would not match anything they can see. That entry is the one
 // the dropdown already needs for the value to be readable at all, so the
-// composition adds no locale obligation of its own.
+// composition adds no locale obligation of its own; and the entry the
+// dropdown needs is REQUIRED by the locale checker, so where it is missing the
+// checker has already said so and localeRef's raw fallback shows the player
+// the internal value, which is a thing they can type.
 //
 // THE TAIL IS VALUES RATHER THAN A STRING because a cost line ends in a
 // localised name and an ingredient line ends in a rendering this library wrote.
 // Whatever the tail holds, the whole line is ONE parameter of the group above
 // it, so localisedGroup's nesting rule counts it as one; and the tables the
 // tail brings are the line's own elements, so they sit BESIDE the label, at
-// the same level, not below it. A one-preset cost description is three table
-// levels deep whichever tail it carries (measured on both shapes), which is
-// what TestPlanSettingsComposesACostDropdownDescription's golden shows.
+// the same level, not below it. A one-preset cost description is four table
+// levels deep whichever tail it carries, which is what
+// TestPlanSettingsComposesACostDropdownDescription's golden shows: three, plus
+// the one level every localeRef wrapper spends.
 func presetLine(setting, value string, tail ...Value) Value {
 	items := make([]Value, 0, 3+len(tail))
-	items = append(items, Str(""), Str("\n"), localeRef("string-mod-setting", setting+"-"+value))
+	items = append(items, Str(""), Str("\n"), localeRef("string-mod-setting", setting+"-"+value, value))
 	return Arr(append(items, tail...)...)
 }
 
@@ -944,23 +1002,23 @@ const ingredientPresetHead = "\n  type: "
 //
 // AND IT ADDS NO LOCALE OBLIGATION OF THIS MOD'S: technology-name.<name> is the
 // GAME's entry, for a technology some other mod or the base game declared, so
-// the locale checker has nothing new to require and requires nothing new.
+// the locale checker requires nothing new. It says something new, once, as an
+// ADVISORY: defining that key in the consumer's own .cfg would rename base's
+// technology for every mod in the game, because Factorio's locale namespace is
+// flat, and this checker's own collision scan exists for that hazard. See
+// composedGameKeyAdvisories.
 //
-// WHERE THE TECHNOLOGY OR ITS ENTRY IS MISSING, THIS LINE READS WORSE THAN THE
-// ONE IT REPLACED, and this file is not the place to pretend otherwise. An
-// absent key is not rendered as nothing: locale.go's note records
-// `Unknown key: "entity-name.bbb-linked-belt"` out of a live 2026 session, so
-// a source no installed mod declares puts `Unknown key:
-// "technology-name.<source>"` in the tooltip where the bare internal name used
-// to stand. That is the trade, and both halves of it are the consumer's: the
-// localised name wherever the technology exists, the Unknown key marker where
-// it does not, which is their ladder to order (a first rung the game may lack
-// is what shows the marker) and their locale to supply.
+// WHERE THE TECHNOLOGY OR ITS ENTRY IS MISSING, THE LINE DEGRADES TO THE RAW
+// INTERNAL NAME rather than to the marker or to nothing, because localeRef
+// wraps it: the preset line reads "\n<value>: cost of <source>" and the tooltip
+// survives whole. Before the wrapper a source no installed mod declared cost
+// the consumer the entire tooltip, silently, which is what the client probe
+// measured.
 func costPresetTail(c CostChoice) []Value {
 	if len(c.Sources) == 0 {
 		return []Value{Str(": the fallback cost")}
 	}
-	return []Value{Str(": cost of "), localeRef("technology-name", c.Sources[0])}
+	return []Value{Str(": cost of "), localeRef("technology-name", c.Sources[0], c.Sources[0])}
 }
 
 // localisedGroup wraps parameters in a concatenating localised string, nesting
