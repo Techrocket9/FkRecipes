@@ -132,6 +132,7 @@ USERDIR="${FACTORIO_USERDIR:-/tmp/fkrecipes}"
 TMP="$ROOT/tmp/ingame"
 GOLDEN="$ROOT/testdata/ingame/dump-sha256.txt"
 FLIPPED_JSON="$ROOT/testdata/ingame/flipped.json"
+DEMOTE_FIXTURE="$ROOT/testdata/ingame/demote"
 MODNAME=fkrecipes-example
 MODVER=0.1.0
 
@@ -151,6 +152,17 @@ done
 FAIL=0
 SKIPPED=0
 fail() { echo "  FAIL: $*" >&2; FAIL=1; }
+
+# jqassert WHAT FILE FILTER -- one named assertion over one kept dump. It sits
+# beside fail() rather than beside its first caller because the demote arm below
+# runs before that section and a function defined after its caller is a runtime
+# error rather than a failing assertion.
+jqassert() {
+  local what="$1" file="$2" filter="$3"
+  local got
+  got="$(jq -r "$filter" "$file" 2>&1)" || { fail "$what: the query failed: $got"; return; }
+  [ "$got" = "true" ] || fail "$what (the dump says $got)"
+}
 refuse() { echo "run-ingame: $*" >&2; exit 1; }
 
 [ -x "$FACTORIO" ] || refuse "no Factorio at: $FACTORIO
@@ -413,6 +425,78 @@ dump_once() {
   printf '%s %s\n' "${dhash%% *}" "${shash%% *}" > "$TMP/hash-$lang-$run"
 }
 
+# demote_once LANG -- the same guest under a SECOND MOD that demotes one science
+# pack, and the one arm in this file where the mod set is deliberately not the
+# golden's.
+#
+# WHAT IT IS FOR. Findings 13 and 14 of the consumer's third migration
+# assessment measured that a pack demoting automation-science-pack from a tool
+# to a plain item STOPPED THE LOAD on the default setting, with a refusal naming
+# the mod, the technology and every name it tried and no action a player could
+# take; and that the client's "Error loading mods" dialog cannot reach the Mod
+# Settings screen, so it was a lock-out. Fix round 3 turned every refusal in
+# that class into a degradation. THIS IS WHERE THAT IS MEASURED ON THE ENGINE
+# RATHER THAN ARGUED: exit 0, the ERROR lines, and the note in the technology's
+# own tooltip.
+#
+# A THIRD MOD SET AND NOT A THIRD GOLDEN ROW. The golden's rows are keyed by the
+# mod set that produced them and this arm runs a second mod, so a hash here would
+# describe a world no other row describes. What is compared instead is the two
+# LANGUAGES against each other, which is the property a golden row could not add:
+# both halves degrade the same way in the same world.
+#
+# THE ORDER IS THE ENGINE'S, NOT ALPHABETICAL LUCK. The fixture demotes the pack
+# in its own data.lua, which is the stage the packaged guest's fk_data runs in
+# too, so the guest must load AFTER it. The packaged info.json gains
+# `? fkrecipes-demote` here rather than in the packaging step, because it is
+# this arm's requirement and no other row installs the fixture at all.
+#
+# AND IT USES refuse WHERE THE HASH ROWS USE SKIPPED, deliberately. A mod-set
+# difference is environmental for a HASH, which is a function of every mod that
+# ran; this arm asserts nothing about a hash against a golden, and the pack it
+# demotes is base's own, so its claim holds whatever DLC the machine owns.
+demote_once() {
+  local lang="$1"
+  local moddir="$TMP/mods-demote-$lang"
+  local ndata="$TMP/normalised-data-$lang-demote.json"
+
+  rm -rf "$moddir"
+  "$FKLUA" mod --data-module "$TMP/datastage-$lang.wasm" \
+    --name "$MODNAME" --version "$MODVER" --author Techrocket9 \
+    --factorio-version "$SERIES" \
+    -o "$moddir" >"$TMP/pack-demote-$lang.log" 2>&1 ||
+    { cat "$TMP/pack-demote-$lang.log" >&2; refuse "$lang: packaging for the demote arm failed"; }
+
+  local info="$moddir/${MODNAME}_${MODVER}/info.json"
+  [ -f "$info" ] || refuse "$lang: the packaged guest has no info.json at $info"
+  # APPENDED TO WHATEVER IS THERE, never written over it. fklua emits no
+  # dependencies key today, so `// ["base"]` supplies the one every mod owes and
+  # the two forms are the same file; an upstream fklua that starts emitting a
+  # list would have had it silently discarded by an assignment.
+  jq '.dependencies = ((.dependencies // ["base"]) + ["? fkrecipes-demote"])' "$info" > "$info.tmp" ||
+    refuse "$lang: could not add the fixture dependency to $info"
+  mv "$info.tmp" "$info"
+
+  cp -R "$DEMOTE_FIXTURE" "$moddir/fkrecipes-demote_0.1.0" ||
+    refuse "$lang: could not install the demote fixture from $DEMOTE_FIXTURE"
+
+  rm -f "$DUMP" "$SDUMP"
+  "$FACTORIO" -c "$CFG" --mod-directory "$moddir" --dump-data \
+    >"$TMP/dump-$lang-demote.log" 2>&1 ||
+    { cat "$TMP/dump-$lang-demote.log" >&2
+      refuse "$lang: the engine refused the load under the demote fixture.
+  That is the lock-out findings 13 and 14 measured: a pack that demotes one
+  science pack must degrade with a line and a tooltip, never stop the load."; }
+
+  [ -f "$DUMP" ] || refuse "$lang: the demote row wrote no data dump at $DUMP"
+  cp "$DUMP" "$TMP/raw-data-$lang-demote.json" || refuse "$lang: could not keep the demote dump"
+  jq -S . "$DUMP" > "$ndata" ||
+    refuse "$lang: the demote data dump is not readable JSON: $DUMP"
+  local dhash
+  dhash="$(shasum -a 256 "$ndata")" || refuse "$lang: could not hash $ndata"
+  printf '%s\n' "${dhash%% *}" > "$TMP/hash-$lang-demote"
+}
+
 # mod_set LOG -- the data-stage mod set, as one comparable string.
 #
 # THE DUMP IS A FUNCTION OF EVERY MOD THAT RAN, not only of this one. Factorio's
@@ -487,6 +571,86 @@ for lang in go rust; do
 done
 
 # ---------------------------------------------------------------------------
+# THE DEMOTE ARM. A second mod, a second mod set, and the one row in this file
+# whose whole subject is that the load DOES NOT STOP.
+# ---------------------------------------------------------------------------
+echo "--- demote ---"
+DEMOTE_STARTED=$(date +%s)
+for lang in go rust; do
+  demote_once "$lang"
+done
+echo "  two engine runs in $(( $(date +%s) - DEMOTE_STARTED ))s"
+if [ "$(cat "$TMP/hash-go-demote")" != "$(cat "$TMP/hash-rust-demote")" ]; then
+  fail "go and rust disagree about the demote row"
+  echo "        go   $(cat "$TMP/hash-go-demote")" >&2
+  echo "        rust $(cat "$TMP/hash-rust-demote")" >&2
+else
+  echo "  ok: go and rust agree on the demote row"
+fi
+
+MDUMP="$TMP/raw-data-rust-demote.json"
+
+# THE FIXTURE ACTUALLY BIT. Without this the whole arm is vacuous: a run where
+# the demotion never happened looks exactly like a run where the library handled
+# it, because both exit 0 and neither stops the load.
+#
+# IT SAYS NOTHING ABOUT WHEN. A final dump is the same shape whether the fixture
+# demoted the pack at data.lua or at data-final-fixes, so this assertion cannot
+# tell the two apart and does not claim to. WHAT PROVES THE ORDERING IS THE TWO
+# ERROR GREPS BELOW: those lines exist only if the guest's own data stage saw the
+# pack already demoted, because that is the walk that writes them.
+jqassert "the fixture demoted the science pack somewhere in the load" "$MDUMP" \
+  '(.item["automation-science-pack"].type == "item") and ((.tool["automation-science-pack"] // null) == null)'
+
+# EXIT 0 IS THE HEADLINE AND IT IS ALREADY ASSERTED: demote_once refuses with
+# findings 13 and 14 named if the engine run returns anything else. What is left
+# is the two disclosures the degradation owes, one in the log and one where a
+# player looks.
+#
+# BOTH LANGUAGES' LOGS, and not only the one whose dump the assertions below
+# read. The hash comparison above holds the two DUMPS together and can see
+# nothing about a log, so a half that degraded the same way while saying
+# something else about it would pass every other line in this arm.
+for lang in go rust; do
+  mlog="$TMP/dump-$lang-demote.log"
+  [ -s "$mlog" ] || { fail "$lang: the demote row's engine log $mlog is missing or empty, so nothing below was actually checked"; continue; }
+  grep -q "fkrecipes: ERROR: steel-riveting: none of automation-science-pack is a science pack this game has, so the research is emitted with no science pack and completes for free" "$mlog" ||
+    fail "$lang: a technology left with no science pack logged no ERROR line in the engine's own log"
+  grep -q "fkrecipes: ERROR: chain-forging: none of automation-science-pack is a science pack this game has, so the research is emitted with no science pack and completes for free" "$mlog" ||
+    fail "$lang: the custom-cost technology left with no science pack logged no ERROR line in the engine's own log"
+  # AND THE NEIGHBOURING DEGRADATION, which is the one fix round 2 landed and
+  # this row re-measures for free: a COPIED unit that lost one pack and kept
+  # another is priced without it and says which one went.
+  grep -q "fkrecipes: hardened-steel: automation-science-pack is not a science pack this game has, so it is left out of the logistics-2 cost" "$mlog" ||
+    fail "$lang: a copied unit that dropped one pack logged nothing in the engine's own log"
+done
+
+# AND THE NOTE, WHICH IS THE HALF THE LOG CANNOT BE. The log is not where a
+# player looks; the technology's own tooltip is. A research that costs nothing
+# is a balance change nobody chose, so it says so where it is hovered.
+#
+# THE UNIT IS ASSERTED THROUGH A TERM THAT NAMES THE PROTOTYPE. `null | length`
+# is 0 in jq, so a bare `.unit.ingredients | length == 0` passes over a
+# technology the dump does not hold at all; `has("unit")` is what makes the
+# prototype's presence part of the claim. The engine's own serialiser writes an
+# EMPTY LUA TABLE as `{}` rather than `[]`, which is why the emptiness is a
+# length and not an equality.
+jqassert "a technology left with no science pack emits an empty unit" "$MDUMP" \
+  '[.technology["fkrecipes-example-steel-riveting"], .technology["fkrecipes-example-chain-forging"]]
+   | map(has("unit") and (.unit.ingredients | length) == 0) == [true, true]'
+# AND THE TOOLTIPS WHOLE, which is this file's own idiom for a composed
+# sentence: a filter that searched for a phrase inside the description would
+# pass over a prototype that is not in the dump at all (jq's `select` yields
+# nothing rather than false, so `all` over an empty generator is true), which is
+# what the adversarial review measured this row doing.
+jqassert "the technology left with no science pack says so in its own tooltip" "$MDUMP" \
+  '.technology["fkrecipes-example-steel-riveting"].localised_description ==
+   ["", "This game has none of the science packs this research names, so it takes no science pack at all. The reason is in the log."]'
+jqassert "the custom-cost technology left with no science pack says so in its own tooltip" "$MDUMP" \
+  '.technology["fkrecipes-example-chain-forging"].localised_description ==
+   ["", "This game has none of the science packs this research names, so it takes no science pack at all. The reason is in the log."]'
+
+# ---------------------------------------------------------------------------
 # ANTI-VACUITY AND CAUSE-NAMING. A hash says "different"; these say WHICH
 # decision moved, and they fail on a dump that ran but proved nothing.
 # ---------------------------------------------------------------------------
@@ -503,13 +667,6 @@ FDUMP="$TMP/raw-data-rust-flipped.json"
 # neither candidate for the optional hardener exists either.
 grep -q "fkrecipes: hardened-steel-plate-quenching: none of tungsten-carbide, titanium-plate is present, so the ingredient is dropped" "$LOG" ||
   fail "the ingredient ladder logged nothing in the engine's own log"
-
-jqassert() {
-  local what="$1" file="$2" filter="$3"
-  local got
-  got="$(jq -r "$filter" "$file" 2>&1)" || { fail "$what: the query failed: $got"; return; }
-  [ "$got" = "true" ] || fail "$what (the dump says $got)"
-}
 
 jqassert "the prerequisite splice reached logistics-2" "$DDUMP" \
   '(.technology["logistics-2"].prerequisites // []) | index("fkrecipes-example-hardened-steel") != null'

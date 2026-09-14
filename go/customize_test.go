@@ -1772,16 +1772,30 @@ func TestCustomResearchCostDropsAnAbsentDeclaredPack(t *testing.T) {
 	})
 }
 
-// Every declared pack dropping is the same refusal a hand-rolled unit gets: a
-// research with no packs is a free one, and the engine loads it.
-func TestCustomResearchCostRefusesWhenEveryDeclaredPackDrops(t *testing.T) {
+// Every declared pack dropping is the same degradation a hand-rolled unit gets:
+// a research with no packs is a FREE one, the engine loads it (measured in play
+// on 2.0.77), and the player is told so in the log and in the technology's own
+// tooltip rather than being locked out of the game.
+func TestCustomResearchCostGoesPacklessWhenEveryDeclaredPackDrops(t *testing.T) {
 	lib := chainPlan()
 	w := customWorld().withoutTool("military-science-pack").withoutTool("automation-science-pack").
 		withSetting("steelworks-chain-packs", Str("default"))
 
-	_, err := lib.PlanData(w)
-	assertRefusal(t, err,
-		packlessRefusal("chain-forging", "automation-science-pack", "military-science-pack"))
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+	assertHasLine(t, transcript(ops),
+		packlessLog("chain-forging", "automation-science-pack", "military-science-pack"))
+	// AND THE COST LINE DOES NOT SPELL THE EMPTY LIST WITH THE WORD THE FIELD
+	// REFUSES. The renderer's answer for an empty list is the language's
+	// reserved word; a PACK field will not take that word, and printing it in a
+	// line about that very field invites the player to paste back the one text
+	// it refuses.
+	assertHasLine(t, transcript(ops),
+		`log fkrecipes: steelworks-chain-forging takes its research cost from steelworks-chain-packs: count 20, time 10, packs no science pack`)
+	assertHasLine(t, transcript(ops),
+		`extend {type="technology", name="steelworks-chain-forging", `+
+			`localised_description=["", "`+packlessTooltip+`"], `+
+			`prerequisites=["steel-processing"], unit={count=20, time=10, ingredients=[]}}`)
 }
 
 // A NUMBER A World CAN ANSWER AND THE ENGINE CANNOT TAKE. The declared minima
@@ -2569,13 +2583,23 @@ func TestPlayerFieldsFallBackWhileTheAuthorChannelStillRefuses(t *testing.T) {
 		return lib
 	}
 
-	w := customWorld().withoutTool("military-science-pack").
+	// THE MODPACK PROBLEM IS A RING IN SOMEBODY ELSE'S TREE, which is the one
+	// this library still refuses by name: logistics-2 requires logistics-3 and
+	// logistics-3 already requires logistics-2, so the ring holds no edge this
+	// plan made and there is nothing of ours to take back. The pack this plan
+	// is priced in is present, because a pack the game lacks is a degradation
+	// now and would not stop anything.
+	ring := func() *fixtureWorld {
+		return customWorld().withPrereqs("logistics-2", "logistics", "logistics-3")
+	}
+	cycle := "fkrecipes: a prerequisite cycle: logistics-2 -> logistics-3 -> logistics-2"
+
+	w := ring().
 		withSetting("steelworks-axe-ingredients", Str("2 unobtanium")).
 		withSetting("steelworks-forging-time", Num(0))
 
 	_, err := plan().PlanData(w)
-	assertRefusal(t, err, withFallbackFact(
-		packlessRefusal("steel-axes", "military-science-pack"), "steelworks-forging-time"))
+	assertRefusal(t, err, withFallbackFact(cycle, "steelworks-forging-time"))
 
 	// AND THE SAME REFUSAL WITH NOTHING TYPED, which is what makes the added
 	// fact a fact about THIS player rather than boilerplate: a player who never
@@ -2584,8 +2608,8 @@ func TestPlayerFieldsFallBackWhileTheAuthorChannelStillRefuses(t *testing.T) {
 	// text because the crafting time is read first; the pair is the walk's
 	// order, which is the same every run. Neither sentence sends anybody to a
 	// screen the error dialog cannot reach.
-	_, err = plan().PlanData(customWorld().withoutTool("military-science-pack"))
-	assertRefusal(t, err, packlessRefusal("steel-axes", "military-science-pack"))
+	_, err = plan().PlanData(ring())
+	assertRefusal(t, err, cycle)
 
 	// The same plan with the pack put back loads, and the two player fields are
 	// the whole log: the declared list, the declared crafting time, two lines.
@@ -2652,16 +2676,16 @@ func TestRefusalChannelOrder(t *testing.T) {
 			want:  `fkrecipes: steelworks-axe-style holds "gilded", which is not one of its values`,
 		},
 		{
-			name:  "then the packs the game does not have",
+			name:  "then the ring in somebody else's tree",
 			style: "fancy",
-			want:  packlessRefusal("steel-axes", "military-science-pack"),
+			want:  "fkrecipes: a prerequisite cycle: logistics-2 -> logistics-3 -> logistics-2",
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			// The pack is absent in both cases, so the second channel is armed
+			// The ring is there in both cases, so the second channel is armed
 			// throughout and only the one in front of it is repaired.
-			w := customWorld().withoutTool("military-science-pack").
+			w := customWorld().withPrereqs("logistics-2", "logistics", "logistics-3").
 				withSetting("steelworks-axe-style", Str(c.style))
 
 			_, err := plan().PlanData(w)

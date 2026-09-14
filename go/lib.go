@@ -796,9 +796,12 @@ func (l *Lib) recipe(name string, legacy bool, result ItemRef, spec RecipeSpec) 
 // then Fallbacks are tried in order through ToolExists and the first one the
 // game has is used; a pack no rung resolves is DROPPED with a log line, exactly
 // as an ingredient is, rather than refusing the load of a modpack that renamed
-// or removed a pack. A unit whose every pack drops is refused, because research
-// with no pack at all is not something this library will emit on an author's
-// behalf.
+// or removed a pack. A unit whose every pack drops is EMITTED WITH AN EMPTY
+// INGREDIENT LIST, with one ERROR line naming every rung and one line in the
+// technology's own tooltip: measured in play on 2.0.77, such a research
+// COMPLETES for free, which is a balance change the player did not choose and
+// so is disclosed where they look. It used to refuse, and that was a lock-out:
+// the engine's error dialog cannot reach the Mod Settings screen.
 type Pack struct {
 	Name      string
 	Amount    int64

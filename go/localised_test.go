@@ -17,7 +17,7 @@ import (
 // reach it, on any mod name, with any setting spelling, on any mod set.
 //
 // IT IS A WALK AND NOT A LIST OF SENTENCES, deliberately. A test that measured
-// the six notes one at a time would pass the day a seventh is added and would
+// the notes one at a time would pass the day another is added and would
 // say nothing about the composition each note lands in: a note joins an
 // author's own Description, and the pair is what the engine reads. So the
 // fixture below reaches every composition from the PUBLIC surface, with the
@@ -106,8 +106,8 @@ func TestNoCompositionReachesTheElementCeiling(t *testing.T) {
 			described += localisedDescriptions(op.Proto)
 		}
 	}
-	if described != 16 {
-		t.Fatalf("the fixture emitted %d localised_description fields, not the 16 it declares;"+
+	if described != 24 {
+		t.Fatalf("the fixture emitted %d localised_description fields, not the 24 it declares;"+
 			" the walk below would prove nothing about the ones it lost", described)
 	}
 
@@ -204,7 +204,7 @@ func walkValueForCeilings(t *testing.T, where, path string, v Value, localised b
 // prototype, each one reached from the PUBLIC surface and each one with the
 // longest legal name in the slot its sentence names.
 //
-// SIXTEEN DESCRIPTIONS, and the count is asserted above:
+// TWENTY-FOUR DESCRIPTIONS, and the count is asserted above:
 //
 //	an item with a display name and a description;
 //	a recipe carrying the FALLBACK note, with a Description and without;
@@ -213,12 +213,16 @@ func walkValueForCeilings(t *testing.T, where, path string, v Value, localised b
 //	a technology carrying the FALLBACK note, with and without;
 //	a technology carrying the DROPPED-PACK note, with and without;
 //	a technology carrying the PACKLESS-SOURCE note, with and without;
+//	a technology carrying the PACKLESS note, with and without;
+//	a technology carrying the UNREADABLE-SOURCE note, with and without;
+//	a technology carrying the CYCLE-PREREQUISITE note, with and without;
+//	a technology carrying the CYCLE-SPLICE note, with and without;
 //	a technology carrying the clamped PACK note, with and without;
 //	and an item whose Description alone is long enough to NEST.
 //
 // THE PAIRS ARE PAIRS BECAUSE THE COMPOSITION IS WHAT IS WALKED, not the note:
 // a note beside an author's Description and a note alone are two different
-// localised strings, and only one of them can nest. That is why a seventh note
+// localised strings, and only one of them can nest. That is why a further note
 // adds TWO rows here and not one.
 //
 // THE CLAMPED PACK NOTE IS THE SAME SENTENCE AS THE CLAMPED ITEM ONE AND IS NOT
@@ -237,6 +241,7 @@ func worstCasePlan() (*Lib, *fixtureWorld) {
 	absentPack := existingName("logistic-science-pack")
 	dropSource := existingName("logistics-2")
 	packlessSource := existingName("steel-processing")
+	unreadableSource := existingName("electronics")
 
 	// A Description that forces localisedGroup to NEST: 7200 bytes is forty
 	// chunks at the budget, and one level holds twenty.
@@ -334,6 +339,54 @@ func worstCasePlan() (*Lib, *fixtureWorld) {
 		})
 	}
 
+	// THE PACKLESS NOTE: a hand-rolled unit whose only pack the game does not
+	// have, so the technology is emitted with an empty ingredient list and the
+	// tooltip says the research completes for free.
+	for i, describe := range []bool{false, true} {
+		lib.Technology(declaredName("packless-unit-tech-"+strconv.Itoa(i)), TechSpec{
+			Description: describedProse(describe, fixtureProse(400)),
+			Unit:        &UnitSpec{Count: 10, Seconds: 15, Packs: []Pack{{Name: absentPack, Amount: 1}}},
+		})
+	}
+
+	// THE UNREADABLE-SOURCE NOTE: a tier whose chosen source carries a pack
+	// list in neither engine form, so the author's own declared cost applies.
+	for i, describe := range []bool{false, true} {
+		stem := "unreadable-tech-" + strconv.Itoa(i)
+		tier := lib.DropdownSettingNeedingLocale(declaredName(stem+"-tier"), "early", []string{"early"})
+		lib.Technology(declaredName(stem), TechSpec{
+			Description: describedProse(describe, fixtureProse(400)),
+			CostBy: &CostChoices{
+				Setting:  tier,
+				Choices:  []CostChoice{{Value: "early", Sources: []string{unreadableSource}}},
+				Fallback: UnitSpec{Count: 7, Seconds: 8, Packs: []Pack{{Name: pack, Amount: 2}}},
+			},
+		})
+	}
+
+	// THE CYCLE-PREREQUISITE NOTE: a technology anchored After a technology the
+	// game has already been made to require it, so the plan's own prerequisite
+	// closes the ring and is dropped.
+	for i, describe := range []bool{false, true} {
+		lib.Technology(declaredName("cycle-prereq-tech-"+strconv.Itoa(i)), TechSpec{
+			Description: describedProse(describe, fixtureProse(400)),
+			Unit:        &UnitSpec{Count: 10, Seconds: 15, Packs: []Pack{{Name: pack, Amount: 1}}},
+			After:       ringAnchor(i),
+		})
+	}
+
+	// THE CYCLE-SPLICE NOTE: an InsertBetween whose splice closes the ring,
+	// because the anchor it hangs off already leads back to the technology it
+	// is spliced into.
+	for i, describe := range []bool{false, true} {
+		lib.Technology(declaredName("cycle-splice-tech-"+strconv.Itoa(i)), TechSpec{
+			Description: describedProse(describe, fixtureProse(400)),
+			Unit:        &UnitSpec{Count: 10, Seconds: 15, Packs: []Pack{{Name: pack, Amount: 1}}},
+			After:       spliceAnchor(i),
+			Before:      spliceTarget(i),
+		})
+	}
+
 	// THE CLAMPED PACK NOTE: two declared packs whose ladders land on one name,
 	// each at the ceiling, so the SUM is a number no author wrote. It is the
 	// only pack amount validateUnit does not already hold to 65535, and the
@@ -357,7 +410,34 @@ func worstCasePlan() (*Lib, *fixtureWorld) {
 		withFluid(fluid).
 		withTool(pack).
 		withTech(fixtureTech{name: dropSource, unit: unitOf(200, 30, absentPack, "automation-science-pack")}).
-		withTech(fixtureTech{name: packlessSource, unit: unitOf(7, 8, absentPack)})
+		withTech(fixtureTech{name: packlessSource, unit: unitOf(7, 8, absentPack)}).
+		// A unit whose ingredients array holds an entry in NEITHER engine form.
+		withTech(fixtureTech{name: unreadableSource, unit: Obj(
+			kv("count", Num(7)),
+			kv("ingredients", Arr(Str(pack))),
+			kv("time", Num(8)),
+		)})
+
+	// THE TWO RINGS, one per pair, each closed through an existing technology
+	// that the fixture makes require the name this plan is about to emit.
+	// TWO SEPARATE ANCHORS PER PAIR, because the walk drops ONE edge per ring
+	// and a shared anchor would make the two rows one ring.
+	for i := 0; i < 2; i++ {
+		w = w.withTech(fixtureTech{
+			name:    ringAnchor(i),
+			prereqs: []string{fixturePrefix + declaredName("cycle-prereq-tech-"+strconv.Itoa(i))},
+			unit:    unitOf(10, 15, pack),
+		})
+		w = w.withTech(fixtureTech{
+			name: spliceTarget(i),
+			unit: unitOf(10, 15, pack),
+		})
+		w = w.withTech(fixtureTech{
+			name:    spliceAnchor(i),
+			prereqs: []string{spliceTarget(i)},
+			unit:    unitOf(10, 15, pack),
+		})
+	}
 
 	// The two texts the player typed and the library cannot use. Everything
 	// else the settings answer is left absent, which is the ordinary
@@ -370,6 +450,13 @@ func worstCasePlan() (*Lib, *fixtureWorld) {
 	}
 	return lib, w
 }
+
+// The three existing technologies each ring in the fixture is closed through.
+// They are functions rather than constants because each pair needs its OWN ring:
+// see the loop that builds them.
+func ringAnchor(i int) string   { return existingName("ring-anchor-" + strconv.Itoa(i)) }
+func spliceAnchor(i int) string { return existingName("splice-anchor-" + strconv.Itoa(i)) }
+func spliceTarget(i int) string { return existingName("splice-target-" + strconv.Itoa(i)) }
 
 // describedProse is the with-a-Description arm of every pair above, and the
 // empty string is the without arm. One helper rather than an if at every site,

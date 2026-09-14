@@ -1267,7 +1267,7 @@ const REFUSAL_CLASSES: &[RefusalClass] = &[
         except: EXCEPT_ENGINE_REFUSES,
         sites: &[],
         n: 1,
-        why: "the ring is the game's own prerequisite graph plus this plan's splices; the legitimate degrade is dropping the splice, which is a design this round does not make",
+        why: "the one ring it still refuses holds NO edge this plan made: every edge of ours is dropped with a line and a tooltip first, so what is left is the game's own tree looping without this mod in it, which the engine refuses on its own and which the threat model puts out of scope",
     },
     RefusalClass {
         module: "data.rs",
@@ -1337,30 +1337,12 @@ const REFUSAL_CLASSES: &[RefusalClass] = &[
     },
     RefusalClass {
         module: "data.rs",
-        func: "fn resolve(",
-        class: CLASS_ENVIRONMENTAL,
-        except: EXCEPT_ENGINE_REFUSES,
-        sites: &[],
-        n: 2,
-        why: "a copied research unit whose pack list is in neither engine form: passing it through would hand the engine a name this library never read, and the refusal that earns names neither the technology nor the property",
-    },
-    RefusalClass {
-        module: "data.rs",
         func: "fn check_resolved_craft_times(",
         class: CLASS_DECLARATION,
         except: "",
         sites: &[],
         n: 1,
         why: "the stored value it is about is gone by the time it runs, so the number left is the plan's own declared default",
-    },
-    RefusalClass {
-        module: "data.rs",
-        func: "fn check_resolved_packs(",
-        class: CLASS_ENVIRONMENTAL,
-        except: EXCEPT_INVENTS,
-        sites: &[],
-        n: 1,
-        why: "the floor under every pack degradation: what reaches it is a technology with no author-declared cost left to be priced in, and an empty research unit is a FREE research rather than a stuck one (measured in play on 2.0.77)",
     },
     RefusalClass {
         module: "data.rs",
@@ -1515,9 +1497,9 @@ const REFUSAL_CLASSES: &[RefusalClass] = &[
 /// looking at the function they just changed, and the only thing stopping a row
 /// being moved from "asks the game" to "reads only the declaration" was the
 /// World check, which every item that takes a `Resolution` rather than a
-/// `World` slips past: `check_resolved_packs` is the floor under every pack
-/// degradation and it takes `res` alone, so one word made the whole rule stop
-/// guarding it with the suite green. Now a relabel needs TWO edits in two
+/// `World` slips past: `check_resolved_craft_times` takes `res` alone, so one
+/// word could make the whole rule stop guarding such an item with the suite
+/// green. Now a relabel needs TWO edits in two
 /// places, and the second place is grouped by CLASS, so the row has to be
 /// carried out of one group and into another where a reviewer reading the diff
 /// sees it.
@@ -1558,8 +1540,6 @@ const REFUSAL_POLICY: &[PolicyRow] = &[
     // Asks the game, and every refusal in it is kept by the one exception named
     // here.
     PolicyRow { module: "cycle.rs", func: "fn check_cycles(", class: CLASS_ENVIRONMENTAL, except: EXCEPT_ENGINE_REFUSES, sites: "" },
-    PolicyRow { module: "data.rs", func: "fn resolve(", class: CLASS_ENVIRONMENTAL, except: EXCEPT_ENGINE_REFUSES, sites: "" },
-    PolicyRow { module: "data.rs", func: "fn check_resolved_packs(", class: CLASS_ENVIRONMENTAL, except: EXCEPT_INVENTS, sites: "" },
     PolicyRow { module: "data.rs", func: "fn read_dropdown(", class: CLASS_ENVIRONMENTAL, except: EXCEPT_UNREACHABLE, sites: "" },
     // Holds both, and the exceptions are its sites', in the order the table
     // above lists them.

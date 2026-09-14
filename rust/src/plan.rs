@@ -530,9 +530,13 @@ impl RecipeDecl {
 /// A PACK IS DROPPED, NOT REFUSED, when the game has none of its rungs: an
 /// untouched pack list in a modpack that renamed the packs used to be a hard
 /// load failure while an untouched ingredient list degraded quietly, and the
-/// two are the same promise to the same author. A unit whose packs ALL drop
-/// is refused, because a research nobody can pay for is not something this
-/// library emits on an author's behalf.
+/// two are the same promise to the same author. A unit whose packs ALL drop is
+/// EMITTED WITH AN EMPTY INGREDIENT LIST, with one ERROR line naming every rung
+/// and one line in the technology's own tooltip: measured in play on 2.0.77,
+/// such a research COMPLETES for free, which is a balance change the player did
+/// not choose and so is disclosed where they look. It used to refuse, and that
+/// was a lock-out: the engine's error dialog cannot reach the Mod Settings
+/// screen.
 #[derive(Clone, Default)]
 pub struct Pack {
     pub name: String,

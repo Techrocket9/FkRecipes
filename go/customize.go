@@ -1517,13 +1517,19 @@ type costTier struct {
 	dropdown string
 	chosen   string
 	// source is the technology the tier settled on, and it rides here for ONE
-	// reason: the tier arm may already have said, in the log and in this
-	// technology's own tooltip, that the source named no science pack this game
-	// has and that the mod's declared cost applies instead. A typed pack list
-	// makes both of those false, and taking them back needs the name they were
-	// composed from. Empty where the tier fell back without settling on a
-	// source, which is the arm that says nothing of the kind.
+	// reason: the tier arm may already have said, IN THE LOG, that the source
+	// named no science pack this game has and that the mod's declared cost
+	// applies instead. A typed pack list makes that false, and taking the line
+	// back needs the name it was composed from. Empty where the tier fell back
+	// without settling on a source, which is the arm that says nothing of the
+	// kind.
 	source string
+	// note is the technology's note slot AS IT STOOD BEFORE THE TIER WAS
+	// PRICED, and it is what a typed pack list puts back instead of retracting
+	// the tier's sentences one at a time. It is the TOOLTIP half of what source
+	// used to do, and it covers what naming sentences cannot: see
+	// resolution.noteAt.
+	note string
 }
 
 // resolveCustomCost is a research cost the player writes: the count and the
@@ -1586,28 +1592,30 @@ func (l *Lib) resolveCustomCost(w, text World, res *resolution, prefix string, t
 		// the tier arm said about the TIER'S packs is now about a price nothing
 		// emits, and each piece of it is taken back here.
 		//
-		// THE MARK FIRST. The only way it is here already is the CostBy
-		// fallback having lost every pack it declared a moment ago, and that
-		// unit's ingredients are about to be written over: refusing the load
-		// over packs nothing emits would be a refusal a player's own text had
-		// removed.
-		if res.packless == t.name {
-			res.packless = ""
-			res.packlessNames = nil
-		}
-		// AND THEN THE SENTENCE AND THE LINE, which is the half a mark does not
-		// cover. A tier whose source lost every pack says so in the log and in
-		// this technology's own tooltip and falls back to the mod's declared
-		// cost; when the player has ALSO typed a pack list, the packs (and
-		// maybe the count and the seconds) are theirs, so "this mod's own
-		// declared cost applies instead" is a false statement in a tooltip. It
-		// is composed from the source's name, which is why the tier carries it.
+		// THE TOOLTIP FIRST, IN ONE CALL. Everything the tier arm wrote into
+		// this technology's note slot is about a price nothing emits now, so
+		// the slot goes back to what it held before that arm ran. A snapshot
+		// rather than a list of named retractions, because the tier arm can
+		// leave a sentence this site cannot compose: its fallback's own pack
+		// ladders can land twice on one name and CLAMP, that note takes the
+		// slot, and a by-name retraction would find nothing and leave a
+		// capped-amount tooltip on a technology whose emitted price is the
+		// player's own list. See resolution.noteAt.
+		res.restoreNote(tgt, tier.note)
+		// AND THEN THE LINES, WHICH HAVE NO SLOT TO PUT BACK. A log line is a
+		// stream, so each one is named: the packless line the CostBy fallback
+		// logged when it lost every pack it declared a moment ago, and the
+		// tier's own sentence for a source that lost every pack or carried a
+		// list this library could not read. ALL of them are named because only
+		// one can have been written, and retracting a line that was never
+		// written matches nothing.
 		//
 		// THE DROP LINES STAY, because they are true: those packs really are
 		// absent from this game, and the line says only that.
+		res.retractPacklessLine(tgt)
 		if tier.source != "" {
 			res.retractLog(packlessSourceLine(t.name, tier.source))
-			res.retractNote(tgt, packlessSourceNote(tier.source))
+			res.retractLog(unreadableSourceLine(t.name, tier.source))
 		}
 	}
 	if !tier.has {
@@ -1633,11 +1641,11 @@ func (l *Lib) resolveCustomCost(w, text World, res *resolution, prefix string, t
 		// and testdata/ingredient-list/cases.txt pins both sentences), but the
 		// two halves agreeing must not rest on that: this arm names the path it
 		// is about, so a change to the language cannot silently make one half
-		// mark a technology packless while the other does not. A TIER'S OWN
-		// PACKS ARE NOT ASKED EITHER, because they are another technology's
-		// declaration.
+		// price a technology at no science pack while the other does not. A
+		// TIER'S OWN PACKS ARE NOT ASKED EITHER, because they are another
+		// technology's declaration.
 		if parsed.isDefault && len(entries) == 0 {
-			res.markPackless(t.name, tried)
+			res.packlessAt(tgt, t.name, tried)
 		}
 	}
 
@@ -1676,9 +1684,22 @@ func (l *Lib) resolveCustomCost(w, text World, res *resolution, prefix string, t
 	if byFormula {
 		countText = "by formula"
 	}
+	// THE EMPTY LIST IS NOT SPELLED WITH THE WORD THE FIELD REFUSES. The
+	// renderer's answer for an empty list is the language's reserved word, and
+	// in an INGREDIENT field that word is legal and means "the mod's own
+	// choice"; in a PACK field the language refuses it, and testdata's corpus
+	// pins the sentence that does the refusing. Printing it here would be
+	// inviting the player to paste back into the field the one text it will not
+	// take. The renderer and the corpus are the language's contract and neither
+	// moves for this: the substitution is the LINE'S, at the line's own
+	// composer, and nothing reads it back.
+	packsText := l.lang.render(entries)
+	if len(entries) == 0 {
+		packsText = "no science pack"
+	}
 	line := "fkrecipes: " + t.emittedName(prefix) + " takes its research cost from " +
 		packsSetting.emittedName(prefix) + ": count " + countText +
-		", time " + l.lang.amount(seconds) + ", packs " + l.lang.render(entries)
+		", time " + l.lang.amount(seconds) + ", packs " + packsText
 	if tier.has {
 		line += "; the " + tier.dropdown + " choice " + tier.chosen + " supplies what the settings leave at default"
 	}

@@ -354,10 +354,70 @@ pub(crate) fn with_fallback_fact(message: &str, setting: &str) -> String {
     )
 }
 
-pub(crate) fn packless_refusal(tech: &str, tried: &[&str]) -> String {
+/// The ONE transcript line a technology left with no science pack earns,
+/// composed here so the tests that assert it cannot drift apart from each
+/// other, exactly as `note_in` composes the tooltip note.
+///
+/// IT NAMES THE NAMES, which is the whole of what the sentence carries for an
+/// author: the one reading it is an author whose ladders all missed, and the
+/// rungs they wrote are the one thing that says which mod set this is.
+///
+/// IT WAS A REFUSAL AND IS A LINE NOW. The load is not stopped any more: a mod
+/// set that demotes one science pack must not be able to lock a player out of a
+/// game whose error dialog cannot reach the Mod Settings screen (measured on
+/// 2.0.77). See `Resolution::packless_at`.
+pub(crate) fn packless_log(tech: &str, tried: &[&str]) -> String {
     format!(
-        "fkrecipes: the technology {} has no science pack the game has; research takes at least one, and none of {} is a science pack here",
+        "log fkrecipes: ERROR: {}: none of {} is a science pack this game has, so the research is emitted with no science pack and completes for free",
         tech,
         tried.join(", ")
     )
+}
+
+/// The trailing line the same technology's own description carries, which is
+/// where a player who never reads a log finds out that the research is free.
+pub(crate) const PACKLESS_TOOLTIP: &str = "This game has none of the science packs this research names, so it takes no science pack at all. The reason is in the log.";
+
+/// The OTHER emptied-unit tooltip, and the difference between the two is a fact
+/// the library has against one it does not. Both technologies are emitted with
+/// an empty unit; `PACKLESS_TOOLTIP`'s walk PUT every pack to the game and the
+/// game had none of them, and this one never decoded the list at all, so it says
+/// what it could not do rather than what the game does not have. See
+/// `unreadable_copy_note`.
+pub(crate) fn unreadable_copy_tooltip(source: &str) -> String {
+    format!(
+        "The {} cost this research copies cannot be read in this game, so it takes no science pack at all. The reason is in the log.",
+        source
+    )
+}
+
+/// The line a `cost_of` whose copied pack list could not be decoded logs, and
+/// the line a TIER logs for the same fact: the two differ in what the library
+/// did next, which is the whole of what a declared cost behind the copy
+/// changes.
+pub(crate) fn unreadable_copy_log(tech: &str, source: &str) -> String {
+    format!(
+        "log fkrecipes: ERROR: {}: the unit of {} holds a table this library cannot copy faithfully, so the research is emitted with no science pack and completes for free",
+        tech, source
+    )
+}
+
+pub(crate) fn unreadable_source_log(tech: &str, source: &str) -> String {
+    format!(
+        "log fkrecipes: ERROR: {}: the unit of {} holds a table this library cannot copy faithfully, so this mod's own declared cost applies instead",
+        tech, source
+    )
+}
+
+/// For the witnesses that are about ONE line's exact text in a stream whose
+/// other lines another test already pins whole. Pinning the whole transcript in
+/// all five would repeat four drop lines five times and make a change to the
+/// drop line a five-test edit.
+pub(crate) fn assert_has_line(got: &[String], want: &str) {
+    assert!(
+        got.iter().any(|line| line == want),
+        "the transcript holds no line\nwant: {}\n got: {}",
+        want,
+        got.join("\n      ")
+    );
 }

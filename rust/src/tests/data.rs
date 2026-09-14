@@ -1573,15 +1573,19 @@ fn a_pack_ladder_takes_the_first_rung_the_game_has() {
 }
 
 /// A PACK WHOSE RUNGS ARE ALL ABSENT IS DROPPED, with the ingredient drop's
-/// own sentence and one word changed, and the research goes out cheaper. A
-/// unit left with NO pack at all is the one thing this refuses, because that
-/// research cannot be paid for at any price.
+/// own sentence and one word changed, and the research goes out cheaper. A unit
+/// left with NO pack at all is EMITTED EMPTY, with a line and a tooltip: the
+/// engine LOADS such a unit (measured in play on 2.0.77, where the research also
+/// COMPLETES for free), so nothing downstream would complain and a player who
+/// was told nothing would get a research that completes instantly.
 ///
-/// This is the pair the review turned over: untouched packs used to refuse
+/// This is the pair the review turned over twice: untouched packs used to refuse
 /// where untouched ingredients dropped, which made a modpack that renamed the
-/// science packs a hard load failure with the consumer's name on it.
+/// science packs a hard load failure with the consumer's name on it; and the
+/// emptied unit used to refuse too, which was a lock-out, because the error
+/// dialog cannot reach the Mod Settings screen.
 #[test]
-fn a_pack_ladder_drops_and_a_unit_with_nothing_left_is_refused() {
+fn a_unit_with_every_pack_dropped_is_emitted_empty_and_says_so() {
     let mut lib = Lib::new();
     lib.technology(
         "steel-axes",
@@ -1608,8 +1612,9 @@ fn a_pack_ladder_drops_and_a_unit_with_nothing_left_is_refused() {
         ],
     );
 
-    // The same plan with nothing left standing. Both packs drop, and what
-    // would have been emitted is a technology nobody can research.
+    // The same plan with nothing left standing. Both packs drop, and what is
+    // emitted is a unit with an empty ingredient list, one ERROR line naming
+    // every rung, and a tooltip saying the research completes for free.
     let mut nothing = Lib::new();
     nothing.technology(
         "steel-axes",
@@ -1625,20 +1630,26 @@ fn a_pack_ladder_drops_and_a_unit_with_nothing_left_is_refused() {
             ..Default::default()
         },
     );
-    match nothing.plan_data(&base_world()) {
-        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
-        Err(got) => assert_eq!(
-            got,
-            packless_refusal(
+    let ops = nothing.plan_data(&base_world()).expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: steel-axes: none of military-science-pack is present, so the science pack is dropped",
+            "log fkrecipes: steel-axes: none of space-science-pack, metallurgic-science-pack is present, so the science pack is dropped",
+            &packless_log(
                 "steel-axes",
                 &[
                     "military-science-pack",
                     "space-science-pack",
-                    "metallurgic-science-pack"
-                ]
-            )
-        ),
-    }
+                    "metallurgic-science-pack",
+                ],
+            ),
+            &alloc::format!(
+                r#"extend {{type="technology", name="steelworks-steel-axes", localised_description=["", "{}"], unit={{count=75, time=30, ingredients=[]}}}}"#,
+                PACKLESS_TOOLTIP
+            ),
+        ],
+    );
 }
 
 #[test]
@@ -1968,7 +1979,9 @@ fn the_post_resolution_checks_report_in_their_fixed_order() {
     }
 
     // The same plan with the crafting time taken out of the argument: the
-    // packs beat the ring.
+    // packs do not stop a load any more, so the ring is what answers. The ring
+    // here holds NO edge this plan made, which is the narrow case the cycle
+    // walk still refuses by name.
     let mut two = Lib::new();
     let axe = two.item("steel-axe", ItemSpec::default());
     two.recipe(
@@ -1983,7 +1996,7 @@ fn the_post_resolution_checks_report_in_their_fixed_order() {
         Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
         Err(got) => assert_eq!(
             got,
-            packless_refusal("steel-axes", &["military-science-pack"])
+            "fkrecipes: a prerequisite cycle: logistics-2 -> logistics-3 -> logistics-2"
         ),
     }
 
@@ -2010,11 +2023,16 @@ fn the_post_resolution_checks_report_in_their_fixed_order() {
     }
 }
 
-/// DECLARATION ORDER, not name order: two technologies that both lose every
-/// pack are reported as the FIRST one declared, so the author reads about the
-/// one they wrote first rather than about whichever name sorts earlier.
+/// EVERY PACKLESS TECHNOLOGY GETS ITS OWN LINE AND ITS OWN TOOLTIP.
+///
+/// The refusal this replaced named ONE technology, the first in declaration
+/// order, because a refusal is one sentence; a line and a tooltip belong to a
+/// prototype, so two of them are two of each. The names are chosen so that
+/// declaration order and alphabetical order disagree: a walk that sorted, or
+/// that iterated a hash map, would put aaa-first first about half the time or
+/// every time, and either would be a log whose order the author cannot predict.
 #[test]
-fn the_all_dropped_refusal_names_the_first_technology_declared() {
+fn every_packless_technology_gets_its_own_line_and_tooltip() {
     let unpayable = || TechSpec {
         unit: Some(UnitSpec {
             count: 50,
@@ -2027,13 +2045,25 @@ fn the_all_dropped_refusal_names_the_first_technology_declared() {
     lib.technology("bbb-second", unpayable());
     lib.technology("aaa-first", unpayable());
 
-    match lib.plan_data(&base_world()) {
-        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
-        Err(got) => assert_eq!(
-            got,
-            packless_refusal("bbb-second", &["military-science-pack"])
-        ),
-    }
+    let ops = lib.plan_data(&base_world()).expect("plan refused");
+    let proto = |name: &str| {
+        alloc::format!(
+            r#"extend {{type="technology", name="steelworks-{}", localised_description=["", "{}"], unit={{count=50, time=15, ingredients=[]}}}}"#,
+            name,
+            PACKLESS_TOOLTIP
+        )
+    };
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: bbb-second: none of military-science-pack is present, so the science pack is dropped",
+            &packless_log("bbb-second", &["military-science-pack"]),
+            "log fkrecipes: aaa-first: none of military-science-pack is present, so the science pack is dropped",
+            &packless_log("aaa-first", &["military-science-pack"]),
+            &proto("bbb-second"),
+            &proto("aaa-first"),
+        ],
+    );
 }
 
 /// AND TWO DIFFERENT PACKS WHOSE LADDERS END ON ONE ABSENT RUNG NAME IT ONCE.
@@ -2058,20 +2088,18 @@ fn two_ladders_ending_on_one_absent_rung_name_it_once() {
         },
     );
 
-    match lib.plan_data(&base_world()) {
-        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
-        Err(got) => assert_eq!(
-            got,
-            packless_refusal(
-                "steel-axes",
-                &[
-                    "military-science-pack",
-                    "space-science-pack",
-                    "metallurgic-science-pack"
-                ]
-            )
+    let ops = lib.plan_data(&base_world()).expect("plan refused");
+    assert_has_line(
+        &transcript(&ops),
+        &packless_log(
+            "steel-axes",
+            &[
+                "military-science-pack",
+                "space-science-pack",
+                "metallurgic-science-pack",
+            ],
         ),
-    }
+    );
 }
 
 #[test]
@@ -2232,28 +2260,11 @@ fn plan_data_refusals() {
             },
             want: "fkrecipes: the technology steel-axes has a unit count below 1, which the engine refuses",
         },
-        Case {
-            // A pack the game does not have is DROPPED, like an ingredient;
-            // it is the unit left with nothing at all that is refused, and
-            // this unit had one pack to lose. The drop line itself is
-            // asserted in a_pack_ladder_drops_and_a_unit_with_nothing_left_is_refused.
-            name: "a unit whose only science pack the game does not have",
-            world: |w: FixtureWorld| w,
-            build: |l: &mut Lib| {
-                l.technology(
-                    "steel-axes",
-                    TechSpec {
-                        unit: Some(UnitSpec {
-                            count: 50,
-                            seconds: 15.0,
-                            packs: vec![Pack::new("military-science-pack", 1)],
-                        }),
-                        ..Default::default()
-                    },
-                );
-            },
-            want: "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one, and none of military-science-pack is a science pack here",
-        },
+        // A UNIT WHOSE EVERY SCIENCE PACK THE GAME LACKS IS NOT HERE ANY MORE.
+        // A pack the game lacks is DROPPED, and a unit that kept none of them
+        // is EMITTED EMPTY with a line and a tooltip rather than refused: see
+        // `a_pack_ladder_drops_and_a_unit_with_nothing_left_is_refused`, which
+        // is where every case of it lives now.
         Case {
             name: "cost_of names a technology that is not there",
             world: |w: FixtureWorld| w,
@@ -3845,13 +3856,15 @@ fn a_copied_unit_in_the_long_ingredient_form_is_filtered() {
     );
 }
 
-/// AN ENTRY IN NEITHER FORM IS REFUSED RATHER THAN PASSED THROUGH. A form this
+/// AN ENTRY IN NEITHER FORM IS EMPTIED RATHER THAN PASSED THROUGH. A form this
 /// library cannot decode is not a licence to hand it to the engine: the name
-/// inside it might be one the game does not have, and the refusal that earns
-/// names neither the technology nor the property. It is the `cost_of` family's
-/// own phrase, because it is the same fact about the same value.
+/// inside it might be one the game does not have, and the refusal THAT earns
+/// names neither the technology nor the property. With no declared cost behind
+/// a `cost_of` there is nothing to fall back on, so the unit crosses with its
+/// ingredient list replaced by an empty one and NOTHING ELSE TOUCHED, and the
+/// player is told what it costs them.
 #[test]
-fn a_copied_unit_whose_pack_list_is_in_neither_form_is_refused() {
+fn a_copied_unit_whose_pack_list_is_in_neither_form_is_emptied() {
     let odd = Value::Map(alloc::vec![
         kv("count", Value::Num(10.0)),
         kv(
@@ -3870,17 +3883,23 @@ fn a_copied_unit_whose_pack_list_is_in_neither_form_is_refused() {
         },
     );
 
-    match lib.plan_data(&base_world().with_unit("steel-processing", odd)) {
-        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
-        Err(got) => assert_eq!(
-            got,
-            "fkrecipes: steel-axes: the unit of steel-processing holds a table this library cannot copy faithfully"
-        ),
-    }
+    let ops = lib
+        .plan_data(&base_world().with_unit("steel-processing", odd))
+        .expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            &unreadable_copy_log("steel-axes", "steel-processing"),
+            &alloc::format!(
+                r#"extend {{type="technology", name="steelworks-steel-axes", localised_description=["", "{}"], unit={{count=10, ingredients=[], time=15}}}}"#,
+                unreadable_copy_tooltip("steel-processing")
+            ),
+        ],
+    );
 
     // AND THE LIST ITSELF IN NEITHER FORM, which is the same rule one level up:
     // an `ingredients` key that is not an array at all cannot be walked, so it
-    // is refused rather than crossed unfiltered. Passing it through would hand
+    // is replaced rather than crossed unfiltered. Passing it through would hand
     // the engine a pack list this library never read, and the refusal that
     // earns names neither the technology nor the property.
     let not_a_list = Value::Map(alloc::vec![
@@ -3898,22 +3917,28 @@ fn a_copied_unit_whose_pack_list_is_in_neither_form_is_refused() {
         },
     );
 
-    match lib.plan_data(&base_world().with_unit("steel-processing", not_a_list)) {
-        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
-        Err(got) => assert_eq!(
-            got,
-            "fkrecipes: steel-axes: the unit of steel-processing holds a table this library cannot copy faithfully"
-        ),
-    }
+    let ops = lib
+        .plan_data(&base_world().with_unit("steel-processing", not_a_list))
+        .expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            &unreadable_copy_log("steel-axes", "steel-processing"),
+            &alloc::format!(
+                r#"extend {{type="technology", name="steelworks-steel-axes", localised_description=["", "{}"], unit={{count=10, ingredients=[], time=15}}}}"#,
+                unreadable_copy_tooltip("steel-processing")
+            ),
+        ],
+    );
 }
 
 /// A COPIED COST HAS NOTHING TO FALL BACK ON, which is the whole difference
 /// between it and a tier: `cost_of` is a bare string with no declared ladder
-/// behind it, so a copy that keeps no pack is refused by name rather than
-/// degraded onto a cost this library would have to invent. The names are the
-/// ones it tried.
+/// behind it, so a copy that keeps no pack is emitted EMPTY rather than priced
+/// on a cost this library would have to invent. The line names the packs it
+/// tried.
 #[test]
-fn a_copied_unit_that_loses_every_pack_is_refused_by_name() {
+fn a_copied_unit_that_loses_every_pack_is_emitted_empty() {
     let mut lib = Lib::new();
     lib.technology(
         "steel-axes",
@@ -3923,13 +3948,20 @@ fn a_copied_unit_that_loses_every_pack_is_refused_by_name() {
         },
     );
 
-    match lib.plan_data(&base_world().without_tool("automation-science-pack")) {
-        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
-        Err(got) => assert_eq!(
-            got,
-            packless_refusal("steel-axes", &["automation-science-pack"])
-        ),
-    }
+    let ops = lib
+        .plan_data(&base_world().without_tool("automation-science-pack"))
+        .expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: steel-axes: automation-science-pack is not a science pack this game has, so it is left out of the steel-processing cost",
+            &packless_log("steel-axes", &["automation-science-pack"]),
+            &alloc::format!(
+                r#"extend {{type="technology", name="steelworks-steel-axes", localised_description=["", "{}"], unit={{count=50, ingredients=[], time=15}}}}"#,
+                PACKLESS_TOOLTIP
+            ),
+        ],
+    );
 }
 
 /// A COPIED UNIT THAT NAMED NO PACK TO BEGIN WITH IS SOMEBODY ELSE'S

@@ -1,0 +1,8 @@
+{
+  "name": "fkrecipes-demote",
+  "version": "0.1.0",
+  "title": "fkrecipes demote fixture",
+  "author": "Techrocket9",
+  "factorio_version": "2.0",
+  "dependencies": ["base"]
+}

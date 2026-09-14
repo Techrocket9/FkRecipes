@@ -377,7 +377,10 @@ func TestCostByFallsBackWithNoPrerequisite(t *testing.T) {
 	})
 }
 
-// The edge the ladder chose joins the cycle overlay like any other.
+// The edge the ladder chose joins the cycle overlay like any other, and it is
+// an edge THIS PLAN MADE, so the ring is resolved by dropping it rather than
+// refused. The technology is still emitted, priced on the source it chose, and
+// it hangs off nothing.
 func TestCostByEdgeReachesTheCycleWalk(t *testing.T) {
 	choices := []CostChoice{
 		{Value: "logistics", Sources: []string{"logistics-2"}},
@@ -388,14 +391,17 @@ func TestCostByEdgeReachesTheCycleWalk(t *testing.T) {
 	// so the copied edge closes a ring.
 	w := baseWorld().withPrereqs("logistics-2", "steelworks-hardened-tips")
 
-	_, err := lib.PlanData(w)
-	if err == nil {
-		t.Fatal("the plan was accepted, want a cycle refusal")
-	}
-	want := "fkrecipes: a prerequisite cycle: logistics-2 -> steelworks-hardened-tips -> logistics-2"
-	if err.Error() != want {
-		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
-	}
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies`,
+		`log fkrecipes: ERROR: hardened-tips: requiring logistics-2 would loop this game's technology tree ` +
+			`(logistics-2 -> steelworks-hardened-tips -> logistics-2), so the prerequisite is dropped`,
+		`extend {type="technology", name="steelworks-hardened-tips", ` +
+			`localised_description=["", "Requiring logistics-2 would loop this game's technology tree, ` +
+			`so this research was left without that prerequisite. The reason is in the log."], ` +
+			`unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}`,
+	})
 }
 
 func TestChoiceRefusals(t *testing.T) {
@@ -531,22 +537,11 @@ func TestChoiceRefusals(t *testing.T) {
 			},
 			want: "fkrecipes: the technology hardened-tips has a unit count below 1, which the engine refuses",
 		},
-		{
-			// The chosen value names no source at all, so the fallback IS what
-			// applies: its packs are probed, the only one drops, and a cost with
-			// nothing left is refused. A fallback nobody reaches is a different
-			// test, below.
-			name: "a fallback that applies and whose every pack the game lacks",
-			build: func(l *Lib) {
-				tier := l.DropdownSettingNeedingLocale("tips-research-tier", "logistics", []string{"logistics"})
-				l.Technology("hardened-tips", TechSpec{
-					CostBy: &CostChoices{Setting: tier, Choices: []CostChoice{{Value: "logistics"}},
-						Fallback: UnitSpec{Count: 60, Seconds: 30,
-							Packs: []Pack{{Name: "military-science-pack", Amount: 1}}}},
-				})
-			},
-			want: packlessRefusal("hardened-tips", "military-science-pack"),
-		},
+		// A FALLBACK THAT APPLIES AND WHOSE EVERY PACK THE GAME LACKS IS NOT
+		// HERE ANY MORE. Its packs are still probed where the fallback is what
+		// applies, and a cost with nothing left is EMITTED EMPTY with a line
+		// and a tooltip rather than refused: see
+		// TestAFallbackThatKeepsNoPackIsEmittedEmpty below.
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -564,6 +559,33 @@ func TestChoiceRefusals(t *testing.T) {
 			}
 		})
 	}
+}
+
+// AND THE FALLBACK THAT APPLIES AND KEEPS NO PACK IS THE DEGRADATION IT USED TO
+// BE A REFUSAL FOR. The chosen value names no source at all, so the fallback IS
+// what applies: its packs are probed, the only one drops, and what is left is
+// emitted with an empty ingredient list and a tooltip saying so. A fallback
+// nobody reaches is a different test, above.
+func TestAFallbackThatKeepsNoPackIsEmittedEmpty(t *testing.T) {
+	lib := New()
+	tier := lib.DropdownSettingNeedingLocale("tips-research-tier", "logistics", []string{"logistics"})
+	lib.Technology("hardened-tips", TechSpec{
+		CostBy: &CostChoices{Setting: tier, Choices: []CostChoice{{Value: "logistics"}},
+			Fallback: UnitSpec{Count: 60, Seconds: 30,
+				Packs: []Pack{{Name: "military-science-pack", Amount: 1}}}},
+	})
+
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies`,
+		`log fkrecipes: hardened-tips: no source for the logistics cost carries a unit, so the fallback cost applies and the technology has no prerequisite`,
+		`log fkrecipes: hardened-tips: none of military-science-pack is present, so the science pack is dropped`,
+		packlessLog("hardened-tips", "military-science-pack"),
+		`extend {type="technology", name="steelworks-hardened-tips", ` +
+			`localised_description=["", "` + packlessTooltip + `"], ` +
+			`unit={count=60, time=30, ingredients=[]}}`,
+	})
 }
 
 // A choice list is a snapshot like every other spec slice.

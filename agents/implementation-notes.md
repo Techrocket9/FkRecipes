@@ -1127,7 +1127,7 @@ A code review over the uncommitted tree found one false sentence where a player 
 
 **THE CLAIM IS DELIBERATELY NOT A TOTAL ONE.** "Nothing an environment does can stop the load" is cycle 1's "a player is never refused" one level up, and the adversarial review said so before a line was written. What this round ships is the two-sided rule plus a named list of survivors, and the list is longer than the brief's table: the review's four rows plus the two named-prototype probes in `validate` (`place_result` and `ResultNamed`), which are environmental, do stay refusals, and fit the enumerated exception "there is nothing declared to degrade to". They are in the classification table with that reason.
 
-**WHAT STAYS A REFUSAL, BY NAME AND WITH ITS EXCEPTION.**
+**WHAT STAYS A REFUSAL, BY NAME AND WITH ITS EXCEPTION.** (THREE ROWS OF THIS TABLE LEFT IT IN FIX ROUND 3, 2026-09-14: `checkCycles` except for a ring this plan owns no edge in, the copied unit in neither engine form, and `checkResolvedPacks`, which is deleted. The table is left as this round wrote it because the record is dated; the list as it stands is in that round's own section and in `CLAUDE.md`.)
 
 | Site | Exception |
 |---|---|
@@ -1167,7 +1167,7 @@ It LOADS with exit 0 and no engine line; `research_unit_energy` reads 900 and `r
 - *A copied cost that keeps no pack.* Where there is an author-declared cost behind it, which is a `CostBy` tier's `Fallback`, that is what the technology is priced in, resolved through the same ladder so its own absent rungs drop the same way, with `fkrecipes: ERROR: <tech>: the <source> cost names no science pack this game has, so this mod's own declared cost applies instead`. The PREREQUISITE AND THE LEVEL CAP STAY, because the tier still chose that rung and only the price moved. Where there is none, `CostOf` being the case, the refusal stays.
 - *A merged amount over a ceiling.* `mergeIngredient` / `merge_ingredient` and `mergePack` / `merge_pack` cap at 65535 (items) and 1e301 (fluids) with a line in the merge line's own voice ending `, so it is capped there`, rather than refusing. The DECLARED ceilings (`validateIngredients`, `validateUnit` and their twins) stay refusals.
 
-**THE EXACT NEW TEXTS.**
+**THE EXACT NEW TEXTS.** (The second and the sixth of these are GONE at fix round 3: the copied unit in neither engine form degrades with a longer line, and the packless refusal is deleted outright.)
 
 ```
 fkrecipes: <tech>: <name> is not a science pack this game has, so it is left out of the <source> cost
@@ -1258,8 +1258,8 @@ A read-only adversarial review of the working tree found three must-fixes, six s
 | `fallbackFact` / `fallback_fact` returns the message undecorated | Go `TestPlayerFieldsFallBackWhileTheAuthorChannelStillRefuses` and three more; Rust `player_fields_fall_back_while_the_author_channel_still_refuses` and three more. Go's message: `got: ... is a science pack here` / `want: ... is a science pack here. The stored value of steelworks-forging-time could not be used, so the mod's own declaration applied.` |
 | the retraction in the typed-list branch is skipped | Go `TestATypedPackListTakesBackTheTiersPacklessSentence` and the Rust twin, on the ERROR line reappearing and on `localised_description=["", "This game has none of the science packs the steel-processing cost names, so this mod's own declared cost applies. ..."]` beside a unit priced in the player's own `logistic-science-pack` |
 | `markPackless` / `mark_packless` fed the fallback's `tried` alone | Go `TestATierWhoseFallbackIsAlsoUnpayableStillRefuses` and the Rust twin: `automation-science-pack` missing from the head of the list |
-| `checkResolvedPacks` / `check_resolved_packs` relabelled `classDeclaration` with its exception dropped, which is the reviewer's own exploit | Go `TestTheTwoClassificationListsAgree` and Rust `the_two_classification_lists_agree`, naming both the class disagreement and the exception disagreement |
-| `askableName` deleted | Go `TestACopiedUnitKeepsAPackNameThatIsNotText`: `plan refused: fkrecipes: the technology hardened-tips has no science pack the game has; ...` |
+| `checkResolvedPacks` / `check_resolved_packs` relabelled `classDeclaration` with its exception dropped, which is the reviewer's own exploit (fix round 3 deletes that function; the same exploit is available on any row that takes a resolution rather than a `World`) | Go `TestTheTwoClassificationListsAgree` and Rust `the_two_classification_lists_agree`, naming both the class disagreement and the exception disagreement |
+| `askableName` deleted | Go `TestACopiedUnitKeepsAPackNameThatIsNotText`: `plan refused: fkrecipes: the technology hardened-tips has no science pack the game has; ...` (at fix round 3 the same break loses the pack instead of refusing, and the test's assertion moved with it) |
 | the non-array `ingredients` arm restored to `continue` | Go and Rust `a_copied_unit_whose_pack_list_is_in_neither_form_is_refused`: the plan was accepted |
 
 **GATES AFTER THE REVIEW, exit codes read directly, all 0:** `gofmt -l .` (no output), `go vet ./...`, `go test ./...`, `go test -race ./...`, `go/examples/notext` `go vet .`, `cargo fmt --check`, `cargo test`, `RUSTFLAGS=-Dwarnings cargo clippy --workspace --all-targets`, `cargo build --target wasm32-unknown-unknown --workspace`, `scripts/run-mirror.sh` and `scripts/run-ingame.sh`. NO GOLDEN MOVED. The mirror's stand-in does not reach a technology that declares both `CostBy` and `CostFrom` over a packless tier, and the in-game guests do not either, so the retraction and the longer packless sentence are held by unit tests in both halves and by nothing else; the two shapes are recorded as an open item rather than added as example content.
@@ -1662,3 +1662,174 @@ A consumer's test named `TestAnUnreachedFallbacksPackIsNeverProbed` went from gr
 **WHAT `docs/migration.md` SAYS NOW**, in one paragraph under the list and in three corrected bullets: every ladder in this library stops at its first answer and nothing past it is asked about, which covers an ingredient ladder's rungs, a declared pack ladder's rungs and a `CostBy` source ladder's sources alike; `CostChoices.Fallback` is read in two steps, its NUMBERS from the declaration alone with no question put to the game (so they refuse whether or not any ladder lands on it) and its PACKS in exactly two places, when no source carries a unit and when a source carried one whose every pack is absent; and a fixture that takes every `tool` out of the game exercises the second of those rather than the unreached one. The packless-refusal bullet gains the order clause `docs/usage.md` already carried, since the sentence names both sets and the list is what a suite compares. And the section ABOVE the list, where a migrating consumer meets `CostBy` for the first time, said the opposite outright: that a fallback naming a science pack the game does not have is refused before anything is emitted. That is the sentence the wrong mental model most plausibly came from, it is false (a pack is a ladder, an exhausted ladder is dropped with a line, and only a unit left with no pack at all refuses, at resolution rather than at validation), and the round's own adversarial review is what found it still standing while the correction was written 180 lines below it.
 
 Nothing executable changed in this commit. The property the paragraph describes is the one this round and the rounds before it already implemented, and it is held up by `TestFallbackPacksAreProbedOnlyWhenTheFallbackApplies` in the Go half, whose fixture keeps the tier's own pack in the game so the fallback really is unreached, and whose witness is the QUESTION: it drives a recording `World` and asserts the pack was never put to it. THE RUST SIDE IS NOT A TWIN AND THIS ROUND DID NOT MAKE IT ONE: `an_unreached_fallback_is_never_resolved` asserts the transcript only, so it holds up the outcome and not the question. Both tests' doc comments said a source answering ends the pack question, which is the same generalisation this commit took out of the library's own comments; both now name the second half of the condition.
+
+## Fix round 3
+
+The trigger is the consumer's THIRD migration assessment, BetterBeltBalancer's `agents/migration-assessment-3.md` at that repository's commit `313f9d3`, 2026-09-14. It is the first assessment graded against the written threat model rather than against a reviewer's sense of scope, and it reported two findings still BLOCKED, 13 and 14, both scope F, both about one outcome: the load stopping on a mod set the player did not assemble, from a dialog the client cannot leave without resetting every startup preference they have. Each decision lands as its own commit and appends its own subsection here.
+
+### Decision 1: an environment in scope never stops the load, except where degrading would clobber, invent or rewrite somebody else's tree
+
+**WHAT THE ASSESSMENT MEASURED.** Finding 13's fixture moves `automation-science-pack` out of `data.raw.tool` and into `data.raw.item`, with a second fixture repairing base's own technologies around it so the base game still loads; base alone with the fixture and without the consumer is exit 0, which is what puts the row in scope F rather than in case I. Under it, the consumer's DEFAULT setting exited 1 with no dump and no game, and the whole of what a player read, in the log and inside the client's own dialog alike, was
+
+```
+Failed to load mod "better-belt-balancer": fklua: at the data stage, fkrecipes: the technology bbb-balancer has no science pack the game has; research takes at least one, and none of automation-science-pack is a science pack here
+```
+
+which names the mod, the technology, the rule and every name the walk tried, and contains no action a player can take. Finding 14 is the other half of the same event: `fallbackFact`'s added sentence is correct in all three directions the assessment measured, and it says nothing to do; the dialog it is read in offers Disable listed mods, Disable all mods, Manage mods, Restart, Exit and a Reset mod settings checkbox, `Manage mods` has no Mod settings button and its `Back` returns to the same dialog, `Restart` reproduces itself over a file whose sha256 has not moved, and the one escape costs every startup preference in the file and the mod with it. THE SECOND ASSESSMENT'S CLIENT WALK IS WHAT STANDS AS THAT MEASUREMENT; finding 14 says plainly that the dialog was NOT re-measured this round, and nothing here re-measured it either.
+
+**WHAT CHANGED, PER SITE.**
+
+- *`go/data.go`, `rust/src/data.rs`: the packless refusal is deleted.* `checkResolvedPacks` / `check_resolved_packs` is gone, with the `res.packless` / `packless_names` carrier it read. In its place `packlessAt` / `packless_at` is what a technology priced in no science pack at all earns, WHERE IT IS FOUND rather than at a post-resolution gate: one ERROR line, one note on that technology's own `noteTarget`, and one record in `res.packlessSaid` so the pair can be retracted by the one caller that can retract it, a player's typed pack list writing over the very unit that went packless. The unit is emitted with an empty `ingredients` list. THE LINE AND THE NOTE ARE PER TECHNOLOGY, where a refusal could only ever be one and named the first in declaration order.
+- *The same two files: the copied unit in neither engine form degrades in two shapes.* `unreadableUnitPhrase` / its Rust twin is the fact both lines open with, and the two arms differ in what the library did next. Behind a `CostBy` tier, where the author declared a `Fallback`, `unreadableSourceLine` and `unreadableSourceNote` price the technology at the declared cost and the prerequisite and the level cap stay. Behind a bare `CostOf`, where nothing is declared, `unreadableCopyLine` and `unreadableCopyNote` keep the unit and replace its `ingredients` with an empty list, so the count, the time, a `count_formula` and every field this library has never heard of survive untouched. The two notes are DELIBERATELY DIFFERENT and may not be merged: on this path the list was never decoded, so the note may say only that it could not be read, never that the game has none of those packs.
+- *`go/cycle.go`, `rust/src/cycle.rs`: the walk resolves.* `checkCycles` takes `*resolution` now and loops: build the overlay, walk for a ring, and where the ring holds an edge this plan made, drop it and walk again. `dropOwnedEdge` takes the FIRST edge in the RING'S OWN ORDER that this plan made, because the ring is what both halves have in front of them and a rule keyed on declaration order would need each half to agree about a second ordering it did not compute. An edge this plan owns is one of exactly two things: an entry in one of its own technologies' resolved prerequisite lists, or a SPLICE, which is this plan's own emitted name sitting inside another technology's rewritten list. TERMINATION IS BY CONSTRUCTION: every pass either drops one of a finite number of edges this plan made, or refuses and returns.
+- *`dropSplice` puts the anchor back.* A splice REPLACES the technology it was inserted after, so a SECOND splice into the same target built its record on a list the anchor was already out of; deleting the dropped name from that later record would emit a prerequisite list with a base-game edge silently gone. The record that MADE the splice is marked `dropped` rather than renumbered, because `resolvedTech.rewrite` is a 1-based index into that slice. An APPENDED splice replaced nothing, carries no anchor, and is deleted.
+- *The World is asked once and the plan every pass.* `currentPrereqs` was two halves, the last non-dropped rewrite record for a technology and the game's own list; only the first moves between passes, so the second is hoisted out of the loop. It is a HOST CALL and not a map lookup, which is what makes the hoist worth making: measured by the adversarial review of this decision on a 275-technology world, 275 calls across the wasm boundary would have become 14,025 at 50 plan technologies and 75,900 at 400. The graph each pass computes is unchanged.
+- *`go/customize.go`, `rust/src/data.rs`: one informational line.* The research-cost line rendered an emitted EMPTY pack list through the language's own renderer, whose answer for an empty list is the reserved word `none`, which is the word a PACKS field refuses; printing it invited the player to paste back the one text the field will not take. It reads `packs no science pack` in that case. The substitution is the LINE'S, at the line's own composer, and neither the renderer nor `testdata/ingredient-list/cases.txt` moves for it.
+- *`go/source_test.go`, `rust/src/tests/source.rs`: three rows leave the classification tables and one is narrowed.* `checkResolvedPacks` / `check_resolved_packs` and `resolve`'s copied-unit row are deleted from both `refusalClasses` / `REFUSAL_CLASSES` and `refusalPolicy` / `REFUSAL_POLICY`; `checkCycles`' row keeps its class and its exception and its `why` narrows to the one ring it still refuses. The doc comment explaining why a second, independently written list exists cited `checkResolvedPacks` as the function a relabel could hide behind; it cites `checkResolvedCraftTimes` now, because the hole is a property of any item that takes a resolution rather than a `World` and not of the one function that demonstrated it.
+- *`go/lib.go`: the `Pack` doc comment.* It promised that a unit whose every pack drops is refused. It says what happens instead, and why.
+
+**THE EXACT NEW TEXTS.**
+
+```
+fkrecipes: ERROR: <tech>: none of <names> is a science pack this game has, so the research is emitted with no science pack and completes for free
+fkrecipes: ERROR: <tech>: the unit of <source> holds a table this library cannot copy faithfully, so this mod's own declared cost applies instead
+fkrecipes: ERROR: <tech>: the unit of <source> holds a table this library cannot copy faithfully, so the research is emitted with no science pack and completes for free
+fkrecipes: ERROR: <tech>: requiring <name> would loop this game's technology tree (<ring>), so the prerequisite is dropped
+fkrecipes: ERROR: <tech>: making it a prerequisite of <before> would loop this game's technology tree (<ring>), so the splice is dropped
+```
+
+And five trailing lines in an emitted prototype's own `localised_description`, through the same `noteOn` mechanism fix round 2's decision C installed:
+
+```
+This game has none of the science packs this research names, so it takes no science pack at all. The reason is in the log.
+The <source> cost this research copies cannot be read in this game, so this mod's own declared cost applies. The reason is in the log.
+The <source> cost this research copies cannot be read in this game, so it takes no science pack at all. The reason is in the log.
+Requiring <name> would loop this game's technology tree, so this research was left without that prerequisite. The reason is in the log.
+Making this research a prerequisite of <before> would loop this game's technology tree, so it was left out of it. The reason is in the log.
+```
+
+THE WHOLE RING IS IN THE LINE AND NOT IN THE NOTE. An author reading the log needs the path to see which mod closed it; a player hovering a technology cannot act on a list of prototype names, and the 200-byte-per-element ceiling every composition is held to is a second reason not to put one there.
+
+**THE ONE SENTENCE THAT SURVIVES, AND IT IS NARROW.** `fkrecipes: a prerequisite cycle: <ring>`, unchanged, for a ring holding NO edge this plan made. That is the game's own technology tree looping without this mod in it, which the engine refuses on its own, which the threat model puts out of scope (I), and where there is no edge of ours to take back, so the only alternative to the sentence is rewriting somebody else's tree.
+
+**WHAT THIS DECISION DELIBERATELY DID NOT DO.** The `validate` family's two named-prototype probes (`place_result`, `ResultNamed`) and the six `CostOf(...)` sentences are still refusals and are still environmental. There is nothing declared behind a bare name, so degrading would mean INVENTING a value the author never wrote, into the author's own prototype. The change that would empty the `CostOf` row out of the table is the one fix round 2's own review priced and did not pay for, giving `CostOf` the `Fallback` shape `CostBy` and the pack lists already have; it is additive surface, it mirrors a shape the library carries twice, and this round did not take it either. It is carried forward on the open list below.
+
+**AND IT OVERTURNS SOMETHING FIX ROUND 2 EXPLICITLY KEPT.** That round's decision B listed the packless refusal as a survivor under the enumerated exception "degrading would invent a value the author never declared", and the free-research measurement was what justified keeping it. What that graded was the MECHANISM, which is a claim about our own code; what the threat model grades is the OUTCOME, and the outcome of the refusal was a player in a dialog with no route back into their game. The rubric says so in as many words: an in-scope situation that leaves the player unable to reach the game is BLOCKED, whatever the reasoning behind the sentence. Both the second and the third assessment graded it BLOCKED, and the second round's own ownership row said "FkRecipes, closed", which was true of the diagnosis and false of the outcome. Grading the outcome is also what makes the exception list checkable by somebody outside this repository, which "degrading would invent a value" never was.
+
+### The gate grew an arm, which is where this is measured on an engine rather than argued
+
+`scripts/run-ingame.sh` gains a DEMOTE ARM: a third mod set, not a third golden row, one engine run per language, under a Lua-only fixture committed at `testdata/ingame/demote/`. `data.lua` moves `automation-science-pack` from `data.raw.tool` to `data.raw.item` keeping every other field; `data-final-fixes.lua` takes the demoted pack out of every technology's unit EXCEPT the guest's own, by prefix, and out of every lab's `inputs`, so the base game still loads and the row sits in scope F rather than scope I. The packaged guest's `info.json` gains `? fkrecipes-demote`, appended to whatever `fklua` wrote rather than assigned over it, so the fixture's data stage runs BEFORE the guest's; the order is the engine's rather than alphabetical luck.
+
+THE ARM ASSERTS, in order: exit 0 (the run's own failure text names findings 13 and 14 and says the load must never stop); that the fixture actually demoted the pack; both `fkrecipes: ERROR: ` lines in BOTH languages' engine logs, plus the neighbouring copied-unit drop line fix round 2 landed; both emitted units empty, through a term that names the prototype, because `null | length` is 0 in jq and a bare length check passes over a technology the dump does not hold; both tooltips pinned WHOLE, for the same reason a phrase search would not do; and that the two languages agree on the normalised dump.
+
+THERE IS NO GOLDEN ROW, and that is a decision rather than an omission. The golden's rows are keyed by the mod set that produced them and this arm runs a second mod, so a hash here would describe a world no other row describes. What is compared instead is the two LANGUAGES against each other, which is a property a golden row could not have added. It also uses `refuse` where the hash rows use SKIPPED: a mod-set difference is environmental for a HASH, which is a function of every mod that ran, and this arm asserts nothing against a golden while the pack it demotes is base's own, so its claim holds whatever DLC the machine owns.
+
+`jqassert` moved up beside `fail`, because the demote arm runs before the section that used to define it and a function defined after its caller is a runtime error rather than a failing assertion.
+
+### The red proofs
+
+Every one was taken by breaking the guarded code, running the test, reading the designed failure and reverting the break. Four were taken at the engine gate and are quoted whole below; the host-suite proofs are quoted by their observed text where the text is what says the guard bites, and the table further down records what each of the sixteen guards holds.
+
+*The host-suite proofs, as observed.* Each line is the failure the test printed with the break in place, and each break was reverted before the gates were run.
+
+| Break | Test | What it printed |
+|---|---|---|
+| `packlessAt` records no note | `TestAUnitWithEveryPackDroppedIsEmittedEmptyAndSaysSo` | `line 3 got: extend {... name="steelworks-steel-axes", unit={count=50, time=15, ingredients=[]}}` against a `want` carrying the packless sentence |
+| the `CostOf` unreadable arm does not empty the unit | `TestACopiedUnitWhosePackListIsInNeitherFormIsEmptied` | `got: ... unit={count=10, ingredients=["automation-science-pack"], time=15}`, and in the second sub-case `ingredients="automation-science-pack"` |
+| the tier's unreadable arm writes `packlessSourceNote` | `TestATierWhoseSourcePackListIsUnreadableFallsBackToTheDeclaredCost` | `got: ..."This game has none of the science packs the steel-processing cost names..."` against `want: ..."The steel-processing cost this research copies cannot be read in this game..."` |
+| the `CostOf` unreadable arm writes `packlessNote` | `TestACopiedUnitWhosePackListIsInNeitherFormIsEmptied` | `got: ..."This game has none of the science packs this research names, so it takes no science pack at all. ..."` against `want: ..."The steel-processing cost this research copies cannot be read in this game, so it takes no science pack at all. ..."` |
+| the dropped splice record is not marked | `TestCycleCreatedByInsertBetweenDropsTheSplice` | `got 4 lines, want 3 / extra line 3: set technology.steel-processing.prerequisites = []` |
+| the drop deletes the name instead of substituting the anchor | `TestADroppedSpliceGivesTheAnchorBackToTheRecordsBuiltOnIt` | `got: set technology.automation.prerequisites = ["steelworks-plating"]` against `want: set technology.automation.prerequisites = ["electronics", "steelworks-plating"]` |
+| the own-prerequisite arm of `dropOwnedEdge` is disabled | `TestCostByEdgeReachesTheCycleWalk` | `plan refused: fkrecipes: a prerequisite cycle: logistics-2 -> steelworks-hardened-tips -> logistics-2` |
+| the walk makes one pass instead of looping | `TestTwoRingsAreBothResolved` | `got 3 lines, want 4 / missing line 3` naming the second ring's note |
+| the surviving narrow refusal is removed | `TestCycleTransitiveThroughExistingEdges`, `TestTheRingInThatWorldIsReal` | `the plan was accepted, want a cycle refusal` and `that World accepted a plan; it carries no ring` |
+| the named retractions replace the note snapshot | `TestATypedPackListTakesBackAClampTheTierArmLeftBehind` | `got: ... localised_description=["", "Two ingredients resolved onto chemical-science-pack and the total was above what one slot holds, so it was capped at 65535. ..."]` where `want` carries no description at all |
+| the packless record is keyed on the declared name | `TestThePacklessRetractionIsKeyedOnTheDeclarationAndNotTheName` | the legacy declaration's still-true `fkrecipes: ERROR: steel-axes: ...` line missing from the stream |
+| the World hoist is undone | `TestTheCycleWalkAsksTheWorldItsPrerequisitesOnce` | `29` prerequisite probes where the hoisted walk makes `10`, byte for byte the same two numbers in both halves |
+| the empty pack list renders through the language again | the packless tests | `the transcript holds no line ... packs no science pack` |
+
+Each break was taken in BOTH halves and each printed the same shape; the Rust twins' names are in the table further down.
+
+
+*The arm's own proof, and it is the round's headline in one line.* With the packless degradation broken in the Go guest (a deliberate `fkrecipes: RED PROOF: the packless degradation is broken` raised where the empty unit is composed), the engine refused the load and the arm refused with it:
+
+```
+Error Util.cpp:81: Failed to load mod "fkrecipes-example": fklua: at the data stage, fkrecipes: RED PROOF: the packless degradation is broken
+run-ingame: go: the engine refused the load under the demote fixture.
+  That is the lock-out findings 13 and 14 measured: a pack that demotes one
+  science pack must degrade with a line and a tooltip, never stop the load.
+```
+
+*The fixture's proof, which is what stops the arm being vacuous.* With the demotion disabled in the fixture's own `data.lua`, the run still exits 0 and still produces two agreeing dumps, which is exactly why the assertion has to exist:
+
+```
+  FAIL: the fixture demoted the science pack ... (the dump says false)
+  FAIL: a technology left with no science pack logged no ERROR line in the engine's own log
+  FAIL: the custom-cost technology left with no science pack logged no ERROR line in the engine's own log
+  FAIL: a copied unit that dropped one pack logged nothing in the engine's own log
+```
+
+*Two proofs the fixture itself failed, each found by the gate refusing the load rather than by reading the Lua.* A `data.lua` snapshot of the technologies that existed before the fixture ran misses every one a mod loading LATER adds, and space-age's `data.lua` runs after this fixture's: `Error Util.cpp:81: Technology advanced-asteroid-processing: there is no lab that will accept all of the science packs this technology requires.` The guest's prefix is what names exactly the prototypes under test, and the lab loop is the second half: without it the same sentence names `fkrecipes-example-chain-forging`. Both are recorded in the fixture's own comments, because a fixture that stops being right silently is worse than no fixture.
+
+*The sixteen host-suite guards, by name and by what each one holds.* Go in `go/cycle_test.go` and `go/packladder_test.go`, Rust in `rust/src/tests/cycle.rs` and `rust/src/tests/data.rs`. Fifteen have a Rust twin; the ordering pair below is Go-only, as the refusal-ordering pair it replaces was before this commit.
+
+| Test | What it holds |
+|---|---|
+| `TestAUnitWithEveryPackDroppedIsEmittedEmptyAndSaysSo` / `a_unit_with_every_pack_dropped_is_emitted_empty_and_says_so` | the two drop lines, the packless ERROR line naming all three rungs, and the emitted `unit={count=50, time=15, ingredients=[]}` beside its one-sentence `localised_description` |
+| `TestEveryPacklessTechnologyGetsItsOwnLineAndTooltip` / `every_packless_technology_gets_its_own_line_and_tooltip` | two packless technologies are two lines and two tooltips, which is what the deleted refusal could not be |
+| `TestCustomResearchCostGoesPacklessWhenEveryDeclaredPackDrops` / `a_pack_text_that_resolves_to_nothing_goes_packless` | a typed pack list that resolves to nothing takes the same path as a declared one |
+| `TestAFallbackThatKeepsNoPackIsEmittedEmpty` / `a_fallback_that_keeps_no_pack_is_emitted_empty` | the `CostBy` fallback arm ends in an empty unit rather than a refusal |
+| `TestATierWhoseFallbackIsAlsoUnpayableIsEmittedEmpty` / `a_tier_whose_fallback_is_also_unpayable_is_emitted_empty` | both sets of names in one line, the copied unit's first, each once |
+| `TestACopiedUnitThatLosesEveryPackIsEmittedEmpty` / `a_copied_unit_that_loses_every_pack_is_emitted_empty` | the `CostOf` arm with nothing declared behind it |
+| `TestACopiedUnitWhosePackListIsInNeitherFormIsEmptied` / `a_copied_unit_whose_pack_list_is_in_neither_form_is_emptied` | the undecodable list under `CostOf`: the unit kept, the `ingredients` emptied, `unreadableCopyNote` in the tooltip |
+| `TestATierWhoseSourcePackListIsUnreadableFallsBackToTheDeclaredCost` / `a_tier_whose_source_pack_list_is_unreadable_falls_back_to_the_declared_cost` | the same list under a tier: the declared cost, the prerequisite and the level cap kept, `unreadableSourceNote` in the tooltip |
+| `TestATypedPackListTakesBackThePacklessPairAsWell` / `a_typed_pack_list_takes_back_the_packless_pair_as_well` | the retraction: a player's typed list writing over the unit that went packless takes back the line and the note |
+| `TestATypedPackListTakesBackAClampTheTierArmLeftBehind` / `a_typed_pack_list_takes_back_a_clamp_the_tier_arm_left_behind` | the same retraction over a clamp note, which is the other thing the tier arm can have written first |
+| `TestThePacklessRetractionIsKeyedOnTheDeclarationAndNotTheName` / `the_packless_retraction_is_keyed_on_the_declaration_and_not_the_name` | the retraction finds its record by declaration index, so a legacy name does not defeat it |
+| `TestTheDroppedPacksNoLongerBeatThePrerequisiteRing` (Go only) | the same three-ways-wrong plan the old ordering test used: the crafting time still refuses BEFORE the packs degrade and the ring refuses AFTER, and the packs no longer win the slot |
+| `TestCycleCreatedByInsertBetweenDropsTheSplice` / `cycle_created_by_insert_between_drops_the_splice` | the splice line, the splice note, and an accepted plan where the old test pinned a refusal |
+| `TestTwoRingsAreBothResolved` / `two_rings_are_both_resolved` | the loop: two rings, two drops, one accepted plan |
+| `TestADroppedSpliceGivesTheAnchorBackToTheRecordsBuiltOnIt` / `a_dropped_splice_gives_the_anchor_back_to_the_records_built_on_it` | the emitted `set technology.automation.prerequisites = ["electronics", "steelworks-plating"]`. A drop that deleted the dropped name instead of substituting the anchor emits `["steelworks-plating"]` here, with a base-game edge silently gone |
+| `TestTheCycleWalkAsksTheWorldItsPrerequisitesOnce` / `the_cycle_walk_asks_the_world_its_prerequisites_once` | the hoist, counted on a recording World: `len(TechNames()) + 2`, the two extra being `resolve`'s own reads when it builds the first splice into each target |
+
+Eight tests were renamed out of the suites with the refusals they pinned: `TestUnitWithEveryPackDroppedIsRefused`, `TestTheAllDroppedRefusalNamesTheFirstTechnologyDeclared`, `TestCustomResearchCostRefusesWhenEveryDeclaredPackDrops`, `TestACopiedUnitWhosePackListIsInNeitherFormIsRefused`, `TestACopiedUnitThatLosesEveryPackIsRefusedByName`, `TestATierWhoseFallbackIsAlsoUnpayableStillRefuses`, `TestCycleCreatedByInsertBetween` and `TestTheDroppedPacksSentenceBeatsThePrerequisiteRing`, each with its Rust twin. `TestTheRingInThatWorldIsReal` stays and is worth more than it was: a witness about which sentence a cycle loses to is worth nothing if the World it was planned against has no cycle in it, and that plan is now priced in a pack the game HAS so that nothing degrades and the walk is what answers.
+
+### What moved in the goldens, and why
+
+NOTHING MOVED, and that is the interesting fact rather than a gap to apologise for.
+
+| golden | this commit |
+|---|---|
+| `testdata/mirror/transcript.golden` | unmoved. The stand-in demotes `military-science-pack`, which the copied-unit filter fix round 2 landed already handles, and no technology in either example guest is left with no pack at all or closes a ring, so nothing in the mirror reaches a sentence this commit added |
+| `testdata/ingame/dump-sha256.txt` | unmoved, both rows, both hashes: `e824cd83...` default data, `77af9873...` flipped data, `457e7d68...` settings on both. On a stock 2.0.77 install every pack the examples name is a real tool, so nothing degrades there |
+| `testdata/ingame/flipped.json`, `flipped.golden.dat` | unmoved; the `.dat` compared clean before any engine ran |
+| `testdata/ingredient-list/cases.txt` | unmoved, which is now six commits in a row. No message the LANGUAGE builds changed: `packs no science pack` is the LOG LINE's substitution and the renderer's own answer for an empty list is untouched |
+| `testdata/locale/findings.golden`, `example.cfg` | unmoved. No locale rule changed |
+
+WHY THAT IS THE RIGHT ANSWER AND NOT A HOLE. Every sentence this commit adds is reached only by a mod set that broke something, and the two existing gates run against mod sets where nothing is broken. That is precisely the coverage gap the demote arm exists to close, and it closes it by running a SECOND mod set rather than by moving a golden taken under the first. A commit that moved either hash while adding a degradation would have been saying that a stock install degrades now, which would be a defect.
+
+### Gates
+
+Run at this commit, exit codes read directly and never through a pipe, all 0: `gofmt -l .` (no output), `go vet ./...`, `go test ./...`, `go test -race ./...`, the `go/examples/notext` vet, `cargo fmt --check`, `cargo test`, `RUSTFLAGS=-Dwarnings cargo clippy --workspace --all-targets`, `cargo build --target wasm32-unknown-unknown --workspace`, `scripts/run-mirror.sh` and `scripts/run-ingame.sh`. The wasm builds and both scripts ran under `GOTOOLCHAIN=go1.26.6`, because the host's go1.27.1 is past what TinyGo 0.41.1 accepts. `FACTORIO_USERDIR` stayed at its `/tmp/fkrecipes` default.
+
+The engine gate's own timing, from its output: three runs in 14s for go and 13s for rust on the golden's mod set, and two runs in 9s for the demote arm, so the arm costs the gate about nine seconds of engine time. The whole gate is 49.9 seconds wall at this commit (`time scripts/run-ingame.sh`), and `CLAUDE.md` says about 50 seconds now, where it said about 35.
+
+THE JUMP ROWS MOVED AND THE LUA STILL COMPILES, which is worth a line because the mirror is the only gate that can see it. Go's `(*Lib).PlanData` widest span went from 966,597 bytes to 982,140, 147 percent to 150 percent of the 655,355-byte limit, relayed through 12 stations either way; Rust's `plan_data` went from 397,040 to 394,341, 61 percent to 60 percent, no relay needed. Both figures are the packaging report's own, read off `scripts/run-mirror.sh` before and after. The register ceiling fix round 2 hit is not reached, and the margin is smaller rather than larger: `afterResolution` LOST a check (the packless one) while `PlanData` itself went from 52 lines to 60, so the Go guest is nearer that ceiling than it was and not further from it. What the two numbers do NOT say is which change bought the Go jump row's 15,543 extra bytes; nothing here attributed them. The rule fix round 2 wrote still stands and is why the packaged Lua still compiles: the post-resolution gate stays in `afterResolution` and `PlanData` stays thin.
+
+### The round's ownership table
+
+A row per finding this commit touched, its grade in the consumer's third migration assessment, and who owns the outcome AFTER it. THE OWNER IS WHOEVER CAN CHANGE THE OUTCOME BY CHANGING THEIR OWN SOURCE, and a finding may have two owners with the split stated.
+
+| # | was | owner after | why |
+|---|---|---|---|
+| 13 | BLOCKED | FkRecipes, closed; BBB, an item of its own that is now an IMPROVEMENT rather than a repair | the load no longer stops on that mod set: a technology left with no usable science pack is emitted with an empty unit, one ERROR line per technology, and one line in the technology's own tooltip, so both disclosures are where a player looks and the engine gate's demote arm measures all of it. BBB's half is a `Fallbacks` rung on `FallbackUnit()`'s single pack, which is the one-line change the assessment itself names, and its value CHANGED RATHER THAN DISAPPEARING: without the rung its research no longer stops the load in that modpack, it goes FREE, which is a balance change its own players did not choose and will not report as a bug. The comment at `guest/go/tune/plan.go:261` arguing that a second rung would be a guess dressed as a ladder still has to move in the same commit as the rung |
+| 14 | BLOCKED | engine for the dialog; FkRecipes, closed, for the path into it | the sentence was already honest and the round before this one closed it. What closed here is the PATH IN: the refusal that led a player to that dialog on a scope-F mod set does not exist any more. The dialog is still the engine's, and this round did not re-measure it; the second assessment's client walk stands as its measurement, as finding 14 itself says |
+
+### What this round leaves open on this side
+
+- **One note per prototype, first in walk order.** Carried forward unchanged from fix round 2, and this commit adds four more note producers to compete for the one slot. A technology that lost a science pack AND lost a prerequisite says one of the two things in its tooltip; the ERROR lines carry both, and the log is not where a player looks.
+- **`CostOf` still has no ladder.** Carried forward unchanged. It is the one change that would empty the `CostOf` row out of `CLAUDE.md`'s exception table, it is additive surface, and three rounds have now priced it and not paid for it.
+- **The client render of the composed trailing line at its longest.** Carried forward, and one class wider: the two cycle notes are new prose in a TECHNOLOGY's description, and where a technology's description wraps in the tech tree is still unmeasured. No gate here can see a render.
+- **A ring that only a second pass can find is unwitnessed on an engine.** `TestTwoRingsAreBothResolved` and its twin hold the loop in both host suites, and neither gate reaches a cycle at all: the mirror's stand-in and both in-game guests declare trees with no ring in them. Adding one would mean example content whose whole purpose is to be wrong, which is a decision rather than an amendment, and it is the same shape as the five gaps fix round 2 recorded.
+- **The demote arm walks one shape of degradation and not three.** It measures the packless pair on two technologies and the copied-unit drop line beside them. The unreadable-pack-list arms and the cycle drops are held by unit tests in both halves and by nothing on an engine, because reaching them needs a fixture that rewrites another mod's `unit.ingredients` into a shape the copier cannot read, or a fixture that closes a ring through the guest's own splice.
+- **The FkLua checkout drift.** Carried forward unchanged: `rust/Cargo.lock` pins the fkdata dependency at `b88965d` while both gate scripts build the `fklua` binary out of whatever `FKLUA_CHECKOUT` holds. Every measurement in this round used that sibling checkout, and syncing this repository onto the newer head is still owed as its own round.

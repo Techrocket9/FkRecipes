@@ -13,10 +13,10 @@ use crate::plan::{
 };
 use crate::tests::data::{LOGISTICS_2_UNIT, STEEL_PROCESSING_UNIT};
 use crate::tests::{
-    assert_composed, assert_lines, base_world, packless_refusal, settings_world, transcript,
-    unit_of,
+    assert_composed, assert_has_line, assert_lines, base_world, packless_log, settings_world,
+    transcript, unit_of, unreadable_source_log, PACKLESS_TOOLTIP,
 };
-use crate::value::Value;
+use crate::value::{kv, Value};
 
 #[test]
 fn legacy_settings_keep_their_names_and_orders() {
@@ -894,7 +894,10 @@ fn an_unreached_fallback_is_never_resolved() {
     ]);
 }
 
-/// The edge the ladder chose joins the cycle overlay like any other.
+/// The edge the ladder chose joins the cycle overlay like any other, and it is
+/// an edge THIS PLAN MADE, so the ring is resolved by dropping it rather than
+/// refused. The technology is still emitted, priced on the source it chose, and
+/// it hangs off nothing.
 #[test]
 fn cost_by_edge_reaches_the_cycle_walk() {
     let choices = vec![
@@ -906,16 +909,15 @@ fn cost_by_edge_reaches_the_cycle_walk() {
     // so the copied edge closes a ring.
     let w = base_world().with_prereqs("logistics-2", &["steelworks-hardened-tips"]);
 
-    match lib.plan_data(&w) {
-        Ok(ops) => panic!(
-            "the plan was accepted with {} ops, want a cycle refusal",
-            ops.len()
-        ),
-        Err(got) => assert_eq!(
-            got,
-            "fkrecipes: a prerequisite cycle: logistics-2 -> steelworks-hardened-tips -> logistics-2"
-        ),
-    }
+    let ops = lib.plan_data(&w).expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies",
+            "log fkrecipes: ERROR: hardened-tips: requiring logistics-2 would loop this game's technology tree (logistics-2 -> steelworks-hardened-tips -> logistics-2), so the prerequisite is dropped",
+            r#"extend {type="technology", name="steelworks-hardened-tips", localised_description=["", "Requiring logistics-2 would loop this game's technology tree, so this research was left without that prerequisite. The reason is in the log."], unit={count=200, ingredients=[["automation-science-pack", 1], ["logistic-science-pack", 1]], time=30}}"#,
+        ],
+    );
 }
 
 #[test]
@@ -1190,37 +1192,11 @@ fn choice_refusals() {
             },
             want: "fkrecipes: the technology hardened-tips has a unit count below 1, which the engine refuses",
         },
-        Case {
-            // The fallback IS reached here (the chosen ladder is empty), so
-            // its pack ladder is walked, the one rung drops, and the unit is
-            // left with nothing to price the research in. A fallback nobody
-            // reaches asks the game nothing at all, which is what
-            // an_unreached_fallback_is_never_resolved holds.
-            name: "a reached fallback whose only pack the game does not have",
-            build: |l| {
-                let tier = l.dropdown_setting_needing_locale(
-                    "tips-research-tier",
-                    "logistics",
-                    &["logistics"],
-                );
-                l.technology(
-                    "hardened-tips",
-                    TechSpec {
-                        cost_by: Some(CostChoices {
-                            setting: tier,
-                            choices: vec![cost_choice("logistics", &[])],
-                            fallback: UnitSpec {
-                                count: 60,
-                                seconds: 30.0,
-                                packs: vec![Pack::new("military-science-pack", 1)],
-                            },
-                        }),
-                        ..Default::default()
-                    },
-                );
-            },
-            want: "fkrecipes: the technology hardened-tips has no science pack the game has; research takes at least one, and none of military-science-pack is a science pack here",
-        },
+        // A REACHED FALLBACK WHOSE ONLY PACK THE GAME LACKS IS NOT HERE ANY
+        // MORE. Its packs are still probed where the fallback is what applies,
+        // and a cost with nothing left is EMITTED EMPTY with a line and a
+        // tooltip rather than refused: see
+        // `a_fallback_that_keeps_no_pack_is_emitted_empty` below.
     ];
 
     for c in cases {
@@ -1439,11 +1415,344 @@ fn a_typed_pack_list_takes_back_the_tiers_packless_sentence() {
     );
 }
 
-/// AND WHEN THE DECLARED FALLBACK IS ALSO UNPAYABLE THE REFUSAL STAYS, naming
-/// every rung the walk asked about: the copied pack first, then the fallback's
-/// own ladder, in the order they were asked.
+/// AND THE FALLBACK THAT APPLIES AND KEEPS NO PACK IS THE DEGRADATION IT USED
+/// TO BE A REFUSAL FOR. The chosen value names no source at all, so the
+/// fallback IS what applies: its packs are probed, the only one drops, and what
+/// is left is emitted with an empty ingredient list and a tooltip saying so. A
+/// fallback nobody reaches is a different test, above.
 #[test]
-fn a_tier_whose_fallback_is_also_unpayable_still_refuses() {
+fn a_fallback_that_keeps_no_pack_is_emitted_empty() {
+    let mut lib = Lib::new();
+    let tier =
+        lib.dropdown_setting_needing_locale("tips-research-tier", "logistics", &["logistics"]);
+    lib.technology(
+        "hardened-tips",
+        TechSpec {
+            cost_by: Some(CostChoices {
+                setting: tier,
+                choices: vec![cost_choice("logistics", &[])],
+                fallback: UnitSpec {
+                    count: 60,
+                    seconds: 30.0,
+                    packs: vec![Pack::new("military-science-pack", 1)],
+                },
+            }),
+            ..Default::default()
+        },
+    );
+
+    let ops = lib.plan_data(&base_world()).expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: the setting steelworks-tips-research-tier was not readable, so its default applies",
+            "log fkrecipes: hardened-tips: no source for the logistics cost carries a unit, so the fallback cost applies and the technology has no prerequisite",
+            "log fkrecipes: hardened-tips: none of military-science-pack is present, so the science pack is dropped",
+            &packless_log("hardened-tips", &["military-science-pack"]),
+            &alloc::format!(
+                r#"extend {{type="technology", name="steelworks-hardened-tips", localised_description=["", "{}"], unit={{count=60, time=30, ingredients=[]}}}}"#,
+                PACKLESS_TOOLTIP
+            ),
+        ],
+    );
+}
+
+/// A TIER WHOSE CHOSEN SOURCE CARRIES A PACK LIST THIS LIBRARY CANNOT READ
+/// DEGRADES ONTO THE AUTHOR'S OWN DECLARED COST, which is the same answer the
+/// arm beside it gives for a source that lost every pack, in its own words:
+/// nothing was DROPPED here, because nothing was read, so a sentence saying
+/// this game has none of those packs would be stating something the library
+/// does not know.
+///
+/// THE PREREQUISITE AND THE LEVEL CAP STAY, because the tier still chose that
+/// rung; only the price moved. That is the one thing this differs in from the
+/// `cost_of` case, where there is nothing declared behind the copy at all.
+#[test]
+fn a_tier_whose_source_pack_list_is_unreadable_falls_back_to_the_declared_cost() {
+    let odd = Value::Map(alloc::vec![
+        kv("count", Value::Num(10.0)),
+        kv(
+            "ingredients",
+            Value::Arr(alloc::vec![Value::string("automation-science-pack")])
+        ),
+        kv("time", Value::Num(15.0)),
+    ]);
+
+    let mut lib = Lib::new();
+    let tier = lib.dropdown_setting_needing_locale("tier", "early", &["early"]);
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            cost_by: Some(CostChoices {
+                setting: tier,
+                choices: vec![cost_choice("early", &["steel-processing"])],
+                fallback: UnitSpec {
+                    count: 7,
+                    seconds: 8.0,
+                    packs: vec![Pack::new("chemical-science-pack", 2)],
+                },
+            }),
+            ..Default::default()
+        },
+    );
+
+    let ops = lib
+        .plan_data(&base_world().with_unit("steel-processing", odd))
+        .expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: the setting steelworks-tier was not readable, so its default applies",
+            &unreadable_source_log("steel-axes", "steel-processing"),
+            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "The steel-processing cost this research copies cannot be read in this game, so this mod's own declared cost applies. The reason is in the log."], prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}"#,
+        ],
+    );
+}
+
+/// AND WHEN THE PLAYER HAS TYPED A PACK LIST, THE PACKLESS PAIR IS TAKEN BACK
+/// TOO, which is the half the tier's own retraction does not cover: here BOTH
+/// ladders missed, so the tier arm wrote its sentence and the declared fallback
+/// then went packless on top of it, and the technology's tooltip said the
+/// research completes for free. The player's own list is what it is priced in,
+/// so neither line nor either tooltip is true any more.
+#[test]
+fn a_typed_pack_list_takes_back_the_packless_pair_as_well() {
+    let plan = || {
+        let mut lib = Lib::new();
+        let tier = lib.dropdown_setting_needing_locale("tier", "early", &["early"]);
+        let packs = lib.packs_setting("axe-packs", vec![Pack::new("chemical-science-pack", 2)]);
+        let count = lib.int_setting("axe-count", 0, NumericSpec::between(0.0, 1000.0));
+        let seconds = lib.int_setting("axe-seconds", 0, NumericSpec::between(0.0, 600.0));
+        lib.technology(
+            "steel-axes",
+            TechSpec {
+                cost_by: Some(CostChoices {
+                    setting: tier,
+                    choices: vec![cost_choice("early", &["steel-processing"])],
+                    fallback: UnitSpec {
+                        count: 7,
+                        seconds: 8.0,
+                        packs: vec![Pack::new("military-science-pack", 2)],
+                    },
+                }),
+                cost_from: Some(CustomCost {
+                    packs,
+                    count,
+                    seconds,
+                }),
+                ..Default::default()
+            },
+        );
+        lib
+    };
+
+    let typed = base_world()
+        .without_tool("automation-science-pack")
+        .with_setting(
+            "steelworks-axe-packs",
+            Value::string("3 logistic-science-pack"),
+        );
+    let ops = plan().plan_data(&typed).expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: the setting steelworks-tier was not readable, so its default applies",
+            "log fkrecipes: steel-axes: automation-science-pack is not a science pack this game has, so it is left out of the steel-processing cost",
+            "log fkrecipes: steel-axes: none of military-science-pack is present, so the science pack is dropped",
+            "log fkrecipes: the setting steelworks-axe-count was not readable, so its default applies",
+            "log fkrecipes: the setting steelworks-axe-seconds was not readable, so its default applies",
+            "log fkrecipes: steelworks-steel-axes takes its research cost from steelworks-axe-packs: count 7, time 8, packs 3 logistic-science-pack; the steelworks-tier choice early supplies what the settings leave at default",
+            r#"extend {type="technology", name="steelworks-steel-axes", prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["logistic-science-pack", 3]]}}"#,
+        ],
+    );
+
+    // AND THE SAME PLAN WITH THE FIELD LEFT ALONE KEEPS BOTH, which is what
+    // scopes the retraction to the case that made them false.
+    let ops = plan()
+        .plan_data(&base_world().without_tool("automation-science-pack"))
+        .expect("plan refused");
+    assert_has_line(
+        &transcript(&ops),
+        &packless_log(
+            "steel-axes",
+            &["automation-science-pack", "military-science-pack"],
+        ),
+    );
+    assert_has_line(
+        &transcript(&ops),
+        &alloc::format!(
+            r#"extend {{type="technology", name="steelworks-steel-axes", localised_description=["", "{}"], prerequisites=["steel-processing"], unit={{count=7, time=8, ingredients=[]}}}}"#,
+            PACKLESS_TOOLTIP
+        ),
+    );
+}
+
+/// AND THE RETRACTION IS A SNAPSHOT AND NOT A LIST OF NAMES, which is what
+/// covers the sentence the retracting site cannot compose.
+///
+/// THE HAZARD, WHICH IS REACHABLE. The tier's declared fallback is resolved
+/// BEFORE the tier's own sentence is offered to the note slot, and `note_on`
+/// keeps the FIRST writer: two of that fallback's own pack ladders landing on
+/// one name over the item ceiling leave a CLAMP note in the slot and shut the
+/// tier's sentence out. A retraction that named `packless_source_note` would
+/// then match nothing, and the technology would carry "the total was above what
+/// one slot holds, so it was capped" over an emitted price that is the player's
+/// own list with nothing in it clamped.
+#[test]
+fn a_typed_pack_list_takes_back_a_clamp_the_tier_arm_left_behind() {
+    let plan = || {
+        let mut lib = Lib::new();
+        let tier = lib.dropdown_setting_needing_locale("tier", "early", &["early"]);
+        let packs = lib.packs_setting("axe-packs", vec![Pack::new("chemical-science-pack", 2)]);
+        let count = lib.int_setting("axe-count", 0, NumericSpec::between(0.0, 1000.0));
+        let seconds = lib.int_setting("axe-seconds", 0, NumericSpec::between(0.0, 600.0));
+        lib.technology(
+            "steel-axes",
+            TechSpec {
+                cost_by: Some(CostChoices {
+                    setting: tier,
+                    choices: vec![cost_choice("early", &["steel-processing"])],
+                    fallback: UnitSpec {
+                        count: 7,
+                        seconds: 8.0,
+                        packs: vec![
+                            Pack::new("chemical-science-pack", 60000),
+                            Pack::named(60000, "military-science-pack", &["chemical-science-pack"]),
+                        ],
+                    },
+                }),
+                cost_from: Some(CustomCost {
+                    packs,
+                    count,
+                    seconds,
+                }),
+                ..Default::default()
+            },
+        );
+        lib
+    };
+
+    let typed = base_world()
+        .without_tool("automation-science-pack")
+        .with_setting(
+            "steelworks-axe-packs",
+            Value::string("3 logistic-science-pack"),
+        );
+    let ops = plan().plan_data(&typed).expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: the setting steelworks-tier was not readable, so its default applies",
+            "log fkrecipes: steel-axes: automation-science-pack is not a science pack this game has, so it is left out of the steel-processing cost",
+            "log fkrecipes: steel-axes: chemical-science-pack is in the list twice after the fallbacks, so the amounts are added: 60000 plus 60000 is 120000",
+            "log fkrecipes: steel-axes: chemical-science-pack is in the list twice after the fallbacks, and 60000 plus 60000 is above the item ceiling of 65535, so it is capped there",
+            "log fkrecipes: the setting steelworks-axe-count was not readable, so its default applies",
+            "log fkrecipes: the setting steelworks-axe-seconds was not readable, so its default applies",
+            "log fkrecipes: steelworks-steel-axes takes its research cost from steelworks-axe-packs: count 7, time 8, packs 3 logistic-science-pack; the steelworks-tier choice early supplies what the settings leave at default",
+            // NO localised_description AT ALL, which is the assertion: the slot
+            // is back to what it held before the tier was priced, and nothing
+            // was priced at a ceiling in the list this technology emits.
+            r#"extend {type="technology", name="steelworks-steel-axes", prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["logistic-science-pack", 3]]}}"#,
+        ],
+    );
+    // THE DROP LINES STAY, because they are true whatever the price ended up
+    // being, and so does the clamp line: what those two say is what the walk
+    // asked the game and what it did with the fallback it built.
+
+    // AND THE SAME PLAN WITH THE FIELD LEFT ALONE KEEPS THE CLAMP, which is
+    // what scopes the restore to the case that made it false: that technology
+    // really is priced at the ceiling.
+    let ops = plan()
+        .plan_data(&base_world().without_tool("automation-science-pack"))
+        .expect("plan refused");
+    assert_has_line(
+        &transcript(&ops),
+        r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "Two ingredients resolved onto chemical-science-pack and the total was above what one slot holds, so it was capped at 65535. The reason is in the log."], prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 65535]]}}"#,
+    );
+}
+
+/// AND THE RETRACTION IS KEYED ON THE DECLARATION AND NOT ON THE NAME, because
+/// a DECLARED name is not unique. validate refuses two technologies whose
+/// EMITTED names collide, and a legacy declaration keeps its name unprefixed, so
+/// a legacy "steel-axes" and an ordinary one are a legal plan with one declared
+/// name between them. A retraction that matched on the name would take back a
+/// line that is still true and belongs to the other declaration.
+///
+/// THE SHAPE. The legacy technology goes packless on its own hand-rolled unit
+/// and earns its line; the ordinary one shares the name, reaches a tier, and its
+/// player-typed pack list runs the retraction. Nothing about the legacy one
+/// changed, so its line must still be in the stream.
+#[test]
+fn the_packless_retraction_is_keyed_on_the_declaration_and_not_the_name() {
+    let mut lib = Lib::new();
+    lib.legacy_technology(
+        "steel-axes",
+        TechSpec {
+            unit: Some(UnitSpec {
+                count: 5,
+                seconds: 5.0,
+                packs: vec![Pack::new("military-science-pack", 1)],
+            }),
+            ..Default::default()
+        },
+    );
+    let tier = lib.dropdown_setting_needing_locale("tier", "early", &["early"]);
+    let packs = lib.packs_setting("axe-packs", vec![Pack::new("chemical-science-pack", 2)]);
+    let count = lib.int_setting("axe-count", 0, NumericSpec::between(0.0, 1000.0));
+    let seconds = lib.int_setting("axe-seconds", 0, NumericSpec::between(0.0, 600.0));
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            cost_by: Some(CostChoices {
+                setting: tier,
+                choices: vec![cost_choice("early", &["steel-processing"])],
+                fallback: UnitSpec {
+                    count: 7,
+                    seconds: 8.0,
+                    packs: vec![Pack::new("chemical-science-pack", 2)],
+                },
+            }),
+            cost_from: Some(CustomCost {
+                packs,
+                count,
+                seconds,
+            }),
+            ..Default::default()
+        },
+    );
+
+    let w = base_world().with_setting(
+        "steelworks-axe-packs",
+        Value::string("3 logistic-science-pack"),
+    );
+    let ops = lib.plan_data(&w).expect("plan refused");
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: steel-axes: none of military-science-pack is present, so the science pack is dropped",
+            // THE LINE THE WHOLE TEST IS FOR. It belongs to the legacy
+            // declaration, nothing about that declaration moved, and a
+            // retraction keyed on the declared name takes it back from under it.
+            &packless_log("steel-axes", &["military-science-pack"]),
+            "log fkrecipes: the setting steelworks-tier was not readable, so its default applies",
+            "log fkrecipes: the setting steelworks-axe-count was not readable, so its default applies",
+            "log fkrecipes: the setting steelworks-axe-seconds was not readable, so its default applies",
+            "log fkrecipes: steelworks-steel-axes takes its research cost from steelworks-axe-packs: count 50, time 15, packs 3 logistic-science-pack; the steelworks-tier choice early supplies what the settings leave at default",
+            &alloc::format!(
+                r#"extend {{type="technology", name="steel-axes", localised_description=["", "{}"], unit={{count=5, time=5, ingredients=[]}}}}"#,
+                PACKLESS_TOOLTIP
+            ),
+            r#"extend {type="technology", name="steelworks-steel-axes", prerequisites=["steel-processing"], unit={count=50, ingredients=[["logistic-science-pack", 3]], time=15}}"#,
+        ],
+    );
+}
+
+/// AND WHEN THE DECLARED FALLBACK IS ALSO UNPAYABLE THE LINE NAMES EVERY RUNG
+/// the walk asked about: the copied pack first, then the fallback's own ladder,
+/// in the order they were asked. The load is not stopped: the technology is
+/// emitted with an empty unit and the tooltip says the research is free.
+#[test]
+fn a_tier_whose_fallback_is_also_unpayable_is_emitted_empty() {
     let mut lib = Lib::new();
     let tier = lib.dropdown_setting_needing_locale("tier", "early", &["early"]);
     lib.technology(
@@ -1466,20 +1775,20 @@ fn a_tier_whose_fallback_is_also_unpayable_still_refuses() {
         },
     );
 
-    match lib.plan_data(&base_world().without_tool("automation-science-pack")) {
-        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
-        Err(got) => assert_eq!(
-            got,
-            packless_refusal(
-                "steel-axes",
-                &[
-                    "automation-science-pack",
-                    "military-science-pack",
-                    "space-science-pack"
-                ]
-            )
+    let ops = lib
+        .plan_data(&base_world().without_tool("automation-science-pack"))
+        .expect("plan refused");
+    assert_has_line(
+        &transcript(&ops),
+        &packless_log(
+            "steel-axes",
+            &[
+                "automation-science-pack",
+                "military-science-pack",
+                "space-science-pack",
+            ],
         ),
-    }
+    );
 }
 
 /// AND A NAME ASKED ABOUT TWICE IS NAMED ONCE. Two producers feed that list:
@@ -1506,13 +1815,13 @@ fn a_pack_asked_about_twice_is_named_once() {
         },
     );
 
-    match lib.plan_data(&base_world().without_tool("automation-science-pack")) {
-        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
-        Err(got) => assert_eq!(
-            got,
-            packless_refusal("steel-axes", &["automation-science-pack"])
-        ),
-    }
+    let ops = lib
+        .plan_data(&base_world().without_tool("automation-science-pack"))
+        .expect("plan refused");
+    assert_has_line(
+        &transcript(&ops),
+        &packless_log("steel-axes", &["automation-science-pack"]),
+    );
 }
 
 /// AND THE COPIED UNIT'S OWN LIST IS DEDUPED TOO, with no fallback anywhere in
@@ -1539,13 +1848,11 @@ fn a_copied_unit_naming_one_absent_pack_twice_names_it_once() {
             ),
         )
         .without_tool("automation-science-pack");
-    match lib.plan_data(&w) {
-        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
-        Err(got) => assert_eq!(
-            got,
-            packless_refusal("steel-axes", &["automation-science-pack"])
-        ),
-    }
+    let ops = lib.plan_data(&w).expect("plan refused");
+    assert_has_line(
+        &transcript(&ops),
+        &packless_log("steel-axes", &["automation-science-pack"]),
+    );
 }
 
 /// AND THE NAMES KEEP FIRST-SEEN ORDER, which uniqueness alone does not pin: an
@@ -1591,18 +1898,16 @@ fn the_packless_names_keep_first_seen_order() {
         )
         .without_tool("automation-science-pack")
         .without_tool("chemical-science-pack");
-    match lib.plan_data(&w) {
-        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
-        Err(got) => assert_eq!(
-            got,
-            packless_refusal(
-                "steel-axes",
-                &[
-                    "automation-science-pack",
-                    "military-science-pack",
-                    "chemical-science-pack"
-                ]
-            )
+    let ops = lib.plan_data(&w).expect("plan refused");
+    assert_has_line(
+        &transcript(&ops),
+        &packless_log(
+            "steel-axes",
+            &[
+                "automation-science-pack",
+                "military-science-pack",
+                "chemical-science-pack",
+            ],
         ),
-    }
+    );
 }

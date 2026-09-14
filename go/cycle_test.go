@@ -46,7 +46,12 @@ func TestCycleTransitiveThroughExistingEdges(t *testing.T) {
 
 // The splice is the interesting one: the tree is sound until the plan's own
 // rewrite closes the ring, which is exactly what no other tool catches.
-func TestCycleCreatedByInsertBetween(t *testing.T) {
+//
+// AND THE SPLICE IS WHAT IS DROPPED, not the load. The ring holds an edge this
+// plan made, so the game keeps playing: steel-processing is left with the
+// prerequisite list it already had, the new technology is still emitted and
+// still requires logistics-3, and its own tooltip says what it lost.
+func TestCycleCreatedByInsertBetweenDropsTheSplice(t *testing.T) {
 	// logistics-3 -> logistics-2 -> steel-processing, and nothing points back:
 	// a sound tree.
 	w := baseWorld().withPrereqs("logistics-2", "logistics", "steel-processing")
@@ -57,14 +62,18 @@ func TestCycleCreatedByInsertBetween(t *testing.T) {
 	// which already leads back to steel-processing.
 	lib.Technology("steel-axes", TechSpec{CostOf: "electronics", After: "logistics-3", Before: "steel-processing"})
 
-	_, err := lib.PlanData(w)
-	if err == nil {
-		t.Fatal("the plan was accepted, want a cycle refusal")
-	}
-	want := "fkrecipes: a prerequisite cycle: logistics-2 -> steel-processing -> steelworks-steel-axes -> logistics-3 -> logistics-2"
-	if err.Error() != want {
-		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
-	}
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: steel-axes: steel-processing does not require logistics-3, so the new technology is appended to its prerequisites`,
+		`log fkrecipes: ERROR: steel-axes: making it a prerequisite of steel-processing would loop ` +
+			`this game's technology tree (logistics-2 -> steel-processing -> steelworks-steel-axes -> ` +
+			`logistics-3 -> logistics-2), so the splice is dropped`,
+		`extend {type="technology", name="steelworks-steel-axes", ` +
+			`localised_description=["", "Making this research a prerequisite of steel-processing would loop ` +
+			`this game's technology tree, so it was left out of it. The reason is in the log."], ` +
+			`prerequisites=["logistics-3"], unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}`,
+	})
 }
 
 // The overlay must not invent a cycle out of a healthy splice: the edge the
@@ -152,5 +161,129 @@ func TestCyclePathIsCapped(t *testing.T) {
 	want := "fkrecipes: a prerequisite cycle: " + strings.Join(named, " -> ") + " -> (and 51 more before it closes)"
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+}
+
+// THE WALK IS A LOOP AND NOT ONE PASS, because dropping one edge can leave a
+// second ring standing. Two technologies, two rings, two drops, and the plan
+// loads: termination is by construction, since every pass drops one edge this
+// plan made and the plan has finitely many.
+func TestTwoRingsAreBothResolved(t *testing.T) {
+	lib := New()
+	lib.Technology("aaa", TechSpec{CostOf: "electronics", After: "logistics-2"})
+	lib.Technology("bbb", TechSpec{CostOf: "electronics", After: "logistics-3"})
+	w := baseWorld().
+		withPrereqs("logistics-2", "steelworks-aaa").
+		withPrereqs("logistics-3", "steelworks-bbb")
+
+	ops, err := lib.PlanData(w)
+	assertNoError(t, err)
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: ERROR: aaa: requiring logistics-2 would loop this game's technology tree ` +
+			`(logistics-2 -> steelworks-aaa -> logistics-2), so the prerequisite is dropped`,
+		`log fkrecipes: ERROR: bbb: requiring logistics-3 would loop this game's technology tree ` +
+			`(logistics-3 -> steelworks-bbb -> logistics-3), so the prerequisite is dropped`,
+		`extend {type="technology", name="steelworks-aaa", ` +
+			`localised_description=["", "Requiring logistics-2 would loop this game's technology tree, ` +
+			`so this research was left without that prerequisite. The reason is in the log."], ` +
+			`unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}`,
+		`extend {type="technology", name="steelworks-bbb", ` +
+			`localised_description=["", "Requiring logistics-3 would loop this game's technology tree, ` +
+			`so this research was left without that prerequisite. The reason is in the log."], ` +
+			`unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}`,
+	})
+}
+
+// A DROPPED SPLICE MUST NOT TAKE THE BASE GAME'S OWN EDGE WITH IT, which is
+// the one thing InsertBetween's rewrite makes easy to get wrong: a splice
+// REPLACES the technology it was inserted after, and a SECOND splice into the
+// same target builds its record on a list the anchor is already out of. Taking
+// the dropped name back out of that later record without putting the anchor
+// back emits a prerequisite list with an edge of somebody else's tree silently
+// missing from it.
+//
+// THE SHAPE, and every piece of it is load-bearing. automation requires
+// electronics in the base tree. riveting splices BETWEEN them, so automation's
+// list becomes [riveting] and the anchor electronics is out of it. plating
+// splices into automation too and finds nothing to replace, so its record is
+// [riveting, plating]. forging splices into electronics and requires
+// automation, which is what closes the ring the first drop is about.
+//
+// WHAT THE WALK DOES, in order: the ring automation -> riveting -> electronics
+// -> forging -> automation is found first and riveting's splice is the first
+// edge in it this plan owns, so it goes and electronics goes back into BOTH
+// records; the ring that is left, automation -> electronics -> forging ->
+// automation, costs forging's splice; and what is emitted is plating's record,
+// which must read [electronics, steelworks-plating]. That is exactly the list a
+// plan with neither dropped splice in it would have produced.
+func TestADroppedSpliceGivesTheAnchorBackToTheRecordsBuiltOnIt(t *testing.T) {
+	lib := New()
+	lib.Technology("riveting", TechSpec{CostOf: "electronics", After: "electronics", Before: "automation"})
+	lib.Technology("forging", TechSpec{CostOf: "electronics", After: "automation", Before: "electronics"})
+	lib.Technology("plating", TechSpec{CostOf: "electronics", After: "logistics", Before: "automation"})
+
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: forging: electronics does not require automation, so the new technology is appended to its prerequisites`,
+		`log fkrecipes: plating: automation does not require logistics, so the new technology is appended to its prerequisites`,
+		`log fkrecipes: ERROR: riveting: making it a prerequisite of automation would loop this game's technology tree ` +
+			`(automation -> steelworks-riveting -> electronics -> steelworks-forging -> automation), so the splice is dropped`,
+		`log fkrecipes: ERROR: forging: making it a prerequisite of electronics would loop this game's technology tree ` +
+			`(automation -> electronics -> steelworks-forging -> automation), so the splice is dropped`,
+		`extend {type="technology", name="steelworks-riveting", ` +
+			`localised_description=["", "Making this research a prerequisite of automation would loop this game's ` +
+			`technology tree, so it was left out of it. The reason is in the log."], ` +
+			`prerequisites=["electronics"], unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}`,
+		`extend {type="technology", name="steelworks-forging", ` +
+			`localised_description=["", "Making this research a prerequisite of electronics would loop this game's ` +
+			`technology tree, so it was left out of it. The reason is in the log."], ` +
+			`prerequisites=["automation"], unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}`,
+		`extend {type="technology", name="steelworks-plating", prerequisites=["logistics"], ` +
+			`unit={count=30, ingredients=[["automation-science-pack", 1]], time=15}}`,
+		// THE ASSERTION THE WHOLE TEST IS FOR. electronics is a prerequisite of
+		// automation in the base game and no declaration here asked for it to
+		// go; a drop that deleted the dropped name instead of substituting the
+		// anchor emits ["steelworks-plating"] here.
+		`set technology.automation.prerequisites = ["electronics", "steelworks-plating"]`,
+	})
+}
+
+// prereqProbeWorld counts TechPrereqs questions. It is the only way to hold up
+// "the World is asked once": the walk's answer is the same either way, and what
+// changes is how many times the host was crossed to get it.
+type prereqProbeWorld struct {
+	*fixtureWorld
+	asked int
+}
+
+func (w *prereqProbeWorld) TechPrereqs(name string) []string {
+	w.asked++
+	return w.fixtureWorld.TechPrereqs(name)
+}
+
+// THE WORLD IS ASKED ONCE PER TECHNOLOGY, HOWEVER MANY PASSES THE WALK TAKES.
+// Its prerequisite lists cannot move between passes, only the plan's rewrites
+// can, so re-asking is a host crossing per technology per pass for an answer
+// that is already in hand. The plan below takes THREE passes (two drops and the
+// clean walk that follows them), and the count must still be one per name.
+func TestTheCycleWalkAsksTheWorldItsPrerequisitesOnce(t *testing.T) {
+	lib := New()
+	lib.Technology("riveting", TechSpec{CostOf: "electronics", After: "electronics", Before: "automation"})
+	lib.Technology("forging", TechSpec{CostOf: "electronics", After: "automation", Before: "electronics"})
+	lib.Technology("plating", TechSpec{CostOf: "electronics", After: "logistics", Before: "automation"})
+
+	w := &prereqProbeWorld{fixtureWorld: baseWorld()}
+	_, err := lib.PlanData(w)
+	assertNoError(t, err)
+
+	// TWO ASKED BEFORE THE WALK RUNS AT ALL, and they are currentPrereqs' own
+	// reader rather than this one: resolve asks the game for automation's list
+	// and for electronics' when it builds the first splice into each. The
+	// SECOND splice into automation reads the record the first one left and
+	// asks the game nothing, which is that reader's whole job.
+	want := len(w.TechNames()) + 2
+	if w.asked != want {
+		t.Errorf("the World was asked for a prerequisite list %d times, want %d", w.asked, want)
 	}
 }

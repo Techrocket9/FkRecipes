@@ -1143,27 +1143,11 @@ func TestPlanDataRefusals(t *testing.T) {
 			},
 			want: "fkrecipes: the technology steel-axes has a unit count below 1, which the engine refuses",
 		},
-		{
-			// A pack the game lacks is DROPPED, not refused, so a unit that
-			// named only that one is a research with no cost at all. The engine
-			// loads such a unit, which is why this half will not emit one.
-			name: "a unit whose every science pack the game lacks",
-			build: func(l *Lib) {
-				l.Technology("steel-axes", TechSpec{Unit: &UnitSpec{Count: 50, Seconds: 15, Packs: []Pack{{Name: "military-science-pack", Amount: 1}}}})
-			},
-			want: packlessRefusal("steel-axes", "military-science-pack"),
-		},
-		{
-			// And with a ladder: every rung absent is the same refusal, and the
-			// sentence says nothing about which rungs were tried, because the
-			// log line already did.
-			name: "a unit whose pack ladder resolves nothing",
-			build: func(l *Lib) {
-				l.Technology("steel-axes", TechSpec{Unit: &UnitSpec{Count: 50, Seconds: 15,
-					Packs: []Pack{{Name: "military-science-pack", Amount: 1, Fallbacks: []string{"space-science-pack"}}}}})
-			},
-			want: packlessRefusal("steel-axes", "military-science-pack", "space-science-pack"),
-		},
+		// A UNIT WHOSE EVERY SCIENCE PACK THE GAME LACKS IS NOT HERE ANY MORE.
+		// A pack the game lacks is DROPPED, and a unit that kept none of them
+		// is EMITTED EMPTY with a line and a tooltip rather than refused: see
+		// TestAUnitWithEveryPackDroppedIsEmittedEmptyAndSaysSo in
+		// packladder_test.go, which is where every case of it lives now.
 		{
 			// An empty rung is a ladder that can never answer, and it would
 			// reach a log line with a hole in it.

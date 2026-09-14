@@ -742,7 +742,7 @@ var refusalClasses = []refusalClass{
 	{
 		file: "cycle.go", fn: "checkCycles", class: classEnvironmental, n: 1,
 		except: exceptEngineRefuses,
-		why:    "the ring is the game's own prerequisite graph plus this plan's splices; the legitimate degrade is dropping the splice, which is a design this round does not make",
+		why:    "the one ring it still refuses holds NO edge this plan made: every edge of ours is dropped with a line and a tooltip first, so what is left is the game's own tree looping without this mod in it, which the engine refuses on its own and which the threat model puts out of scope",
 	},
 	{
 		file: "data.go", fn: "PlanData", class: classMixed, n: 3,
@@ -765,20 +765,10 @@ var refusalClasses = []refusalClass{
 		file: "data.go", fn: "checkResolvedCraftTimes", class: classDeclaration, n: 1,
 		why: "the stored value it is about is gone by the time it runs, so the number left is the plan's own declared default",
 	},
-	{
-		file: "data.go", fn: "checkResolvedPacks", class: classEnvironmental, n: 1,
-		except: exceptInvents,
-		why:    "the floor under every pack degradation: what reaches it is a technology with no author-declared cost left to be priced in, and an empty research unit is a FREE research rather than a stuck one (measured in play on 2.0.77)",
-	},
 	{file: "data.go", fn: "matchesAllowedValues", class: classDeclaration},
 	{
 		file: "data.go", fn: "readDropdown", class: classEnvironmental, n: 1,
 		except: exceptUnreachable,
-	},
-	{
-		file: "data.go", fn: "resolve", class: classEnvironmental, n: 2,
-		except: exceptEngineRefuses,
-		why:    "a copied research unit whose pack list is in neither engine form: passing it through would hand the engine a name this library never read, and the refusal that earns names neither the technology nor the property",
 	},
 	{
 		file: "data.go", fn: "validate", class: classMixed, n: 47,
@@ -820,9 +810,8 @@ var refusalClasses = []refusalClass{
 // looking at the function they just changed, and the only thing stopping a row
 // being moved from "asks the game" to "reads only the declaration" was the
 // World check, which every function that takes a resolution rather than a World
-// slips past: checkResolvedPacks is the floor under every pack degradation and
-// it takes res alone, so one word made the whole rule stop guarding it with the
-// suite green. Now a relabel needs TWO edits in two places, and the second
+// slips past: checkResolvedCraftTimes takes res alone, so one word could make
+// the whole rule stop guarding such a function with the suite green. Now a relabel needs TWO edits in two places, and the second
 // place is grouped by CLASS, so the row has to be carried out of one group and
 // into another where a reviewer reading the diff sees it.
 //
@@ -860,9 +849,7 @@ var refusalPolicy = []policyRow{
 	// Asks the game, and every refusal in it is kept by the one exception named
 	// here.
 	{file: "cycle.go", fn: "checkCycles", class: classEnvironmental, except: exceptEngineRefuses},
-	{file: "data.go", fn: "checkResolvedPacks", class: classEnvironmental, except: exceptInvents},
 	{file: "data.go", fn: "readDropdown", class: classEnvironmental, except: exceptUnreachable},
-	{file: "data.go", fn: "resolve", class: classEnvironmental, except: exceptEngineRefuses},
 
 	// Holds both, and the exceptions are its sites', in the order the table
 	// above lists them.

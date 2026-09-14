@@ -3,6 +3,7 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::cycle::render_cycle_path;
 use crate::ingredient_list::{IngredientList, ListEntry, ListKind, ListText, DEFAULT};
 use crate::op::{path_key, Op};
 use crate::plan::{
@@ -51,12 +52,17 @@ pub(crate) enum CostTier {
         dropdown: String,
         chosen: String,
         /// The technology the tier settled on, and it rides here for ONE
-        /// reason: the tier arm may already have said, in the log and in this
-        /// technology's own tooltip, that the source named no science pack
-        /// this game has and that the mod's declared cost applies instead. A
-        /// typed pack list makes both of those false, and taking them back
-        /// needs the name they were composed from.
+        /// reason: the tier arm may already have said, IN THE LOG, that the
+        /// source named no science pack this game has and that the mod's
+        /// declared cost applies instead. A typed pack list makes that false,
+        /// and taking the line back needs the name it was composed from.
         source: String,
+        /// The technology's note slot AS IT STOOD BEFORE THE TIER WAS PRICED,
+        /// and it is what a typed pack list puts back instead of retracting the
+        /// tier's sentences one at a time. It is the TOOLTIP half of what
+        /// `source` used to do, and it covers what naming sentences cannot: see
+        /// [`Resolution::note_at`].
+        note: String,
     },
 }
 
@@ -95,19 +101,20 @@ impl Lib {
         let prefix = format!("{}-", mod_name);
 
         self.validate(w, &prefix)?;
-        let res = self.resolve(w, &prefix);
+        let mut res = self.resolve(w, &prefix);
         // THE CARRIED REFUSAL, FIRST. Resolution asks the World questions and
         // mostly degrades; the answers it cannot degrade are a stored value
         // that is not one of a dropdown's values (which the engine resets
-        // before any stage runs, so only a hand-edited file reaches it), the
+        // before any stage runs, so only a hand-edited file reaches it) and the
         // two cost-number sentences about a DECLARED default the settings stage
-        // would already have refused, and a copied research unit whose pack
-        // list is in neither engine form. Each is carried out of the pass
-        // rather than raised inside it, because resolution answers questions
-        // and this is where a plan is refused; the FIRST one found wins, and it
-        // wins over every refusal below because it is the earliest thing the
-        // pass met. The merged amounts that used to be here are CLAMPED now,
-        // with a line and a tooltip note each: see `merge_ingredient`.
+        // would already have refused. Each is carried out of the pass rather
+        // than raised inside it, because resolution answers questions and this
+        // is where a plan is refused; the FIRST one found wins, and it wins over
+        // every refusal below because it is the earliest thing the pass met. The
+        // merged amounts that used to be here are CLAMPED now, with a line and a
+        // tooltip note each, and the copied research unit whose pack list is in
+        // neither engine form now degrades with a line and a note of its own:
+        // see `merge_ingredient` and `filter_copied_packs`.
         //
         // NOTHING A PLAYER TYPES REACHES THIS LINE ANY MORE. A refused
         // ingredient list, a setting holding something that is not text and a
@@ -140,10 +147,15 @@ impl Lib {
         }
         self.check_resolved_craft_times(&res)
             .map_err(|m| res.fallback_fact(m))?;
-        self.check_resolved_packs(&res)
-            .map_err(|m| res.fallback_fact(m))?;
-        self.check_cycles(w, &res, &prefix)
-            .map_err(|m| res.fallback_fact(m))?;
+        // THE CYCLE WALK TAKES THE RESOLUTION MUTABLY because it RESOLVES
+        // rather than checks: it drops the edges this plan made until the ring
+        // is gone, and the dropped prerequisites, the dropped splices, the
+        // lines and the notes it writes are all read by the emit walk below. It
+        // is written out rather than chained through `map_err` so the mutable
+        // borrow ends before `fallback_fact` reads the resolution again.
+        if let Err(m) = self.check_cycles(w, &mut res, &prefix) {
+            return Err(res.fallback_fact(m));
+        }
 
         let mut ops = Vec::with_capacity(
             res.logs.len() + self.items.len() + self.recipes.len() + 2 * self.techs.len(),
@@ -181,6 +193,14 @@ impl Lib {
                 continue;
             }
             let rw = &res.rewrites[rt.rewrite - 1];
+            // A SPLICE THE CYCLE WALK DROPPED IS SKIPPED WHOLE, and skipped
+            // rather than written back with the name taken out: what is left in
+            // the record is another mod's own prerequisite list, and Setting
+            // that back over its prototype is a write this library has no
+            // reason to make. See `check_cycles`, which is what marks it.
+            if rw.dropped {
+                continue;
+            }
             // A Set op's value is ALWAYS a real value, never Nil: the emit
             // layer hands it to fkdata::set, and a nil there DELETES the key
             // rather than writing one. Nothing plans a deletion today, and the
@@ -909,7 +929,7 @@ impl Lib {
             if let Some(unit) = &t.spec.unit {
                 let (packs, tried) = resolve_packs(w, &mut res, tgt, &t.name, &unit.packs);
                 if packs.is_empty() {
-                    res.mark_packless(&t.name, tried);
+                    res.packless_at(tgt, &t.name, tried);
                 }
                 rt.packs = packs;
             }
@@ -925,22 +945,62 @@ impl Lib {
             // THERE IS NOTHING TO FALL BACK ON HERE, WHICH IS THE WHOLE
             // DIFFERENCE FROM A TIER. A `cost_of` source is a bare string with
             // no declared ladder behind it, so a copy that keeps no pack is
-            // refused by name rather than degraded onto a cost this library
-            // would have to invent.
+            // emitted with an empty ingredient list rather than priced on a
+            // cost this library would have to invent. What that costs the
+            // player is a free research, and both arms below say so where they
+            // look: see [`Resolution::packless_at`].
             if !t.spec.cost_of.is_empty() {
                 if let Some(u) = w.tech_unit(&t.spec.cost_of) {
                     let filtered = filter_copied_packs(&mut res, w, &t.name, &t.spec.cost_of, u);
                     if filtered.unreadable {
-                        res.refuse(copied_unit_refusal(&t.name, &t.spec.cost_of));
+                        // THE EMPTYING IS THE CALLER'S AND NOT THE FILTER'S,
+                        // and the reason is that the two callers of the filter
+                        // do different things with the same answer: the tier
+                        // arm below throws this unit away and prices the
+                        // technology on the author's declared cost, so a unit
+                        // emptied inside the filter would be built there and
+                        // dropped. The filter answers what it found; what to do
+                        // about it is the caller's, which is also why
+                        // `out.unit` means one thing (the unit as it arrived)
+                        // on every path that does not read `out.kept`.
+                        //
+                        // NOTHING IS INVENTED BY THE EMPTYING. The count, the
+                        // time, a count_formula and every field this library
+                        // has never heard of cross untouched; only the list it
+                        // could not decode is replaced, and it is replaced by
+                        // the empty list rather than by a guess at what was in
+                        // it.
+                        //
+                        // THE NOTE AND THE LINE ARE BOTH THIS ARM'S OWN,
+                        // because this arm knows something `packless_at`'s pair
+                        // does not say and does NOT know something it does. The
+                        // outcome is the same emptied unit, but the REASON is
+                        // that the copied list could not be read at all: no
+                        // pack was ever put to the game, so "this game has none
+                        // of the science packs this research names" would be a
+                        // fact this walk never established. See
+                        // [`unreadable_copy_note`], which draws the same line
+                        // [`unreadable_source_note`] draws for the arm above.
+                        res.logs
+                            .push(unreadable_copy_line(&t.name, &t.spec.cost_of));
+                        res.note_on(tgt, unreadable_copy_note(&t.spec.cost_of));
+                        rt.unit = Some(set_unit_field(
+                            filtered.unit,
+                            "ingredients",
+                            Value::Arr(Vec::new()),
+                        ));
                     } else if filtered.has_list
                         && filtered.kept == 0
                         && !filtered.dropped.is_empty()
                     {
-                        res.mark_packless(&t.name, filtered.dropped.clone());
-                    } else if let Some(first) = filtered.dropped.first() {
-                        res.note_on(tgt, pack_dropped_note(first));
+                        res.packless_at(tgt, &t.name, filtered.dropped.clone());
+                        rt.unit = Some(filtered.unit);
+                    } else {
+                        if let Some(first) = filtered.dropped.first() {
+                            res.note_on(tgt, pack_dropped_note(first));
+                        }
+                        rt.unit = Some(filtered.unit);
                     }
-                    rt.unit = Some(filtered.unit);
                 }
             }
 
@@ -969,6 +1029,13 @@ impl Lib {
             if let Some(by) = &t.spec.cost_by {
                 let setting = &self.settings[by.setting.index - 1];
                 let chosen = res.read_dropdown(w, setting, prefix);
+                // THE NOTE SLOT AS IT STANDS BEFORE ANY PRICING, taken here so
+                // a player's typed pack list can put it back in one call instead
+                // of retracting the tier arm's sentences by name. Nothing below
+                // the dropdown read has written a note yet, so this is the last
+                // point at which the slot is still whatever the walk brought in.
+                // See [`Resolution::note_at`].
+                let note_before = res.note_at(tgt);
                 let mut source = String::new();
                 for name in sources_for(&by.choices, &chosen) {
                     if w.tech_has_research_trigger(name) {
@@ -1025,7 +1092,7 @@ impl Lib {
                     let (packs, tried) =
                         resolve_packs(w, &mut res, tgt, &t.name, &by.fallback.packs);
                     if packs.is_empty() {
-                        res.mark_packless(&t.name, tried);
+                        res.packless_at(tgt, &t.name, tried);
                     }
                     rt.unit = Some(unit_value(by.fallback.count, by.fallback.seconds, &packs));
                 } else {
@@ -1042,7 +1109,24 @@ impl Lib {
                     let copied = rt.unit.clone().expect("a chosen source settled on a unit");
                     let filtered = filter_copied_packs(&mut res, w, &t.name, &source, copied);
                     if filtered.unreadable {
-                        res.refuse(copied_unit_refusal(&t.name, &source));
+                        // A COPIED LIST THIS LIBRARY CANNOT DECODE, AND A
+                        // DECLARED COST BEHIND IT: the same degradation the arm
+                        // below makes, for a different reason and in its own
+                        // words. Nothing was dropped, because nothing was read;
+                        // the author's own fallback unit is what the technology
+                        // is priced in, and the prerequisite and the level cap
+                        // stay because the tier still chose this rung. NOTHING
+                        // IS CARRIED INTO THE FALLBACK'S OWN LADDER either:
+                        // there are no names to carry when the list was never
+                        // decoded.
+                        res.logs.push(unreadable_source_line(&t.name, &source));
+                        let (packs, tried) =
+                            resolve_packs(w, &mut res, tgt, &t.name, &by.fallback.packs);
+                        if packs.is_empty() {
+                            res.packless_at(tgt, &t.name, tried);
+                        }
+                        res.note_on(tgt, unreadable_source_note(&source));
+                        rt.unit = Some(unit_value(by.fallback.count, by.fallback.seconds, &packs));
                     } else if filtered.has_list
                         && filtered.kept == 0
                         && !filtered.dropped.is_empty()
@@ -1054,23 +1138,32 @@ impl Lib {
                         // prerequisite and the level cap stay, because the tier
                         // still chose this rung; only the price moved.
                         res.logs.push(packless_source_line(&t.name, &source));
-                        res.note_on(tgt, packless_source_note(&source));
+                        // THE NOTE IS RECORDED AFTER THE FALLBACK IS RESOLVED,
+                        // and the Go half does the same. `note_on` keeps the
+                        // FIRST note in walk order, and when the declared
+                        // fallback ALSO keeps no pack the honest sentence is
+                        // the packless one: "this mod's own declared cost
+                        // applies" is true and says nothing about the research
+                        // being free. Nothing else competes for the slot on
+                        // this path, because a unit that kept no pack merged
+                        // none and so clamped none.
                         let (packs, tried) =
                             resolve_packs(w, &mut res, tgt, &t.name, &by.fallback.packs);
                         if packs.is_empty() {
                             // EVERY RUNG THE WALK ASKED ABOUT, COPIED PACK
                             // FIRST. The science packs this tier's copied unit
                             // named and lost were asked before the fallback's
-                            // own ladders were, and an author reading the
-                            // refusal is one whose ladders all missed: the
+                            // own ladders were, and an author reading the line
+                            // is one whose ladders all missed: the
                             // whole list of names, in the order they were
                             // asked, is the one thing that says which mod set
-                            // this is. ONCE EACH is `mark_packless`'s rule and
+                            // this is. ONCE EACH is `packless_at`'s rule and
                             // not this caller's: see there.
                             let mut asked = filtered.dropped.clone();
                             asked.extend(tried);
-                            res.mark_packless(&t.name, asked);
+                            res.packless_at(tgt, &t.name, asked);
                         }
+                        res.note_on(tgt, packless_source_note(&source));
                         rt.unit = Some(unit_value(by.fallback.count, by.fallback.seconds, &packs));
                     } else {
                         // A PACK DROPPED OUT OF A PRICE THE PLAYER CANNOT SEE
@@ -1094,6 +1187,7 @@ impl Lib {
                         dropdown: setting.emitted_name(prefix),
                         chosen: chosen.clone(),
                         source: source.clone(),
+                        note: note_before.clone(),
                     };
                     if let Some(unit) = (self.installed_custom_cost())(
                         self, w, &own, &mut res, prefix, t, cc, &tier, tgt,
@@ -1160,7 +1254,13 @@ impl Lib {
                     }
                     list.push(p.clone());
                 }
+                // WHAT THE SPLICE REPLACED, recorded beside what it produced:
+                // the anchor where one was taken out of the list, and the empty
+                // string where the name was appended and nothing was. See
+                // [`RewriteRec`].
+                let mut anchor = String::from(after);
                 if !replaced {
+                    anchor = String::new();
                     list.push(new_name.clone());
                     res.logs.push(format!(
                         "fkrecipes: {}: {} does not require {}, so the new technology is appended to its prerequisites",
@@ -1170,6 +1270,8 @@ impl Lib {
                 res.rewrites.push(RewriteRec {
                     before: String::from(before),
                     list,
+                    anchor,
+                    dropped: false,
                 });
                 rt.rewrite = res.rewrites.len();
             }
@@ -1218,36 +1320,6 @@ impl Lib {
         Ok(())
     }
 
-    /// A cost with no science pack left is refused, naming the first such
-    /// technology in declaration order and the names it tried.
-    ///
-    /// A COST WITH NO PACKS IS NOT A CHEAP RESEARCH, IT IS A FREE ONE, and
-    /// that is measured in play now rather than only as far as the load. On
-    /// 2.0.77 build 84539 a unit of `{count = 10, time = 15, ingredients = {}}`
-    /// loads with exit 0 and no engine line, `force.add_research` returns true,
-    /// the research queue takes it, progress advances in a lab holding nothing
-    /// and the technology COMPLETES after `count * time` ticks. So emitting one
-    /// is not a stuck technology, it is a free one, which is a balance change
-    /// the player did not choose.
-    ///
-    /// IT IS THE ONE ENVIRONMENTAL REFUSAL THIS MODULE STILL RAISES, and it is
-    /// here because it is the floor under the degradations rather than in front
-    /// of them: every path that HAS an author-declared cost to fall back on has
-    /// already fallen back by the time this runs, so what reaches it is a
-    /// technology with nothing left to be priced in. The threat model puts an
-    /// environment that broke the base science packs out of scope, which is the
-    /// shape of the mod set this answers for.
-    fn check_resolved_packs(&self, res: &Resolution) -> Result<(), String> {
-        match &res.packless {
-            None => Ok(()),
-            Some((tech, tried)) => Err(format!(
-                "fkrecipes: the technology {} has no science pack the game has; research takes at least one, and none of {} is a science pack here",
-                tech,
-                tried.join(", ")
-            )),
-        }
-    }
-
     /// The first technology in declaration order that unlocks this recipe, by
     /// its declared name, or `None` when nothing in the plan does.
     ///
@@ -1294,6 +1366,23 @@ pub(crate) struct ResolvedIngredient {
 pub(crate) struct RewriteRec {
     pub(crate) before: String,
     pub(crate) list: Vec<String>,
+    /// WHAT THE SPLICE REPLACED: the technology whose place in `before`'s
+    /// prerequisite list the new name took, or the empty string where there was
+    /// nothing to replace and the name was appended.
+    ///
+    /// IT IS WHAT MAKES A DROPPED SPLICE UNDOABLE, and without it the drop
+    /// destroys an edge of somebody else's tree. A splice REPLACES its anchor,
+    /// so a SECOND splice into the same technology builds its record on a list
+    /// the anchor is already out of; taking the dropped name back out of that
+    /// later record without putting the anchor back leaves the later record
+    /// emitting a prerequisite list with a base-game edge silently missing from
+    /// it. See `drop_splice`, which is the one reader.
+    pub(crate) anchor: String,
+    /// A splice the cycle walk took back because it closed a ring. It is
+    /// MARKED RATHER THAN REMOVED because `ResolvedTech::rewrite` is a 1-based
+    /// index into this vector and renumbering it would point every later
+    /// technology at somebody else's record.
+    pub(crate) dropped: bool,
 }
 
 #[derive(Default)]
@@ -1383,24 +1472,31 @@ pub(crate) struct Resolution {
     pub(crate) tech_notes: Vec<String>,
     /// The FIRST answer resolution could not degrade. The producers left are a
     /// stored dropdown value the setting does not offer (the engine resets one
-    /// before any stage runs, so only a hand-edited file reaches it), the two
+    /// before any stage runs, so only a hand-edited file reaches it) and the two
     /// cost-number answers about a declared default the settings stage would
-    /// already have refused, and a copied research unit whose pack list is in
-    /// neither engine form. The merged amounts that used to be here are CLAMPED
-    /// now, with a line and a tooltip note each: see `merge_ingredient`.
+    /// already have refused. The merged amounts that used to be here are CLAMPED
+    /// now, with a line and a tooltip note each, and the copied research unit
+    /// whose pack list is in neither engine form now degrades with a line and a
+    /// note of its own: see `merge_ingredient` and `filter_copied_packs`.
     /// Carried rather than returned so the pass stays one shape, and
     /// `plan_data` raises this before it reads any of it.
     pub(crate) refusal: Option<String>,
 
-    /// The FIRST technology in declaration order whose cost came to no science
-    /// pack, with the names it asked the game about, in declaration order and
-    /// once each.
+    /// For every technology that went packless, the exact ERROR line it logged.
+    /// It exists for the ONE retraction there is: a player who types a pack
+    /// list over a tier writes over the very unit that went packless, and the
+    /// line and the note it earned a moment ago have to go with it. The line is
+    /// composed from names the retracting site never saw, so it is kept rather
+    /// than recomposed.
     ///
-    /// THE NAMES ARE PART OF THE ANSWER. "has no science pack the game has" on
-    /// its own tells an author that something is absent and not which thing,
-    /// and the author reading it is one whose ladders all missed: the names are
-    /// the rungs they wrote and the one thing that says which mod set this is.
-    pub(crate) packless: Option<(String, Vec<String>)>,
+    /// IT IS NO LONGER A REFUSAL CARRIER. A technology with no science pack the
+    /// game has is EMITTED with an empty ingredient list now, because the error
+    /// dialog a refusal raises cannot reach the Mod Settings screen (measured
+    /// on 2.0.77: see [`Resolution::fallback_fact`]) and a mod set the player
+    /// did not choose must not be able to lock them out. What the emptied unit
+    /// costs them is a free research, which is disclosed in the technology's
+    /// own tooltip and in the log: see [`Resolution::packless_at`].
+    pub(crate) packless_said: Vec<PacklessRec>,
 
     /// Every setting whose STORED value the library could not use, in walk
     /// order and ONCE EACH.
@@ -1576,7 +1672,7 @@ impl Resolution {
     /// from the walk's own loop, so an out-of-range one is this file having
     /// gone wrong rather than anything a consumer can reach, and a panic naming
     /// the line is a better answer than a note silently dropped.
-    fn note_on(&mut self, tgt: NoteTarget, note: String) {
+    pub(crate) fn note_on(&mut self, tgt: NoteTarget, note: String) {
         let notes = if tgt.tech {
             &mut self.tech_notes
         } else {
@@ -1588,27 +1684,42 @@ impl Resolution {
         notes[tgt.index] = note;
     }
 
-    /// Takes one prototype's note back, and ONLY the exact sentence the caller
-    /// says it wrote: a slot holding anything else is somebody else's answer
-    /// and is left alone.
+    /// `note_at` and [`Resolution::restore_note`] are the SNAPSHOT PAIR, and
+    /// they exist for exactly one caller: the tier arm hands
+    /// `resolve_custom_cost` the note slot as it stood before the tier was
+    /// priced, and a player's typed pack list puts that slot back.
     ///
-    /// IT CLEARS RATHER THAN REPLACING, deliberately. [`Resolution::note_on`]
-    /// keeps the first note in walk order and drops the rest, so a note this
-    /// one shut out is gone; handing the slot back to it would mean
-    /// remembering a sentence that was composed about the SAME price this
-    /// retraction is deleting (the fallback unit's own clamp), and a false note
-    /// is worse than no note. An empty slot emits no `localised_description`
-    /// line at all, which is exactly what a technology whose price nobody
-    /// degraded looks like.
-    fn retract_note(&mut self, tgt: NoteTarget, note: &str) {
+    /// A SNAPSHOT AND NOT A LIST OF NAMED RETRACTIONS, which is the correction
+    /// the adversarial review asked for and which removes code rather than
+    /// adding it. Retracting by name can only take back the sentences the
+    /// retracting site knows how to compose, and the tier arm can write one it
+    /// does not: two of the fallback's own pack ladders landing on one name over
+    /// the item ceiling leaves a CLAMP note through `merge_pack`, that note
+    /// takes the slot [`Resolution::note_on`] keeps for the first writer, the
+    /// named retractions then match nothing, and a technology whose emitted
+    /// price is the player's own list with nothing clamped in it carries a
+    /// tooltip saying something was capped. The snapshot takes back whatever
+    /// the tier arm wrote, and puts back exactly what was there before it.
+    ///
+    /// THE LOG IS STILL RETRACTED BY NAME, because a log line is a stream and
+    /// not a slot: there is nothing to snapshot and put back, and
+    /// [`Resolution::retract_log`]'s no-op on a line that was never written is
+    /// what makes naming them safe.
+    pub(crate) fn note_at(&self, tgt: NoteTarget) -> String {
+        if tgt.tech {
+            self.tech_notes[tgt.index].clone()
+        } else {
+            self.recipe_notes[tgt.index].clone()
+        }
+    }
+
+    pub(crate) fn restore_note(&mut self, tgt: NoteTarget, note: &str) {
         let notes = if tgt.tech {
             &mut self.tech_notes
         } else {
             &mut self.recipe_notes
         };
-        if notes[tgt.index] == note {
-            notes[tgt.index] = String::new();
-        }
+        notes[tgt.index] = String::from(note);
     }
 
     /// Takes one accumulated log line back, the FIRST one that is exactly the
@@ -1625,46 +1736,131 @@ impl Resolution {
         }
     }
 
-    /// Records the FIRST technology in declaration order whose cost came to no
-    /// science pack, with the names it asked the game about.
+    /// What a technology priced in no science pack at all earns: the unit is
+    /// emitted with an empty ingredient list, one ERROR line names every rung
+    /// the walk asked the game about, and the technology's own tooltip says
+    /// what it costs the player.
     ///
-    /// THE NAMES RIDE WITH THE TECHNOLOGY, never separately: a second
-    /// technology that also lost everything must not overwrite the first one's
-    /// names and leave the sentence naming one technology's rungs under
-    /// another's name.
+    /// A COST WITH NO PACKS IS NOT A CHEAP RESEARCH, IT IS A FREE ONE, and that
+    /// is measured in play rather than only as far as the load. On 2.0.77 build
+    /// 84539 a unit of `{count = 10, time = 15, ingredients = {}}` loads with
+    /// exit 0 and no engine line, `force.add_research` returns true, the
+    /// research queue takes it, progress advances in a lab holding nothing and
+    /// the technology COMPLETES after `count * time` ticks. So emitting one is
+    /// a balance change the player did not choose, which is exactly why it is
+    /// disclosed where they look.
     ///
-    /// AND THIS IS THE ONE PLACE THE ONCE-EACH RULE IS APPLIED, on the way
-    /// into the only state the sentence is composed from. It belongs to the
-    /// single WRITER rather than to any caller because no caller can see
-    /// another's list: two declared ladders ending on one absent rung would
-    /// print that rung twice, a copied unit naming one absent pack twice would
-    /// print it twice, and a fallback rung repeating a pack the copied unit
-    /// already lost would print it twice across two producers. FIRST-SEEN
-    /// ORDER, because the sentence is the walk's own order: the copied unit's
-    /// lost packs first, then the declared ladders in declaration order with
-    /// each ladder's rungs in ladder order.
-    fn mark_packless(&mut self, tech: &str, tried: Vec<String>) {
-        if self.packless.is_some() {
-            return;
-        }
+    /// IT USED TO BE A REFUSAL AND THAT WAS A LOCK-OUT. A mod set that demotes
+    /// one science pack could stop the load on the DEFAULT setting, and the
+    /// client cannot reach the Mod Settings screen from an "Error loading mods"
+    /// dialog (re-measured on 2.0.77: see [`Resolution::fallback_fact`]). A
+    /// player whose pack was demoted had no way back into the game that did not
+    /// disable the mod. A free research they are told about is worse than the
+    /// research they asked for and better than no game, and the threat model
+    /// grades it that way.
+    ///
+    /// IT IS PER TECHNOLOGY, not first-in-plan-order. The old carrier held ONE
+    /// technology because a refusal is one sentence; a line and a tooltip are
+    /// per prototype, so two packless technologies are two lines and two
+    /// tooltips.
+    ///
+    /// AND THIS IS THE ONE PLACE THE ONCE-EACH RULE IS APPLIED, on the way into
+    /// the sentence. It belongs to the single WRITER rather than to any caller
+    /// because no caller can see another's list: two declared ladders ending on
+    /// one absent rung would print that rung twice, a copied unit naming one
+    /// absent pack twice would print it twice, and a fallback rung repeating a
+    /// pack the copied unit already lost would print it twice across two
+    /// producers. FIRST-SEEN ORDER, because the sentence is the walk's own
+    /// order: the copied unit's lost packs first, then the declared ladders in
+    /// declaration order with each ladder's rungs in ladder order.
+    fn packless_at(&mut self, tgt: NoteTarget, tech: &str, tried: Vec<String>) {
         let mut names: Vec<String> = Vec::with_capacity(tried.len());
         for name in tried {
             append_once(&mut names, &name);
         }
-        self.packless = Some((String::from(tech), names));
+        let line = packless_line(tech, &names);
+        self.logs.push(line.clone());
+        self.note_on(tgt, packless_note());
+        self.packless_said.push(PacklessRec {
+            index: tgt.index,
+            line,
+        });
     }
+
+    /// Takes back the LINE one technology earned from
+    /// [`Resolution::packless_at`], for the one caller that can: a player's
+    /// typed pack list writing over the very unit that went packless. See
+    /// `resolve_custom_cost`.
+    ///
+    /// THE LINE ONLY, because the note that went with it is taken back by the
+    /// snapshot the same caller restores, along with everything else the tier
+    /// arm wrote. See [`Resolution::note_at`].
+    ///
+    /// THE LINE IS READ BACK RATHER THAN RECOMPOSED, because the names in it
+    /// were asked by a walk the retracting site never saw.
+    fn retract_packless_line(&mut self, tgt: NoteTarget) {
+        let Some(i) = self
+            .packless_said
+            .iter()
+            .position(|rec| rec.index == tgt.index)
+        else {
+            return;
+        };
+        let rec = self.packless_said.remove(i);
+        self.retract_log(&rec.line);
+    }
+}
+
+/// One technology that went packless and the exact line it logged, so the one
+/// site that can take it back has the string the writer used.
+///
+/// KEYED ON THE DECLARATION INDEX AND NOT ON THE NAME. A declared name is not
+/// unique: validate refuses two technologies whose EMITTED names collide, and a
+/// legacy declaration keeps its name unprefixed, so a legacy technology and an
+/// ordinary one can legally both be called "steel-axes". A retraction matching
+/// on the name would take back a line that is still true and belongs to the
+/// other one. The index is already threaded to every site through
+/// [`NoteTarget`].
+pub(crate) struct PacklessRec {
+    index: usize,
+    line: String,
 }
 
 impl Resolution {
     /// The prerequisite list a splice should build on: the one an earlier
     /// splice in this same plan already planned, or the game's own.
+    ///
+    /// A SPLICE THE CYCLE WALK DROPPED IS NOT THERE ANY MORE, so the walk's
+    /// next pass builds its overlay out of what the plan will actually emit.
+    /// During resolution nothing is dropped yet and this term costs a
+    /// comparison.
     pub(crate) fn current_prereqs(&self, w: &dyn World, tech: &str) -> Vec<String> {
+        match self.planned_prereqs(tech) {
+            Some(list) => list,
+            None => w.tech_prereqs(tech),
+        }
+    }
+
+    /// `current_prereqs`' PLAN half on its own: the list an earlier splice in
+    /// this same plan planned, and `None` where there was none.
+    ///
+    /// IT IS SPLIT OUT FOR ONE CALLER, `check_cycles`, which asks it once per
+    /// technology per pass and must not re-ask the World alongside: the World's
+    /// answer is invariant across passes and a host call is not a map lookup.
+    /// See the measurement there.
+    pub(crate) fn planned_prereqs(&self, tech: &str) -> Option<Vec<String>> {
         for rw in self.rewrites.iter().rev() {
+            if rw.dropped {
+                continue;
+            }
             if rw.before.as_str() == tech {
-                return rw.list.clone();
+                // Cloned because the Go mirror clones: an aliased list here is
+                // a caller that can rewrite a planned splice through the slice
+                // it was handed.
+                return Some(rw.list.clone());
             }
         }
-        w.tech_prereqs(tech)
+        None
     }
 }
 
@@ -1864,6 +2060,56 @@ pub(crate) fn pack_dropped_note(name: &str) -> String {
 pub(crate) fn packless_source_note(source: &str) -> String {
     format!(
         "This game has none of the science packs the {} cost names, so this mod's own declared cost applies. The reason is in the log.",
+        source
+    )
+}
+
+/// What a technology priced in NO science pack at all carries when every pack
+/// it named was PUT TO THE GAME and the game had none of them.
+///
+/// IT IS NOT THE ONLY EMPTIED-UNIT NOTE, and the other one is the reason this
+/// sentence can say what it says. A copied unit whose pack list this library
+/// could not decode is emitted empty too, and there the list was never read, so
+/// nothing was asked and this sentence would be stating something the walk
+/// never established: that one carries [`unreadable_copy_note`] instead.
+///
+/// IT TAKES NO ARGUMENT, deliberately. The names the walk asked the game about
+/// are in the ERROR line, where an author reading a log can use them; a player
+/// hovering a technology cannot act on a list of prototype names their mod set
+/// does not have.
+pub(crate) fn packless_note() -> String {
+    String::from(
+        "This game has none of the science packs this research names, so it takes no science pack at all. The reason is in the log.",
+    )
+}
+
+/// What a technology whose copied cost could not be decoded carries when there
+/// IS a declared cost behind it. It is not [`packless_source_note`], because
+/// nothing was dropped: the list was never read at all, and a sentence saying
+/// this game has none of those packs would be stating something the library
+/// does not know.
+pub(crate) fn unreadable_source_note(source: &str) -> String {
+    format!(
+        "The {} cost this research copies cannot be read in this game, so this mod's own declared cost applies. The reason is in the log.",
+        source
+    )
+}
+
+/// [`unreadable_source_note`]'s twin for the arm with NOTHING declared behind
+/// it: a `cost_of` whose copied pack list this library cannot decode is emitted
+/// with an empty ingredient list, and this is what the player is told where they
+/// look.
+///
+/// IT IS NOT [`packless_note`], and the distinction is the one
+/// [`unreadable_source_note`] already draws for the arm beside it.
+/// `packless_note` says this game has none of the science packs the research
+/// names, which is a fact about the game; on this path the list was never
+/// decoded, so the library never asked the game about any pack and does not
+/// know that. What it does know is that it could not read the cost it was told
+/// to copy, and that is what the sentence says.
+pub(crate) fn unreadable_copy_note(source: &str) -> String {
+    format!(
+        "The {} cost this research copies cannot be read in this game, so it takes no science pack at all. The reason is in the log.",
         source
     )
 }
@@ -3140,19 +3386,21 @@ impl Lib {
 
         let count_set = count != self.settings[cc.count.index - 1].def_num;
         let seconds_set = seconds != self.settings[cc.seconds.index - 1].def_num;
-        let (tier_unit, dropdown, chosen, tier_source) = match tier {
+        let (tier_unit, dropdown, chosen, tier_source, tier_note) = match tier {
             CostTier::Chosen {
                 unit,
                 dropdown,
                 chosen,
                 source,
+                note,
             } => (
                 Some(unit),
                 dropdown.as_str(),
                 chosen.as_str(),
                 source.as_str(),
+                note.as_str(),
             ),
-            CostTier::None => (None, "", "", ""),
+            CostTier::None => (None, "", "", "", ""),
         };
         if has_tier && !count_set && !seconds_set && typed.is_none() {
             return None;
@@ -3173,29 +3421,37 @@ impl Lib {
                 // about a price nothing emits, and each piece of it is taken
                 // back here.
                 //
-                // THE MARK FIRST. The only way it is here already is the CostBy
-                // fallback having lost every pack it declared a moment ago, and
-                // that unit's ingredients are about to be written over:
-                // refusing the load over packs nothing emits would be a refusal
-                // a player's own text had removed.
-                if has_tier && res.packless.as_ref().is_some_and(|(n, _)| *n == t.name) {
-                    res.packless = None;
+                // THE TOOLTIP FIRST, IN ONE CALL. Everything the tier arm
+                // wrote into this technology's note slot is about a price
+                // nothing emits now, so the slot goes back to what it held
+                // before that arm ran. A snapshot rather than a list of named
+                // retractions, because the tier arm can leave a sentence this
+                // site cannot compose: its fallback's own pack ladders can land
+                // twice on one name and CLAMP, that note takes the slot, and a
+                // by-name retraction would find nothing and leave a
+                // capped-amount tooltip on a technology whose emitted price is
+                // the player's own list. See [`Resolution::note_at`].
+                if has_tier {
+                    res.restore_note(tgt, tier_note);
                 }
-                // AND THEN THE SENTENCE AND THE LINE, which is the half a mark
-                // does not cover. A tier whose source lost every pack says so
-                // in the log and in this technology's own tooltip and falls
-                // back to the mod's declared cost; when the player has ALSO
-                // typed a pack list, the packs (and maybe the count and the
-                // seconds) are theirs, so "this mod's own declared cost applies
-                // instead" is a false statement in a tooltip. It is composed
-                // from the source's name, which is why the tier carries it.
+                // AND THEN THE LINES, WHICH HAVE NO SLOT TO PUT BACK. A log
+                // line is a stream, so each one is named: the packless line the
+                // CostBy fallback logged when it lost every pack it declared a
+                // moment ago, and the tier's own sentence for a source that
+                // lost every pack or carried a list this library could not
+                // read. ALL of them are named because only one can have been
+                // written, and retracting a line that was never written matches
+                // nothing.
                 //
                 // THE DROP LINES STAY, because they are true: those packs
                 // really are absent from this game, and the line says only
                 // that.
+                if has_tier {
+                    res.retract_packless_line(tgt);
+                }
                 if !tier_source.is_empty() {
                     res.retract_log(&packless_source_line(&t.name, tier_source));
-                    res.retract_note(tgt, &packless_source_note(tier_source));
+                    res.retract_log(&unreadable_source_line(&t.name, tier_source));
                 }
                 list.iter()
                     .map(|p| ResolvedPack {
@@ -3208,7 +3464,7 @@ impl Lib {
             (None, None) => {
                 let (packs, tried) = resolve_packs(w, res, tgt, &t.name, &s.def_packs);
                 if packs.is_empty() {
-                    res.mark_packless(&t.name, tried);
+                    res.packless_at(tgt, &t.name, tried);
                 }
                 packs
             }
@@ -3273,13 +3529,27 @@ impl Lib {
         } else {
             (lang.format_amount)(count)
         };
+        // THE EMPTY LIST IS NOT SPELLED WITH THE WORD THE FIELD REFUSES. The
+        // renderer's answer for an empty list is the language's reserved word,
+        // and in an INGREDIENT field that word is legal and means "the mod's own
+        // choice"; in a PACK field the language refuses it, and testdata's
+        // corpus pins the sentence that does the refusing. Printing it here
+        // would be inviting the player to paste back into the field the one text
+        // it will not take. The renderer and the corpus are the language's
+        // contract and neither moves for this: the substitution is the LINE'S,
+        // at the line's own composer, and nothing reads it back.
+        let packs_text = if packs.is_empty() {
+            String::from("no science pack")
+        } else {
+            (lang.render_list)(&resolved_pack_list(&packs))
+        };
         let mut line = format!(
             "fkrecipes: {} takes its research cost from {}: count {}, time {}, packs {}",
             t.emitted_name(prefix),
             full,
             count_text,
             (lang.format_amount)(seconds),
-            (lang.render_list)(&resolved_pack_list(&packs))
+            packs_text
         );
         if has_tier {
             line.push_str(&format!(
@@ -3741,18 +4011,18 @@ fn merged_from(from: &str) -> String {
 /// A PACK IS DROPPED, NOT REFUSED, exactly as an ingredient is, and the log
 /// line is the ingredient's line with one word changed: the author who wrote
 /// a ladder asked for tolerance, and a modpack that renamed the science packs
-/// is the case the ladder is for. The unit that ends up with nothing is
-/// refused later, by name, because that one cannot be researched at all.
+/// is the case the ladder is for. The unit that ends up with nothing is emitted
+/// EMPTY, with a line and a tooltip of its own: see `Resolution::packless_at`.
 ///
 /// THROUGH `tool_exists`, NEVER `item_exists`: the engine takes tool-type
 /// items in a research unit and nothing else (measured: "Invalid research
 /// unit (iron-plate). Research unit(s) can only be tool type items at the
 /// moment."), so a rung that is an item but not a tool is not a rung.
-/// IT ALSO ANSWERS WHAT IT TRIED, in declaration order, because the refusal a
-/// unit that kept nothing gets has to name the names: see
-/// `check_resolved_packs`. REPEATS ARE LEFT IN, because this walk is one of
+/// IT ALSO ANSWERS WHAT IT TRIED, in declaration order, because the line a unit
+/// that kept nothing gets has to name the names: see
+/// `Resolution::packless_at`. REPEATS ARE LEFT IN, because this walk is one of
 /// four callers feeding that sentence and none of them can see the others:
-/// `mark_packless` is the one place the once-each rule is applied. Collected on
+/// `packless_at` is the one place the once-each rule is applied. Collected on
 /// every walk rather than only on the empty one, so the answer costs the same
 /// branch whatever the game holds.
 fn resolve_packs(
@@ -3803,7 +4073,7 @@ fn resolve_packs(
 }
 
 /// Keeps a vector in first-seen order with no repeats. Its one caller is
-/// `mark_packless`, which is where the reason it is needed is written.
+/// `packless_at`, which is where the reason it is needed is written.
 fn append_once(list: &mut Vec<String>, name: &str) {
     if list.iter().any(|seen| seen == name) {
         return;
@@ -3883,11 +4153,11 @@ fn filter_copied_packs(
             Value::Arr(items) => items,
             // AN `ingredients` KEY THAT IS NOT AN ARRAY IS A FORM THIS LIBRARY
             // CANNOT DECODE, and a form it cannot decode is not a licence to
-            // pass it through: the caller refuses with the `CostOf` family's
-            // own sentence, exactly as it does for an ENTRY in neither form.
-            // What would otherwise happen is worse: the unit crosses
-            // unfiltered and the engine answers about a science pack, naming
-            // neither this mod nor the property.
+            // pass it through: the caller degrades on it, exactly as it does for
+            // an ENTRY in neither form, to the declared cost behind a tier or to
+            // an emptied unit where there is none. What would otherwise happen
+            // is worse: the unit crosses unfiltered and the engine answers about
+            // a science pack, naming neither this mod nor the property.
             _ => {
                 return CopiedPacks {
                     unit,
@@ -3954,7 +4224,7 @@ fn filter_copied_packs(
 /// two forms the engine takes.
 ///
 /// THREE ANSWERS IN ONE OPTION. `None` is an entry in NEITHER form, which the
-/// caller refuses; the EMPTY name is an entry in a form whose name is not text
+/// caller degrades on; the EMPTY name is an entry in a form whose name is not text
 /// this library can put to the World, which the caller keeps unasked. No
 /// prototype is named by the empty string, so the sentinel names nothing real.
 fn copied_pack_name(v: &Value) -> Option<String> {
@@ -3980,17 +4250,99 @@ fn copied_pack_name(v: &Value) -> Option<String> {
     }
 }
 
-/// The sentence a copied unit whose pack list this library cannot read earns,
-/// and it is the `cost_of` family's own phrase because it is the same fact
-/// about the same value: a table that cannot be copied faithfully.
+/// The FACT both lines about an undecodable copied unit open with, and it is
+/// one composer because the two differ only in what the library did next. It
+/// keeps the `cost_of` family's own wording, because it is the same fact about
+/// the same value: a table that cannot be copied faithfully.
 ///
 /// IT NAMES THE TECHNOLOGY RATHER THAN WEARING THE `CostOf(` PREFIX, because
 /// the same filter runs over a `cost_by` tier's chosen source, where there is
 /// no `CostOf` to name.
-fn copied_unit_refusal(tech: &str, source: &str) -> String {
+fn unreadable_unit_phrase(tech: &str, source: &str) -> String {
     format!(
-        "fkrecipes: {}: the unit of {} holds a table this library cannot copy faithfully",
+        "{}: the unit of {} holds a table this library cannot copy faithfully",
         tech, source
+    )
+}
+
+/// What an undecodable copied unit logs where there IS a declared cost behind
+/// it, and [`unreadable_copy_line`] what it logs where there is not. Both are
+/// ERROR lines because the technology is not priced the way anybody declared
+/// it, and neither goes through `player_fallback`: nothing was stored and
+/// nothing was typed, so there is no field to send anybody to.
+fn unreadable_source_line(tech: &str, source: &str) -> String {
+    format!(
+        "{}ERROR: {}, so this mod's own declared cost applies instead",
+        MESSAGE_PREFIX,
+        unreadable_unit_phrase(tech, source)
+    )
+}
+
+fn unreadable_copy_line(tech: &str, source: &str) -> String {
+    format!(
+        "{}ERROR: {}, so the research is emitted with no science pack and completes for free",
+        MESSAGE_PREFIX,
+        unreadable_unit_phrase(tech, source)
+    )
+}
+
+/// The two lines and the two notes a dropped edge earns. They are ERROR lines
+/// because the technology is not placed the way anybody declared it, and they
+/// are NOT a player's fallback: nothing was stored and nothing was typed, so
+/// there is no field on the settings screen to send anybody to.
+///
+/// THE WHOLE RING IS IN THE LINE AND NOT IN THE NOTE. An author reading the log
+/// needs the path to see which mod closed it; a player hovering a technology
+/// cannot act on a hundred prototype names, and the ceiling every composition
+/// is held to (200 bytes per element, measured on 2.0.77) is a further reason
+/// not to put one there.
+pub(crate) fn cycle_prereq_line(tech: &str, name: &str, path: &[String]) -> String {
+    format!(
+        "{}ERROR: {}: requiring {} would loop this game's technology tree ({}), so the prerequisite is dropped",
+        MESSAGE_PREFIX,
+        tech,
+        name,
+        render_cycle_path(path)
+    )
+}
+
+pub(crate) fn cycle_prereq_note(name: &str) -> String {
+    format!(
+        "Requiring {} would loop this game's technology tree, so this research was left without that prerequisite. The reason is in the log.",
+        name
+    )
+}
+
+pub(crate) fn cycle_splice_line(tech: &str, before: &str, path: &[String]) -> String {
+    format!(
+        "{}ERROR: {}: making it a prerequisite of {} would loop this game's technology tree ({}), so the splice is dropped",
+        MESSAGE_PREFIX,
+        tech,
+        before,
+        render_cycle_path(path)
+    )
+}
+
+pub(crate) fn cycle_splice_note(before: &str) -> String {
+    format!(
+        "Making this research a prerequisite of {} would loop this game's technology tree, so it was left out of it. The reason is in the log.",
+        before
+    )
+}
+
+/// What a technology priced in no science pack at all logs, naming every rung
+/// the walk asked the game about.
+///
+/// THE NAMES ARE PART OF THE ANSWER. "this research names no science pack this
+/// game has" on its own tells an author that something is absent and not which
+/// thing, and the author reading it is one whose ladders all missed: the names
+/// are the rungs they wrote and the one thing that says which mod set this is.
+fn packless_line(tech: &str, names: &[String]) -> String {
+    format!(
+        "{}ERROR: {}: none of {} is a science pack this game has, so the research is emitted with no science pack and completes for free",
+        MESSAGE_PREFIX,
+        tech,
+        names.join(", ")
     )
 }
 

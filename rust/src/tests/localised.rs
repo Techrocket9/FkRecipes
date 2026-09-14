@@ -36,7 +36,7 @@ use crate::settings::MAX_LOCALISED_PARAMS;
 use crate::tests::customize::localised_descriptions;
 use crate::tests::*;
 use crate::value::{
-    chunk_localised, Value, LOCALISED_CHUNK_BUDGET, LOCALISED_ELEMENT_CEILING, MAX_ITEM_AMOUNT,
+    chunk_localised, kv, Value, LOCALISED_CHUNK_BUDGET, LOCALISED_ELEMENT_CEILING, MAX_ITEM_AMOUNT,
 };
 
 /// The ENGINE's own limit on a PROTOTYPE NAME, recorded in
@@ -128,8 +128,8 @@ fn no_composition_reaches_the_element_ceiling() {
         }
     }
     assert_eq!(
-        described, 16,
-        "the fixture emitted {} localised_description fields, not the 16 it declares; \
+        described, 24,
+        "the fixture emitted {} localised_description fields, not the 24 it declares; \
          the walk below would prove nothing about the ones it lost",
         described
     );
@@ -245,7 +245,7 @@ fn walk_value_for_ceilings(where_: &str, path: &str, v: &Value, localised: bool)
 /// reached from the PUBLIC surface and each one with the longest legal name in
 /// the slot its sentence names.
 ///
-/// SIXTEEN DESCRIPTIONS, and the count is asserted above:
+/// TWENTY-FOUR DESCRIPTIONS, and the count is asserted above:
 ///
 /// - an item with a display name and a description;
 /// - a recipe carrying the FALLBACK note, with a description and without;
@@ -254,12 +254,16 @@ fn walk_value_for_ceilings(where_: &str, path: &str, v: &Value, localised: bool)
 /// - a technology carrying the FALLBACK note, with and without;
 /// - a technology carrying the DROPPED-PACK note, with and without;
 /// - a technology carrying the PACKLESS-SOURCE note, with and without;
+/// - a technology carrying the PACKLESS note, with and without;
+/// - a technology carrying the UNREADABLE-SOURCE note, with and without;
+/// - a technology carrying the CYCLE-PREREQUISITE note, with and without;
+/// - a technology carrying the CYCLE-SPLICE note, with and without;
 /// - a technology carrying the clamped PACK note, with and without;
 /// - and an item whose description alone is long enough to NEST.
 ///
 /// THE PAIRS ARE PAIRS BECAUSE THE COMPOSITION IS WHAT IS WALKED, not the note:
 /// a note beside an author's description and a note alone are two different
-/// localised strings, and only one of them can nest. That is why a seventh note
+/// localised strings, and only one of them can nest. That is why a further note
 /// adds TWO rows here and not one.
 ///
 /// THE CLAMPED PACK NOTE IS THE SAME SENTENCE AS THE CLAMPED ITEM ONE AND IS
@@ -278,6 +282,7 @@ fn worst_case_plan() -> (Lib, FixtureWorld) {
     let absent_pack = existing_name("logistic-science-pack");
     let drop_source = existing_name("logistics-2");
     let packless_source = existing_name("steel-processing");
+    let unreadable_source = existing_name("electronics");
 
     // A description that forces `localised_group` to NEST: 7200 bytes is forty
     // chunks at the budget, and one level holds twenty.
@@ -445,6 +450,93 @@ fn worst_case_plan() -> (Lib, FixtureWorld) {
         );
     }
 
+    // THE PACKLESS NOTE: a hand-rolled unit whose only pack the game does not
+    // have, so the technology is emitted with an empty ingredient list and the
+    // tooltip says the research completes for free.
+    for (i, describe) in [false, true].into_iter().enumerate() {
+        lib.technology(
+            &declared_name(&format!("packless-unit-tech-{}", i)),
+            TechSpec {
+                description: described_prose(describe, &fixture_prose(400)),
+                unit: Some(UnitSpec {
+                    count: 10,
+                    seconds: 15.0,
+                    packs: alloc::vec![Pack::named(1, &absent_pack, &[])],
+                }),
+                ..Default::default()
+            },
+        );
+    }
+
+    // THE UNREADABLE-SOURCE NOTE: a tier whose chosen source carries a pack
+    // list in neither engine form, so the author's own declared cost applies.
+    for (i, describe) in [false, true].into_iter().enumerate() {
+        let stem = format!("unreadable-tech-{}", i);
+        let tier = lib.dropdown_setting_needing_locale(
+            &declared_name(&format!("{}-tier", stem)),
+            "early",
+            &["early"],
+        );
+        lib.technology(
+            &declared_name(&stem),
+            TechSpec {
+                description: described_prose(describe, &fixture_prose(400)),
+                cost_by: Some(CostChoices {
+                    setting: tier,
+                    choices: alloc::vec![CostChoice {
+                        value: String::from("early"),
+                        sources: alloc::vec![unreadable_source.clone()],
+                    }],
+                    fallback: UnitSpec {
+                        count: 7,
+                        seconds: 8.0,
+                        packs: alloc::vec![Pack::named(2, &pack, &[])],
+                    },
+                }),
+                ..Default::default()
+            },
+        );
+    }
+
+    // THE CYCLE-PREREQUISITE NOTE: a technology anchored After a technology the
+    // game has already been made to require it, so the plan's own prerequisite
+    // closes the ring and is dropped.
+    for (i, describe) in [false, true].into_iter().enumerate() {
+        lib.technology(
+            &declared_name(&format!("cycle-prereq-tech-{}", i)),
+            TechSpec {
+                description: described_prose(describe, &fixture_prose(400)),
+                unit: Some(UnitSpec {
+                    count: 10,
+                    seconds: 15.0,
+                    packs: alloc::vec![Pack::named(1, &pack, &[])],
+                }),
+                after: ring_anchor(i),
+                ..Default::default()
+            },
+        );
+    }
+
+    // THE CYCLE-SPLICE NOTE: an InsertBetween whose splice closes the ring,
+    // because the anchor it hangs off already leads back to the technology it
+    // is spliced into.
+    for (i, describe) in [false, true].into_iter().enumerate() {
+        lib.technology(
+            &declared_name(&format!("cycle-splice-tech-{}", i)),
+            TechSpec {
+                description: described_prose(describe, &fixture_prose(400)),
+                unit: Some(UnitSpec {
+                    count: 10,
+                    seconds: 15.0,
+                    packs: alloc::vec![Pack::named(1, &pack, &[])],
+                }),
+                after: splice_anchor(i),
+                before: splice_target(i),
+                ..Default::default()
+            },
+        );
+    }
+
     // THE CLAMPED PACK NOTE: two declared packs whose ladders land on one name,
     // each at the ceiling, so the SUM is a number no author wrote. It is the
     // only pack amount `validate_unit` does not already hold to 65535, and the
@@ -489,7 +581,51 @@ fn worst_case_plan() -> (Lib, FixtureWorld) {
             unit: unit_of(7, 8.0, &[&absent_pack]),
             max_level: Value::Nil,
             trigger: false,
+        })
+        // A unit whose ingredients array holds an entry in NEITHER engine form.
+        .with_tech(FixtureTech {
+            name: unreadable_source.clone(),
+            prereqs: Vec::new(),
+            unit: Value::Map(alloc::vec![
+                kv("count", Value::Num(7.0)),
+                kv("ingredients", Value::Arr(alloc::vec![Value::string(&pack)])),
+                kv("time", Value::Num(8.0)),
+            ]),
+            max_level: Value::Nil,
+            trigger: false,
         });
+
+    // THE TWO RINGS, one per pair, each closed through an existing technology
+    // that the fixture makes require the name this plan is about to emit.
+    // TWO SEPARATE ANCHORS PER PAIR, because the walk drops ONE edge per ring
+    // and a shared anchor would make the two rows one ring.
+    for i in 0..2 {
+        w = w.with_tech(FixtureTech {
+            name: ring_anchor(i),
+            prereqs: alloc::vec![format!(
+                "{}{}",
+                FIXTURE_PREFIX,
+                declared_name(&format!("cycle-prereq-tech-{}", i))
+            )],
+            unit: unit_of(10, 15.0, &[&pack]),
+            max_level: Value::Nil,
+            trigger: false,
+        });
+        w = w.with_tech(FixtureTech {
+            name: splice_target(i),
+            prereqs: Vec::new(),
+            unit: unit_of(10, 15.0, &[&pack]),
+            max_level: Value::Nil,
+            trigger: false,
+        });
+        w = w.with_tech(FixtureTech {
+            name: splice_anchor(i),
+            prereqs: alloc::vec![splice_target(i)],
+            unit: unit_of(10, 15.0, &[&pack]),
+            max_level: Value::Nil,
+            trigger: false,
+        });
+    }
 
     // The two texts the player typed and the library cannot use. Everything
     // else the settings answer is left absent, which is the ordinary
@@ -513,6 +649,21 @@ fn worst_case_plan() -> (Lib, FixtureWorld) {
         );
     }
     (lib, w)
+}
+
+/// The three existing technologies each ring in the fixture is closed through.
+/// They are functions rather than constants because each pair needs its OWN
+/// ring: see the loop that builds them.
+fn ring_anchor(i: usize) -> String {
+    existing_name(&format!("ring-anchor-{}", i))
+}
+
+fn splice_anchor(i: usize) -> String {
+    existing_name(&format!("splice-anchor-{}", i))
+}
+
+fn splice_target(i: usize) -> String {
+    existing_name(&format!("splice-target-{}", i))
 }
 
 /// The with-a-description arm of every pair above, and the empty string is the

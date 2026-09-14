@@ -2651,26 +2651,36 @@ fn cost_from_is_placed_by_the_ordinary_fields() {
     );
 }
 
-/// A unit whose packs ALL drop is refused by name, whether the packs came from
-/// the author's declaration or from the word that stands for it.
+/// A unit whose packs ALL drop goes packless by name, whether the packs came
+/// from the author's declaration or from the word that stands for it: the line
+/// names every rung and the technology's own tooltip says the research is free.
 #[test]
-fn a_pack_text_that_resolves_to_nothing_is_refused() {
+fn a_pack_text_that_resolves_to_nothing_goes_packless() {
     let w = base_world().with_setting("steelworks-chain-packs", Value::string("default"));
     let bare = FixtureWorld {
         tools: Vec::new(),
         ..w
     };
-    assert_eq!(
-        chain_plan().plan_data(&bare).err().as_deref(),
-        Some(packless_refusal(
+    let ops = chain_plan().plan_data(&bare).expect("plan refused");
+    assert_has_line(
+        &transcript(&ops),
+        &packless_log(
             "chain-forging",
             &[
                 "automation-science-pack",
                 "military-science-pack",
-                "logistic-science-pack"
-            ]
-        ))
-        .as_deref()
+                "logistic-science-pack",
+            ],
+        ),
+    );
+    // AND THE COST LINE DOES NOT SPELL THE EMPTY LIST WITH THE WORD THE FIELD
+    // REFUSES. The renderer's answer for an empty list is the language's
+    // reserved word; a PACK field will not take that word, and printing it in a
+    // line about that very field invites the player to paste back the one text
+    // it refuses.
+    assert_has_line(
+        &transcript(&ops),
+        "log fkrecipes: steelworks-chain-forging takes its research cost from steelworks-chain-packs: count 30, time 15, packs no science pack",
     );
 }
 
@@ -2944,36 +2954,38 @@ fn player_fields_fall_back_while_the_author_channel_still_refuses() {
         lib.technology(
             "steel-riveting",
             TechSpec {
-                // A pack the game does not have, so the ladder drops it and
-                // the unit is left with nothing to pay it with.
+                // A pack the game HAS, because a pack it lacks is a
+                // degradation now and would not stop anything.
                 unit: Some(UnitSpec {
                     count: 50,
                     seconds: 15.0,
-                    packs: vec![Pack::new("military-science-pack", 1)],
+                    packs: vec![Pack::new("automation-science-pack", 1)],
                 }),
                 ..Default::default()
             },
         );
         lib
     };
+    // THE MODPACK PROBLEM IS A RING IN SOMEBODY ELSE'S TREE, which is the one
+    // this library still refuses by name: logistics-2 requires logistics-3 and
+    // logistics-3 already requires logistics-2, so the ring holds no edge this
+    // plan made and there is nothing of ours to take back.
+    let ring = || base_world().with_prereqs("logistics-2", &["logistics", "logistics-3"]);
+    let cycle = "fkrecipes: a prerequisite cycle: logistics-2 -> logistics-3 -> logistics-2";
     let world = |text: &str, craft_time: f64| {
-        base_world()
+        ring()
             .with_setting("steelworks-rivet-ingredients", Value::string(text))
             .with_setting("steelworks-forging-time", Value::Num(craft_time))
     };
 
-    // All three at once: the packs are what stops the load, because the other
+    // All three at once: the ring is what stops the load, because the other
     // two are the player's and neither one refuses any more.
     assert_eq!(
         plan()
             .plan_data(&world("2 unobtainium", 0.001))
             .err()
             .as_deref(),
-        Some(with_fallback_fact(
-            &packless_refusal("steel-riveting", &["military-science-pack"]),
-            "steelworks-forging-time"
-        ))
-        .as_deref()
+        Some(with_fallback_fact(cycle, "steelworks-forging-time")).as_deref()
     );
 
     // AND THE SAME REFUSAL WITH NOTHING TYPED, which is what makes the added
@@ -2983,21 +2995,17 @@ fn player_fields_fall_back_while_the_author_channel_still_refuses() {
     // text because the crafting time is read first; the pair is the walk's
     // order, which is the same every run. Neither sentence sends anybody to a
     // screen the error dialog cannot reach.
-    assert_eq!(
-        plan().plan_data(&base_world()).err().as_deref(),
-        Some(packless_refusal(
-            "steel-riveting",
-            &["military-science-pack"]
-        ))
-        .as_deref()
-    );
+    assert_eq!(plan().plan_data(&ring()).err().as_deref(), Some(cycle));
 
-    // The same plan with the pack put back loads, and the two player fields are
-    // the whole log: the declared list, the declared crafting time, two lines.
-    let ok = FixtureWorld {
-        tools: strings(&["military-science-pack"]),
-        ..world("2 unobtainium", 0.001)
-    };
+    // The same plan with the ring taken out loads, and the two player fields
+    // are the whole log: the declared list, the declared crafting time, two
+    // lines.
+    let ok = base_world()
+        .with_setting(
+            "steelworks-rivet-ingredients",
+            Value::string("2 unobtainium"),
+        )
+        .with_setting("steelworks-forging-time", Value::Num(0.001));
     let ops = plan().plan_data(&ok).expect("plan refused");
     assert_lines(
         &transcript(&ops),
@@ -3008,7 +3016,7 @@ fn player_fields_fall_back_while_the_author_channel_still_refuses() {
             &(String::from(r#"extend {type="recipe", name="steelworks-steel-rivet", "#)
                 + &note_in("steelworks-forging-time", false)
                 + r#"energy_required=3, enabled=true, ingredients=[{type="item", name="iron-plate", amount=1}], results=[{type="item", name="steelworks-steel-rivet", amount=1}]}"#),
-            r#"extend {type="technology", name="steelworks-steel-riveting", unit={count=50, time=15, ingredients=[["military-science-pack", 1]]}}"#,
+            r#"extend {type="technology", name="steelworks-steel-riveting", unit={count=50, time=15, ingredients=[["automation-science-pack", 1]]}}"#,
         ],
     );
 }
@@ -3056,7 +3064,7 @@ fn a_carried_refusal_is_reported_before_the_checks_behind_it() {
                 unit: Some(UnitSpec {
                     count: 1,
                     seconds: 1.0,
-                    packs: vec![Pack::new("military-science-pack", 1)],
+                    packs: vec![Pack::new("automation-science-pack", 1)],
                 }),
                 ..Default::default()
             },
@@ -3064,11 +3072,12 @@ fn a_carried_refusal_is_reported_before_the_checks_behind_it() {
         lib
     };
 
-    // The pack is absent in both cases, so the second channel is armed
+    // The ring is there in both cases, so the second channel is armed
     // throughout and only the one in front of it is repaired.
+    let ringed = || base_world().with_prereqs("logistics-2", &["logistics", "logistics-3"]);
     assert_eq!(
         plan()
-            .plan_data(&base_world().with_setting("steelworks-axe-style", Value::string("gilded")))
+            .plan_data(&ringed().with_setting("steelworks-axe-style", Value::string("gilded")))
             .err()
             .as_deref(),
         Some("fkrecipes: steelworks-axe-style holds \"gilded\", which is not one of its values"),
@@ -3076,11 +3085,11 @@ fn a_carried_refusal_is_reported_before_the_checks_behind_it() {
     );
     assert_eq!(
         plan()
-            .plan_data(&base_world().with_setting("steelworks-axe-style", Value::string("fancy")))
+            .plan_data(&ringed().with_setting("steelworks-axe-style", Value::string("fancy")))
             .err()
             .as_deref(),
-        Some(packless_refusal("steel-axes", &["military-science-pack"])).as_deref(),
-        "the packs did not answer once the carried refusal was repaired"
+        Some("fkrecipes: a prerequisite cycle: logistics-2 -> logistics-3 -> logistics-2"),
+        "the ring did not answer once the carried refusal was repaired"
     );
 }
 
