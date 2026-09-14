@@ -111,11 +111,148 @@ pub(crate) fn str_arr(names: &[String]) -> Value {
     Value::Arr(items)
 }
 
-/// The inline localised-string form `{"", text}`. The engine takes a plain
+/// The ENGINE's limit on one STRING ELEMENT of a localised string on a
+/// DATA-STAGE prototype. [`LOCALISED_CHUNK_BUDGET`] is THIS LIBRARY's own, the
+/// size a chunk is filled to; they are different numbers on purpose, and the
+/// two blocks say why.
+///
+/// MEASURED, not assumed (Factorio 2.0.77, build 84539, mac-arm64, steam; the
+/// binary was re-asked its version before the runs), with a throwaway probe
+/// mod:
+///
+/// - 200 BYTES PER STRING ELEMENT, policed on the key slot and on every literal
+///   parameter alike. 200 loads; 201 refuses the whole load with `Error while
+///   loading recipe prototype "..." (recipe): Localised string key is too
+///   large: 201 > 200 (limit). in property tree at
+///   ROOT.recipe.<name>.localised_description[1]`. The index is 0-BASED over
+///   the elements, so `{"", X}` reports X at index 1 and a one-element `{X}` at
+///   0.
+/// - NO AGGREGATE BUDGET: sixteen elements of which fifteen are 199 bytes, 2985
+///   bytes in one description, exit 0.
+/// - BYTES AND NOT CHARACTERS: 100 x U+00E9 is 100 characters and 200 bytes and
+///   loads; 101 is 202 bytes and refuses reporting `202 > 200`.
+/// - `localised_name` is policed identically
+///   (`ROOT.recipe.inserter.localised_name[1]`), and item, recipe and
+///   technology prototypes all carry the rule.
+/// - A SETTING PROTOTYPE IS NOT SUBJECT TO IT AT ALL. A string-setting loaded
+///   with 201, 400, 1000, 2000 and 5000-byte elements in
+///   `localised_description` and in `localised_name`: exit 0 every time, no
+///   message of any kind, every byte reaching `mod-settings-dump.json`.
+///
+/// THE SETTINGS SIDE IS THEREFORE NOT CHUNKED, and that is a rule rather than
+/// an oversight. The measured negative above says it does not have to be, and
+/// the locale guard says it must not be: `localised_carries` compares a
+/// composed line WHOLE against one `Value::Str` element (`locale.rs`), so a
+/// chunked settings line would make `check_locale` report every composed line
+/// as missing and move `testdata/locale/findings.golden`. Do not unify the two
+/// sides.
+///
+/// IT IS COMPARED AGAINST AND NEVER COMPUTED WITH, the habit `CRAFT_TIME_FLOOR`
+/// established: nothing here derives the budget from it. The one reader is the
+/// host test that walks every composition this library can build, so it is
+/// gated to the test build rather than carrying a silenced `dead_code`.
+#[cfg(test)]
+pub(crate) const LOCALISED_ELEMENT_CEILING: usize = 200;
+
+/// What a chunk is filled to, twenty bytes short of the engine's ceiling
+/// ([`LOCALISED_ELEMENT_CEILING`]) for three reasons, none of them arithmetic:
+/// an off-by-one in the chunker cannot land exactly on a refusal; a hard cut
+/// inside an over-long word backs off to a UTF-8 character boundary and loses
+/// up to three bytes without approaching the ceiling; and a later edit to one
+/// of these sentences has room before anything has to be rechunked.
+pub(crate) const LOCALISED_CHUNK_BUDGET: usize = 180;
+
+/// Splits `text` into pieces no localised-string element ceiling can refuse,
+/// over BYTES, preferring to end a chunk after an ASCII space.
+///
+/// FOUR PROPERTIES, BY CONSTRUCTION:
+///
+/// - every chunk is at most [`LOCALISED_CHUNK_BUDGET`] bytes long, so no chunk
+///   can reach [`LOCALISED_ELEMENT_CEILING`];
+/// - the chunks concatenated are the input byte for byte. The engine
+///   concatenates a localised string's parameters, so nothing a player reads
+///   changes;
+/// - no chunk ever ends inside a UTF-8 character;
+/// - the split is a pure function of the bytes, so the Rust and the Go half
+///   cannot disagree about it.
+///
+/// THE CONTINUATION-BYTE BACK-OFF CANNOT SPIN. A run of continuation bytes
+/// longer than the budget is not UTF-8 at all, which a `&str` cannot be and a
+/// Go string is free to be; the guard below keeps the loop advancing on such a
+/// string rather than emitting an empty chunk forever, and the Go mirror
+/// carries the same guard so the two halves are the same code and not merely
+/// the same outcome.
+pub(crate) fn chunk_localised(text: &str) -> Vec<&str> {
+    if text.len() <= LOCALISED_CHUNK_BUDGET {
+        return alloc::vec![text];
+    }
+    let bytes = text.as_bytes();
+    let mut out = Vec::new();
+    let mut start = 0;
+    while start < bytes.len() {
+        let rem = &bytes[start..];
+        if rem.len() <= LOCALISED_CHUNK_BUDGET {
+            out.push(&text[start..]);
+            break;
+        }
+        let cut = match last_space(&rem[..LOCALISED_CHUNK_BUDGET]) {
+            // The space ENDS the chunk it was found in rather than opening the
+            // next one, so a break between words keeps the space with the words
+            // before it.
+            //
+            // IT IS NOT A CLAIM ABOUT EVERY CHUNK. The hard cut below takes no
+            // notice of what follows it, so "z"x180 + " " + "z"x100 splits into
+            // 180 and 101 bytes and the second chunk DOES begin with the space.
+            // The engine concatenates the parameters, so a reader sees the same
+            // text either way; this arm is about where a break falls when there
+            // is a choice, not about what a chunk may start with.
+            Some(sp) => sp + 1,
+            None => {
+                let mut cut = LOCALISED_CHUNK_BUDGET;
+                while cut > 0 && is_utf8_continuation(rem[cut]) {
+                    cut -= 1;
+                }
+                if cut == 0 {
+                    cut = LOCALISED_CHUNK_BUDGET;
+                }
+                cut
+            }
+        };
+        out.push(&text[start..start + cut]);
+        start += cut;
+    }
+    out
+}
+
+/// The byte index of the last ASCII space in `s`, or `None`.
+fn last_space(s: &[u8]) -> Option<usize> {
+    s.iter().rposition(|b| *b == b' ')
+}
+
+/// Whether `b` is the second or later byte of a UTF-8 character, which is where
+/// a cut may not land.
+fn is_utf8_continuation(b: u8) -> bool {
+    b & 0xC0 == 0x80
+}
+
+/// [`chunk_localised`]'s result as localised-string parameters.
+pub(crate) fn localised_chunks(text: &str) -> Vec<Value> {
+    chunk_localised(text)
+        .into_iter()
+        .map(Value::string)
+        .collect()
+}
+
+/// The inline localised-string form `{"", text}`, split across as many
+/// parameters as the engine's element ceiling needs. The engine takes a plain
 /// string as the parameter and refuses a number (measured), so the caller
 /// stringifies before it gets here.
+///
+/// A TEXT INSIDE THE BUDGET IS ONE CHUNK, so the shape stays `{"", text}` byte
+/// for byte and a golden taken before this splitter existed does not move for
+/// it.
 pub(crate) fn localised(text: &str) -> Value {
-    Value::Arr(alloc::vec![Value::string(""), Value::string(text)])
+    crate::settings::localised_group(&localised_chunks(text))
 }
 
 /// The refusal a byte string takes at the one surface of this library that

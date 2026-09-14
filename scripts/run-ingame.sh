@@ -26,17 +26,26 @@
 # mod-settings.dat by `fklua modsettings write`: a dropdown on custom with a
 # player-typed ingredient list carrying a FLUID, a research priced out of three
 # settings and placed by its own ladder with a TYPO in its pack text, a whole
-# ingredient list typed into a setting with no dropdown in front of it, and one
-# text left untouched behind a preset. Nothing but the engine can say those
-# work, because the settings stage reads a stored value and no stand-in has one.
+# ingredient list typed into a setting with no dropdown in front of it, and a
+# TYPO in an ingredient text behind a preset. Nothing but the engine can say
+# those work, because the settings stage reads a stored value and no stand-in
+# has one.
 #
-# THE TYPO IS THE ROW'S SECOND SUBJECT. An input the PLAYER controls never
-# refuses the load: the run must exit 0, the research must come out priced on
-# the packs the mod declared, and the log must carry exactly one ERROR line
-# naming the setting. Before that decision this row exited 1 with "Failed to
-# load mod" and wrote no dump, and the file that caused it was one nothing in
-# the game could then edit, so a valid edit and a refused one in ONE row is what
-# says both halves of the rule hold on a real engine.
+# THE TWO TYPOS ARE THE ROW'S SECOND SUBJECT, ONE PER CHANNEL. An input the
+# PLAYER controls never refuses the load: the run must exit 0, the research must
+# come out priced on the packs the mod declared, the quench recipe must come out
+# of the preset its dropdown names, and the log must carry exactly two ERROR
+# lines, one naming each setting. Before that decision this row exited 1 with
+# "Failed to load mod" and wrote no dump, and the file that caused it was one
+# nothing in the game could then edit, so a valid edit and a refused one in ONE
+# row is what says both halves of the rule hold on a real engine.
+#
+# AND THE RECIPE TYPO IS THE CHANNEL THAT COULD NOT BE WALKED AT ALL until the
+# library chunked its composed notes. A localised string element may be 200
+# BYTES on a data-stage prototype and the recipe note is 245 with its newline,
+# so this row exited 1 with "Localised string key is too large: 245 > 200
+# (limit)." and no dump. Both channels are walked here now, and the recipe's own
+# four description elements are pinned below.
 #
 # THE DEFAULT ROW RUNS TWICE AND THE FLIPPED ROW ONCE. Determinism is a
 # property of the data stage and not of a particular settings file, so the
@@ -691,15 +700,18 @@ jqassert "an ingredient preset puts the internal names on their own line" "$DSDU
 # ---------------------------------------------------------------------------
 echo "== checking the flipped row says something"
 
-# THE DROPDOWN DECIDES WHERE THE TEXT IS UNTOUCHED. quench-medium is on the oil
-# preset and quench-ingredients is not in the settings file at all, so the
-# preset's own plan is what the recipe comes out of, ladders and all. The mirror
-# types into that same text with the same dropdown on oil, so between the two
-# gates both sides of one pair are walked.
+# THE DROPDOWN DECIDES WHERE THE TEXT IS REFUSED, and that is the narrow
+# property the whole player-fallback decision rests on, measured here on a real
+# engine for the first time: quench-medium is on the oil preset and
+# quench-ingredients holds a text the language refuses, so the recipe comes out
+# of the preset's own plan, ladders and all, exactly as it would for a player
+# who typed nothing. The mirror leaves a dropdown deciding through an UNTOUCHED
+# text on the chain pair, so between the two gates both ways of saying "the row
+# above decides" are walked.
 # MEASURED: neither rung of that plan's oil ladder is in a stock 2.0.77 install,
 # so the third ingredient is dropped with its line and the two that resolve are
 # what the recipe carries.
-jqassert "the preset applied while its text was left untouched" "$FDUMP" \
+jqassert "the preset applied while the text beside it was refused" "$FDUMP" \
   '.recipe["fkrecipes-example-hardened-steel-plate-quenching"].ingredients ==
    [{"amount":2,"name":"steel-plate","type":"item"},{"amount":2,"name":"fkrecipes-example-steel-rivet","type":"item"}]'
 grep -q "fkrecipes: hardened-steel-plate-quenching: none of light-oil-barrel, crude-oil-barrel is present, so the ingredient is dropped" "$FLOG" ||
@@ -768,6 +780,33 @@ jqassert "the technology whose pack text was set aside says so in its own toolti
 # nothing about it was set aside and its description is the author's alone.
 jqassert "a recipe with no fallback carries the author's description and no note" "$FDUMP" \
   '.recipe["fkrecipes-example-steel-chain"].localised_description == ["", "Links of rivets"]'
+# AND THE RECIPE WHOSE INGREDIENT TEXT WAS REFUSED SAYS SO IN ITS OWN TOOLTIP,
+# WHICH IS THE ONE THING A RECIPE COULD NOT DO. A localised string element may
+# be 200 BYTES on a data-stage prototype (measured on 2.0.77: 201 refuses with
+# "Localised string key is too large: 201 > 200 (limit)." naming the 0-based
+# element, bytes and not characters, with no aggregate budget), and this note is
+# 245 bytes with its newline for this setting's name. Until the library chunked
+# it, this exact row exited 1 with no dump at all, which is the lock-out the
+# fallback exists to prevent reintroduced by the fallback's own disclosure. The
+# four elements are pinned WHOLE: the author's own sentence first, then the note
+# split at a word boundary, and the engine concatenates them back into one
+# sentence for the player.
+jqassert "the recipe whose ingredient text was set aside says so in its own tooltip" "$FDUMP" \
+  '.recipe["fkrecipes-example-hardened-steel-plate-quenching"].localised_description ==
+   ["", "Quench the plate, then temper it back to workable.",
+    "\nThe stored value of fkrecipes-example-quench-ingredients could not be used, so this mod'"'"'s own choice applies instead. The reason is in the log. Changing a recipe empties an ",
+    "assembling machine'"'"'s input slots of anything the new list does not use."]'
+# AND NO ELEMENT OF ANY LOCALISED STRING IN THE WHOLE DUMP IS OVER THE CEILING,
+# base's own prototypes included. This is the general form of the assertion
+# above and the one that does not have to be re-written when a sentence moves: a
+# composition this library grows past 200 bytes fails here by name rather than
+# at a player's engine. utf8bytelength and not length, because the rule is bytes.
+jqassert "every localised element in the flipped dump is inside the engine ceiling" "$FDUMP" \
+  '[.. | objects | (.localised_description?, .localised_name?) | select(. != null)
+    | .. | strings | select(utf8bytelength > 200)] == []'
+jqassert "every localised element in the default dump is inside the engine ceiling" "$DDUMP" \
+  '[.. | objects | (.localised_description?, .localised_name?) | select(. != null)
+    | .. | strings | select(utf8bytelength > 200)] == []'
 
 # THE LOG LINES, in the engine's own log. A player who typed gets one line per
 # thing they changed, and it renders the list CANONICALLY rather than quoting
@@ -782,13 +821,20 @@ grep -q "fkrecipes: fkrecipes-example-steel-chain takes its ingredients from fkr
 # "fkrecipes: " prefix trimmed off because the line already opens with one.
 grep -q 'fkrecipes: ERROR: fkrecipes-example-tips-packs, entry 2 ("1 militar-science-pack"): no science pack is named militar-science-pack\. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart\.' "$FLOG" ||
   fail "the refused pack text logged no ERROR line in the engine's own log"
-# AND EXACTLY ONE OF THEM. One player-controlled value in this row is wrong, so
-# one line is the whole answer: a second would mean a setting nobody edited had
-# been reported, or one field reported twice, and a gate that only asked whether
-# an ERROR line is PRESENT could not tell either apart from a pass.
+# AND THE SAME FOR THE REFUSED INGREDIENT TEXT, which is the RECIPE channel of
+# the same rule. Its sentence carries one clause the pack text's does not: what
+# the engine does to an assembling machine when the recipe it is running
+# changes, which is true of a moved ingredient list and of nothing else.
+grep -q 'fkrecipes: ERROR: fkrecipes-example-quench-ingredients, entry 1 ("2 iron-plat"): no item or fluid is named iron-plat\. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart\. Changing a recipe empties an assembling machine'"'"'s input slots of anything the new list does not use\.' "$FLOG" ||
+  fail "the refused ingredient text logged no ERROR line in the engine's own log"
+# AND EXACTLY TWO OF THEM. Two player-controlled values in this row are wrong,
+# one per channel, so two lines are the whole answer: a third would mean a
+# setting nobody edited had been reported, or one field reported twice, and a
+# gate that only asked whether an ERROR line is PRESENT could not tell either
+# apart from a pass.
 errors=$(grep -c "fkrecipes: ERROR: " "$FLOG" || true)
-[ "$errors" = 1 ] ||
-  fail "the flipped row logged $errors fkrecipes ERROR lines in the engine's own log, want 1"
+[ "$errors" = 2 ] ||
+  fail "the flipped row logged $errors fkrecipes ERROR lines in the engine's own log, want 2"
 grep -q "fkrecipes: fkrecipes-example-steel-rivet takes its ingredients from fkrecipes-example-rivet-ingredients: 2 iron-stick, 1 steel-plate" "$FLOG" ||
   fail "the edited ingredient text logged nothing in the engine's own log"
 # THE LINES THAT MUST NOT BE THERE, and the file has to EXIST for the question

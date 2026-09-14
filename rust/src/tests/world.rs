@@ -201,6 +201,19 @@ impl FixtureWorld {
         self
     }
 
+    /// A science pack: a tool-type item, so the game answers both questions
+    /// about it with yes.
+    pub(crate) fn with_tool(mut self, name: &str) -> FixtureWorld {
+        self.tools.push(String::from(name));
+        self.items.push(String::from(name));
+        self
+    }
+
+    pub(crate) fn with_fluid(mut self, name: &str) -> FixtureWorld {
+        self.fluids.push(String::from(name));
+        self
+    }
+
     pub(crate) fn without_fluid(mut self, name: &str) -> FixtureWorld {
         self.fluids.retain(|f| f.as_str() != name);
         self

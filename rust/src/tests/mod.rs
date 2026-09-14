@@ -3,6 +3,7 @@ mod customize;
 mod cycle;
 pub(crate) mod data;
 mod ingredient_list;
+mod localised;
 mod migration;
 mod settings;
 mod source;

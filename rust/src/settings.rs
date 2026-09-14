@@ -1352,7 +1352,7 @@ fn cost_preset_tail(c: &CostChoice) -> Vec<Value> {
 /// THE RULE THE VALUE DRIVES IS UNCHANGED. A dropdown with more presets than
 /// fit NESTS rather than overflowing, and nesting spends depth, which is the
 /// budget with 20 levels in it, so the overflow is a fill rather than a wall.
-const MAX_LOCALISED_PARAMS: usize = 20;
+pub(crate) const MAX_LOCALISED_PARAMS: usize = 20;
 
 /// Wraps parameters in a concatenating localised string, nesting when there are
 /// more than the engine takes: a level that would need more keeps the first
@@ -1367,7 +1367,7 @@ const MAX_LOCALISED_PARAMS: usize = 20;
 /// is a line in a tooltip rather than a load failure naming nothing useful.
 /// `an_ingredient_description_nests_past_seventeen_presets` and
 /// `a_cost_dropdown_description_nests_past_nineteen_presets` pin the two points.
-fn localised_group(params: &[Value]) -> Value {
+pub(crate) fn localised_group(params: &[Value]) -> Value {
     let mut items = alloc::vec![Value::string("")];
     if params.len() <= MAX_LOCALISED_PARAMS {
         items.extend(params.iter().cloned());

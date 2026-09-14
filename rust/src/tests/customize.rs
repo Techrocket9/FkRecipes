@@ -3642,14 +3642,12 @@ fn a_fallback_note_joins_the_authors_own_description() {
             "log fkrecipes: ERROR: steelworks-rivet-packs, entry 1 (\"1 unobtainium\"): no science pack is named unobtainium. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.",
             "log fkrecipes: steelworks-riveting takes its research cost from steelworks-rivet-packs: count 20, time 10, packs 1 automation-science-pack",
             r#"extend {type="item", name="steelworks-steel-rivet", localised_description=["", "A small steel rivet."], stack_size=50}"#,
-            &(String::from(r#"extend {type="recipe", name="steelworks-steel-rivet-forging", localised_description=["", "Forged from plate.", ""#)
-                + "\n"
-                + &crate::data::fallback_note("steelworks-rivet-ingredients", true)
-                + r#""], enabled=true, ingredients=[{type="item", name="steel-plate", amount=2}], results=[{type="item", name="steelworks-steel-rivet", amount=1}]}"#),
-            &(String::from(r#"extend {type="technology", name="steelworks-riveting", localised_description=["", "Teaches riveting.", ""#)
-                + "\n"
-                + &crate::data::fallback_note("steelworks-rivet-packs", false)
-                + r#""], unit={count=20, time=10, ingredients=[["automation-science-pack", 1]]}}"#),
+            &(String::from(r#"extend {type="recipe", name="steelworks-steel-rivet-forging", localised_description=["", "Forged from plate.", "#)
+                + &chunked_params(&(String::from("\n") + &crate::data::fallback_note("steelworks-rivet-ingredients", true)))
+                + r#"], enabled=true, ingredients=[{type="item", name="steel-plate", amount=2}], results=[{type="item", name="steelworks-steel-rivet", amount=1}]}"#),
+            &(String::from(r#"extend {type="technology", name="steelworks-riveting", localised_description=["", "Teaches riveting.", "#)
+                + &chunked_params(&(String::from("\n") + &crate::data::fallback_note("steelworks-rivet-packs", false)))
+                + r#"], unit={count=20, time=10, ingredients=[["automation-science-pack", 1]]}}"#),
         ],
     );
 }
@@ -3939,7 +3937,7 @@ fn every_composed_locale_reference_is_wrapped() {
 /// "no bare key was found" into "descriptions were composed and no bare key was
 /// in them". Without it the data-stage half of the wrapper test is green over a
 /// stage that stopped composing descriptions at all.
-fn localised_descriptions(v: &Value) -> usize {
+pub(crate) fn localised_descriptions(v: &Value) -> usize {
     match v {
         Value::Map(entries) => entries
             .iter()

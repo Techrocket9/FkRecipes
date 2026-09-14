@@ -247,8 +247,9 @@ func TestMergedItemAmountAboveTheCeilingIsClamped(t *testing.T) {
 		`log fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, and 40000 plus 30000 is above the item ceiling of 65535, so it is capped there`,
 		`extend {type="item", name="steelworks-balancer-part", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-balancer-part", ` +
-			`localised_description=["", "Two ingredients resolved onto iron-plate and the total was above what one slot holds, so it was capped at 65535. The reason is in the log. ` +
-			`Changing a recipe empties an assembling machine's input slots of anything the new list does not use."], ` +
+			`localised_description=["", ` + chunkedParams(
+			`Two ingredients resolved onto iron-plate and the total was above what one slot holds, so it was capped at 65535. The reason is in the log. `+
+				`Changing a recipe empties an assembling machine's input slots of anything the new list does not use.`) + `], ` +
 			`enabled=true, ingredients=[{type="item", name="iron-plate", amount=65535}], ` +
 			`results=[{type="item", name="steelworks-balancer-part", amount=1}]}`,
 	})
@@ -277,8 +278,9 @@ func TestMergedFluidAmountAboveTheCeilingIsClamped(t *testing.T) {
 		`log fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, and the added amount is above the fluid ceiling of 1e301, so it is capped there; the ladder from steam resolved onto it`,
 		`extend {type="item", name="steelworks-sulfuric-mix", stack_size=50}`,
 		`extend {type="recipe", name="steelworks-sulfuric-mix", ` +
-			`localised_description=["", "Two ingredients resolved onto water and the total was above the largest amount the game can hold, so it was capped at 1e301. The reason is in the log. ` +
-			`Changing a recipe empties an assembling machine's input slots of anything the new list does not use."], ` +
+			`localised_description=["", ` + chunkedParams(
+			`Two ingredients resolved onto water and the total was above the largest amount the game can hold, so it was capped at 1e301. The reason is in the log. `+
+				`Changing a recipe empties an assembling machine's input slots of anything the new list does not use.`) + `], ` +
 			`category="chemistry", enabled=true, ingredients=[{type="fluid", name="water", amount=1.0000000000000001e301}], ` +
 			`results=[{type="item", name="steelworks-sulfuric-mix", amount=1}]}`,
 	})

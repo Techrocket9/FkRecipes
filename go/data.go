@@ -1806,30 +1806,48 @@ func (r *resolution) markPackless(tech string, tried []string) {
 // THREE SHAPES AND NOT FOUR. An author's description with no note is
 // {"", "<description>"} byte for byte as it always was, so a golden taken
 // before this line existed does not move for a load nothing fell back on; a
-// description with a note adds the note as a third parameter opening with a
+// description with a note adds the note as a further parameter opening with a
 // newline; and a note with no description is the note alone in the same
-// two-element shape. Nothing is emitted when there is neither.
+// two-element shape. Nothing is emitted when there is neither. Each of the
+// three is the shape of the SHORT case: a part over the chunk budget is more
+// than one parameter, and the parameters concatenate to the same bytes.
 //
 // AN ITEM NEVER CARRIES A NOTE, so itemProto passes the empty string. The
 // fallback is about what a recipe makes or what a technology costs, and an item
 // prototype is neither.
 //
-// THE FLAT HELPER RATHER THAN THE GROUPING ONE, deliberately. localisedGroup
-// and maxLocalisedParams live on the settings side, and the ceiling they answer
-// to is 20 PARAMETERS PER TABLE and 20 LEVELS OF NESTING DEPTH (measured on
-// 2.0.77: the 21st of either refuses the load by name, and a description
-// holding 421 tables at depth 3 loads, so there is no global table budget).
-// This composition is at most three parameters at one level and two tables
-// deep, so there is nothing for a nesting rule to do here; moving the grouping
-// helper across for it would put the settings side's ceiling constant in front
-// of a data-side source property that polices what this side may name.
+// EVERY PARAMETER IS CHUNKED AND THE WHOLE IS GROUPED, because the engine
+// polices ONE STRING ELEMENT at 200 BYTES on a data-stage prototype and the
+// three notes a recipe can carry are 208, 229 and 246 bytes before any name
+// goes into them: before the splitter, no consumer on any mod name could bind a
+// text setting to a recipe's ingredient list and have the resulting fallback
+// load at all. See localisedChunkBudget and chunkLocalised for the measurement
+// and for the properties the split has by construction.
+//
+// THE DESCRIPTION AND THE NOTE ARE CHUNKED SEPARATELY, so the newline stays at
+// the head of the note's first chunk; a short description with a short note is
+// two parameters and keeps the shape it always had.
+//
+// THE GROUPING HELPER RATHER THAN THE FLAT ONE, because the parameter count
+// here is UNBOUNDED: a consumer's Description is unbounded, and a long one is
+// as many chunks as it takes. localisedGroup answers the other measured ceiling
+// (20 PARAMETERS PER TABLE and 20 LEVELS OF NESTING DEPTH, measured on 2.0.77:
+// the 21st of either refuses the load by name, and a description holding 421
+// tables at depth 3 loads, so there is no global table budget) by keeping the
+// first nineteen parameters and handing the rest to a nested group in the
+// twentieth slot. That is 19*(d-1)+20 parameters at depth d, so 381 chunks at
+// the measured depth ceiling of 20, which is 68,580 bytes of one description at
+// 180 bytes a chunk. Past that it is a consumer's own declared description that
+// refuses, and it refuses on DEPTH rather than on the element rule.
 func appendLocalised(pairs []KV, displayName, description, note string) []KV {
 	if displayName != "" {
 		pairs = append(pairs, kv("localised_name", localised(displayName)))
 	}
 	switch {
 	case description != "" && note != "":
-		pairs = append(pairs, kv("localised_description", Arr(Str(""), Str(description), Str("\n"+note))))
+		params := localisedChunks(description)
+		params = append(params, localisedChunks("\n"+note)...)
+		pairs = append(pairs, kv("localised_description", localisedGroup(params)))
 	case description != "":
 		pairs = append(pairs, kv("localised_description", localised(description)))
 	case note != "":

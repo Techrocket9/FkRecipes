@@ -14,12 +14,17 @@
 # ingredient list that takes a dropdown's chosen preset over and carries a fluid
 # and a fractional amount, a research cost overridden whole with a TYPO in its
 # pack text, a whole ingredient list typed into a setting with no dropdown in
-# front of it, and one text left untouched beside a dropdown that decides. Only
-# the engine can walk those paths, because the settings stage stores a value and
-# no stand-in has one to read back. The typo is what says a refused player text
-# LOADS: the row exits 0, the research comes out priced on the packs the chosen
-# TIER carries, and the log carries exactly one ERROR line, which before that
-# decision was a run that exited 1 and produced no dump to hash at all.
+# front of it, and a TYPO in an ingredient text beside a dropdown that decides.
+# Only the engine can walk those paths, because the settings stage stores a
+# value and no stand-in has one to read back. The two typos are what say a
+# refused player text LOADS, one per channel: the row exits 0, the research
+# comes out priced on the packs the chosen TIER carries, the quench recipe comes
+# out of the preset its dropdown names, and the log carries exactly two ERROR
+# lines. The pack typo alone was a run that exited 1 and wrote no dump to hash
+# before the fallback decision; the INGREDIENT typo was one again after it,
+# because the note a recipe carries to disclose a fallback was 245 bytes against
+# a 200-byte-per-element ceiling, and the library chunks every composed literal
+# now.
 #
 # THE BYTES OF THAT FILE ARE PINNED TOO, beside this one as flipped.golden.dat.
 # The writer belongs to the toolchain now, so the gate compares what it
@@ -42,4 +47,4 @@
 #
 # Capture both rows with: scripts/run-ingame.sh --update
 2.0.77 default e824cd8302c00fd07c3c3416ad8d9a5eea5612bce5ee455f1cf9669eee1685cd 457e7d68e6fec8ce73cd1c6571112b7813a4b2ad9f3337b71bb3a835f9c690dc base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
-2.0.77 flipped 8cf5985e3d860b84c69ee9a604c878903f8d63285ad6d3bf06d7769a0fe7dad2 457e7d68e6fec8ce73cd1c6571112b7813a4b2ad9f3337b71bb3a835f9c690dc base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
+2.0.77 flipped 77af9873b0edc7263477871a19214929486ab0df93485e2fea693b1f051058a4 457e7d68e6fec8ce73cd1c6571112b7813a4b2ad9f3337b71bb3a835f9c690dc base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77

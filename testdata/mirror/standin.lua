@@ -206,6 +206,96 @@ local function check_technology(p)
   end
 end
 
+-- THE SETTING PROTOTYPES, and this table is a lookup rather than a suffix
+-- match on purpose. It is the whole range of settingTypeName (go/settings.go)
+-- and setting_type_name (rust/src/settings.rs), both of whose default arm is
+-- string-setting, so four is all a guest of this library can reach. A match on
+-- a trailing "-setting" would exempt by SPELLING, which means a prototype type
+-- named that way later would stop being checked with nobody deciding it; this
+-- table stops being right loudly instead, by policing a row nobody has
+-- measured yet. The engine's own color-setting is deliberately absent for that
+-- reason: this library cannot emit one.
+local setting_types = {
+  ["bool-setting"] = true,
+  ["double-setting"] = true,
+  ["int-setting"] = true,
+  ["string-setting"] = true,
+}
+
+-- check_localised is the 200-BYTE-PER-ELEMENT rule, MEASURED on Factorio
+-- 2.0.77 build 84539 with a throwaway probe mod hanging a localised_description
+-- on base's own prototypes: an element of 200 bytes loads, 201 refuses the load
+-- with exit 1 and no dump. BYTES rather than characters (101 e-acutes is 101
+-- characters and 202 bytes and refuses reporting 202), and NO AGGREGATE BUDGET
+-- at all, sixteen elements of which fifteen were 199 bytes loading clean. Lua's
+-- # on a string is its byte count, which is the number the engine compares.
+--
+-- THE INDEX THE MESSAGE CARRIES IS 0-BASED over the elements while Lua's are
+-- 1-based, so the key at t[1] is the engine's [0] and the first parameter at
+-- t[2] is its [1]. A nested localised string is a parameter and a localised
+-- string in its own right, so its elements append a second bracket.
+--
+-- A SETTING PROTOTYPE IS NOT SUBJECT TO THE RULE AT ALL, measured on the same
+-- binary: a string-setting whose localised_description and localised_name each
+-- held 201, 400, 1000, 2000 and 5000-byte elements exits 0 every time, with no
+-- message of any kind and every byte reaching mod-settings-dump.json. Setting
+-- prototypes arrive through this same data:extend, so skipping them is not a
+-- convenience: a check that policed them would refuse a load the engine
+-- completes, which is the one thing this file may never do.
+--
+-- NOTHING ELSE IS ENFORCED HERE. The 20-parameter and 20-level ceilings are
+-- real and the library answers them (maxLocalisedParams carries their
+-- measurement), but this round measured only the byte rule, and a stand-in rule
+-- wider than its measurement refuses what the engine accepts.
+--
+-- A BARE STRING is legal in both fields and is NOT measured, so it is passed.
+-- The engine's sentence calls the offender a "key", which makes it likely the
+-- rule applies there too, and likely is not measured. Nothing a consumer can
+-- write reaches that form today: appendLocalised always emits the table form,
+-- and checkExtra and its Rust twin refuse localised_name and
+-- localised_description in Extra outright, on an item, a recipe and a
+-- technology alike.
+--
+-- AND THIS SEES ONLY WHAT CROSSES data:extend. A field written straight into
+-- data.raw by an OpSet never reaches here, so the stand-in would not police it;
+-- the only splice this library performs today is a technology's prerequisites,
+-- which carries no localised string, so the gap is inert. The Go and Rust walks
+-- over a plan do cover Op::Set, so it is covered somewhere even when it stops
+-- being inert.
+local function check_localised_elements(v, ptype, pname, path)
+  -- ipairs and not pairs: a localised string is the engine's own array, walked
+  -- in index order, so nothing here can depend on a table's iteration order.
+  for i, e in ipairs(v) do
+    local where = path .. "[" .. (i - 1) .. "]"
+    if type(e) == "string" then
+      if #e > 200 then
+        error("Error while loading " .. ptype .. " prototype \"" .. pname ..
+              "\" (" .. ptype .. "): Localised string key is too large: " ..
+              #e .. " > 200 (limit). in property tree at ROOT." .. ptype ..
+              "." .. pname .. "." .. where, 0)
+      end
+    elseif type(e) == "table" then
+      check_localised_elements(e, ptype, pname, where)
+    end
+  end
+end
+
+-- THE TWO NAMED FIELDS AND NOT A SHAPE GUESS. appendLocalised is this library's
+-- one writer of localised strings and writes exactly localised_name and
+-- localised_description. A walk that instead measured every field that LOOKED
+-- like a localised string would reach ingredients, effects and unit, whose long
+-- strings the engine's rule does not touch, so it would refuse loads the engine
+-- completes.
+local function check_localised(p)
+  if setting_types[p.type] then return end
+  if type(p.localised_name) == "table" then
+    check_localised_elements(p.localised_name, p.type, p.name, "localised_name")
+  end
+  if type(p.localised_description) == "table" then
+    check_localised_elements(p.localised_description, p.type, p.name, "localised_description")
+  end
+end
+
 data = { raw = {} }
 local nextend = 0
 function data:extend(list)
@@ -216,6 +306,9 @@ function data:extend(list)
     if type(p) ~= "table" then error("data:extend entry " .. i .. " is not a table", 0) end
     if type(p.type) ~= "string" then error("data:extend entry " .. i .. " has no type", 0) end
     if type(p.name) ~= "string" then error("data:extend entry " .. i .. " has no name", 0) end
+    -- The property tree is parsed BEFORE the prototype is loaded, so the byte
+    -- rule fires ahead of every legality number below.
+    check_localised(p)
     -- THE LEGALITY NUMBERS, all MEASURED rather than invented. The
     -- energy_required floor and its message are this repository's own probe
     -- (Factorio 2.0.77 build 84539): 0 and -1 refuse the load, 0.0011 and

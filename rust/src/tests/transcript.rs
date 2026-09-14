@@ -303,9 +303,26 @@ fn format_num_matches_the_go_mirror() {
 /// whole text in it rather than thirty.
 pub(crate) fn note_in(setting: &str, destroys_inputs: bool) -> String {
     format!(
-        r#"localised_description=["", "{}"], "#,
-        crate::data::fallback_note(setting, destroys_inputs)
+        r#"localised_description=["", {}], "#,
+        chunked_params(&crate::data::fallback_note(setting, destroys_inputs))
     )
+}
+
+/// One sentence as the PARAMETERS `append_localised` splits it into, quoted and
+/// comma separated the way a transcript prints them.
+///
+/// IT ASKS THE CHUNKER RATHER THAN SPELLING THE CUT, for the reason `note_in`
+/// gives about the sentence itself: a transcript here is pinning WHICH SENTENCE
+/// a prototype carries, and the split it is carried in is pinned once, with the
+/// pieces written out by hand, by `the_chunker_splits_on_spaces_within_the_budget`.
+/// Thirty transcripts carrying a hand-copied cut point would be thirty failures
+/// the day the budget moves, and none of them would be about what they test.
+pub(crate) fn chunked_params(text: &str) -> String {
+    crate::value::chunk_localised(text)
+        .into_iter()
+        .map(|p| format!(r#""{}""#, p))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// One ERROR line with the tail a RECIPE'S INGREDIENT TEXT carries and no other

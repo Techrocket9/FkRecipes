@@ -139,6 +139,26 @@ Every fact below came from a Lua-only probe mod run under `factorio -c CFG --mod
 | Unit time | `time=0`; `time=0.5` | 0: `time must be positive.`; 0.5 loads |
 | Empty unit | `unit={count=10, time=5, ingredients={}}` | loads. The library still refuses `none` for packs: whether such a research completes in a game was not measured, and a headless probe cannot |
 | Long text default | string-setting `default_value` of 2401 characters | accepted; the data stage reads back length 2401 |
+| Localised string element ceiling | `localised_description` on base's `iron-gear-wheel` recipe at `{"", 200a}` and `{"", 201a}`; the key slot as `{200b}` and `{201b}`; index 2 as `{"", "short", 200c}` and `{"", "short", 201c}`; `localised_name` at 200 and 201; a technology at 201; six elements of which five are 199 bytes, and sixteen of which fifteen are; `string.rep("\195\169", 100)` and `101` | **200 BYTES PER STRING ELEMENT**, policed on the key slot and on every literal parameter alike and reported with a 0-BASED index: 201 refuses with `Error while loading recipe prototype "iron-gear-wheel" (recipe): Localised string key is too large: 201 > 200 (limit). in property tree at ROOT.recipe.iron-gear-wheel.localised_description[1]`, exit 1, no dump, and the one-element form reports `[0]`. 200 loads everywhere. BYTES AND NOT CHARACTERS: 100 e-acutes is 100 characters and 200 bytes and loads, 101 is 202 bytes and refuses reporting `202 > 200`, so a character counter gets the boundary wrong. NO AGGREGATE BUDGET: 995 bytes in six elements and 2985 in sixteen both load. `localised_name` is policed identically (`ROOT.recipe.inserter.localised_name[1]`), and item, recipe and technology carry the same rule with their own prototype kind in the text. This is what the splitter answers |
+| The same ceiling on a SETTING prototype | a `string-setting` whose `localised_description` and `localised_name` each held 201, 400, 1000, 2000 and 5000-byte elements, run twice | **NOT SUBJECT TO IT AT ALL.** Exit 0 every time, no message of any kind in the log, and `mod-settings-dump.json` carrying every byte at its declared length. So the ceiling belongs to the data-stage prototype loader and the settings stage does not apply it, which is what keeps the splitter off the settings side, where the locale checker compares composed lines whole |
+
+The last two rows were taken on 2026-09-14, on the same binary and with base, elevated-rails, quality and space-age enabled rather than base alone: a property tree's ceiling belongs to the loader and not to a mod set, and the item-amount row above was re-taken the same way for the same reason. Their probe hangs a `localised_description` on a prototype base already ships rather than declaring one, so nothing but the string under test varies. One run per claim, the exit code read directly, and the whole of it is one shell command:
+
+```sh
+W=/tmp/lsceiling; N=201
+F="${FACTORIO_BIN:-$HOME/Library/Application Support/Steam/steamapps/common/Factorio/factorio.app/Contents/MacOS/factorio}"
+rm -rf "$W"; mkdir -p "$W/mods/lsprobe_0.0.1" "$W/userdir/config"
+printf '[path]\nread-data=__PATH__system-read-data__\nwrite-data=%s\n\n[general]\nlocale=auto\n' "$W/userdir" > "$W/userdir/config/config.ini"
+printf '{"name":"lsprobe","version":"0.0.1","title":"p","author":"a","factorio_version":"2.0","dependencies":["base"]}\n' > "$W/mods/lsprobe_0.0.1/info.json"
+printf 'data.raw.recipe["iron-gear-wheel"].localised_description = {"", string.rep("a", %s)}\n' "$N" > "$W/mods/lsprobe_0.0.1/data-final-fixes.lua"
+"$F" --version | head -1
+"$F" -c "$W/userdir/config/config.ini" --mod-directory "$W/mods" --dump-data > "$W/run.log" 2>&1
+echo "exit=$?"; grep -m1 "Localised string key is too large" "$W/run.log" || echo "(loaded)"
+```
+
+`N=201` gives `exit=1` and the refusal; `N=200` gives `exit=0` and `(loaded)`. The other rows are the same command with the body swapped, and the settings row declares a `string-setting` in a `settings.lua` beside it and reads `mod-settings-dump.json` back.
+
+ONE TRAP WORTH RECORDING, because it nearly produced a wrong answer: `mod-settings-dump.json` is written during the SETTINGS stage, before the data stage runs, so a run that refuses at the data stage still leaves a settings dump behind and a dump read after a refused run belongs to that refused run rather than to the last successful one. `scripts/run-ingame.sh` is already safe here, because it removes both dumps before every engine run and refuses if either is missing afterwards.
 
 The `mod-settings.dat` round trip, which is what lets a gate flip a text setting headlessly:
 

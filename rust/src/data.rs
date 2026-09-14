@@ -9,10 +9,10 @@ use crate::plan::{
     Amount, CostChoice, CustomCost, Ingredient, IngredientChoice, ItemDecl, Lib, Pack, RecipeDecl,
     SettingDecl, TechDecl, UnitSpec,
 };
-use crate::settings::named_cost_sources;
+use crate::settings::{localised_group, named_cost_sources};
 use crate::value::{
-    finite, kv, localised, str_arr, Value, CRAFT_TIME_FLOOR, MAX_EXACT_INT, MAX_FLUID_AMOUNT,
-    MAX_ITEM_AMOUNT,
+    finite, kv, localised, localised_chunks, str_arr, Value, CRAFT_TIME_FLOOR, MAX_EXACT_INT,
+    MAX_FLUID_AMOUNT, MAX_ITEM_AMOUNT,
 };
 use crate::world::World;
 
@@ -2303,24 +2303,40 @@ fn tech_unit(t: &TechDecl, rt: &ResolvedTech) -> Value {
 /// THREE SHAPES AND NOT FOUR. An author's description with no note is
 /// `{"", "<description>"}` byte for byte as it always was, so a golden taken
 /// before this line existed does not move for a load nothing fell back on; a
-/// description with a note adds the note as a third parameter opening with a
+/// description with a note adds the note as a further parameter opening with a
 /// newline; and a note with no description is the note alone in the same
-/// two-element shape. Nothing is emitted when there is neither.
+/// two-element shape. Nothing is emitted when there is neither. Each of the
+/// three is the shape of the SHORT case: a part over the chunk budget is more
+/// than one parameter, and the parameters concatenate to the same bytes.
 ///
 /// AN ITEM NEVER CARRIES A NOTE, so `item_proto` passes the empty string. The
 /// fallback is about what a recipe makes or what a technology costs, and an
 /// item prototype is neither.
 ///
-/// THE FLAT HELPER RATHER THAN THE GROUPING ONE, deliberately.
-/// `localised_group` and `MAX_LOCALISED_PARAMS` live on the settings side, and
-/// the ceiling they answer to is 20 PARAMETERS PER TABLE and 20 LEVELS OF
-/// NESTING DEPTH (measured on 2.0.77: the 21st of either refuses the load by
-/// name, and a description holding 421 tables at depth 3 loads, so there is no
-/// global table budget). This composition is at most three parameters at one
-/// level and two tables deep, so there is nothing for a nesting rule to do
-/// here; moving the grouping helper across for it would put the settings side's
-/// ceiling constant in front of a data-side source property that polices what
-/// this side may name.
+/// EVERY PARAMETER IS CHUNKED AND THE WHOLE IS GROUPED, because the engine
+/// polices ONE STRING ELEMENT at 200 BYTES on a data-stage prototype and the
+/// three notes a recipe can carry are 208, 229 and 246 bytes before any name
+/// goes into them: before the splitter, no consumer on any mod name could bind
+/// a text setting to a recipe's ingredient list and have the resulting fallback
+/// load at all. See `LOCALISED_CHUNK_BUDGET` and `chunk_localised` for the
+/// measurement and for the properties the split has by construction.
+///
+/// THE DESCRIPTION AND THE NOTE ARE CHUNKED SEPARATELY, so the newline stays at
+/// the head of the note's first chunk; a short description with a short note is
+/// two parameters and keeps the shape it always had.
+///
+/// THE GROUPING HELPER RATHER THAN THE FLAT ONE, because the parameter count
+/// here is UNBOUNDED: a consumer's `description` is unbounded, and a long one
+/// is as many chunks as it takes. `localised_group` answers the other measured
+/// ceiling (20 PARAMETERS PER TABLE and 20 LEVELS OF NESTING DEPTH, measured on
+/// 2.0.77: the 21st of either refuses the load by name, and a description
+/// holding 421 tables at depth 3 loads, so there is no global table budget) by
+/// keeping the first nineteen parameters and handing the rest to a nested group
+/// in the twentieth slot. That is 19*(d-1)+20 parameters at depth d, so 381
+/// chunks at the measured depth ceiling of 20, which is 68,580 bytes of one
+/// description at 180 bytes a chunk. Past that it is a consumer's own declared
+/// description that refuses, and it refuses on DEPTH rather than on the element
+/// rule.
 fn append_localised(
     pairs: &mut Vec<(String, Value)>,
     display_name: &str,
@@ -2331,14 +2347,11 @@ fn append_localised(
         pairs.push(kv("localised_name", localised(display_name)));
     }
     match (description.is_empty(), note.is_empty()) {
-        (false, false) => pairs.push(kv(
-            "localised_description",
-            Value::Arr(vec![
-                Value::string(""),
-                Value::string(description),
-                Value::Str(format!("\n{}", note)),
-            ]),
-        )),
+        (false, false) => {
+            let mut params = localised_chunks(description);
+            params.extend(localised_chunks(&format!("\n{}", note)));
+            pairs.push(kv("localised_description", localised_group(&params)));
+        }
         (false, true) => pairs.push(kv("localised_description", localised(description))),
         (true, false) => pairs.push(kv("localised_description", localised(note))),
         (true, true) => {}

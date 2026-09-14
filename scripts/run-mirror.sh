@@ -373,8 +373,17 @@ grep -q '^LOG fkrecipes: ERROR: fkrecipes-example-rivet-ingredients, entry 2 ("2
 # THE EXTEND LINES AND NOT THE WHOLE FILE, here and in the negative below: the
 # stand-in's FINAL dump is one line holding every prototype at once, so a grep
 # over the file would pass on the note landing anywhere at all.
+#
+# AND IT IS TWO ELEMENTS RATHER THAN ONE, which is the whole of the ceiling fix
+# in one line. This sentence is 243 bytes and a localised string element may be
+# 200 (measured on 2.0.77: 201 refuses the load with "Localised string key is
+# too large"), so the library chunks every composed literal at a word boundary
+# into elements of at most 180 bytes. The engine concatenates them, so the
+# player reads the same sentence; what moved is the shape, and the stand-in
+# refuses the old one now, by the same rule and with the same sentence the
+# engine uses.
 grep '^TRANSCRIPT extend#' "$T" |
-  grep -qF '"localised_description"={1="",2="The stored value of fkrecipes-example-rivet-ingredients could not be used, so this mod'"'"'s own choice applies instead. The reason is in the log. Changing a recipe empties an assembling machine'"'"'s input slots of anything the new list does not use."},"localised_name"={1="",2="Steel rivets"},"name"="fkrecipes-example-steel-rivet"' ||
+  grep -qF '"localised_description"={1="",2="The stored value of fkrecipes-example-rivet-ingredients could not be used, so this mod'"'"'s own choice applies instead. The reason is in the log. Changing a recipe empties an ",3="assembling machine'"'"'s input slots of anything the new list does not use."},"localised_name"={1="",2="Steel rivets"},"name"="fkrecipes-example-steel-rivet"' ||
   fail "the recipe whose text was set aside carries no note in its own description"
 # AND A RECIPE NOTHING FELL BACK ON CARRIES NONE, which is what says the note is
 # a consequence of the fallback rather than something every prototype now has.

@@ -1259,11 +1259,13 @@ func TestAFallbackNoteJoinsTheAuthorsOwnDescription(t *testing.T) {
 		`extend {type="item", name="steelworks-steel-rivet",` +
 			` localised_description=["", "A small steel rivet."], stack_size=50}`,
 		`extend {type="recipe", name="steelworks-steel-rivet-forging",` +
-			` localised_description=["", "Forged from plate.", "` + "\n" + fallbackNote("steelworks-rivet-ingredients", true) + `"],` +
+			` localised_description=["", "Forged from plate.", ` +
+			chunkedParams("\n"+fallbackNote("steelworks-rivet-ingredients", true)) + `],` +
 			` enabled=true, ingredients=[{type="item", name="steel-plate", amount=2}],` +
 			` results=[{type="item", name="steelworks-steel-rivet", amount=1}]}`,
 		`extend {type="technology", name="steelworks-riveting",` +
-			` localised_description=["", "Teaches riveting.", "` + "\n" + fallbackNote("steelworks-rivet-packs", false) + `"],` +
+			` localised_description=["", "Teaches riveting.", ` +
+			chunkedParams("\n"+fallbackNote("steelworks-rivet-packs", false)) + `],` +
 			` unit={count=20, time=10, ingredients=[["automation-science-pack", 1]]}}`,
 	})
 }
@@ -3013,7 +3015,25 @@ func TestARecipeTextFallbackNamesWhatChangingARecipeCosts(t *testing.T) {
 // and the line by TestPlayerFallbackLineShape, so a drift in either is one
 // failure with the whole text in it rather than thirty.
 func noteIn(setting string, destroysInputs bool) string {
-	return `localised_description=["", "` + fallbackNote(setting, destroysInputs) + `"], `
+	return `localised_description=["", ` + chunkedParams(fallbackNote(setting, destroysInputs)) + `], `
+}
+
+// chunkedParams is one sentence as the PARAMETERS appendLocalised splits it
+// into, quoted and comma separated the way a transcript prints them.
+//
+// IT ASKS THE CHUNKER RATHER THAN SPELLING THE CUT, for the reason noteIn gives
+// about the sentence itself: a transcript here is pinning WHICH SENTENCE a
+// prototype carries, and the split it is carried in is pinned once, with the
+// pieces written out by hand, by TestTheChunkerSplitsOnSpacesWithinTheBudget.
+// Thirty transcripts carrying a hand-copied cut point would be thirty failures
+// the day the budget moves, and none of them would be about what they test.
+func chunkedParams(text string) string {
+	pieces := chunkLocalised(text)
+	out := make([]string, 0, len(pieces))
+	for _, p := range pieces {
+		out = append(out, `"`+p+`"`)
+	}
+	return strings.Join(out, ", ")
 }
 
 // recipeFallbackTail is what an ingredient text's ERROR line carries past the
