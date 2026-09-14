@@ -1651,7 +1651,7 @@ func TestCustomResearchCostRefusesWhenEveryDeclaredPackDrops(t *testing.T) {
 
 	_, err := lib.PlanData(w)
 	assertRefusal(t, err,
-		"fkrecipes: the technology chain-forging has no science pack the game has; research takes at least one")
+		packlessRefusal("chain-forging", "automation-science-pack", "military-science-pack"))
 }
 
 // A NUMBER A World CAN ANSWER AND THE ENGINE CANNOT TAKE. The declared minima
@@ -1740,6 +1740,19 @@ func TestCustomResearchCostFallsBackOnANumberTheEngineWouldNotTake(t *testing.T)
 // world exists only for a host test that calls PlanData on its own. It is a
 // refusal because a declaration is not a typed value, and it is what keeps the
 // invariant that no unit this library emits carries a count the engine refuses.
+// withFallbackFact is the ONE sentence a refusal raised after resolution
+// carries when a stored value fell back on the way to it, composed here so the
+// tests that assert it cannot drift apart from each other.
+//
+// IT IS A FACT AND NAMES NO SCREEN. An earlier round appended a route to
+// Settings > Mod settings > Startup and the client cannot reach it from an
+// "Error loading mods" dialog; what survives is the half that was true, which
+// is that the player's stored value was set aside. See resolution.fallbackFact.
+func withFallbackFact(message, setting string) string {
+	return message + ". The stored value of " + setting +
+		" could not be used, so the mod's own declaration applied."
+}
+
 func TestCustomResearchCostRefusesADeclaredDefaultTheEngineWouldNotTake(t *testing.T) {
 	plan := func() *Lib {
 		lib := New()
@@ -1769,9 +1782,9 @@ func TestCustomResearchCostRefusesADeclaredDefaultTheEngineWouldNotTake(t *testi
 		withSetting("steelworks-chain-packs", Str("1 automation-science-pack"))
 
 	_, err = plan().PlanData(w)
-	assertRefusal(t, err, "fkrecipes: steelworks-chain-count declares a default research count below 1"+
-		". The stored value of steelworks-chain-count could not be used, so the mod's own declaration applied;"+
-		" correcting it under Settings > Mod settings > Startup is what a player can change here.")
+	assertRefusal(t, err, withFallbackFact(
+		"fkrecipes: steelworks-chain-count declares a default research count below 1",
+		"steelworks-chain-count"))
 }
 
 // TWO DECLARED DEFAULTS WRONG AT ONCE, AND THE COUNT IS THE ONE THAT ANSWERS.
@@ -1782,8 +1795,8 @@ func TestCustomResearchCostRefusesADeclaredDefaultTheEngineWouldNotTake(t *testi
 // and the order was free to drift between the halves. A world wrong in both
 // places is what pins it.
 //
-// NOTHING IS TYPED HERE, so the refusal carries no fallback note: both numbers
-// ARE the declared defaults rather than values something fell back onto.
+// NOTHING IS TYPED HERE: both numbers ARE the declared defaults rather than
+// values something fell back onto.
 func TestRefusedCostNumbersAnswerTheCountBeforeTheSeconds(t *testing.T) {
 	lib := New()
 	packs := lib.PacksSetting("chain-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
@@ -2366,10 +2379,11 @@ func TestSettingsPlanDoesNotRenderAnUnvalidatedChoice(t *testing.T) {
 // narrow one: a value the player TYPED never introduces a refusal that a player
 // who never typed would not also have hit. It is not "a player can never be
 // refused". The same modpack refuses the same plan with the fields untouched,
-// which is the third world below, and the only difference the typing makes is
-// the added sentence: the log ops never reach the host on a refused load, so
-// the refusal itself is the only place left to say that a stored value was set
-// aside. See resolution.withFallbackNote.
+// which is the second world below, and the only difference the typing makes is
+// one added FACT: the log ops never reach the host on a refused load, so the
+// refusal itself is the only place left to say that a stored value was set
+// aside. It says that and nothing else, because the screen the old sentence
+// routed to cannot be reached from the error dialog. See PlanData.
 func TestPlayerFieldsFallBackWhileTheAuthorChannelStillRefuses(t *testing.T) {
 	plan := func() *Lib {
 		lib := New()
@@ -2394,18 +2408,18 @@ func TestPlayerFieldsFallBackWhileTheAuthorChannelStillRefuses(t *testing.T) {
 		withSetting("steelworks-forging-time", Num(0))
 
 	_, err := plan().PlanData(w)
-	assertRefusal(t, err, "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one"+
-		". The stored value of steelworks-forging-time could not be used, so the mod's own declaration applied;"+
-		" correcting it under Settings > Mod settings > Startup is what a player can change here.")
+	assertRefusal(t, err, withFallbackFact(
+		packlessRefusal("steel-axes", "military-science-pack"), "steelworks-forging-time"))
 
-	// AND THE SAME REFUSAL WITH NOTHING TYPED, which is what makes the note a
-	// fact about this player rather than boilerplate: a player who never opened
-	// the settings screen meets the identical modpack problem, and is told only
-	// about the mod. The note names the crafting time rather than the text
-	// because the crafting time is read first; the pair is the walk's order,
-	// which is the same every run.
+	// AND THE SAME REFUSAL WITH NOTHING TYPED, which is what makes the added
+	// fact a fact about THIS player rather than boilerplate: a player who never
+	// opened the settings screen meets the identical modpack problem and is
+	// told only about the mod. The fact names the crafting time rather than the
+	// text because the crafting time is read first; the pair is the walk's
+	// order, which is the same every run. Neither sentence sends anybody to a
+	// screen the error dialog cannot reach.
 	_, err = plan().PlanData(customWorld().withoutTool("military-science-pack"))
-	assertRefusal(t, err, "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one")
+	assertRefusal(t, err, packlessRefusal("steel-axes", "military-science-pack"))
 
 	// The same plan with the pack put back loads, and the two player fields are
 	// the whole log: the declared list, the declared crafting time, two lines.
@@ -2474,7 +2488,7 @@ func TestRefusalChannelOrder(t *testing.T) {
 		{
 			name:  "then the packs the game does not have",
 			style: "fancy",
-			want:  "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one",
+			want:  packlessRefusal("steel-axes", "military-science-pack"),
 		},
 	}
 	for _, c := range cases {

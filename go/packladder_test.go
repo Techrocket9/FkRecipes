@@ -1,6 +1,22 @@
 package fkrecipes
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+// packlessRefusal is the ONE sentence a technology left with no science pack
+// earns, composed here so the ten tests that assert it cannot drift apart from
+// each other, exactly as noteIn composes the tooltip note.
+//
+// IT NAMES THE NAMES, which is the whole of what the sentence gained: an author
+// reading it is one whose ladders all missed, and the rungs they wrote are the
+// one thing that says which mod set this is.
+func packlessRefusal(tech string, tried ...string) string {
+	return "fkrecipes: the technology " + tech +
+		" has no science pack the game has; research takes at least one, and none of " +
+		strings.Join(tried, ", ") + " is a science pack here"
+}
 
 // THE SCIENCE PACK LADDER. A pack is somebody else's prototype: base's own, an
 // overhaul's, or one a modpack renamed. Before this ladder a Unit naming a pack
@@ -148,7 +164,11 @@ func TestPackLaddersThatLandOnOnePackMerge(t *testing.T) {
 	// A MERGED PACK IS HELD TO THE ITEM CEILING, and that is the engine's own
 	// rule for a unit ingredient rather than an analogy drawn from a recipe.
 	// Each of these is legal on its own; their sum is the one pack amount no
-	// author wrote.
+	// author wrote, so it is CAPPED with a line and a note rather than refused:
+	// which rung the second ladder landed on is the mod set's answer.
+	//
+	// THE NOTE CARRIES NO DESTRUCTION SENTENCE. Repricing a research empties
+	// no assembling machine, which is the same scoping the ERROR lines take.
 	over := New()
 	over.Technology("steel-axes", TechSpec{Unit: &UnitSpec{
 		Count:   50,
@@ -159,15 +179,16 @@ func TestPackLaddersThatLandOnOnePackMerge(t *testing.T) {
 		},
 	}})
 
-	_, err = over.PlanData(baseWorld())
-	if err == nil {
-		t.Fatal("the plan was accepted with a merged pack amount above the ceiling")
-	}
-	want := "fkrecipes: steel-axes: automation-science-pack is in the list twice after the fallbacks, " +
-		"and 40000 plus 30000 is above the item ceiling of 65535"
-	if err.Error() != want {
-		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
-	}
+	ops, err = over.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: steel-axes: automation-science-pack is in the list twice after the fallbacks, so the amounts are added: 40000 plus 30000 is 70000`,
+		`log fkrecipes: steel-axes: automation-science-pack is in the list twice after the fallbacks, and 40000 plus 30000 is above the item ceiling of 65535, so it is capped there`,
+		`extend {type="technology", name="steelworks-steel-axes", ` +
+			`localised_description=["", "Two ingredients resolved onto automation-science-pack and the total was above what one slot holds, so it was capped at 65535. The reason is in the log."], ` +
+			`unit={count=50, time=15, ingredients=[["automation-science-pack", 65535]]}}`,
+	})
 }
 
 // A DECLARED PACK CARRIES THE SAME 16 BITS AS AN ITEM INGREDIENT, and that is
@@ -284,7 +305,7 @@ func TestUnitWithEveryPackDroppedIsRefused(t *testing.T) {
 	if err == nil {
 		t.Fatal("a research priced in nothing the game has was accepted")
 	}
-	want := "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one"
+	want := packlessRefusal("steel-axes", "military-science-pack", "space-science-pack", "metallurgic-science-pack")
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}
@@ -314,7 +335,7 @@ func TestTheAllDroppedRefusalNamesTheFirstTechnologyDeclared(t *testing.T) {
 	if err == nil {
 		t.Fatal("two researches priced in nothing the game has were accepted")
 	}
-	want := "fkrecipes: the technology bbb-second has no science pack the game has; research takes at least one"
+	want := packlessRefusal("bbb-second", "military-science-pack")
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}
@@ -378,10 +399,9 @@ func TestTheCraftingTimeSentenceBeatsTheDroppedPacks(t *testing.T) {
 	if err == nil {
 		t.Fatal("a plan wrong three ways over was accepted")
 	}
-	want := "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, " +
-		"whose declared default is at or below the engine floor (energy_required can't be <= 0.001)" +
-		". The stored value of steelworks-axe-craft-time could not be used, so the mod's own declaration applied;" +
-		" correcting it under Settings > Mod settings > Startup is what a player can change here."
+	want := withFallbackFact("fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, "+
+		"whose declared default is at or below the engine floor (energy_required can't be <= 0.001)",
+		"steelworks-axe-craft-time")
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}
@@ -399,7 +419,7 @@ func TestTheDroppedPacksSentenceBeatsThePrerequisiteRing(t *testing.T) {
 	if err == nil {
 		t.Fatal("a plan with an unpayable cost and a prerequisite ring was accepted")
 	}
-	want := "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one"
+	want := packlessRefusal("steel-axes", "military-science-pack")
 	if err.Error() != want {
 		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}
@@ -633,5 +653,371 @@ func TestDeclaredChoicesAreSnapshotted(t *testing.T) {
 	// would no longer cover the dropdown's allowed values and would be refused.
 	if _, err := lib.PlanData(baseWorld()); err != nil {
 		t.Errorf("a snapshotted plan was refused: %s", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// A COPIED RESEARCH UNIT'S PACKS, which are the ones no ladder ever guarded.
+// ---------------------------------------------------------------------------
+
+// A COPIED UNIT USED TO BE HANDED TO THE ENGINE UNFILTERED, and the engine is
+// not forgiving about it. MEASURED on 2.0.77 build 84539, headless: a pack a
+// modpack demoted from tool to item refuses the whole load with
+// `Invalid research unit (iron-plate). Research unit(s) can only be tool type
+// items at the moment.`, and a name the game does not have at all fails
+// earlier and more coarsely, with `Error in assignID: item with name 'water'
+// does not exist.` Neither names this mod, this setting or the technology in
+// the second case, and both fire on the DEFAULT setting. So the copy is
+// filtered through the same ToolExists probe the ladder uses.
+func TestACopiedUnitDropsAPackTheGameDoesNotHave(t *testing.T) {
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{CostOf: "logistics-2"})
+
+	ops, err := lib.PlanData(baseWorld().withoutTool("logistic-science-pack"))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: steel-axes: logistic-science-pack is not a science pack this game has, so it is left out of the logistics-2 cost`,
+		`extend {type="technology", name="steelworks-steel-axes", ` +
+			`localised_description=["", "This game has no logistic-science-pack, so this research was priced without it. The reason is in the log."], ` +
+			`unit={count=200, ingredients=[["automation-science-pack", 1]], time=30}}`,
+	})
+}
+
+// THE LONG FORM TOO, because a unit this library copies is somebody else's
+// declaration and the engine takes both spellings. Only the NAME is read; the
+// entry itself is what is kept, so an amount, a quality and any field no
+// version of this library has heard of ride through the filter untouched.
+func TestACopiedUnitInTheLongIngredientFormIsFiltered(t *testing.T) {
+	long := Obj(
+		kv("count", Num(10)),
+		kv("ingredients", Arr(
+			Obj(kv("name", Str("military-science-pack")), kv("amount", Num(3))),
+			Obj(kv("name", Str("automation-science-pack")), kv("amount", Num(2)), kv("quality", Str("legendary"))),
+		)),
+		kv("time", Num(15)),
+	)
+
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{CostOf: "steel-processing"})
+
+	ops, err := lib.PlanData(baseWorld().withUnit("steel-processing", long))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: steel-axes: military-science-pack is not a science pack this game has, so it is left out of the steel-processing cost`,
+		`extend {type="technology", name="steelworks-steel-axes", ` +
+			`localised_description=["", "This game has no military-science-pack, so this research was priced without it. The reason is in the log."], ` +
+			`unit={count=10, ingredients=[{name="automation-science-pack", amount=2, quality="legendary"}], time=15}}`,
+	})
+}
+
+// A PACK NAME THIS HALF CANNOT PUT TO THE WORLD IS KEPT UNASKED, and this is
+// the ONE DELIBERATE DIVERGENCE-AVOIDANCE in the filter.
+//
+// Another mod's science pack can be named with bytes that are not UTF-8; fkdata
+// hands them over unchanged and a copied unit has always crossed byte-exact.
+// Rust's Value has a Bytes variant those arrive in and its tool_exists takes a
+// &str, so that half CANNOT ask about such a name; this half's Value holds a Go
+// string, which can carry any bytes at all, so it COULD ask and deliberately
+// does not. Without askableName this half would ask, get false, drop the pack
+// and write a drop line the other half never writes, and the mirror would part
+// over a name neither half can spell.
+//
+// SO THE PROPERTY IS BOTH HALVES OF IT: the entry survives with its bytes
+// intact, and no line is written about it. The Rust twin is
+// a_copied_unit_carries_a_pack_name_that_is_not_text.
+func TestACopiedUnitKeepsAPackNameThatIsNotText(t *testing.T) {
+	const pack = "othermod-p\xffck"
+	unit := Obj(
+		kv("count", Num(200)),
+		kv("ingredients", Arr(Arr(Str(pack), Num(1)))),
+		kv("time", Num(30)),
+	)
+
+	lib := New()
+	lib.Technology("hardened-tips", TechSpec{CostOf: "steel-processing"})
+
+	ops, err := lib.PlanData(baseWorld().withUnit("steel-processing", unit))
+	assertNoError(t, err)
+
+	// NOT ONE LINE, which is the half a rendering cannot show: a dropped pack
+	// writes a drop line, and a pack this half declined to ask about writes
+	// nothing at all.
+	for _, op := range ops {
+		if op.Kind == OpLog {
+			t.Errorf("a pack name this half cannot ask about wrote a line: %s", op.Line)
+		}
+	}
+
+	// AND THE BYTES ARE THE PROPERTY, not the rendering: the op stream is
+	// walked and the name compared byte for byte, because a transcript could
+	// agree with itself while the value carried something else.
+	found := 0
+	for _, op := range ops {
+		if op.Kind != OpExtend {
+			continue
+		}
+		u, ok := field(op.Proto, "unit")
+		if !ok {
+			t.Fatal("the technology carries no unit")
+		}
+		ings, ok := field(u, "ingredients")
+		if !ok || ings.Kind != KindArr {
+			t.Fatal("the unit carries no ingredient array")
+		}
+		for _, e := range ings.Arr {
+			if e.Kind != KindArr || len(e.Arr) < 1 || e.Arr[0].Kind != KindStr {
+				t.Fatalf("the copied entry is not the short tuple form any more: %v", e.Kind)
+			}
+			if e.Arr[0].Str != pack {
+				t.Errorf("\n got: %q\nwant: %q", e.Arr[0].Str, pack)
+			}
+			found++
+		}
+	}
+	if found != 1 {
+		t.Errorf("the copied unit emitted %d pack entries, want 1", found)
+	}
+}
+
+// AN ENTRY IN NEITHER FORM IS REFUSED RATHER THAN PASSED THROUGH. A form this
+// library cannot decode is not a licence to hand it to the engine: the name
+// inside it might be one the game does not have, and the refusal that earns
+// names neither the technology nor the property. It is the CostOf family's own
+// phrase, because it is the same fact about the same value.
+func TestACopiedUnitWhosePackListIsInNeitherFormIsRefused(t *testing.T) {
+	odd := Obj(
+		kv("count", Num(10)),
+		kv("ingredients", Arr(Str("automation-science-pack"))),
+		kv("time", Num(15)),
+	)
+
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{CostOf: "steel-processing"})
+
+	ops, err := lib.PlanData(baseWorld().withUnit("steel-processing", odd))
+	if err == nil {
+		t.Fatal("a copied unit whose pack list is in neither engine form was accepted")
+	}
+	want := "fkrecipes: steel-axes: the unit of steel-processing holds a table this library cannot copy faithfully"
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+	if ops != nil {
+		t.Errorf("a refused plan still produced %d ops", len(ops))
+	}
+
+	// AND THE LIST ITSELF IN NEITHER FORM, which is the same rule one level up:
+	// an ingredients key that is not an array at all cannot be walked, so it is
+	// refused rather than crossed unfiltered. Passing it through would hand the
+	// engine a pack list this library never read, and the refusal that earns
+	// names neither the technology nor the property.
+	notAList := Obj(
+		kv("count", Num(10)),
+		kv("ingredients", Str("automation-science-pack")),
+		kv("time", Num(15)),
+	)
+
+	ops, err = copyingSteelProcessing().PlanData(baseWorld().withUnit("steel-processing", notAList))
+	if err == nil {
+		t.Fatal("a copied unit whose ingredients key is not a list was accepted")
+	}
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+	if ops != nil {
+		t.Errorf("a refused plan still produced %d ops", len(ops))
+	}
+}
+
+// copyingSteelProcessing is the one-technology plan the copied-unit refusals
+// are read through, built fresh per world so no answer can ride from one to
+// the next.
+func copyingSteelProcessing() *Lib {
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{CostOf: "steel-processing"})
+	return lib
+}
+
+// A COPIED COST HAS NOTHING TO FALL BACK ON, which is the whole difference
+// between it and a tier: CostOf is a bare string with no declared ladder behind
+// it, so a copy that keeps no pack is refused by name rather than degraded onto
+// a cost this library would have to invent. The names are the ones it tried.
+func TestACopiedUnitThatLosesEveryPackIsRefusedByName(t *testing.T) {
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{CostOf: "steel-processing"})
+
+	ops, err := lib.PlanData(baseWorld().withoutTool("automation-science-pack"))
+	if err == nil {
+		t.Fatal("a copied cost priced in nothing the game has was accepted")
+	}
+	want := packlessRefusal("steel-axes", "automation-science-pack")
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
+	}
+	if ops != nil {
+		t.Errorf("a refused plan still produced %d ops", len(ops))
+	}
+}
+
+// A COPIED UNIT THAT NAMED NO PACK TO BEGIN WITH IS SOMEBODY ELSE'S
+// DECLARATION AND IS LEFT ALONE. Nothing dropped, so nothing degraded: the
+// packless rule is about what this mod set took away, not about what the source
+// technology was priced in, which is the same line the tier's own packs are on.
+func TestACopiedUnitThatNamedNoPackAtAllIsCopiedAsItIs(t *testing.T) {
+	empty := Obj(
+		kv("count", Num(10)),
+		kv("ingredients", Arr()),
+		kv("time", Num(15)),
+	)
+
+	lib := New()
+	lib.Technology("steel-axes", TechSpec{CostOf: "steel-processing"})
+
+	ops, err := lib.PlanData(baseWorld().withUnit("steel-processing", empty))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`extend {type="technology", name="steelworks-steel-axes", unit={count=10, ingredients=[], time=15}}`,
+	})
+}
+
+// A TIER'S CHOSEN SOURCE IS COPIED THE SAME WAY, and the drop line names the
+// source the tier landed on rather than a CostOf that is not there.
+func TestATierWhoseCopiedUnitDropsOnePackKeepsTheRest(t *testing.T) {
+	lib := New()
+	tier := lib.DropdownSettingNeedingLocale("tier", "mid", []string{"mid"})
+	lib.Technology("steel-axes", TechSpec{CostBy: &CostChoices{
+		Setting:  tier,
+		Choices:  []CostChoice{{Value: "mid", Sources: []string{"logistics-2"}}},
+		Fallback: UnitSpec{Count: 1, Seconds: 1, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+	}})
+
+	ops, err := lib.PlanData(baseWorld().withoutTool("logistic-science-pack"))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: the setting steelworks-tier was not readable, so its default applies`,
+		`log fkrecipes: steel-axes: logistic-science-pack is not a science pack this game has, so it is left out of the logistics-2 cost`,
+		`extend {type="technology", name="steelworks-steel-axes", ` +
+			`localised_description=["", "This game has no logistic-science-pack, so this research was priced without it. The reason is in the log."], ` +
+			`prerequisites=["logistics-2"], unit={count=200, ingredients=[["automation-science-pack", 1]], time=30}}`,
+	})
+}
+
+// AND A TIER THAT LOSES EVERY PACK DEGRADES INSTEAD OF REFUSING, because there
+// IS a declared cost behind it: the author's own Fallback unit, resolved through
+// the same ladder so its own absent rungs drop the same way.
+//
+// THE ERROR LINE IS NOT A PLAYER'S FALLBACK, and it carries no route to the
+// settings screen: nothing was typed, so there is no field to send anybody to.
+//
+// THE PREREQUISITE AND THE LEVEL CAP STAY. The tier still chose this rung; only
+// the price moved.
+func TestATierWhoseCopiedUnitLosesEveryPackTakesTheDeclaredFallback(t *testing.T) {
+	lib := New()
+	tier := lib.DropdownSettingNeedingLocale("tier", "early", []string{"early"})
+	lib.Technology("steel-axes", TechSpec{CostBy: &CostChoices{
+		Setting:  tier,
+		Choices:  []CostChoice{{Value: "early", Sources: []string{"steel-processing"}}},
+		Fallback: UnitSpec{Count: 7, Seconds: 8, Packs: []Pack{{Name: "chemical-science-pack", Amount: 2}}},
+	}})
+
+	ops, err := lib.PlanData(baseWorld().withoutTool("automation-science-pack"))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: the setting steelworks-tier was not readable, so its default applies`,
+		`log fkrecipes: steel-axes: automation-science-pack is not a science pack this game has, so it is left out of the steel-processing cost`,
+		`log fkrecipes: ERROR: steel-axes: the steel-processing cost names no science pack this game has, so this mod's own declared cost applies instead`,
+		`extend {type="technology", name="steelworks-steel-axes", ` +
+			`localised_description=["", "This game has none of the science packs the steel-processing cost names, so this mod's own declared cost applies. The reason is in the log."], ` +
+			`prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}`,
+	})
+}
+
+// AND WHEN THE PLAYER HAS TYPED A PACK LIST, THE TIER'S SENTENCE IS TAKEN BACK,
+// because it is not true any more.
+//
+// THE SHAPE IS THE EXAMPLE GUEST'S OWN: a technology declaring CostBy and
+// CostFrom together, on a mod set where the tier's source loses every pack. The
+// tier arm writes the ERROR line and the tooltip note BEFORE the custom cost is
+// read, so without the retraction the technology says "this mod's own declared
+// cost applies instead" while the packs, and the count and the seconds beside
+// them, are the player's. A false statement in a tooltip is worse than none.
+//
+// THE DROP LINE STAYS, because it is still true: that pack really is absent.
+func TestATypedPackListTakesBackTheTiersPacklessSentence(t *testing.T) {
+	plan := func() *Lib {
+		lib := New()
+		tier := lib.DropdownSettingNeedingLocale("tier", "early", []string{"early"})
+		packs := lib.PacksSetting("axe-packs", []Pack{{Name: "chemical-science-pack", Amount: 2}})
+		count := lib.IntSetting("axe-count", 0, Between(0, 1000))
+		seconds := lib.IntSetting("axe-seconds", 0, Between(0, 600))
+		lib.Technology("steel-axes", TechSpec{
+			CostBy: &CostChoices{
+				Setting:  tier,
+				Choices:  []CostChoice{{Value: "early", Sources: []string{"steel-processing"}}},
+				Fallback: UnitSpec{Count: 7, Seconds: 8, Packs: []Pack{{Name: "chemical-science-pack", Amount: 2}}},
+			},
+			CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
+		})
+		return lib
+	}
+
+	ops, err := plan().PlanData(baseWorld().withoutTool("automation-science-pack").
+		withSetting("steelworks-axe-packs", Str("3 logistic-science-pack")))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: the setting steelworks-tier was not readable, so its default applies`,
+		`log fkrecipes: steel-axes: automation-science-pack is not a science pack this game has, so it is left out of the steel-processing cost`,
+		`log fkrecipes: the setting steelworks-axe-count was not readable, so its default applies`,
+		`log fkrecipes: the setting steelworks-axe-seconds was not readable, so its default applies`,
+		`log fkrecipes: steelworks-steel-axes takes its research cost from steelworks-axe-packs: count 7, time 8, packs 3 logistic-science-pack; the steelworks-tier choice early supplies what the settings leave at default`,
+		`extend {type="technology", name="steelworks-steel-axes", prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["logistic-science-pack", 3]]}}`,
+	})
+
+	// AND THE SAME PLAN WITH THE FIELD LEFT ALONE KEEPS BOTH, which is what
+	// scopes the retraction to the case that made them false: here the mod's
+	// own declared cost really is what applies.
+	ops, err = plan().PlanData(baseWorld().withoutTool("automation-science-pack"))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: the setting steelworks-tier was not readable, so its default applies`,
+		`log fkrecipes: steel-axes: automation-science-pack is not a science pack this game has, so it is left out of the steel-processing cost`,
+		`log fkrecipes: ERROR: steel-axes: the steel-processing cost names no science pack this game has, so this mod's own declared cost applies instead`,
+		`log fkrecipes: the setting steelworks-axe-count was not readable, so its default applies`,
+		`log fkrecipes: the setting steelworks-axe-seconds was not readable, so its default applies`,
+		`log fkrecipes: the setting steelworks-axe-packs was not readable, so its default applies`,
+		`extend {type="technology", name="steelworks-steel-axes", ` +
+			`localised_description=["", "This game has none of the science packs the steel-processing cost names, so this mod's own declared cost applies. The reason is in the log."], ` +
+			`prerequisites=["steel-processing"], unit={count=7, time=8, ingredients=[["chemical-science-pack", 2]]}}`,
+	})
+}
+
+// AND WHEN THE DECLARED FALLBACK IS ALSO UNPAYABLE THE REFUSAL STAYS, naming
+// every rung the walk asked about: the copied pack first, then the fallback's
+// own ladder, in the order they were asked.
+func TestATierWhoseFallbackIsAlsoUnpayableStillRefuses(t *testing.T) {
+	lib := New()
+	tier := lib.DropdownSettingNeedingLocale("tier", "early", []string{"early"})
+	lib.Technology("steel-axes", TechSpec{CostBy: &CostChoices{
+		Setting: tier,
+		Choices: []CostChoice{{Value: "early", Sources: []string{"steel-processing"}}},
+		Fallback: UnitSpec{Count: 7, Seconds: 8, Packs: []Pack{
+			{Name: "military-science-pack", Amount: 2, Fallbacks: []string{"space-science-pack"}},
+		}},
+	}})
+
+	_, err := lib.PlanData(baseWorld().withoutTool("automation-science-pack"))
+	if err == nil {
+		t.Fatal("a tier whose fallback is also unpayable was accepted")
+	}
+	want := packlessRefusal("steel-axes", "automation-science-pack", "military-science-pack", "space-science-pack")
+	if err.Error() != want {
+		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
 	}
 }

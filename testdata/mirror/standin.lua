@@ -340,6 +340,23 @@ data:extend{
     research_trigger = { type = "craft-item", item = "offshore-pump" } },
 }
 
+-- A MODPACK THAT DEMOTED A SCIENCE PACK, which is finding 13 of the consumer's
+-- second migration assessment in the one shape a stand-in can hold it: the
+-- prototype stays, as an ITEM, and stops being a TOOL.
+--
+-- IT HAPPENS AFTER THE BASE ROWS AND THAT IS THE POINT. base's own military-4
+-- was declared while the pack was still a tool and is legal; the demotion is a
+-- later mod's doing, and this library's data stage runs after both. So a
+-- verbatim copy of that unit hands the engine a research priced in something it
+-- refuses, with `Invalid research unit (military-science-pack). Research
+-- unit(s) can only be tool type items at the moment.` and nothing naming this
+-- mod. check_technology above enforces exactly that sentence, so the guests'
+-- own filter is what keeps this run green.
+data.raw.item["military-science-pack"] = data.raw.tool["military-science-pack"]
+data.raw.item["military-science-pack"].type = "item"
+data.raw.item["military-science-pack"].durability = nil
+data.raw.tool["military-science-pack"] = nil
+
 print("--- SETTINGS ---")
 -- `settings` DOES NOT EXIST at the settings stage: a mod's own startup
 -- settings are not readable while they are being declared.

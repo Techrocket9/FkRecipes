@@ -206,6 +206,13 @@ impl FixtureWorld {
         self
     }
 
+    /// A science pack this mod set DEMOTED: still an item, no longer a tool,
+    /// which is the shape the engine refuses a research unit over.
+    pub(crate) fn without_tool(mut self, name: &str) -> FixtureWorld {
+        self.tools.retain(|f| f.as_str() != name);
+        self
+    }
+
     pub(crate) fn with_recipe(mut self, name: &str) -> FixtureWorld {
         self.recipes.push(String::from(name));
         self
@@ -276,7 +283,11 @@ pub(crate) fn base_world() -> FixtureWorld {
         // why the item list carries the same two names: the engine's tool
         // type is one of the 21 item types.
         fluids: strings(&["steam", "water"]),
-        tools: strings(&["automation-science-pack", "logistic-science-pack"]),
+        tools: strings(&[
+            "automation-science-pack",
+            "chemical-science-pack",
+            "logistic-science-pack",
+        ]),
         items: strings(&[
             "automation-science-pack",
             "chemical-science-pack",

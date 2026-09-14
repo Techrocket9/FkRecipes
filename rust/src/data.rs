@@ -32,7 +32,7 @@ pub(crate) type CustomCostFn = fn(
     &CustomCost,
     &CostTier,
     NoteTarget,
-) -> Option<(Value, Option<bool>)>;
+) -> Option<Value>;
 
 /// What a technology's `cost_by` dropdown settled on, handed to a custom cost
 /// so the fields the player left at their default can come from it.
@@ -50,6 +50,13 @@ pub(crate) enum CostTier {
         unit: Value,
         dropdown: String,
         chosen: String,
+        /// The technology the tier settled on, and it rides here for ONE
+        /// reason: the tier arm may already have said, in the log and in this
+        /// technology's own tooltip, that the source named no science pack
+        /// this game has and that the mod's declared cost applies instead. A
+        /// typed pack list makes both of those false, and taking them back
+        /// needs the name they were composed from.
+        source: String,
     },
 }
 
@@ -92,13 +99,15 @@ impl Lib {
         // THE CARRIED REFUSAL, FIRST. Resolution asks the World questions and
         // mostly degrades; the answers it cannot degrade are a stored value
         // that is not one of a dropdown's values (which the engine resets
-        // before any stage runs, so only a hand-edited file reaches it), a
-        // merged amount above its ceiling, and the two cost-number sentences
-        // about a DECLARED default the settings stage would already have
-        // refused. Each is carried out of the pass rather than raised inside
-        // it, because resolution answers questions and this is where a plan is
-        // refused; the FIRST one found wins, and it wins over every refusal
-        // below because it is the earliest thing the pass met.
+        // before any stage runs, so only a hand-edited file reaches it), the
+        // two cost-number sentences about a DECLARED default the settings stage
+        // would already have refused, and a copied research unit whose pack
+        // list is in neither engine form. Each is carried out of the pass
+        // rather than raised inside it, because resolution answers questions
+        // and this is where a plan is refused; the FIRST one found wins, and it
+        // wins over every refusal below because it is the earliest thing the
+        // pass met. The merged amounts that used to be here are CLAMPED now,
+        // with a line and a tooltip note each: see `merge_ingredient`.
         //
         // NOTHING A PLAYER TYPES REACHES THIS LINE ANY MORE. A refused
         // ingredient list, a setting holding something that is not text and a
@@ -110,18 +119,31 @@ impl Lib {
         // fallback lands on can fail a check further down, in a modpack where
         // the author's own packs are all absent or the author's own ladders
         // collapse onto one item; a player who never typed hits that refusal
-        // too, but a player who did type is owed the fact that their text was
-        // set aside. Every refusal below this line leaves through
-        // `with_fallback_note`, which is what says so.
+        // too.
+        //
+        // SO EVERY REFUSAL BELOW THIS LINE LEAVES THROUGH `fallback_fact`,
+        // which states the FACT and names no screen. The sentence that used to
+        // be appended here routed the player to Settings > Mod settings >
+        // Startup, and the client cannot get there from an "Error loading
+        // mods" dialog: re-measured on 2.0.77, the dialog offers Disable listed
+        // mods, Disable all mods, Manage mods, Restart, Exit and a Reset mod
+        // settings checkbox; Manage mods has no Mod settings button and its
+        // Back returns to the same dialog; Restart relaunches into an identical
+        // dialog over a file whose sha256 has not moved. What was WRONG was the
+        // route, not the fact: a player who typed something is still owed the
+        // knowledge that it was set aside, because the accumulated log ops
+        // never reach the host on a refused load. Every refusal left names what
+        // the AUTHOR must change, and that one added sentence names what the
+        // PLAYER's value did, without advice.
         if let Some(message) = &res.refusal {
-            return Err(res.with_fallback_note(message.clone()));
+            return Err(res.fallback_fact(message.clone()));
         }
         self.check_resolved_craft_times(&res)
-            .map_err(|m| res.with_fallback_note(m))?;
+            .map_err(|m| res.fallback_fact(m))?;
         self.check_resolved_packs(&res)
-            .map_err(|m| res.with_fallback_note(m))?;
+            .map_err(|m| res.fallback_fact(m))?;
         self.check_cycles(w, &res, &prefix)
-            .map_err(|m| res.with_fallback_note(m))?;
+            .map_err(|m| res.fallback_fact(m))?;
 
         let mut ops = Vec::with_capacity(
             res.logs.len() + self.items.len() + self.recipes.len() + 2 * self.techs.len(),
@@ -812,7 +834,8 @@ impl Lib {
                         continue;
                     }
                     let declared = choice_for(&by.choices, &chosen);
-                    let mut list = self.resolve_ingredients(w, &mut res, prefix, &r.name, declared);
+                    let mut list =
+                        self.resolve_ingredients(w, &mut res, tgt, prefix, &r.name, declared);
                     // A plan that named things and got none of them is a
                     // recipe made of nothing. The DEFAULT option is what
                     // applies then, because it is the one the mod ships as
@@ -825,6 +848,7 @@ impl Lib {
                         list = self.resolve_ingredients(
                             w,
                             &mut res,
+                            tgt,
                             prefix,
                             &r.name,
                             choice_for(&by.choices, &setting.def_str),
@@ -850,7 +874,7 @@ impl Lib {
                         // refused beside it anyway.
                         let declared: Vec<Ingredient> = text_default.to_vec();
                         let list =
-                            self.resolve_ingredients(w, &mut res, prefix, &r.name, &declared);
+                            self.resolve_ingredients(w, &mut res, tgt, prefix, &r.name, &declared);
                         res.add_recipe(&r.name, &product, list);
                     }
                 },
@@ -883,8 +907,41 @@ impl Lib {
             // what the technology COSTS is its own field, and where it sits
             // is the world's answer.
             if let Some(unit) = &t.spec.unit {
-                rt.packs = resolve_packs(w, &mut res, &t.name, &unit.packs);
-                rt.no_packs = rt.packs.is_empty();
+                let (packs, tried) = resolve_packs(w, &mut res, tgt, &t.name, &unit.packs);
+                if packs.is_empty() {
+                    res.mark_packless(&t.name, tried);
+                }
+                rt.packs = packs;
+            }
+
+            // THE COPIED COST, PROBED HERE RATHER THAN COPIED AT EMIT. The unit
+            // is taken verbatim, which is what carries a count_formula and
+            // everything else this library has never heard of across; what is
+            // NOT taken verbatim any more is its science packs, because a pack
+            // this game demoted or removed stops the load with a sentence
+            // naming neither this mod nor the setting. See
+            // [`filter_copied_packs`].
+            //
+            // THERE IS NOTHING TO FALL BACK ON HERE, WHICH IS THE WHOLE
+            // DIFFERENCE FROM A TIER. A `cost_of` source is a bare string with
+            // no declared ladder behind it, so a copy that keeps no pack is
+            // refused by name rather than degraded onto a cost this library
+            // would have to invent.
+            if !t.spec.cost_of.is_empty() {
+                if let Some(u) = w.tech_unit(&t.spec.cost_of) {
+                    let filtered = filter_copied_packs(&mut res, w, &t.name, &t.spec.cost_of, u);
+                    if filtered.unreadable {
+                        res.refuse(copied_unit_refusal(&t.name, &t.spec.cost_of));
+                    } else if filtered.has_list
+                        && filtered.kept == 0
+                        && !filtered.dropped.is_empty()
+                    {
+                        res.mark_packless(&t.name, filtered.dropped.clone());
+                    } else if let Some(first) = filtered.dropped.first() {
+                        res.note_on(tgt, pack_dropped_note(first));
+                    }
+                    rt.unit = Some(filtered.unit);
+                }
             }
 
             // THE PLAYER'S OWN UNIT, in the same place a hand-rolled one is
@@ -893,7 +950,7 @@ impl Lib {
             // settings are the whole price.
             if t.spec.cost_by.is_none() {
                 if let Some(cc) = &t.spec.cost_from {
-                    if let Some((unit, no_packs)) = (self.installed_custom_cost())(
+                    if let Some(unit) = (self.installed_custom_cost())(
                         self,
                         w,
                         &own,
@@ -905,9 +962,6 @@ impl Lib {
                         tgt,
                     ) {
                         rt.unit = Some(unit);
-                        if let Some(v) = no_packs {
-                            rt.no_packs = v;
-                        }
                     }
                 }
             }
@@ -960,8 +1014,11 @@ impl Lib {
                     // point of doing it at resolution: a fallback nobody
                     // reaches asks the game nothing and so can refuse
                     // nothing.
-                    let packs = resolve_packs(w, &mut res, &t.name, &by.fallback.packs);
-                    rt.no_packs = packs.is_empty();
+                    let (packs, tried) =
+                        resolve_packs(w, &mut res, tgt, &t.name, &by.fallback.packs);
+                    if packs.is_empty() {
+                        res.mark_packless(&t.name, tried);
+                    }
                     rt.unit = Some(unit_value(by.fallback.count, by.fallback.seconds, &packs));
                 } else {
                     // THE PREREQUISITE MOVES WITH THE UNIT, and it still does
@@ -969,7 +1026,53 @@ impl Lib {
                     // numbers: the tier is what named a source, and the
                     // settings beside it price the same rung rather than
                     // choosing another one.
-                    rt.prereqs = vec![source];
+                    rt.prereqs = vec![source.clone()];
+                    // AND THE COPIED PACKS ARE PROBED, which is what keeps a
+                    // mod set from stopping the load on the default setting.
+                    // See [`filter_copied_packs`] for the two engine refusals
+                    // this replaces.
+                    let copied = rt.unit.clone().expect("a chosen source settled on a unit");
+                    let filtered = filter_copied_packs(&mut res, w, &t.name, &source, copied);
+                    if filtered.unreadable {
+                        res.refuse(copied_unit_refusal(&t.name, &source));
+                    } else if filtered.has_list
+                        && filtered.kept == 0
+                        && !filtered.dropped.is_empty()
+                    {
+                        // EVERY PACK GONE, AND THERE IS A DECLARED COST BEHIND
+                        // THIS ONE: the author's own fallback unit is what the
+                        // technology is priced in, resolved through the same
+                        // ladder so its own absent rungs drop the same way. The
+                        // prerequisite and the level cap stay, because the tier
+                        // still chose this rung; only the price moved.
+                        res.logs.push(packless_source_line(&t.name, &source));
+                        res.note_on(tgt, packless_source_note(&source));
+                        let (packs, tried) =
+                            resolve_packs(w, &mut res, tgt, &t.name, &by.fallback.packs);
+                        if packs.is_empty() {
+                            // EVERY RUNG THE WALK ASKED ABOUT, COPIED PACK
+                            // FIRST. The science packs this tier's copied unit
+                            // named and lost were asked before the fallback's
+                            // own ladders were, and an author reading the
+                            // refusal is one whose ladders all missed: the
+                            // whole list of names, in the order they were
+                            // asked, is the one thing that says which mod set
+                            // this is.
+                            let mut asked = filtered.dropped.clone();
+                            asked.extend(tried);
+                            res.mark_packless(&t.name, asked);
+                        }
+                        rt.unit = Some(unit_value(by.fallback.count, by.fallback.seconds, &packs));
+                    } else {
+                        // A PACK DROPPED OUT OF A PRICE THE PLAYER CANNOT SEE
+                        // gets the note, and the FIRST one does: the tooltip
+                        // says one thing, and the log has the rest. A unit that
+                        // kept everything says nothing at all.
+                        if let Some(first) = filtered.dropped.first() {
+                            res.note_on(tgt, pack_dropped_note(first));
+                        }
+                        rt.unit = Some(filtered.unit);
+                    }
                 }
                 // THE THREE SETTINGS OVER THE TIER, where the technology
                 // declares them.
@@ -981,14 +1084,12 @@ impl Lib {
                             .expect("a CostBy technology settled on a unit"),
                         dropdown: setting.emitted_name(prefix),
                         chosen: chosen.clone(),
+                        source: source.clone(),
                     };
-                    if let Some((unit, no_packs)) = (self.installed_custom_cost())(
+                    if let Some(unit) = (self.installed_custom_cost())(
                         self, w, &own, &mut res, prefix, t, cc, &tier, tgt,
                     ) {
                         rt.unit = Some(unit);
-                        if let Some(v) = no_packs {
-                            rt.no_packs = v;
-                        }
                     }
                 }
                 res.techs.push(rt);
@@ -1108,25 +1209,34 @@ impl Lib {
         Ok(())
     }
 
-    /// A unit with no science pack left is refused, in declaration order.
+    /// A cost with no science pack left is refused, naming the first such
+    /// technology in declaration order and the names it tried.
     ///
-    /// THIS IS THE ONE PLACE A DROP BECOMES A REFUSAL. An ingredient that
-    /// drops leaves a cheaper recipe, which is a game somebody can still
-    /// play; a research unit with no packs at all is a technology the player
-    /// cannot pay for, and the engine takes it (measured only as far as the
-    /// load, so this library does not find out what it does in a game). The
-    /// author is told by name instead.
+    /// A COST WITH NO PACKS IS NOT A CHEAP RESEARCH, IT IS A FREE ONE, and
+    /// that is measured in play now rather than only as far as the load. On
+    /// 2.0.77 build 84539 a unit of `{count = 10, time = 15, ingredients = {}}`
+    /// loads with exit 0 and no engine line, `force.add_research` returns true,
+    /// the research queue takes it, progress advances in a lab holding nothing
+    /// and the technology COMPLETES after `count * time` ticks. So emitting one
+    /// is not a stuck technology, it is a free one, which is a balance change
+    /// the player did not choose.
+    ///
+    /// IT IS THE ONE ENVIRONMENTAL REFUSAL THIS MODULE STILL RAISES, and it is
+    /// here because it is the floor under the degradations rather than in front
+    /// of them: every path that HAS an author-declared cost to fall back on has
+    /// already fallen back by the time this runs, so what reaches it is a
+    /// technology with nothing left to be priced in. The threat model puts an
+    /// environment that broke the base science packs out of scope, which is the
+    /// shape of the mod set this answers for.
     fn check_resolved_packs(&self, res: &Resolution) -> Result<(), String> {
-        for (i, rt) in res.techs.iter().enumerate() {
-            if !rt.no_packs {
-                continue;
-            }
-            return Err(format!(
-                "fkrecipes: the technology {} has no science pack the game has; research takes at least one",
-                self.techs[i].name
-            ));
+        match &res.packless {
+            None => Ok(()),
+            Some((tech, tried)) => Err(format!(
+                "fkrecipes: the technology {} has no science pack the game has; research takes at least one, and none of {} is a science pack here",
+                tech,
+                tried.join(", ")
+            )),
         }
-        Ok(())
     }
 
     /// The first technology in declaration order that unlocks this recipe, by
@@ -1180,8 +1290,18 @@ pub(crate) struct RewriteRec {
 #[derive(Default)]
 pub(crate) struct ResolvedTech {
     pub(crate) prereqs: Vec<String>,
-    /// The cost a CostBy ladder settled on, and the level cap that rode
-    /// along with it. Both are None for every other cost shape.
+    /// The cost this technology settled on, and the level cap that rode along
+    /// with it.
+    ///
+    /// `unit` is Some for every cost shape that RESOLVED one, which is now all
+    /// four: `cost_of` copies its source's unit verbatim and then filters the
+    /// science packs out of it, so the unit it settles on is a fact about this
+    /// game rather than a value the emit layer can read back for itself. It is
+    /// None only where the technology named no cost at all, and for a
+    /// `cost_of` whose source carries no unit, which `validate` has already
+    /// refused. `max_level` is still a CostBy answer alone: a `cost_of` reads its
+    /// source's cap at emit, and a price this plan wrote has no source
+    /// technology to read one from.
     pub(crate) unit: Option<Value>,
     pub(crate) max_level: Option<Value>,
     pub(crate) has_enabled_by: bool,
@@ -1192,12 +1312,6 @@ pub(crate) struct ResolvedTech {
     /// CostBy technology keeps its whole unit in `unit` instead, fallback
     /// included.
     pub(crate) packs: Vec<ResolvedPack>,
-    /// Set when a unit this plan rolled ITSELF (a declared `Unit`, or a
-    /// `CostChoices` fallback that was actually reached) ended up with no
-    /// science pack the game has. Carried rather than refused on the spot,
-    /// because resolution answers questions and `plan_data` is where a plan
-    /// is refused.
-    pub(crate) no_packs: bool,
 }
 
 /// One science pack a ladder settled on.
@@ -1258,28 +1372,36 @@ pub(crate) struct Resolution {
     /// would be an iteration order this library does not allow anywhere.
     pub(crate) recipe_notes: Vec<String>,
     pub(crate) tech_notes: Vec<String>,
-    /// The FIRST answer resolution could not degrade. Every producer left is
-    /// an AUTHOR's declaration rather than a player's typing: a stored
-    /// dropdown value the setting does not offer (the engine resets one before
-    /// any stage runs, so only a hand-edited file reaches it), a merged amount
-    /// above its ceiling, and the two cost-number answers about a declared
-    /// default the settings stage would already have refused. The three that
-    /// used to be here and are not, a language refusal, "is not text" and a
-    /// research number a player's setting answered with, are now fallback
-    /// lines: see `player_fallback`. Carried rather than returned so the pass
-    /// stays one shape, and `plan_data` raises this before it reads any of it.
+    /// The FIRST answer resolution could not degrade. The producers left are a
+    /// stored dropdown value the setting does not offer (the engine resets one
+    /// before any stage runs, so only a hand-edited file reaches it), the two
+    /// cost-number answers about a declared default the settings stage would
+    /// already have refused, and a copied research unit whose pack list is in
+    /// neither engine form. The merged amounts that used to be here are CLAMPED
+    /// now, with a line and a tooltip note each: see `merge_ingredient`.
+    /// Carried rather than returned so the pass stays one shape, and
+    /// `plan_data` raises this before it reads any of it.
     pub(crate) refusal: Option<String>,
+
+    /// The FIRST technology in declaration order whose cost came to no science
+    /// pack, with the names it asked the game about, in declaration order and
+    /// once each.
+    ///
+    /// THE NAMES ARE PART OF THE ANSWER. "has no science pack the game has" on
+    /// its own tells an author that something is absent and not which thing,
+    /// and the author reading it is one whose ladders all missed: the names are
+    /// the rungs they wrote and the one thing that says which mod set this is.
+    pub(crate) packless: Option<(String, Vec<String>)>,
 
     /// Every setting whose STORED value the library could not use, in walk
     /// order and ONCE EACH.
     ///
-    /// IT IS THE DEDUPE AND THE NOTE AT ONCE. A crafting-time setting two
+    /// IT HAS TWO READERS. It is the DEDUPE: a crafting-time setting two
     /// recipes read is one field on the settings screen, so a bad value there
-    /// is one problem and gets one line however many declarations reach it;
-    /// this vector is what a second reader is checked against. And when a plan
-    /// refuses anyway, its FIRST entry is the setting the refusal's added
-    /// sentence names, because a walk-order first is the same every run. See
-    /// `with_fallback_note`.
+    /// is one problem and gets one line however many declarations reach it, and
+    /// this vector is what a second reader is checked against. And it is what
+    /// [`Resolution::fallback_fact`] states, because the first element is the
+    /// setting a refusal raised after resolution names.
     ///
     /// A VECTOR AND A LINEAR SCAN RATHER THAN A SET: the order is the answer, a
     /// set would not have one, and no plan declares enough settings for the
@@ -1389,7 +1511,7 @@ impl Resolution {
         line: String,
         destroys_inputs: bool,
     ) {
-        self.note_on(tgt, setting, destroys_inputs);
+        self.note_on(tgt, fallback_note(setting, destroys_inputs));
         if self.fell_back.iter().any(|seen| seen == setting) {
             return;
         }
@@ -1397,27 +1519,55 @@ impl Resolution {
         self.logs.push(line);
     }
 
+    /// Adds the ONE sentence a refusal owes a player whose stored value was set
+    /// aside on the way to it, and it exists because the log ops never reach
+    /// the host on a refused load.
+    ///
+    /// THE OPS ARE LOST, WHICH IS THE WHOLE REASON. `resolve` accumulates its
+    /// lines into `logs` and `plan_data` turns them into `Op`s only AFTER every
+    /// check has passed, so a plan that refuses hands the host a message and
+    /// nothing else: the player would read a refusal about the mod's own
+    /// declaration with no hint that the field they edited was set aside at
+    /// all.
+    ///
+    /// IT IS A FACT AND NOT A ROUTE, which is the whole of what changed. The
+    /// sentence used to end by sending the player to Settings > Mod settings >
+    /// Startup, and the client cannot get there from an "Error loading mods"
+    /// dialog: see [`Lib::plan_data`] for the walk that measured it. What the
+    /// dialog cannot reach is the SCREEN; the fact that a stored value was set
+    /// aside is still true and is still the one thing this message can add. So
+    /// the sentence states it and stops there: no screen, no route, no advice.
+    ///
+    /// IT APPEARS ONLY WHEN A FALLBACK HAPPENED, and it names the FIRST setting
+    /// in walk order, so a refusal on a plan nobody typed into carries nothing
+    /// and a plan with two fallbacks answers the same way every run.
+    fn fallback_fact(&self, message: String) -> String {
+        match self.fell_back.first() {
+            None => message,
+            Some(setting) => format!(
+                "{}. The stored value of {} could not be used, so the mod's own declaration applied.",
+                message, setting
+            ),
+        }
+    }
+
     /// Records the trailing line one prototype's description carries, keeping
     /// the FIRST in walk order so the sentence is the same every run.
     ///
-    /// `destroys_inputs` IS THE CALLER'S TO ANSWER AND IS NOT THE PROTOTYPE
-    /// KIND. Which prototype the note lands on says nothing about whether the
-    /// ingredient list moved: a recipe whose crafting time fell back keeps a
-    /// byte-identical ingredients list and only its `energy_required` changes,
-    /// so telling that player their assemblers are about to be emptied would be
-    /// false where they look. The sentence belongs to a fallback that changes
-    /// what the recipe is MADE OF, which is the recipe ingredient text and
-    /// nothing else, so every caller says which it is. It is the same predicate
-    /// [`text_fallback_for`] picks the ERROR line's tail with, named once in
-    /// [`moves_ingredients`] so the tooltip and the log cannot disagree about
-    /// which fallbacks destroy anything.
+    /// IT TAKES THE WHOLE SENTENCE, not the pieces one composer happens to
+    /// need. Two kinds of thing reach it: a stored value the player typed that
+    /// the library set aside ([`fallback_note`]), and an ENVIRONMENTAL
+    /// degradation nobody typed, where the game is missing something the plan
+    /// names ([`pack_dropped_note`] and its two companions). Deciding which is
+    /// which here would be a branch on a reason string, which is the shape the
+    /// destroyed-inputs correction already refused once.
     ///
     /// THE INDEX IS NEVER CHECKED, deliberately. Both vectors are sized from
     /// the declaration counts at the top of `resolve` and every index comes
     /// from the walk's own loop, so an out-of-range one is this file having
     /// gone wrong rather than anything a consumer can reach, and a panic naming
     /// the line is a better answer than a note silently dropped.
-    fn note_on(&mut self, tgt: NoteTarget, setting: &str, destroys_inputs: bool) {
+    fn note_on(&mut self, tgt: NoteTarget, note: String) {
         let notes = if tgt.tech {
             &mut self.tech_notes
         } else {
@@ -1426,33 +1576,58 @@ impl Resolution {
         if !notes[tgt.index].is_empty() {
             return;
         }
-        notes[tgt.index] = fallback_note(setting, destroys_inputs);
+        notes[tgt.index] = note;
     }
 
-    /// Adds the ONE sentence a refusal owes a player whose stored value was set
-    /// aside on the way to it, and it exists because the log ops never reach the
-    /// host on a refused load.
+    /// Takes one prototype's note back, and ONLY the exact sentence the caller
+    /// says it wrote: a slot holding anything else is somebody else's answer
+    /// and is left alone.
     ///
-    /// THE OPS ARE LOST, WHICH IS THE WHOLE REASON. `resolve` accumulates its
-    /// lines into `logs` and `plan_data` turns them into `Op`s only AFTER every
-    /// check has passed, so a plan that refuses hands the host a message and
-    /// nothing else: the player would read a refusal about the mod's own
-    /// declaration with no hint that the field they edited was set aside, and no
-    /// hint that correcting it is the one thing they can do from inside the
-    /// game. This says both, in one sentence, naming the first setting the walk
-    /// set aside.
-    ///
-    /// IT APPEARS ONLY WHEN A FALLBACK HAPPENED. A refusal on a plan nobody
-    /// typed into carries no note, so the sentence is never advice about a field
-    /// the player never touched.
-    fn with_fallback_note(&self, message: String) -> String {
-        match self.fell_back.first() {
-            None => message,
-            Some(setting) => format!(
-                "{}. The stored value of {} could not be used, so the mod's own declaration applied; correcting it under Settings > Mod settings > Startup is what a player can change here.",
-                message, setting
-            ),
+    /// IT CLEARS RATHER THAN REPLACING, deliberately. [`Resolution::note_on`]
+    /// keeps the first note in walk order and drops the rest, so a note this
+    /// one shut out is gone; handing the slot back to it would mean
+    /// remembering a sentence that was composed about the SAME price this
+    /// retraction is deleting (the fallback unit's own clamp), and a false note
+    /// is worse than no note. An empty slot emits no `localised_description`
+    /// line at all, which is exactly what a technology whose price nobody
+    /// degraded looks like.
+    fn retract_note(&mut self, tgt: NoteTarget, note: &str) {
+        let notes = if tgt.tech {
+            &mut self.tech_notes
+        } else {
+            &mut self.recipe_notes
+        };
+        if notes[tgt.index] == note {
+            notes[tgt.index] = String::new();
         }
+    }
+
+    /// Takes one accumulated log line back, the FIRST one that is exactly the
+    /// given line, so the stream reads as if the walk had never written it.
+    ///
+    /// THE LINES ARE STILL ONLY ORDERED BY THE WALK. Removing one shifts the
+    /// rest up and changes nothing else, which is what keeps the stream
+    /// deterministic: the line is composed from the same pieces the writer
+    /// used, so a line that was never written matches nothing and the call is a
+    /// no-op.
+    fn retract_log(&mut self, line: &str) {
+        if let Some(i) = self.logs.iter().position(|have| have == line) {
+            self.logs.remove(i);
+        }
+    }
+
+    /// Records the FIRST technology in declaration order whose cost came to no
+    /// science pack, with the names it asked the game about.
+    ///
+    /// THE NAMES RIDE WITH THE TECHNOLOGY, never separately: a second
+    /// technology that also lost everything must not overwrite the first one's
+    /// names and leave the sentence naming one technology's rungs under
+    /// another's name.
+    fn mark_packless(&mut self, tech: &str, tried: Vec<String>) {
+        if self.packless.is_some() {
+            return;
+        }
+        self.packless = Some((String::from(tech), tried));
     }
 }
 
@@ -1487,8 +1662,10 @@ pub(crate) const MESSAGE_PREFIX: &str = "fkrecipes: ";
 /// NOTHING WOULD NOT ALSO HAVE HIT; AN INPUT THE AUTHOR DECLARES STILL REFUSES.
 /// The claim is that narrow one on purpose: what a fallback lands on is the
 /// author's declaration, and a modpack where that declaration cannot produce a
-/// legal result stops the load either way. See `Resolution::with_fallback_note`
-/// for the sentence such a refusal then carries.
+/// legal result stops the load either way. Such a refusal carries the ONE FACT
+/// that a stored value was set aside ([`Resolution::fallback_fact`]) and NO
+/// route to the settings screen, because the client's error dialog has none:
+/// see [`Lib::plan_data`] for the client walk that settled it.
 ///
 /// MEASURED (Factorio 2.0.77, build 84539): the engine
 /// rewrites mod-settings.dat on every successful load and on NO failed one
@@ -1618,14 +1795,71 @@ pub(crate) const RECIPE_CHANGE_SENTENCE: &str = "Changing a recipe empties an as
 /// `destroys_inputs` is true only where the ingredient list itself changed. See
 /// [`Resolution::note_on`].
 pub(crate) fn fallback_note(setting: &str, destroys_inputs: bool) -> String {
-    let note = format!(
-        "The stored value of {} could not be used, so this mod's own choice applies instead. The reason is in the log.",
-        setting
-    );
+    with_destruction(
+        format!(
+            "The stored value of {} could not be used, so this mod's own choice applies instead. The reason is in the log.",
+            setting
+        ),
+        destroys_inputs,
+    )
+}
+
+/// The one place the engine's own permanent cost is joined to a note, so a
+/// sentence about an emptied assembling machine cannot be written onto a
+/// prototype whose ingredient list did not move. See [`Resolution::note_on`].
+pub(crate) fn with_destruction(note: String, destroys_inputs: bool) -> String {
     if destroys_inputs {
         return format!("{} {}", note, RECIPE_CHANGE_SENTENCE);
     }
     note
+}
+
+/// The three notes an ENVIRONMENTAL degradation leaves in the prototype's own
+/// description, in the voice [`fallback_note`] established and for the same
+/// reason: THE LOG IS NOT A DISCLOSURE.
+///
+/// THEY ARE NOT FALLBACK NOTES AND MUST NOT READ AS ONE. Nothing was stored, so
+/// there is no field to go and fix and no "stored value" to name: the game
+/// itself is missing something the plan names, and the only honest thing to say
+/// is what is missing and what the library did instead. That is also why they
+/// do not go through `player_fallback` on the log side.
+///
+/// SCOPED TO THIS ROUND'S DEGRADATIONS AND NOT TO THE LADDER. A resolve-or-drop
+/// ingredient ladder is the library's advertised contract and the dropdown's
+/// own composed description already discloses it ("where one names something
+/// your mods do not have, the nearest thing they do have is used instead"); a
+/// clamped amount and a dropped science pack are arithmetic and presence a
+/// player cannot check anywhere.
+pub(crate) fn pack_dropped_note(name: &str) -> String {
+    format!(
+        "This game has no {}, so this research was priced without it. The reason is in the log.",
+        name
+    )
+}
+
+pub(crate) fn packless_source_note(source: &str) -> String {
+    format!(
+        "This game has none of the science packs the {} cost names, so this mod's own declared cost applies. The reason is in the log.",
+        source
+    )
+}
+
+/// `clamped_item_note` and `clamped_fluid_note` are one degradation with two
+/// ceilings, and they are two sentences because "what one slot holds" is true
+/// of an item stack and false of a fluid. The numbers are spelled here rather
+/// than formatted, for the reason `merged_opening`'s own comment gives.
+pub(crate) fn clamped_item_note(name: &str) -> String {
+    format!(
+        "Two ingredients resolved onto {} and the total was above what one slot holds, so it was capped at {}. The reason is in the log.",
+        name, MAX_ITEM_AMOUNT
+    )
+}
+
+pub(crate) fn clamped_fluid_note(name: &str) -> String {
+    format!(
+        "Two ingredients resolved onto {} and the total was above the largest amount the game can hold, so it was capped at 1e301. The reason is in the log.",
+        name
+    )
 }
 
 /// The one sentence a stored value that is not text is answered with, built in
@@ -1976,7 +2210,7 @@ fn tech_proto(
     if !rt.prereqs.is_empty() {
         pairs.push(kv("prerequisites", str_arr(&rt.prereqs)));
     }
-    pairs.push(kv("unit", tech_unit(w, t, rt)));
+    pairs.push(kv("unit", tech_unit(t, rt)));
     // max_level lives on the TECHNOLOGY, not in its unit, so copying the unit
     // verbatim carries a count_formula but leaves the level cap behind.
     // cost_of is one named point for cost AND position, so it reads the cap
@@ -2029,24 +2263,20 @@ fn tech_proto(
     Value::Map(pairs)
 }
 
-fn tech_unit(w: &dyn World, t: &TechDecl, rt: &ResolvedTech) -> Value {
-    if t.spec.cost_by.is_some() || t.spec.cost_from.is_some() {
-        // Resolution walked the ladder and settled this, fallback included;
-        // a CostFrom unit was built there too, out of the player's settings.
-        return rt.unit.clone().unwrap_or(Value::Nil);
-    }
+fn tech_unit(t: &TechDecl, rt: &ResolvedTech) -> Value {
     match &t.spec.unit {
         // Technology unit ingredients are the SHORT TUPLE form. The dict form
         // is refused here by the engine. The packs are the RESOLVED ones:
         // resolution walked each ladder, and a pack the game does not have is
         // already gone with its log line behind it.
         Some(unit) => unit_value(unit.count, unit.seconds, &rt.packs),
-        // Verbatim, whatever it holds: a count_formula is a string and
-        // copying one needs no evaluator, so multi-level and infinite
-        // technologies come along for free. Validation proved the unit is
-        // there; the absent case still maps to the same nil the Go mirror
-        // returns.
-        None => w.tech_unit(&t.spec.cost_of).unwrap_or(Value::Nil),
+        // EVERY OTHER ARM SETTLED ITS COST DURING RESOLUTION, `cost_of` with
+        // the rest: a copied unit's science packs are a question about the
+        // game, so they are asked where every other question about the game is
+        // asked and where a log line can still be written. A source that
+        // answers with no unit at all leaves this None, which is the same nil
+        // the Go mirror returns.
+        None => rt.unit.clone().unwrap_or(Value::Nil),
     }
 }
 
@@ -2814,7 +3044,7 @@ impl Lib {
         cc: &CustomCost,
         tier: &CostTier,
         tgt: NoteTarget,
-    ) -> Option<(Value, Option<bool>)> {
+    ) -> Option<Value> {
         let lang = self.installed_language();
         let has_tier = matches!(tier, CostTier::Chosen { .. });
         // EACH NUMBER IS HELD TO WHAT THE ENGINE TAKES WHERE IT IS READ, and
@@ -2873,13 +3103,19 @@ impl Lib {
 
         let count_set = count != self.settings[cc.count.index - 1].def_num;
         let seconds_set = seconds != self.settings[cc.seconds.index - 1].def_num;
-        let (tier_unit, dropdown, chosen) = match tier {
+        let (tier_unit, dropdown, chosen, tier_source) = match tier {
             CostTier::Chosen {
                 unit,
                 dropdown,
                 chosen,
-            } => (Some(unit), dropdown.as_str(), chosen.as_str()),
-            CostTier::None => (None, "", ""),
+                source,
+            } => (
+                Some(unit),
+                dropdown.as_str(),
+                chosen.as_str(),
+                source.as_str(),
+            ),
+            CostTier::None => (None, "", "", ""),
         };
         if has_tier && !count_set && !seconds_set && typed.is_none() {
             return None;
@@ -2889,21 +3125,41 @@ impl Lib {
         // what the player typed, then the tier's own ingredients, then the
         // author's declared list with its ladders walked and its drops logged.
         //
-        // A TIER'S OWN PACKS ARE NOT THIS LIBRARY'S BUSINESS, so the mark is
-        // left exactly as the tier left it: `None` here means "do not touch
-        // it". They are another technology's declaration, and a reader of this
-        // library that failed to recognise a shape would otherwise refuse a
-        // load over packs that are perfectly there.
-        let mut no_packs = Some(false);
+        // A TIER'S OWN PACKS ARE NOT HELD TO THE PACKLESS RULE. They are
+        // another technology's declaration, and the tier arm has already probed
+        // them against the game and degraded where it had to: nothing is left
+        // for this arm to mark.
         let packs: Vec<ResolvedPack> = match (&typed, tier_unit) {
             (Some(list), _) => {
-                // A TYPED PACK LIST IS WHAT THIS TECHNOLOGY IS PRICED IN, so it
-                // is not packless any more. The only way the mark is here
-                // already is the CostBy fallback having lost every pack it
-                // declared a moment ago, and that unit's ingredients are about
-                // to be written over: refusing the load over packs nothing
-                // emits would be a refusal a player's own text had removed. The
-                // drop lines stay, because they are true.
+                // A TYPED PACK LIST IS WHAT THIS TECHNOLOGY IS PRICED IN, so
+                // everything the tier arm said about the TIER'S packs is now
+                // about a price nothing emits, and each piece of it is taken
+                // back here.
+                //
+                // THE MARK FIRST. The only way it is here already is the CostBy
+                // fallback having lost every pack it declared a moment ago, and
+                // that unit's ingredients are about to be written over:
+                // refusing the load over packs nothing emits would be a refusal
+                // a player's own text had removed.
+                if has_tier && res.packless.as_ref().is_some_and(|(n, _)| *n == t.name) {
+                    res.packless = None;
+                }
+                // AND THEN THE SENTENCE AND THE LINE, which is the half a mark
+                // does not cover. A tier whose source lost every pack says so
+                // in the log and in this technology's own tooltip and falls
+                // back to the mod's declared cost; when the player has ALSO
+                // typed a pack list, the packs (and maybe the count and the
+                // seconds) are theirs, so "this mod's own declared cost applies
+                // instead" is a false statement in a tooltip. It is composed
+                // from the source's name, which is why the tier carries it.
+                //
+                // THE DROP LINES STAY, because they are true: those packs
+                // really are absent from this game, and the line says only
+                // that.
+                if !tier_source.is_empty() {
+                    res.retract_log(&packless_source_line(&t.name, tier_source));
+                    res.retract_note(tgt, &packless_source_note(tier_source));
+                }
                 list.iter()
                     .map(|p| ResolvedPack {
                         name: p.name.clone(),
@@ -2911,13 +3167,12 @@ impl Lib {
                     })
                     .collect()
             }
-            (None, Some(unit)) => {
-                no_packs = None;
-                tier_pack_list(unit)
-            }
+            (None, Some(unit)) => tier_pack_list(unit),
             (None, None) => {
-                let packs = resolve_packs(w, res, &t.name, &s.def_packs);
-                no_packs = Some(packs.is_empty());
+                let (packs, tried) = resolve_packs(w, res, tgt, &t.name, &s.def_packs);
+                if packs.is_empty() {
+                    res.mark_packless(&t.name, tried);
+                }
                 packs
             }
         };
@@ -3056,7 +3311,7 @@ impl Lib {
             }
         };
         res.logs.push(line);
-        Some((unit, no_packs))
+        Some(unit)
     }
 
     /// One of a custom cost's two numbers, held to what the engine takes,
@@ -3140,6 +3395,7 @@ impl Lib {
         &self,
         w: &dyn World,
         res: &mut Resolution,
+        tgt: NoteTarget,
         prefix: &str,
         recipe: &str,
         ings: &[Ingredient],
@@ -3154,7 +3410,7 @@ impl Lib {
                 // cannot reach (this library declares items, never fluids).
                 let name = self.items[ing.item.index - 1].emitted_name(prefix);
                 let from = name.clone();
-                merge_ingredient(res, &mut list, recipe, name, &from, ing.amount);
+                merge_ingredient(res, tgt, &mut list, recipe, name, &from, ing.amount);
                 continue;
             }
             let mut picked: Option<String> = None;
@@ -3173,9 +3429,15 @@ impl Lib {
                 }
             }
             match picked {
-                Some(name) => {
-                    merge_ingredient(res, &mut list, recipe, name, &ing.candidates[0], ing.amount)
-                }
+                Some(name) => merge_ingredient(
+                    res,
+                    tgt,
+                    &mut list,
+                    recipe,
+                    name,
+                    &ing.candidates[0],
+                    ing.amount,
+                ),
                 None => res.logs.push(format!(
                     "fkrecipes: {}: none of {} is present, so the ingredient is dropped",
                     recipe,
@@ -3222,6 +3484,7 @@ impl Lib {
 /// the author could go and change.
 fn merge_ingredient(
     res: &mut Resolution,
+    tgt: NoteTarget,
     list: &mut Vec<ResolvedIngredient>,
     subject: &str,
     name: String,
@@ -3235,23 +3498,33 @@ fn merge_ingredient(
         match (e.amount, amount) {
             (Amount::Item(a), Amount::Item(b)) => {
                 res.logs.push(merged_item_line(subject, &name, a, b));
-                let sum = a.saturating_add(b);
+                let mut sum = a.saturating_add(b);
                 if sum > MAX_ITEM_AMOUNT {
-                    res.refuse(merged_item_refusal(subject, &name, a, b));
+                    res.logs.push(merged_item_clamp(subject, &name, a, b));
+                    res.note_on(tgt, with_destruction(clamped_item_note(&name), true));
+                    sum = MAX_ITEM_AMOUNT;
                 }
                 e.amount = Amount::Item(sum);
                 return;
             }
             (Amount::Fluid(a), Amount::Fluid(b)) => {
                 res.logs.push(merged_fluid_line(subject, &name, from));
-                let sum = a + b;
+                let mut sum = a + b;
                 // THE CEILING IS RE-ASKED HERE AND NOWHERE ELSE. Both amounts
                 // crossed validate_ingredients on their own and both were
                 // legal; their sum is a number no author wrote, and above the
                 // engine's wall it does not refuse, it ABORTS (see
                 // MAX_FLUID_AMOUNT).
+                //
+                // AND IT CLAMPS RATHER THAN REFUSING. Which rungs the ladders
+                // landed on is a fact about the mod set, so this is an
+                // ENVIRONMENTAL check: a modpack that removed two first rungs
+                // must not stop the load on a number arithmetic can pin at the
+                // ceiling the engine itself takes.
                 if sum > MAX_FLUID_AMOUNT {
-                    res.refuse(merged_fluid_refusal(subject, &name, from));
+                    res.logs.push(merged_fluid_clamp(subject, &name, from));
+                    res.note_on(tgt, with_destruction(clamped_fluid_note(&name), true));
+                    sum = MAX_FLUID_AMOUNT;
                 }
                 e.amount = Amount::Fluid(sum);
                 return;
@@ -3270,7 +3543,13 @@ fn merge_ingredient(
 /// `merge_ingredient` for a science pack, whose subject is the technology and
 /// whose kind is never in question: the ladder asks `tool_exists`, a tool is an
 /// item, so a pack list has one namespace and the names alone decide identity.
-fn merge_pack(res: &mut Resolution, list: &mut Vec<ResolvedPack>, subject: &str, p: ResolvedPack) {
+fn merge_pack(
+    res: &mut Resolution,
+    tgt: NoteTarget,
+    list: &mut Vec<ResolvedPack>,
+    subject: &str,
+    p: ResolvedPack,
+) {
     for e in list.iter_mut() {
         if e.name != p.name {
             continue;
@@ -3283,10 +3562,16 @@ fn merge_pack(res: &mut Resolution, list: &mut Vec<ResolvedPack>, subject: &str,
         // 65536, 2^31 and 2^53 each refuse with "The data type allows values
         // from 0 to 65535" at ROOT.technology.<name>.unit.ingredients[0][1].
         // `validate_unit` holds a DECLARED pack to the same number, so this is
-        // the only pack amount left that no author wrote.
-        let sum = e.amount.saturating_add(p.amount);
+        // the only pack amount left that no author wrote, and it is CLAMPED
+        // rather than refused for the reason `merge_ingredient`'s twin is. A
+        // research costs no assembling machine anything, so the note carries no
+        // destruction sentence.
+        let mut sum = e.amount.saturating_add(p.amount);
         if sum > MAX_ITEM_AMOUNT {
-            res.refuse(merged_item_refusal(subject, &p.name, e.amount, p.amount));
+            res.logs
+                .push(merged_item_clamp(subject, &p.name, e.amount, p.amount));
+            res.note_on(tgt, clamped_item_note(&p.name));
+            sum = MAX_ITEM_AMOUNT;
         }
         e.amount = sum;
         return;
@@ -3294,8 +3579,8 @@ fn merge_pack(res: &mut Resolution, list: &mut Vec<ResolvedPack>, subject: &str,
     list.push(p);
 }
 
-/// The clause every merge sentence opens with, so an author who meets the log
-/// line and the refusal recognises the pair.
+/// The clause every merge sentence opens with, so a reader who meets the merge
+/// line and the clamp line beside it recognises the pair.
 fn merged_opening(subject: &str, name: &str) -> String {
     format!(
         "fkrecipes: {}: {} is in the list twice after the fallbacks",
@@ -3360,9 +3645,9 @@ fn merged_fluid_line(subject: &str, name: &str, from: &str) -> String {
     )
 }
 
-fn merged_item_refusal(subject: &str, name: &str, a: i64, b: i64) -> String {
+fn merged_item_clamp(subject: &str, name: &str, a: i64, b: i64) -> String {
     format!(
-        "{}, and {} plus {} is above the item ceiling of {}",
+        "{}, and {} plus {} is above the item ceiling of {}, so it is capped there",
         merged_opening(subject, name),
         a,
         b,
@@ -3372,9 +3657,9 @@ fn merged_item_refusal(subject: &str, name: &str, a: i64, b: i64) -> String {
 
 /// The same, for the same reason: the ceiling is a constant this file may
 /// spell, and the amount that crossed it is not.
-fn merged_fluid_refusal(subject: &str, name: &str, from: &str) -> String {
+fn merged_fluid_clamp(subject: &str, name: &str, from: &str) -> String {
     format!(
-        "{}, and the added amount is above the fluid ceiling of 1e301{}",
+        "{}, and the added amount is above the fluid ceiling of 1e301, so it is capped there{}",
         merged_opening(subject, name),
         merged_from(from)
     )
@@ -3426,23 +3711,31 @@ fn merged_from(from: &str) -> String {
 /// items in a research unit and nothing else (measured: "Invalid research
 /// unit (iron-plate). Research unit(s) can only be tool type items at the
 /// moment."), so a rung that is an item but not a tool is not a rung.
+/// IT ALSO ANSWERS WHAT IT TRIED, in declaration order and once each, because
+/// the refusal a unit that kept nothing gets has to name the names: see
+/// `check_resolved_packs`. Collected on every walk rather than only on the
+/// empty one, so the answer costs the same branch whatever the game holds.
 fn resolve_packs(
     w: &dyn World,
     res: &mut Resolution,
+    tgt: NoteTarget,
     tech: &str,
     packs: &[Pack],
-) -> Vec<ResolvedPack> {
+) -> (Vec<ResolvedPack>, Vec<String>) {
     let mut list = Vec::with_capacity(packs.len());
+    let mut tried: Vec<String> = Vec::with_capacity(packs.len());
     for p in packs {
         let mut picked: Option<String> = None;
         if w.tool_exists(&p.name) {
             picked = Some(p.name.clone());
         } else {
+            append_once(&mut tried, &p.name);
             for f in &p.fallbacks {
                 if w.tool_exists(f) {
                     picked = Some(f.clone());
                     break;
                 }
+                append_once(&mut tried, f);
             }
         }
         match picked {
@@ -3451,6 +3744,7 @@ fn resolve_packs(
             // than the recipe's dict. See merge_pack.
             Some(name) => merge_pack(
                 res,
+                tgt,
                 &mut list,
                 tech,
                 ResolvedPack {
@@ -3465,7 +3759,215 @@ fn resolve_packs(
             )),
         }
     }
-    list
+    (list, tried)
+}
+
+/// Keeps a vector in first-seen order with no repeats, which is what a sentence
+/// naming several names needs: two ladders ending on one absent rung would
+/// otherwise print it twice.
+fn append_once(list: &mut Vec<String>, name: &str) {
+    if list.iter().any(|seen| seen == name) {
+        return;
+    }
+    list.push(String::from(name));
+}
+
+/// What a verbatim-copied research unit came to after every science pack this
+/// game does not have was taken out of it.
+///
+/// A COPIED UNIT IS SOMEBODY ELSE'S DECLARATION AND THE ENGINE DOES NOT FORGIVE
+/// IT. MEASURED on 2.0.77 build 84539, headless: a unit priced in a plain item
+/// refuses the load with `Error while running setup for technology prototype
+/// "tprobe-t" (technology): Invalid research unit (iron-plate). Research
+/// unit(s) can only be tool type items at the moment.`, and a name the game
+/// does not have at all fails earlier and more coarsely, naming neither the
+/// technology nor the property: `Error in assignID: item with name 'water' does
+/// not exist.` So a pack that a modpack demoted from tool to item, or removed,
+/// stops the load on the DEFAULT setting with no `fkrecipes: ` line anywhere.
+/// The filter asks BOTH questions at once, because `tool_exists` is the one
+/// probe that answers them: a name that is not a tool-type item this game has
+/// is not a rung.
+struct CopiedPacks {
+    /// The copied unit with its ingredients array filtered, the rest of it in
+    /// the order and the shape it arrived in.
+    unit: Value,
+    /// Whether the unit carried an ingredients array at all. A unit that
+    /// carries none is left exactly as it was: there is nothing to filter and
+    /// nothing to say.
+    has_list: bool,
+    /// How many packs survived, and the names that did not, in the copied
+    /// unit's own order.
+    kept: usize,
+    dropped: Vec<String>,
+    /// An entry in NEITHER engine form, which is a unit this library cannot
+    /// copy faithfully. A form it cannot decode is not a licence to pass it
+    /// through: the name might be one the game does not have, and the refusal
+    /// it would earn names neither the technology nor the property.
+    unreadable: bool,
+}
+
+/// Drops the science packs a copied research unit names that this game does not
+/// have, one log line each, and answers what became of it.
+///
+/// THE DROP LINE IS THE LADDER'S VOICE with the source named, because the
+/// author did not write this list: the technology it was copied out of did.
+///
+/// BOTH ENGINE FORMS ARE DECODED. The engine takes the short tuple
+/// `{"automation-science-pack", 1}` and the long `{name = ..., amount = ...}`
+/// alike and base writes the short one; only the NAME is read out, and the
+/// entry itself is what is kept, so an amount this library does not model and a
+/// field no version of it has heard of survive the filter untouched.
+fn filter_copied_packs(
+    res: &mut Resolution,
+    w: &dyn World,
+    tech: &str,
+    source: &str,
+    unit: Value,
+) -> CopiedPacks {
+    let pairs = match &unit {
+        Value::Map(pairs) => pairs.clone(),
+        _ => {
+            return CopiedPacks {
+                unit,
+                has_list: false,
+                kept: 0,
+                dropped: Vec::new(),
+                unreadable: false,
+            }
+        }
+    };
+    for (k, v) in &pairs {
+        if k.as_str() != "ingredients" {
+            continue;
+        }
+        let items = match v {
+            Value::Arr(items) => items,
+            // AN `ingredients` KEY THAT IS NOT AN ARRAY IS A FORM THIS LIBRARY
+            // CANNOT DECODE, and a form it cannot decode is not a licence to
+            // pass it through: the caller refuses with the `CostOf` family's
+            // own sentence, exactly as it does for an ENTRY in neither form.
+            // What would otherwise happen is worse: the unit crosses
+            // unfiltered and the engine answers about a science pack, naming
+            // neither this mod nor the property.
+            _ => {
+                return CopiedPacks {
+                    unit,
+                    has_list: true,
+                    kept: 0,
+                    dropped: Vec::new(),
+                    unreadable: true,
+                }
+            }
+        };
+        let mut kept: Vec<Value> = Vec::with_capacity(items.len());
+        let mut dropped: Vec<String> = Vec::new();
+        for item in items {
+            let name = match copied_pack_name(item) {
+                Some(n) => n,
+                None => {
+                    return CopiedPacks {
+                        unit,
+                        has_list: true,
+                        kept: 0,
+                        dropped,
+                        unreadable: true,
+                    }
+                }
+            };
+            // A NAME THIS LIBRARY CANNOT PUT TO THE WORLD IS KEPT UNASKED, and
+            // the empty name is that answer. Another mod's science pack can be
+            // named with bytes that are not UTF-8; fkdata hands those over
+            // unchanged, they arrive as `Value::Bytes`, and `tool_exists` takes
+            // a `&str`, so this half cannot ask. The Go mirror could, and does
+            // not, because the two halves answer alike.
+            if name.is_empty() {
+                kept.push(item.clone());
+                continue;
+            }
+            if w.tool_exists(&name) {
+                kept.push(item.clone());
+                continue;
+            }
+            res.logs.push(format!(
+                "fkrecipes: {}: {} is not a science pack this game has, so it is left out of the {} cost",
+                tech, name, source
+            ));
+            dropped.push(name);
+        }
+        return CopiedPacks {
+            kept: kept.len(),
+            unit: set_unit_field(unit, "ingredients", Value::Arr(kept)),
+            has_list: true,
+            dropped,
+            unreadable: false,
+        };
+    }
+    CopiedPacks {
+        unit,
+        has_list: false,
+        kept: 0,
+        dropped: Vec::new(),
+        unreadable: false,
+    }
+}
+
+/// The name out of one entry of a copied unit's ingredients, in either of the
+/// two forms the engine takes.
+///
+/// THREE ANSWERS IN ONE OPTION. `None` is an entry in NEITHER form, which the
+/// caller refuses; the EMPTY name is an entry in a form whose name is not text
+/// this library can put to the World, which the caller keeps unasked. No
+/// prototype is named by the empty string, so the sentinel names nothing real.
+fn copied_pack_name(v: &Value) -> Option<String> {
+    match v {
+        Value::Arr(items) => match items.first() {
+            Some(Value::Str(name)) => Some(name.clone()),
+            Some(Value::Bytes(_)) => Some(String::new()),
+            _ => None,
+        },
+        Value::Map(pairs) => {
+            for (k, val) in pairs {
+                if k == "name" {
+                    return match val {
+                        Value::Str(name) => Some(name.clone()),
+                        Value::Bytes(_) => Some(String::new()),
+                        _ => None,
+                    };
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// The sentence a copied unit whose pack list this library cannot read earns,
+/// and it is the `cost_of` family's own phrase because it is the same fact
+/// about the same value: a table that cannot be copied faithfully.
+///
+/// IT NAMES THE TECHNOLOGY RATHER THAN WEARING THE `CostOf(` PREFIX, because
+/// the same filter runs over a `cost_by` tier's chosen source, where there is
+/// no `CostOf` to name.
+fn copied_unit_refusal(tech: &str, source: &str) -> String {
+    format!(
+        "fkrecipes: {}: the unit of {} holds a table this library cannot copy faithfully",
+        tech, source
+    )
+}
+
+/// What a copied cost that named no science pack this game has logs, and it is
+/// an ERROR because the technology is not priced the way anybody declared it.
+///
+/// IT IS NOT A PLAYER'S FALLBACK AND HAS ITS OWN COMPOSER FOR THAT REASON.
+/// Nothing was stored and nothing was typed: there is no field on the settings
+/// screen to send anybody to, so `player_fallback`'s tail would be advice about
+/// a value that does not exist. The two cannot drift, because neither reads the
+/// other.
+fn packless_source_line(tech: &str, source: &str) -> String {
+    format!(
+        "{}ERROR: {}: the {} cost names no science pack this game has, so this mod's own declared cost applies instead",
+        MESSAGE_PREFIX, tech, source
+    )
 }
 
 /// The packs a unit was actually priced in, in the shape the language writes

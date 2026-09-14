@@ -286,8 +286,13 @@ fn fluid_ladders_merge_and_do_not_merge_with_an_item() {
 /// declarations are legal apart, the plan validates, and the sum is a number no
 /// author wrote: 40000 and 30000 are each under the engine's 65535 and 70000 is
 /// not.
+///
+/// AND IT CLAMPS RATHER THAN REFUSING, because WHICH RUNGS the ladders landed
+/// on is a fact about the mod set and not about the declaration. The line says
+/// what the number became and the recipe's own tooltip carries the note, with
+/// the destruction sentence on it: the ingredient list is what moved.
 #[test]
-fn merged_item_amount_above_the_ceiling_is_refused() {
+fn merged_item_amount_above_the_ceiling_is_clamped() {
     let mut lib = Lib::new();
     let part = lib.item("balancer-part", ItemSpec::default());
     lib.recipe(
@@ -301,20 +306,25 @@ fn merged_item_amount_above_the_ceiling_is_refused() {
         },
     );
 
-    match lib.plan_data(&base_world()) {
-        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
-        Err(got) => assert_eq!(
-            got,
-            "fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, and 40000 plus 30000 is above the item ceiling of 65535"
-        ),
-    }
+    let ops = lib.plan_data(&base_world()).expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, so the amounts are added: 40000 plus 30000 is 70000",
+            "log fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, and 40000 plus 30000 is above the item ceiling of 65535, so it is capped there",
+            r#"extend {type="item", name="steelworks-balancer-part", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-balancer-part", localised_description=["", "Two ingredients resolved onto iron-plate and the total was above what one slot holds, so it was capped at 65535. The reason is in the log. Changing a recipe empties an assembling machine's input slots of anything the new list does not use."], enabled=true, ingredients=[{type="item", name="iron-plate", amount=65535}], results=[{type="item", name="steelworks-balancer-part", amount=1}]}"#,
+        ],
+    );
 }
 
 /// The fluid twin. Above its ceiling the engine does not refuse, it ABORTS
 /// inside FixedPointNumber and hands the player the crash handler, which is why
-/// a merged fluid amount is refused here rather than emitted.
+/// a merged fluid amount may not be emitted as it stands; the cap is what keeps
+/// the load standing without one.
 #[test]
-fn merged_fluid_amount_above_the_ceiling_is_refused() {
+fn merged_fluid_amount_above_the_ceiling_is_clamped() {
     let mut lib = Lib::new();
     let mix = lib.item("sulfuric-mix", ItemSpec::default());
     lib.recipe(
@@ -329,13 +339,19 @@ fn merged_fluid_amount_above_the_ceiling_is_refused() {
         },
     );
 
-    match lib.plan_data(&base_world().without_fluid("steam")) {
-        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
-        Err(got) => assert_eq!(
-            got,
-            "fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, and the added amount is above the fluid ceiling of 1e301; the ladder from steam resolved onto it"
-        ),
-    }
+    let ops = lib
+        .plan_data(&base_world().without_fluid("steam"))
+        .expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, so the amounts are added; the ladder from steam resolved onto it",
+            "log fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, and the added amount is above the fluid ceiling of 1e301, so it is capped there; the ladder from steam resolved onto it",
+            r#"extend {type="item", name="steelworks-sulfuric-mix", stack_size=50}"#,
+            r#"extend {type="recipe", name="steelworks-sulfuric-mix", localised_description=["", "Two ingredients resolved onto water and the total was above the largest amount the game can hold, so it was capped at 1e301. The reason is in the log. Changing a recipe empties an assembling machine's input slots of anything the new list does not use."], category="chemistry", enabled=true, ingredients=[{type="fluid", name="water", amount=1.0000000000000001e301}], results=[{type="item", name="steelworks-sulfuric-mix", amount=1}]}"#,
+        ],
+    );
 }
 
 /// THE BOUNDARY, THREE TIMES, because a ceiling written with the wrong
@@ -1005,7 +1021,11 @@ fn pack_ladders_that_land_on_one_pack_merge() {
     // A MERGED PACK IS HELD TO THE ITEM CEILING, and that is the engine's own
     // rule for a unit ingredient rather than an analogy drawn from a recipe.
     // Each of these is legal on its own; their sum is the one pack amount no
-    // author wrote.
+    // author wrote, so it is CAPPED with a line and a note rather than refused:
+    // which rung the second ladder landed on is the mod set's answer.
+    //
+    // THE NOTE CARRIES NO DESTRUCTION SENTENCE. Repricing a research empties no
+    // assembling machine, which is the same scoping the ERROR lines take.
     let mut over = Lib::new();
     over.technology(
         "steel-axes",
@@ -1022,13 +1042,16 @@ fn pack_ladders_that_land_on_one_pack_merge() {
         },
     );
 
-    match over.plan_data(&base_world()) {
-        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
-        Err(got) => assert_eq!(
-            got,
-            "fkrecipes: steel-axes: automation-science-pack is in the list twice after the fallbacks, and 40000 plus 30000 is above the item ceiling of 65535"
-        ),
-    }
+    let ops = over.plan_data(&base_world()).expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: steel-axes: automation-science-pack is in the list twice after the fallbacks, so the amounts are added: 40000 plus 30000 is 70000",
+            "log fkrecipes: steel-axes: automation-science-pack is in the list twice after the fallbacks, and 40000 plus 30000 is above the item ceiling of 65535, so it is capped there",
+            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "Two ingredients resolved onto automation-science-pack and the total was above what one slot holds, so it was capped at 65535. The reason is in the log."], unit={count=50, time=15, ingredients=[["automation-science-pack", 65535]]}}"#,
+        ],
+    );
 }
 
 /// A DECLARED PACK CARRIES THE SAME 16 BITS AS AN ITEM INGREDIENT, and that is
@@ -1508,12 +1531,12 @@ fn technology_unit_spec_uses_short_tuple_form() {
 /// A PACK IS A LADDER, and it is walked through `tool_exists` and nothing
 /// else.
 ///
-/// The middle rung is the whole test: `chemical-science-pack` is an ITEM this
-/// world has and is not one of its tools, so a walk that asked the item
-/// question would stop there and price the research in something the engine
-/// refuses ("Invalid research unit (...). Research unit(s) can only be tool
-/// type items at the moment."). The rung after it is a real tool, and that is
-/// the one that must come out.
+/// The middle rung is the whole test: `iron-plate` is an ITEM this world has
+/// and is not one of its tools, so a walk that asked the item question would
+/// stop there and price the research in something the engine refuses ("Invalid
+/// research unit (...). Research unit(s) can only be tool type items at the
+/// moment."). The rung after it is a real tool, and that is the one that must
+/// come out.
 #[test]
 fn a_pack_ladder_takes_the_first_rung_the_game_has() {
     let mut lib = Lib::new();
@@ -1526,7 +1549,7 @@ fn a_pack_ladder_takes_the_first_rung_the_game_has() {
                 packs: vec![Pack::named(
                     2,
                     "military-science-pack",
-                    &["chemical-science-pack", "logistic-science-pack"],
+                    &["iron-plate", "logistic-science-pack"],
                 )],
             }),
             ..Default::default()
@@ -1602,7 +1625,14 @@ fn a_pack_ladder_drops_and_a_unit_with_nothing_left_is_refused() {
         Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
         Err(got) => assert_eq!(
             got,
-            "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one"
+            packless_refusal(
+                "steel-axes",
+                &[
+                    "military-science-pack",
+                    "space-science-pack",
+                    "metallurgic-science-pack"
+                ]
+            )
         ),
     }
 }
@@ -1926,7 +1956,10 @@ fn the_post_resolution_checks_report_in_their_fixed_order() {
         Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
         Err(got) => assert_eq!(
             got,
-            "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, whose declared default is at or below the engine floor (energy_required can't be <= 0.001). The stored value of steelworks-axe-craft-time could not be used, so the mod's own declaration applied; correcting it under Settings > Mod settings > Startup is what a player can change here."
+            with_fallback_fact(
+                "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, whose declared default is at or below the engine floor (energy_required can't be <= 0.001)",
+                "steelworks-axe-craft-time"
+            )
         ),
     }
 
@@ -1946,7 +1979,7 @@ fn the_post_resolution_checks_report_in_their_fixed_order() {
         Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
         Err(got) => assert_eq!(
             got,
-            "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one"
+            packless_refusal("steel-axes", &["military-science-pack"])
         ),
     }
 
@@ -1994,7 +2027,7 @@ fn the_all_dropped_refusal_names_the_first_technology_declared() {
         Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
         Err(got) => assert_eq!(
             got,
-            "fkrecipes: the technology bbb-second has no science pack the game has; research takes at least one"
+            packless_refusal("bbb-second", &["military-science-pack"])
         ),
     }
 }
@@ -2177,7 +2210,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one",
+            want: "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one, and none of military-science-pack is a science pack here",
         },
         Case {
             name: "cost_of names a technology that is not there",
@@ -2520,8 +2553,9 @@ fn plan_data_refusals() {
             // THE SENTENCE NAMES THE DECLARED DEFAULT, not what the setting
             // answered: the stored NaN is gone by the time this check runs, and
             // the number it is about is the 0.001 the plan wrote. The trailing
-            // sentence is the fallback note, which is here because the stored
-            // value WAS set aside on the way to this refusal.
+            // sentence is the fallback FACT, which is here because the stored
+            // value WAS set aside on the way to this refusal; it names no
+            // screen, because the error dialog can reach none.
             name: "a bound crafting time whose declared default is below the engine floor",
             world: |w: FixtureWorld| {
                 w.with_setting("steelworks-axe-craft-time", Value::Num(f64::NAN))
@@ -2537,7 +2571,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, whose declared default is at or below the engine floor (energy_required can't be <= 0.001). The stored value of steelworks-axe-craft-time could not be used, so the mod's own declaration applied; correcting it under Settings > Mod settings > Startup is what a player can change here.",
+            want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, whose declared default is at or below the engine floor (energy_required can't be <= 0.001). The stored value of steelworks-axe-craft-time could not be used, so the mod's own declaration applied.",
         },
         Case {
             // The same pair for finiteness: a declared default of an infinity
@@ -2558,7 +2592,7 @@ fn plan_data_refusals() {
                     },
                 );
             },
-            want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, whose declared default is not a finite number. The stored value of steelworks-axe-craft-time could not be used, so the mod's own declaration applied; correcting it under Settings > Mod settings > Startup is what a player can change here.",
+            want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, whose declared default is not a finite number. The stored value of steelworks-axe-craft-time could not be used, so the mod's own declaration applied.",
         },
         Case {
             // PRESENT and nil, which is what a unit whose table carried a
@@ -3683,4 +3717,209 @@ fn a_copied_unit_carries_a_pack_name_that_is_not_text() {
         }
     }
     assert_eq!(found, 1, "the walk did not reach the copied pack name");
+}
+
+// ---------------------------------------------------------------------------
+// A COPIED RESEARCH UNIT'S PACKS, which are the ones no ladder ever guarded.
+// ---------------------------------------------------------------------------
+
+/// A COPIED UNIT USED TO BE HANDED TO THE ENGINE UNFILTERED, and the engine is
+/// not forgiving about it. MEASURED on 2.0.77 build 84539, headless: a pack a
+/// modpack demoted from tool to item refuses the whole load with `Invalid
+/// research unit (iron-plate). Research unit(s) can only be tool type items at
+/// the moment.`, and a name the game does not have at all fails earlier and
+/// more coarsely, with `Error in assignID: item with name 'water' does not
+/// exist.` Neither names this mod, this setting or the technology in the second
+/// case, and both fire on the DEFAULT setting. So the copy is filtered through
+/// the same `tool_exists` probe the ladder uses.
+#[test]
+fn a_copied_unit_drops_a_pack_the_game_does_not_have() {
+    let mut lib = Lib::new();
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            cost_of: "logistics-2".into(),
+            ..Default::default()
+        },
+    );
+
+    let ops = lib
+        .plan_data(&base_world().without_tool("logistic-science-pack"))
+        .expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: steel-axes: logistic-science-pack is not a science pack this game has, so it is left out of the logistics-2 cost",
+            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "This game has no logistic-science-pack, so this research was priced without it. The reason is in the log."], unit={count=200, ingredients=[["automation-science-pack", 1]], time=30}}"#,
+        ],
+    );
+}
+
+/// THE LONG FORM TOO, because a unit this library copies is somebody else's
+/// declaration and the engine takes both spellings. Only the NAME is read; the
+/// entry itself is what is kept, so an amount, a quality and any field no
+/// version of this library has heard of ride through the filter untouched.
+#[test]
+fn a_copied_unit_in_the_long_ingredient_form_is_filtered() {
+    let long = Value::Map(alloc::vec![
+        kv("count", Value::Num(10.0)),
+        kv(
+            "ingredients",
+            Value::Arr(alloc::vec![
+                Value::Map(alloc::vec![
+                    kv("name", Value::string("military-science-pack")),
+                    kv("amount", Value::Num(3.0)),
+                ]),
+                Value::Map(alloc::vec![
+                    kv("name", Value::string("automation-science-pack")),
+                    kv("amount", Value::Num(2.0)),
+                    kv("quality", Value::string("legendary")),
+                ]),
+            ])
+        ),
+        kv("time", Value::Num(15.0)),
+    ]);
+
+    let mut lib = Lib::new();
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            cost_of: "steel-processing".into(),
+            ..Default::default()
+        },
+    );
+
+    let ops = lib
+        .plan_data(&base_world().with_unit("steel-processing", long))
+        .expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            "log fkrecipes: steel-axes: military-science-pack is not a science pack this game has, so it is left out of the steel-processing cost",
+            r#"extend {type="technology", name="steelworks-steel-axes", localised_description=["", "This game has no military-science-pack, so this research was priced without it. The reason is in the log."], unit={count=10, ingredients=[{name="automation-science-pack", amount=2, quality="legendary"}], time=15}}"#,
+        ],
+    );
+}
+
+/// AN ENTRY IN NEITHER FORM IS REFUSED RATHER THAN PASSED THROUGH. A form this
+/// library cannot decode is not a licence to hand it to the engine: the name
+/// inside it might be one the game does not have, and the refusal that earns
+/// names neither the technology nor the property. It is the `cost_of` family's
+/// own phrase, because it is the same fact about the same value.
+#[test]
+fn a_copied_unit_whose_pack_list_is_in_neither_form_is_refused() {
+    let odd = Value::Map(alloc::vec![
+        kv("count", Value::Num(10.0)),
+        kv(
+            "ingredients",
+            Value::Arr(alloc::vec![Value::string("automation-science-pack")])
+        ),
+        kv("time", Value::Num(15.0)),
+    ]);
+
+    let mut lib = Lib::new();
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            cost_of: "steel-processing".into(),
+            ..Default::default()
+        },
+    );
+
+    match lib.plan_data(&base_world().with_unit("steel-processing", odd)) {
+        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
+        Err(got) => assert_eq!(
+            got,
+            "fkrecipes: steel-axes: the unit of steel-processing holds a table this library cannot copy faithfully"
+        ),
+    }
+
+    // AND THE LIST ITSELF IN NEITHER FORM, which is the same rule one level up:
+    // an `ingredients` key that is not an array at all cannot be walked, so it
+    // is refused rather than crossed unfiltered. Passing it through would hand
+    // the engine a pack list this library never read, and the refusal that
+    // earns names neither the technology nor the property.
+    let not_a_list = Value::Map(alloc::vec![
+        kv("count", Value::Num(10.0)),
+        kv("ingredients", Value::string("automation-science-pack")),
+        kv("time", Value::Num(15.0)),
+    ]);
+
+    let mut lib = Lib::new();
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            cost_of: "steel-processing".into(),
+            ..Default::default()
+        },
+    );
+
+    match lib.plan_data(&base_world().with_unit("steel-processing", not_a_list)) {
+        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
+        Err(got) => assert_eq!(
+            got,
+            "fkrecipes: steel-axes: the unit of steel-processing holds a table this library cannot copy faithfully"
+        ),
+    }
+}
+
+/// A COPIED COST HAS NOTHING TO FALL BACK ON, which is the whole difference
+/// between it and a tier: `cost_of` is a bare string with no declared ladder
+/// behind it, so a copy that keeps no pack is refused by name rather than
+/// degraded onto a cost this library would have to invent. The names are the
+/// ones it tried.
+#[test]
+fn a_copied_unit_that_loses_every_pack_is_refused_by_name() {
+    let mut lib = Lib::new();
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            cost_of: "steel-processing".into(),
+            ..Default::default()
+        },
+    );
+
+    match lib.plan_data(&base_world().without_tool("automation-science-pack")) {
+        Ok(ops) => panic!("the plan was accepted with {} ops", ops.len()),
+        Err(got) => assert_eq!(
+            got,
+            packless_refusal("steel-axes", &["automation-science-pack"])
+        ),
+    }
+}
+
+/// A COPIED UNIT THAT NAMED NO PACK TO BEGIN WITH IS SOMEBODY ELSE'S
+/// DECLARATION AND IS LEFT ALONE. Nothing dropped, so nothing degraded: the
+/// packless rule is about what this mod set took away, not about what the
+/// source technology was priced in, which is the same line the tier's own packs
+/// are on.
+#[test]
+fn a_copied_unit_that_named_no_pack_at_all_is_copied_as_it_is() {
+    let empty = Value::Map(alloc::vec![
+        kv("count", Value::Num(10.0)),
+        kv("ingredients", Value::Arr(alloc::vec![])),
+        kv("time", Value::Num(15.0)),
+    ]);
+
+    let mut lib = Lib::new();
+    lib.technology(
+        "steel-axes",
+        TechSpec {
+            cost_of: "steel-processing".into(),
+            ..Default::default()
+        },
+    );
+
+    let ops = lib
+        .plan_data(&base_world().with_unit("steel-processing", empty))
+        .expect("plan refused");
+
+    assert_lines(
+        &transcript(&ops),
+        &[
+            r#"extend {type="technology", name="steelworks-steel-axes", unit={count=10, ingredients=[], time=15}}"#,
+        ],
+    );
 }

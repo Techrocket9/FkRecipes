@@ -647,3 +647,491 @@ func recipesWritersPhrase() string {
 	}
 	return strings.Join(places, " and ")
 }
+
+// ---------------------------------------------------------------------------
+// Every refusal site, classified, as a source property.
+// ---------------------------------------------------------------------------
+
+// THE TWO-SIDED RULE, MADE MECHANICAL.
+//
+// A CHECK THAT ASKS THE World ANYTHING IS ENVIRONMENTAL AND DEGRADES LOUDLY; A
+// CHECK THAT READS ONLY THE DECLARATION IS AN AUTHOR BUG AND REFUSES BY NAME.
+// An environmental check stays a refusal only where degrading would overwrite
+// another mod's prototype, hand the engine something it refuses anyway, or
+// invent a value the author never declared; and one more, which the threat
+// model rather than the rule supplies: a site the game cannot reach at all.
+//
+// THE CLASSIFICATION KEYS ON WHAT THE CHECK ASKS, not on where an author would
+// have noticed it. A fixture World that answers ToolExists true for a pack the
+// shipped mod set demotes is green in development and red in play, so "visible
+// in development" is a property of the author's fixture and this library cannot
+// see a fixture.
+//
+// WHY A SOURCE PROPERTY. Nothing in a behavioural test can see a refusal ADDED
+// to a World-asking function: the new sentence has its own new test, every old
+// test stays green, and the policy has changed with no reader. So the rule is
+// asserted over the source, and it costs no toolchain at all.
+//
+// THE COUNT IS PART OF THE RULE, and only where the function can see the game.
+// A function that never names a World cannot ask one anything, so every refusal
+// in it reads the declaration by construction and a new one needs no thought;
+// a function that DOES name one is pinned at its site count, so a refusal added
+// beside the environmental ones goes red until somebody classifies it.
+const (
+	// classDeclaration: every refusal in this function reads only what the
+	// consumer declared. Enforced, not asserted: such a function may not name
+	// a World.
+	classDeclaration = "reads only the declaration"
+	// classEnvironmental: every refusal in this function is an answer the game
+	// gave, and the row says which enumerated exception keeps it a refusal.
+	classEnvironmental = "asks the game"
+	// classMixed: the function holds both, and its environmental sites are
+	// listed one by one below.
+	classMixed = "holds both kinds"
+	// classNotARefusal: the function builds no sentence of its own. It
+	// decorates a message some other site composed, and that site is where the
+	// policy question was answered. The Rust mirror needs no such row because
+	// its needles are the Err constructors and a decorator never reaches one.
+	classNotARefusal = "carries no sentence of its own"
+)
+
+// The enumerated exceptions, and nothing else may appear in a row. Each is the
+// reason degrading would be WORSE than refusing.
+const (
+	exceptOverwrites    = "degrading silently clobbers a stranger's prototype"
+	exceptEngineRefuses = "degrading hands the engine something it refuses with a worse message"
+	exceptInvents       = "there is nothing declared to degrade to, so the library would have to invent a value"
+	exceptUnreachable   = "the game cannot reach it: the engine resets an unoffered stored value before any stage runs (measured), so only a hand-edited file arrives here, which the threat model puts out of scope"
+)
+
+// environmentalSite is one refusal inside a mixed function: a fragment of the
+// sentence distinctive enough to name exactly one site, and the exception it
+// claims.
+type environmentalSite struct {
+	fragment string
+	except   string
+}
+
+// refusalClass is one function's row.
+type refusalClass struct {
+	file, fn string
+	class    string
+	// except is the exception an all-environmental row claims; empty for the
+	// other two classes.
+	except string
+	// sites are the environmental refusals inside a mixed function.
+	sites []environmentalSite
+	// n is the number of refusal sites the function holds, pinned for every
+	// function that can see the game so that one added goes red. Zero for a
+	// classDeclaration row, which needs no pin: such a function names no World
+	// and so cannot hold an environmental refusal at all.
+	n   int
+	why string
+}
+
+var refusalClasses = []refusalClass{
+	{
+		file: "customize.go", fn: "refuseCostNumbers", class: classDeclaration, n: 2,
+		why: "it answers about a DECLARED default and never about a stored value: a number the player's setting answered has already fallen back by the time it runs",
+	},
+	{file: "customize.go", fn: "researchNumberMaximum", class: classDeclaration},
+	{file: "customize.go", fn: "validateBindings", class: classDeclaration},
+	{file: "customize.go", fn: "validateCustomCost", class: classDeclaration},
+	{file: "customize.go", fn: "validateDeclaredPacks", class: classDeclaration},
+	{file: "customize.go", fn: "validateTextSettings", class: classDeclaration},
+	{
+		file: "cycle.go", fn: "checkCycles", class: classEnvironmental, n: 1,
+		except: exceptEngineRefuses,
+		why:    "the ring is the game's own prerequisite graph plus this plan's splices; the legitimate degrade is dropping the splice, which is a design this round does not make",
+	},
+	{
+		file: "data.go", fn: "PlanData", class: classMixed, n: 3,
+		sites: []environmentalSite{
+			{fragment: "was given a nil World", except: exceptInvents},
+			{fragment: "the mod name is empty", except: exceptInvents},
+		},
+		why: "two host-wiring faults that ask the World whether it is there at all, and one declaration fault (a Lib built without New); the carried refusal is raised again in afterResolution, which resolve already classified",
+	},
+	{
+		file: "data.go", fn: "afterResolution", class: classNotARefusal, n: 1,
+		why: "it raises again the sentence resolve composed and classified; the three checks it runs are classified where they are written",
+	},
+	{file: "data.go", fn: "checkExtra", class: classDeclaration},
+	{
+		file: "data.go", fn: "fallbackFact", class: classNotARefusal, n: 1,
+		why: "it re-raises the sentence a check above it composed with one added fact, that a stored value was set aside; nothing here decides whether a load stops",
+	},
+	{
+		file: "data.go", fn: "checkResolvedCraftTimes", class: classDeclaration, n: 1,
+		why: "the stored value it is about is gone by the time it runs, so the number left is the plan's own declared default",
+	},
+	{
+		file: "data.go", fn: "checkResolvedPacks", class: classEnvironmental, n: 1,
+		except: exceptInvents,
+		why:    "the floor under every pack degradation: what reaches it is a technology with no author-declared cost left to be priced in, and an empty research unit is a FREE research rather than a stuck one (measured in play on 2.0.77)",
+	},
+	{file: "data.go", fn: "matchesAllowedValues", class: classDeclaration},
+	{
+		file: "data.go", fn: "readDropdown", class: classEnvironmental, n: 1,
+		except: exceptUnreachable,
+	},
+	{
+		file: "data.go", fn: "resolve", class: classEnvironmental, n: 2,
+		except: exceptEngineRefuses,
+		why:    "a copied research unit whose pack list is in neither engine form: passing it through would hand the engine a name this library never read, and the refusal that earns names neither the technology nor the property",
+	},
+	{
+		file: "data.go", fn: "validate", class: classMixed, n: 47,
+		sites: []environmentalSite{
+			{fragment: "the item  already exists in data.raw", except: exceptOverwrites},
+			{fragment: "the recipe  already exists in data.raw", except: exceptOverwrites},
+			{fragment: "the technology  already exists in data.raw", except: exceptOverwrites},
+			{fragment: "names a place_result  that does not exist", except: exceptInvents},
+			{fragment: " produces , which does not exist", except: exceptInvents},
+			{fragment: "no technology of that name exists", except: exceptInvents},
+			{fragment: "is a research_trigger technology", except: exceptInvents},
+			{fragment: "carries no unit to copy", except: exceptInvents},
+			{fragment: "has a unit that is not a dictionary", except: exceptEngineRefuses},
+			{fragment: "the unit of  holds a table", except: exceptEngineRefuses},
+			{fragment: "the max_level of  holds a table", except: exceptEngineRefuses},
+		},
+		why: "the three data.raw collisions, the two named-prototype probes and the six CostOf sentences are what it asks the game; the other thirty-six read the declaration",
+	},
+	{file: "data.go", fn: "validateIngredients", class: classDeclaration},
+	{file: "data.go", fn: "validateNoDuplicatePacks", class: classDeclaration},
+	{file: "data.go", fn: "validateNoDuplicates", class: classDeclaration},
+	{file: "data.go", fn: "validateUnit", class: classDeclaration},
+	{
+		file: "settings.go", fn: "PlanSettings", class: classDeclaration,
+		why: "the settings stage is handed a Named and not a World: data.raw does not exist yet, so there is no game here to ask",
+	},
+	{file: "settings.go", fn: "validateSettings", class: classDeclaration},
+}
+
+// ---------------------------------------------------------------------------
+// The same table, written the other way round.
+// ---------------------------------------------------------------------------
+
+// refusalPolicy pins every row's CLASS and every exception it claims, and it is
+// the answer to the one thing the table above cannot check about itself: a
+// relabel.
+//
+// WHY A SECOND LIST AT ALL. refusalClasses is a table a reader edits while
+// looking at the function they just changed, and the only thing stopping a row
+// being moved from "asks the game" to "reads only the declaration" was the
+// World check, which every function that takes a resolution rather than a World
+// slips past: checkResolvedPacks is the floor under every pack degradation and
+// it takes res alone, so one word made the whole rule stop guarding it with the
+// suite green. Now a relabel needs TWO edits in two places, and the second
+// place is grouped by CLASS, so the row has to be carried out of one group and
+// into another where a reviewer reading the diff sees it.
+//
+// IT PINS THE EXCEPTIONS TOO, both the row's own and its sites', in order. The
+// table above only ever asked whether an exception was ONE OF the enumerated
+// four; which of the four a site claims is the whole content of the
+// classification, and it was unpinned.
+type policyRow struct {
+	file, fn string
+	class    string
+	except   string
+	// sites is the row's environmental site exceptions, in the order the table
+	// above lists them, joined by " | ". Empty where there are none.
+	sites string
+}
+
+var refusalPolicy = []policyRow{
+	// Reads only the declaration. None of these may name a World at all.
+	{file: "customize.go", fn: "refuseCostNumbers", class: classDeclaration},
+	{file: "customize.go", fn: "researchNumberMaximum", class: classDeclaration},
+	{file: "customize.go", fn: "validateBindings", class: classDeclaration},
+	{file: "customize.go", fn: "validateCustomCost", class: classDeclaration},
+	{file: "customize.go", fn: "validateDeclaredPacks", class: classDeclaration},
+	{file: "customize.go", fn: "validateTextSettings", class: classDeclaration},
+	{file: "data.go", fn: "checkExtra", class: classDeclaration},
+	{file: "data.go", fn: "checkResolvedCraftTimes", class: classDeclaration},
+	{file: "data.go", fn: "matchesAllowedValues", class: classDeclaration},
+	{file: "data.go", fn: "validateIngredients", class: classDeclaration},
+	{file: "data.go", fn: "validateNoDuplicatePacks", class: classDeclaration},
+	{file: "data.go", fn: "validateNoDuplicates", class: classDeclaration},
+	{file: "data.go", fn: "validateUnit", class: classDeclaration},
+	{file: "settings.go", fn: "PlanSettings", class: classDeclaration},
+	{file: "settings.go", fn: "validateSettings", class: classDeclaration},
+
+	// Asks the game, and every refusal in it is kept by the one exception named
+	// here.
+	{file: "cycle.go", fn: "checkCycles", class: classEnvironmental, except: exceptEngineRefuses},
+	{file: "data.go", fn: "checkResolvedPacks", class: classEnvironmental, except: exceptInvents},
+	{file: "data.go", fn: "readDropdown", class: classEnvironmental, except: exceptUnreachable},
+	{file: "data.go", fn: "resolve", class: classEnvironmental, except: exceptEngineRefuses},
+
+	// Holds both, and the exceptions are its sites', in the order the table
+	// above lists them.
+	{file: "data.go", fn: "PlanData", class: classMixed, sites: exceptInvents + " | " + exceptInvents},
+	{
+		file: "data.go", fn: "validate", class: classMixed,
+		sites: exceptOverwrites + " | " + exceptOverwrites + " | " + exceptOverwrites + " | " +
+			exceptInvents + " | " + exceptInvents + " | " + exceptInvents + " | " +
+			exceptInvents + " | " + exceptInvents + " | " +
+			exceptEngineRefuses + " | " + exceptEngineRefuses + " | " + exceptEngineRefuses,
+	},
+
+	// Builds no sentence of its own.
+	{file: "data.go", fn: "afterResolution", class: classNotARefusal},
+	{file: "data.go", fn: "fallbackFact", class: classNotARefusal},
+}
+
+// TestTheTwoClassificationListsAgree is the relabel guard. It says nothing
+// about the source; it holds the two tables to each other, which is what makes
+// a one-word class change a red suite.
+func TestTheTwoClassificationListsAgree(t *testing.T) {
+	for _, rc := range refusalClasses {
+		i := policyFor(rc.file, rc.fn)
+		if i < 0 {
+			t.Errorf("%s in %s is classified %q and refusalPolicy does not carry it; every row is pinned in both lists so a relabel cannot be one edit",
+				rc.fn, rc.file, rc.class)
+			continue
+		}
+		pr := refusalPolicy[i]
+		if pr.class != rc.class {
+			t.Errorf("%s in %s: refusalClasses says %q and refusalPolicy says %q; one of the two is a relabel",
+				rc.fn, rc.file, rc.class, pr.class)
+		}
+		if pr.except != rc.except {
+			t.Errorf("%s in %s: refusalClasses keeps it a refusal because %q and refusalPolicy says %q",
+				rc.fn, rc.file, rc.except, pr.except)
+		}
+		if got := siteExcepts(rc.sites); got != pr.sites {
+			t.Errorf("%s in %s: the site exceptions are\n %s\nand refusalPolicy pins\n %s", rc.fn, rc.file, got, pr.sites)
+		}
+	}
+	for _, pr := range refusalPolicy {
+		if refusalClassFor(pr.file, pr.fn) < 0 {
+			t.Errorf("%s in %s is pinned in refusalPolicy and refusalClasses does not carry it; a row deleted from one list is deleted from both",
+				pr.fn, pr.file)
+		}
+	}
+	if len(refusalPolicy) != len(refusalClasses) {
+		t.Errorf("the two classification lists hold %d and %d rows; they are the same rows written twice",
+			len(refusalPolicy), len(refusalClasses))
+	}
+}
+
+func policyFor(file, fn string) int {
+	for i, pr := range refusalPolicy {
+		if pr.file == file && pr.fn == fn {
+			return i
+		}
+	}
+	return -1
+}
+
+func siteExcepts(sites []environmentalSite) string {
+	out := make([]string, 0, len(sites))
+	for _, s := range sites {
+		out = append(out, s.except)
+	}
+	return strings.Join(out, " | ")
+}
+
+func TestEveryRefusalSiteIsClassified(t *testing.T) {
+	sources := packageSources(t)
+
+	fset := token.NewFileSet()
+	seen := make([]int, len(refusalClasses))
+	// Per row, per site: how many refusals each fragment matched, so a
+	// fragment that names nothing and one that names two are both failures.
+	matched := make([][]int, len(refusalClasses))
+	for i, rc := range refusalClasses {
+		matched[i] = make([]int, len(rc.sites))
+	}
+
+	for _, path := range sources {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("the source is the thing under test and it is not readable: %v", err)
+		}
+		file, err := parser.ParseFile(fset, path, src, 0)
+		if err != nil {
+			t.Fatalf("%s does not parse: %v", path, err)
+		}
+		base := filepath.Base(path)
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok {
+				continue
+			}
+			refusals := refusalsIn(fn)
+			if len(refusals) == 0 {
+				continue
+			}
+			i := refusalClassFor(base, fn.Name.Name)
+			if i < 0 {
+				t.Errorf("%s: %s builds %d refusal(s) and no row classifies it; add one to refusalClasses saying whether it reads only the declaration or asks the game, and if it asks the game which of the enumerated exceptions keeps it a refusal",
+					fset.Position(fn.Pos()), fn.Name.Name, len(refusals))
+				continue
+			}
+			rc := refusalClasses[i]
+			seen[i] = len(refusals)
+			if rc.class == classDeclaration && namesAWorld(fn) {
+				t.Errorf("%s: %s is classified %q and names a World; a check that can ask the game is environmental and needs an exception",
+					fset.Position(fn.Pos()), fn.Name.Name, classDeclaration)
+			}
+			if rc.class != classMixed {
+				continue
+			}
+			for _, r := range refusals {
+				hits := 0
+				for j, s := range rc.sites {
+					if strings.Contains(r.message, s.fragment) {
+						matched[i][j]++
+						hits++
+					}
+				}
+				if hits > 1 {
+					t.Errorf("%s: the refusal %q matches %d of %s's environmental fragments; each fragment has to name exactly one site",
+						fset.Position(r.pos), r.message, hits, rc.fn)
+				}
+			}
+		}
+	}
+
+	for i, rc := range refusalClasses {
+		if seen[i] == 0 {
+			t.Errorf("%s in %s builds no refusal any more; a row with a stale allowance is a rule that has stopped guarding something",
+				rc.fn, rc.file)
+			continue
+		}
+		if rc.n != 0 && seen[i] != rc.n {
+			t.Errorf("%s in %s builds %d refusals and the row pins %d; classify the one that moved (%s)",
+				rc.fn, rc.file, seen[i], rc.n, rc.why)
+		}
+		if rc.n == 0 && rc.class != classDeclaration {
+			t.Errorf("%s in %s is classified %q with no site count; only a row that reads the declaration may go unpinned",
+				rc.fn, rc.file, rc.class)
+		}
+		// A MIXED ROW WITH NO SITES ASSERTS NOTHING, which is the third way a
+		// relabel could have got past this test: classMixed skips the World
+		// check and the site walk both, so an all-environmental function moved
+		// into it with an empty list would be unconstrained. A mixed row says
+		// which of its refusals ask the game, and by construction it holds at
+		// least one that does not.
+		if rc.class == classMixed && len(rc.sites) == 0 {
+			t.Errorf("%s in %s is classified %q and lists no environmental site; a mixed row names the refusals that ask the game, one by one",
+				rc.fn, rc.file, classMixed)
+		}
+		if rc.class == classMixed && rc.n <= len(rc.sites) {
+			t.Errorf("%s in %s is classified %q with %d refusals and %d of them environmental; a row whose refusals ALL ask the game is %q with one exception, not mixed",
+				rc.fn, rc.file, classMixed, rc.n, len(rc.sites), classEnvironmental)
+		}
+		if (rc.class == classEnvironmental) != (rc.except != "") {
+			t.Errorf("%s in %s is classified %q and %s an exception; exactly one of the two is right",
+				rc.fn, rc.file, rc.class, map[bool]string{true: "carries", false: "carries no"}[rc.except != ""])
+		}
+		if rc.except != "" && !contains(allowedExceptions, rc.except) {
+			t.Errorf("%s in %s claims an exception that is not one of the enumerated ones", rc.fn, rc.file)
+		}
+		for j, s := range rc.sites {
+			if !contains(allowedExceptions, s.except) {
+				t.Errorf("%s in %s: the site %q claims an exception that is not one of the enumerated ones", rc.fn, rc.file, s.fragment)
+			}
+			if matched[i][j] != 1 {
+				t.Errorf("%s in %s: the environmental fragment %q matches %d refusals; it has to name exactly one",
+					rc.fn, rc.file, s.fragment, matched[i][j])
+			}
+		}
+	}
+}
+
+var allowedExceptions = []string{exceptOverwrites, exceptEngineRefuses, exceptInvents, exceptUnreachable}
+
+func refusalClassFor(file, fn string) int {
+	for i, rc := range refusalClasses {
+		if rc.file == file && rc.fn == fn {
+			return i
+		}
+	}
+	return -1
+}
+
+// refusalSite is one refusal a function builds: where it is, and the string
+// literals its message is made of, joined. A message built from six pieces is
+// six BasicLits in one call, and joining them is what lets a fragment name a
+// site without the test knowing how the sentence was assembled.
+type refusalSite struct {
+	pos     token.Pos
+	message string
+}
+
+// refusalsIn walks one function and reports every refusal it builds:
+// errors.New, fmt.Errorf and resolution.refuse alike, because all three stop a
+// load and nothing else in this package does.
+func refusalsIn(fn *ast.FuncDecl) []refusalSite {
+	var out []refusalSite
+	ast.Inspect(fn, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		id, isIdent := sel.X.(*ast.Ident)
+		switch {
+		case sel.Sel.Name == "refuse":
+		case isIdent && id.Name == "errors" && sel.Sel.Name == "New":
+		case isIdent && id.Name == "fmt" && sel.Sel.Name == "Errorf":
+		default:
+			return true
+		}
+		out = append(out, refusalSite{pos: call.Pos(), message: literalsIn(call)})
+		return true
+	})
+	return out
+}
+
+func literalsIn(n ast.Node) string {
+	var b strings.Builder
+	ast.Inspect(n, func(node ast.Node) bool {
+		lit, ok := node.(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			return true
+		}
+		if s, err := strconv.Unquote(lit.Value); err == nil {
+			b.WriteString(s)
+		}
+		return true
+	})
+	return b.String()
+}
+
+// namesAWorld reports whether a function can ask the game anything, which is
+// exactly whether a World reaches it: the receiver, a parameter, or a
+// parameter's own type. It is the one channel by which a fact about data.raw
+// enters this package.
+func namesAWorld(fn *ast.FuncDecl) bool {
+	fields := []*ast.Field{}
+	if fn.Recv != nil {
+		fields = append(fields, fn.Recv.List...)
+	}
+	if fn.Type.Params != nil {
+		fields = append(fields, fn.Type.Params.List...)
+	}
+	for _, f := range fields {
+		if strings.Contains(typeName(f.Type), "World") {
+			return true
+		}
+	}
+	return false
+}
+
+func typeName(e ast.Expr) string {
+	var b strings.Builder
+	ast.Inspect(e, func(node ast.Node) bool {
+		if id, ok := node.(*ast.Ident); ok {
+			b.WriteString(id.Name + " ")
+		}
+		return true
+	})
+	return b.String()
+}

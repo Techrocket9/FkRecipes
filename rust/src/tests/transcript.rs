@@ -292,3 +292,34 @@ pub(crate) fn note_in(setting: &str, destroys_inputs: bool) -> String {
 pub(crate) fn with_recipe_tail(line: &str) -> String {
     format!("{} {}", line, crate::data::RECIPE_CHANGE_SENTENCE)
 }
+
+/// The ONE sentence a technology left with no science pack earns, composed here
+/// so the tests that assert it cannot drift apart from each other, exactly as
+/// `note_in` composes the tooltip note.
+///
+/// IT NAMES THE NAMES, which is the whole of what the sentence gained: an author
+/// reading it is one whose ladders all missed, and the rungs they wrote are the
+/// one thing that says which mod set this is.
+/// The ONE sentence a refusal raised after resolution carries when a stored
+/// value fell back on the way to it, composed here so the tests that assert it
+/// cannot drift apart from each other.
+///
+/// IT IS A FACT AND NAMES NO SCREEN. An earlier round appended a route to
+/// Settings > Mod settings > Startup and the client cannot reach it from an
+/// "Error loading mods" dialog; what survives is the half that was true, which
+/// is that the player's stored value was set aside. See
+/// `Resolution::fallback_fact`.
+pub(crate) fn with_fallback_fact(message: &str, setting: &str) -> String {
+    format!(
+        "{}. The stored value of {} could not be used, so the mod's own declaration applied.",
+        message, setting
+    )
+}
+
+pub(crate) fn packless_refusal(tech: &str, tried: &[&str]) -> String {
+    format!(
+        "fkrecipes: the technology {} has no science pack the game has; research takes at least one, and none of {} is a science pack here",
+        tech,
+        tried.join(", ")
+    )
+}

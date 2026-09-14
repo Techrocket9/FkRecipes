@@ -1172,3 +1172,722 @@ fn line_of(code: &[char], i: usize) -> usize {
 fn lines_of(code: &[char], at: &[usize]) -> Vec<usize> {
     at.iter().map(|i| line_of(code, *i)).collect()
 }
+
+// ---------------------------------------------------------------------------
+// Every refusal site, classified, as a source property.
+// ---------------------------------------------------------------------------
+
+/// THE TWO-SIDED RULE, MADE MECHANICAL.
+///
+/// A CHECK THAT ASKS THE `World` ANYTHING IS ENVIRONMENTAL AND DEGRADES LOUDLY;
+/// A CHECK THAT READS ONLY THE DECLARATION IS AN AUTHOR BUG AND REFUSES BY
+/// NAME. An environmental check stays a refusal only where degrading would
+/// overwrite another mod's prototype, hand the engine something it refuses
+/// anyway, or invent a value the author never declared; and one more, which the
+/// threat model rather than the rule supplies: a site the game cannot reach at
+/// all.
+///
+/// THE CLASSIFICATION KEYS ON WHAT THE CHECK ASKS, not on where an author would
+/// have noticed it. A fixture `World` that answers `tool_exists` true for a pack
+/// the shipped mod set demotes is green in development and red in play, so
+/// "visible in development" is a property of the author's fixture and this
+/// crate cannot see a fixture.
+///
+/// WHY A SOURCE PROPERTY. Nothing in a behavioural test can see a refusal ADDED
+/// to a World-asking function: the new sentence has its own new test, every old
+/// test stays green, and the policy has changed with no reader.
+///
+/// THE COUNT IS PART OF THE RULE. Every row pins how many refusals its item
+/// builds, and every hit in a scanned module has to sit inside one of them, so
+/// a refusal added anywhere goes red until somebody classifies it.
+///
+/// ONE ROW THIS FILE HAS AND THE GO TWIN DOES NOT. This crate's ingredient
+/// language answers with `Result<_, String>`, where the `String` is a PROBLEM
+/// that becomes a player's fallback line and never stops a load; the Go half
+/// returns a plain string there and builds no `errors.New` at all, so its
+/// census never sees the module. The row below says so rather than leaving the
+/// module unscanned.
+const CLASS_DECLARATION: &str = "reads only the declaration";
+const CLASS_ENVIRONMENTAL: &str = "asks the game";
+const CLASS_MIXED: &str = "holds both kinds";
+const CLASS_NOT_A_REFUSAL: &str = "builds no refusal at all";
+/// The item takes a `World` and every refusal in it still reads only the
+/// declaration. It exists because `CLASS_DECLARATION` is ENFORCED by the World
+/// check and this shape would fail it honestly: `resolve_custom_cost` walks pack
+/// ladders, so a `World` is in its signature, and the two sentences it builds
+/// are both about a DECLARED default the settings stage would already have
+/// refused. Saying that is not the same as `CLASS_MIXED` with no sites, which
+/// asserts nothing at all.
+const CLASS_DECLARATION_IN_WORLD: &str = "names a World and still reads only the declaration";
+
+/// The enumerated exceptions, and nothing else may appear in a row. Each is the
+/// reason degrading would be WORSE than refusing.
+const EXCEPT_OVERWRITES: &str = "degrading silently clobbers a stranger's prototype";
+const EXCEPT_ENGINE_REFUSES: &str =
+    "degrading hands the engine something it refuses with a worse message";
+const EXCEPT_INVENTS: &str =
+    "there is nothing declared to degrade to, so the library would have to invent a value";
+const EXCEPT_UNREACHABLE: &str = "the game cannot reach it: the engine resets an unoffered stored value before any stage runs (measured), so only a hand-edited file arrives here, which the threat model puts out of scope";
+
+const ALLOWED_EXCEPTIONS: &[&str] = &[
+    EXCEPT_OVERWRITES,
+    EXCEPT_ENGINE_REFUSES,
+    EXCEPT_INVENTS,
+    EXCEPT_UNREACHABLE,
+];
+
+/// One environmental refusal inside a mixed item: a fragment of the sentence
+/// distinctive enough to name exactly one site, and the exception it claims.
+struct EnvironmentalSite {
+    fragment: &'static str,
+    except: &'static str,
+}
+
+struct RefusalClass {
+    /// The module's path under `src`.
+    module: &'static str,
+    /// The item whose body holds the refusals, written as its `fn` needle. The
+    /// EMPTY string is the whole module, which only `CLASS_NOT_A_REFUSAL` uses.
+    func: &'static str,
+    class: &'static str,
+    /// The exception an all-environmental row claims; empty for every other
+    /// class.
+    except: &'static str,
+    sites: &'static [EnvironmentalSite],
+    /// How many refusals the item builds.
+    n: usize,
+    why: &'static str,
+}
+
+const REFUSAL_CLASSES: &[RefusalClass] = &[
+    RefusalClass {
+        module: "cycle.rs",
+        func: "fn check_cycles(",
+        class: CLASS_ENVIRONMENTAL,
+        except: EXCEPT_ENGINE_REFUSES,
+        sites: &[],
+        n: 1,
+        why: "the ring is the game's own prerequisite graph plus this plan's splices; the legitimate degrade is dropping the splice, which is a design this round does not make",
+    },
+    RefusalClass {
+        module: "data.rs",
+        func: "fn plan_data(",
+        class: CLASS_MIXED,
+        except: "",
+        sites: &[EnvironmentalSite {
+            fragment: "the mod name is empty",
+            except: EXCEPT_INVENTS,
+        }],
+        n: 2,
+        why: "one host-wiring fault that asks the World for the prefix everything else derives from, and one declaration fault (a Lib built without New)",
+    },
+    RefusalClass {
+        module: "data.rs",
+        func: "fn validate(",
+        class: CLASS_MIXED,
+        except: "",
+        sites: &[
+            EnvironmentalSite {
+                fragment: "the item {} already exists in data.raw",
+                except: EXCEPT_OVERWRITES,
+            },
+            EnvironmentalSite {
+                fragment: "the recipe {} already exists in data.raw",
+                except: EXCEPT_OVERWRITES,
+            },
+            EnvironmentalSite {
+                fragment: "the technology {} already exists in data.raw",
+                except: EXCEPT_OVERWRITES,
+            },
+            EnvironmentalSite {
+                fragment: "names a place_result {} that does not exist",
+                except: EXCEPT_INVENTS,
+            },
+            EnvironmentalSite {
+                fragment: "produces {}, which does not exist",
+                except: EXCEPT_INVENTS,
+            },
+            EnvironmentalSite {
+                fragment: "no technology of that name exists",
+                except: EXCEPT_INVENTS,
+            },
+            EnvironmentalSite {
+                fragment: "is a research_trigger technology",
+                except: EXCEPT_INVENTS,
+            },
+            EnvironmentalSite {
+                fragment: "carries no unit to copy",
+                except: EXCEPT_INVENTS,
+            },
+            EnvironmentalSite {
+                fragment: "has a unit that is not a dictionary",
+                except: EXCEPT_ENGINE_REFUSES,
+            },
+            EnvironmentalSite {
+                fragment: "the unit of {} holds a table",
+                except: EXCEPT_ENGINE_REFUSES,
+            },
+            EnvironmentalSite {
+                fragment: "the max_level of {} holds a table",
+                except: EXCEPT_ENGINE_REFUSES,
+            },
+        ],
+        n: 47,
+        why: "the three data.raw collisions, the two named-prototype probes and the six CostOf sentences are what it asks the game; the other thirty-six read the declaration",
+    },
+    RefusalClass {
+        module: "data.rs",
+        func: "fn resolve(",
+        class: CLASS_ENVIRONMENTAL,
+        except: EXCEPT_ENGINE_REFUSES,
+        sites: &[],
+        n: 2,
+        why: "a copied research unit whose pack list is in neither engine form: passing it through would hand the engine a name this library never read, and the refusal that earns names neither the technology nor the property",
+    },
+    RefusalClass {
+        module: "data.rs",
+        func: "fn check_resolved_craft_times(",
+        class: CLASS_DECLARATION,
+        except: "",
+        sites: &[],
+        n: 1,
+        why: "the stored value it is about is gone by the time it runs, so the number left is the plan's own declared default",
+    },
+    RefusalClass {
+        module: "data.rs",
+        func: "fn check_resolved_packs(",
+        class: CLASS_ENVIRONMENTAL,
+        except: EXCEPT_INVENTS,
+        sites: &[],
+        n: 1,
+        why: "the floor under every pack degradation: what reaches it is a technology with no author-declared cost left to be priced in, and an empty research unit is a FREE research rather than a stuck one (measured in play on 2.0.77)",
+    },
+    RefusalClass {
+        module: "data.rs",
+        func: "fn resolve_custom_cost(",
+        class: CLASS_DECLARATION_IN_WORLD,
+        except: "",
+        sites: &[],
+        n: 2,
+        why: "it names a World for the packs it walks, and both refusals it builds are about a DECLARED default the settings stage would already have refused; the Go mirror keeps the pair in a resolution method of its own, which names no World at all",
+    },
+    RefusalClass {
+        module: "data.rs",
+        func: "fn read_dropdown(",
+        class: CLASS_ENVIRONMENTAL,
+        except: EXCEPT_UNREACHABLE,
+        sites: &[],
+        n: 1,
+        why: "a stored value the dropdown does not offer",
+    },
+    RefusalClass {
+        module: "data.rs",
+        func: "fn validate_ingredients(",
+        class: CLASS_DECLARATION,
+        except: "",
+        sites: &[],
+        n: 9,
+        why: "the declared ingredient list",
+    },
+    RefusalClass {
+        module: "data.rs",
+        func: "fn validate_no_duplicates(",
+        class: CLASS_DECLARATION,
+        except: "",
+        sites: &[],
+        n: 1,
+        why: "the declared ingredient list",
+    },
+    RefusalClass {
+        module: "data.rs",
+        func: "fn validate_custom_cost(",
+        class: CLASS_DECLARATION,
+        except: "",
+        sites: &[],
+        n: 7,
+        why: "the declared settings a custom cost names",
+    },
+    RefusalClass {
+        module: "data.rs",
+        func: "fn validate_unit(",
+        class: CLASS_DECLARATION,
+        except: "",
+        sites: &[],
+        n: 9,
+        why: "the declared unit",
+    },
+    RefusalClass {
+        module: "data.rs",
+        func: "fn validate_no_duplicate_packs(",
+        class: CLASS_DECLARATION,
+        except: "",
+        sites: &[],
+        n: 1,
+        why: "the declared pack list",
+    },
+    RefusalClass {
+        module: "data.rs",
+        func: "fn research_number_maximum(",
+        class: CLASS_DECLARATION,
+        except: "",
+        sites: &[],
+        n: 1,
+        why: "the declared range of a research number",
+    },
+    RefusalClass {
+        module: "data.rs",
+        func: "fn matches_allowed_values(",
+        class: CLASS_DECLARATION,
+        except: "",
+        sites: &[],
+        n: 3,
+        why: "the declared values of a dropdown against the choices declared beside it",
+    },
+    RefusalClass {
+        module: "data.rs",
+        func: "fn check_extra(",
+        class: CLASS_DECLARATION,
+        except: "",
+        sites: &[],
+        n: 3,
+        why: "the declared Extra fields",
+    },
+    RefusalClass {
+        module: "settings.rs",
+        func: "fn plan_settings(",
+        class: CLASS_DECLARATION,
+        except: "",
+        sites: &[],
+        n: 2,
+        why: "the settings stage is handed a Named and not a World: data.raw does not exist yet, so there is no game here to ask",
+    },
+    RefusalClass {
+        module: "settings.rs",
+        func: "fn validate_settings(",
+        class: CLASS_DECLARATION,
+        except: "",
+        sites: &[],
+        n: 15,
+        why: "the declared settings",
+    },
+    RefusalClass {
+        module: "settings.rs",
+        func: "fn validate_bindings(",
+        class: CLASS_DECLARATION,
+        except: "",
+        sites: &[],
+        n: 9,
+        why: "the declared bindings",
+    },
+    RefusalClass {
+        module: "settings.rs",
+        func: "fn validate_text_settings(",
+        class: CLASS_DECLARATION,
+        except: "",
+        sites: &[],
+        n: 2,
+        why: "the declared text settings",
+    },
+    RefusalClass {
+        module: "settings.rs",
+        func: "fn validate_declared_packs(",
+        class: CLASS_DECLARATION,
+        except: "",
+        sites: &[],
+        n: 3,
+        why: "the declared pack list of a packs setting",
+    },
+    RefusalClass {
+        module: "ingredient_list.rs",
+        func: "",
+        class: CLASS_NOT_A_REFUSAL,
+        except: "",
+        sites: &[],
+        n: 26,
+        why: "every Err here carries a PROBLEM string, which becomes a player's fallback line and never stops a load; the Go half returns a plain string in the same places and builds no refusal at all",
+    },
+];
+
+/// The same table, written the other way round: every row's CLASS and every
+/// exception it claims, grouped BY CLASS.
+///
+/// WHY A SECOND LIST AT ALL. `REFUSAL_CLASSES` is a table a reader edits while
+/// looking at the function they just changed, and the only thing stopping a row
+/// being moved from "asks the game" to "reads only the declaration" was the
+/// World check, which every item that takes a `Resolution` rather than a
+/// `World` slips past: `check_resolved_packs` is the floor under every pack
+/// degradation and it takes `res` alone, so one word made the whole rule stop
+/// guarding it with the suite green. Now a relabel needs TWO edits in two
+/// places, and the second place is grouped by CLASS, so the row has to be
+/// carried out of one group and into another where a reviewer reading the diff
+/// sees it.
+///
+/// IT PINS THE EXCEPTIONS TOO, both the row's own and its sites', in order. The
+/// table above only ever asked whether an exception was ONE OF the enumerated
+/// four; which of the four a site claims is the whole content of the
+/// classification, and it was unpinned.
+struct PolicyRow {
+    module: &'static str,
+    func: &'static str,
+    class: &'static str,
+    except: &'static str,
+    /// The row's environmental site exceptions, in the order the table above
+    /// lists them, joined by " | ". Empty where there are none.
+    sites: &'static str,
+}
+
+const REFUSAL_POLICY: &[PolicyRow] = &[
+    // Reads only the declaration. None of these may name a World at all.
+    PolicyRow { module: "data.rs", func: "fn check_resolved_craft_times(", class: CLASS_DECLARATION, except: "", sites: "" },
+    PolicyRow { module: "data.rs", func: "fn validate_ingredients(", class: CLASS_DECLARATION, except: "", sites: "" },
+    PolicyRow { module: "data.rs", func: "fn validate_no_duplicates(", class: CLASS_DECLARATION, except: "", sites: "" },
+    PolicyRow { module: "data.rs", func: "fn validate_custom_cost(", class: CLASS_DECLARATION, except: "", sites: "" },
+    PolicyRow { module: "data.rs", func: "fn validate_unit(", class: CLASS_DECLARATION, except: "", sites: "" },
+    PolicyRow { module: "data.rs", func: "fn validate_no_duplicate_packs(", class: CLASS_DECLARATION, except: "", sites: "" },
+    PolicyRow { module: "data.rs", func: "fn research_number_maximum(", class: CLASS_DECLARATION, except: "", sites: "" },
+    PolicyRow { module: "data.rs", func: "fn matches_allowed_values(", class: CLASS_DECLARATION, except: "", sites: "" },
+    PolicyRow { module: "data.rs", func: "fn check_extra(", class: CLASS_DECLARATION, except: "", sites: "" },
+    PolicyRow { module: "settings.rs", func: "fn plan_settings(", class: CLASS_DECLARATION, except: "", sites: "" },
+    PolicyRow { module: "settings.rs", func: "fn validate_settings(", class: CLASS_DECLARATION, except: "", sites: "" },
+    PolicyRow { module: "settings.rs", func: "fn validate_bindings(", class: CLASS_DECLARATION, except: "", sites: "" },
+    PolicyRow { module: "settings.rs", func: "fn validate_text_settings(", class: CLASS_DECLARATION, except: "", sites: "" },
+    PolicyRow { module: "settings.rs", func: "fn validate_declared_packs(", class: CLASS_DECLARATION, except: "", sites: "" },
+    // Names a World and still reads only the declaration, which is enforced
+    // both ways: the World has to be there, and no site may claim an exception.
+    PolicyRow { module: "data.rs", func: "fn resolve_custom_cost(", class: CLASS_DECLARATION_IN_WORLD, except: "", sites: "" },
+    // Asks the game, and every refusal in it is kept by the one exception named
+    // here.
+    PolicyRow { module: "cycle.rs", func: "fn check_cycles(", class: CLASS_ENVIRONMENTAL, except: EXCEPT_ENGINE_REFUSES, sites: "" },
+    PolicyRow { module: "data.rs", func: "fn resolve(", class: CLASS_ENVIRONMENTAL, except: EXCEPT_ENGINE_REFUSES, sites: "" },
+    PolicyRow { module: "data.rs", func: "fn check_resolved_packs(", class: CLASS_ENVIRONMENTAL, except: EXCEPT_INVENTS, sites: "" },
+    PolicyRow { module: "data.rs", func: "fn read_dropdown(", class: CLASS_ENVIRONMENTAL, except: EXCEPT_UNREACHABLE, sites: "" },
+    // Holds both, and the exceptions are its sites', in the order the table
+    // above lists them.
+    PolicyRow { module: "data.rs", func: "fn plan_data(", class: CLASS_MIXED, except: "", sites: "there is nothing declared to degrade to, so the library would have to invent a value" },
+    PolicyRow {
+        module: "data.rs",
+        func: "fn validate(",
+        class: CLASS_MIXED,
+        except: "",
+        sites: "degrading silently clobbers a stranger's prototype | degrading silently clobbers a stranger's prototype | degrading silently clobbers a stranger's prototype | there is nothing declared to degrade to, so the library would have to invent a value | there is nothing declared to degrade to, so the library would have to invent a value | there is nothing declared to degrade to, so the library would have to invent a value | there is nothing declared to degrade to, so the library would have to invent a value | there is nothing declared to degrade to, so the library would have to invent a value | degrading hands the engine something it refuses with a worse message | degrading hands the engine something it refuses with a worse message | degrading hands the engine something it refuses with a worse message",
+    },
+    // Builds no refusal at all.
+    PolicyRow { module: "ingredient_list.rs", func: "", class: CLASS_NOT_A_REFUSAL, except: "", sites: "" },
+];
+
+/// The relabel guard. It says nothing about the source; it holds the two tables
+/// to each other, which is what makes a one-word class change a red suite.
+#[test]
+fn the_two_classification_lists_agree() {
+    let mut problems: Vec<String> = Vec::new();
+    for rc in REFUSAL_CLASSES {
+        let Some(pr) = REFUSAL_POLICY
+            .iter()
+            .find(|pr| pr.module == rc.module && pr.func == rc.func)
+        else {
+            problems.push(format!(
+                "{} in {} is classified \"{}\" and REFUSAL_POLICY does not carry it; every row is pinned in both lists so a relabel cannot be one edit",
+                rc.func, rc.module, rc.class
+            ));
+            continue;
+        };
+        if pr.class != rc.class {
+            problems.push(format!(
+                "{} in {}: REFUSAL_CLASSES says \"{}\" and REFUSAL_POLICY says \"{}\"; one of the two is a relabel",
+                rc.func, rc.module, rc.class, pr.class
+            ));
+        }
+        if pr.except != rc.except {
+            problems.push(format!(
+                "{} in {}: REFUSAL_CLASSES keeps it a refusal because \"{}\" and REFUSAL_POLICY says \"{}\"",
+                rc.func, rc.module, rc.except, pr.except
+            ));
+        }
+        let listed = rc
+            .sites
+            .iter()
+            .map(|s| s.except)
+            .collect::<Vec<&str>>()
+            .join(" | ");
+        if listed != pr.sites {
+            problems.push(format!(
+                "{} in {}: the site exceptions are\n {}\nand REFUSAL_POLICY pins\n {}",
+                rc.func, rc.module, listed, pr.sites
+            ));
+        }
+    }
+    for pr in REFUSAL_POLICY {
+        if !REFUSAL_CLASSES
+            .iter()
+            .any(|rc| rc.module == pr.module && rc.func == pr.func)
+        {
+            problems.push(format!(
+                "{} in {} is pinned in REFUSAL_POLICY and REFUSAL_CLASSES does not carry it; a row deleted from one list is deleted from both",
+                pr.func, pr.module
+            ));
+        }
+    }
+    if REFUSAL_POLICY.len() != REFUSAL_CLASSES.len() {
+        problems.push(format!(
+            "the two classification lists hold {} and {} rows; they are the same rows written twice",
+            REFUSAL_POLICY.len(),
+            REFUSAL_CLASSES.len()
+        ));
+    }
+    assert!(
+        problems.is_empty(),
+        "the two classification lists disagree, so a relabel could ship unseen:\n{}",
+        problems.join("\n")
+    );
+}
+
+#[test]
+fn every_refusal_site_is_classified() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+    let sources = crate_modules(&root);
+    assert!(
+        sources.len() >= 5,
+        "only {} modules found under {}; the scan would prove nothing",
+        sources.len(),
+        root.display()
+    );
+
+    let mut problems: Vec<String> = Vec::new();
+    let mut used = alloc::vec![0usize; REFUSAL_CLASSES.len()];
+    for path in &sources {
+        let text = fs::read_to_string(path).expect("a module is not readable");
+        let walked = scan(&text);
+        let literals = walked.literals;
+        let code: Vec<char> = walked.code.chars().collect();
+        let module = path
+            .strip_prefix(&root)
+            .expect("a module outside the tree that produced it")
+            .to_string_lossy()
+            .to_string();
+
+        let mut hits: Vec<usize> = Vec::new();
+        for needle in REFUSAL_NEEDLES {
+            hits.extend(needle_hits(&code, needle));
+        }
+        if hits.is_empty() {
+            continue;
+        }
+        hits.sort_unstable();
+
+        let rows: Vec<(usize, &RefusalClass)> = REFUSAL_CLASSES
+            .iter()
+            .enumerate()
+            .filter(|(_, rc)| rc.module == module)
+            .collect();
+        if rows.is_empty() {
+            problems.push(format!(
+                "{}: builds {} refusal(s) at lines {:?} and no row classifies the module",
+                module,
+                hits.len(),
+                lines_of(&code, &hits)
+            ));
+            continue;
+        }
+
+        for (i, rc) in &rows {
+            // A WHOLE-MODULE ROW OWNS EVERY HIT IN IT, which is the only way
+            // CLASS_NOT_A_REFUSAL can be stated at all.
+            if rc.func.is_empty() {
+                used[*i] = hits.len();
+                continue;
+            }
+            let Some(span) = body_span(&code, rc.func) else {
+                problems.push(format!(
+                    "{}: has no `{}` for its refusals to sit in; it is meant to hold {}",
+                    module, rc.func, rc.why
+                ));
+                continue;
+            };
+            let mine: Vec<usize> = hits
+                .iter()
+                .copied()
+                .filter(|h| *h > span.0 && *h < span.1)
+                .collect();
+            used[*i] = mine.len();
+
+            if rc.class == CLASS_DECLARATION && signature_of(&code, rc.func).contains("World") {
+                problems.push(format!(
+                    "{}: `{}` is classified \"{}\" and names a World; a check that can ask the game is environmental and needs an exception",
+                    module, rc.func, CLASS_DECLARATION
+                ));
+            }
+            // AND THE OTHER WAY ROUND FOR THE ONE CLASS THAT CLAIMS BOTH. A row
+            // that says "names a World and still reads only the declaration"
+            // has to name one; without the World it is plain
+            // `CLASS_DECLARATION` and should be held to that check instead.
+            if rc.class == CLASS_DECLARATION_IN_WORLD
+                && !signature_of(&code, rc.func).contains("World")
+            {
+                problems.push(format!(
+                    "{}: `{}` is classified \"{}\" and names no World; say \"{}\" instead, which is the enforced one",
+                    module, rc.func, CLASS_DECLARATION_IN_WORLD, CLASS_DECLARATION
+                ));
+            }
+            if rc.class != CLASS_MIXED {
+                continue;
+            }
+            for j in 0..rc.sites.len() {
+                let f = rc.sites[j].fragment;
+                let found = mine
+                    .iter()
+                    .filter(|h| sentence_at(&code, &literals, **h).contains(f))
+                    .count();
+                if found != 1 {
+                    problems.push(format!(
+                        "{}: `{}`: the environmental fragment {:?} names {} refusals; it has to name exactly one",
+                        module, rc.func, f, found
+                    ));
+                }
+            }
+        }
+
+        // EVERY HIT INSIDE SOME ROW'S BODY, which is what makes a refusal added
+        // to a function nobody listed a red suite rather than a silent policy
+        // change.
+        let whole_module = rows.iter().any(|(_, rc)| rc.func.is_empty());
+        if whole_module {
+            continue;
+        }
+        for h in &hits {
+            let inside = rows.iter().any(|(_, rc)| {
+                body_span(&code, rc.func).is_some_and(|(from, to)| *h > from && *h < to)
+            });
+            if !inside {
+                problems.push(format!(
+                    "{}:{}: builds a refusal inside no classified item; add a row to REFUSAL_CLASSES saying whether it reads only the declaration or asks the game, and if it asks the game which of the enumerated exceptions keeps it a refusal",
+                    module,
+                    line_of(&code, *h)
+                ));
+            }
+        }
+    }
+
+    for (i, rc) in REFUSAL_CLASSES.iter().enumerate() {
+        if used[i] != rc.n {
+            problems.push(format!(
+                "{} in {} builds {} refusals and the row pins {}; classify the one that moved ({})",
+                rc.func, rc.module, used[i], rc.n, rc.why
+            ));
+        }
+        if (rc.class == CLASS_ENVIRONMENTAL) != !rc.except.is_empty() {
+            problems.push(format!(
+                "{} in {} is classified \"{}\" and its exception does not agree with that",
+                rc.func, rc.module, rc.class
+            ));
+        }
+        if !rc.except.is_empty() && !ALLOWED_EXCEPTIONS.contains(&rc.except) {
+            problems.push(format!(
+                "{} in {} claims an exception that is not one of the enumerated ones",
+                rc.func, rc.module
+            ));
+        }
+        for s in rc.sites {
+            if !ALLOWED_EXCEPTIONS.contains(&s.except) {
+                problems.push(format!(
+                    "{} in {}: the site {:?} claims an exception that is not one of the enumerated ones",
+                    rc.func, rc.module, s.fragment
+                ));
+            }
+        }
+        // A MIXED ROW WITH NO SITES ASSERTS NOTHING, which is the third way a
+        // relabel could have got past this test: CLASS_MIXED skips the World
+        // check and the site walk both, so an all-environmental item moved into
+        // it with an empty list would be unconstrained. A mixed row names the
+        // refusals that ask the game, one by one, and by construction it holds
+        // at least one that does not.
+        if rc.class == CLASS_MIXED && rc.sites.is_empty() {
+            problems.push(format!(
+                "{} in {} is classified \"{}\" and lists no environmental site; a mixed row names the refusals that ask the game, one by one",
+                rc.func, rc.module, CLASS_MIXED
+            ));
+        }
+        if rc.class == CLASS_MIXED && rc.n <= rc.sites.len() {
+            problems.push(format!(
+                "{} in {} is classified \"{}\" with {} refusals and {} of them environmental; a row whose refusals ALL ask the game is \"{}\" with one exception, not mixed",
+                rc.func, rc.module, CLASS_MIXED, rc.n, rc.sites.len(), CLASS_ENVIRONMENTAL
+            ));
+        }
+        if rc.func.is_empty() && rc.class != CLASS_NOT_A_REFUSAL {
+            problems.push(format!(
+                "{}: a whole-module row may only say \"{}\"",
+                rc.module, CLASS_NOT_A_REFUSAL
+            ));
+        }
+    }
+
+    assert!(
+        problems.is_empty(),
+        "a refusal site is unclassified, so a policy change could ship with every behavioural test green:\n{}",
+        problems.join("\n")
+    );
+}
+
+/// What builds a refusal in this crate: the two `Err` constructors the planner
+/// uses, the one it borrows from the crafting-time rule, and
+/// `Resolution::refuse`. A re-raise of a message another site composed is not
+/// one of them: it carries no sentence of its own.
+const REFUSAL_NEEDLES: &[&str] = &[
+    "Err(format!(",
+    "Err(String::from(",
+    "Err(declared_craft_time_problem(",
+    ".refuse(",
+];
+
+/// The signature of the item written as `needle`: everything from the needle to
+/// the brace its body opens with, which is where a `World` parameter is spelled
+/// if there is one.
+fn signature_of(code: &[char], needle: &str) -> String {
+    let Some(at) = needle_hits(code, needle).first().copied() else {
+        return String::new();
+    };
+    let mut i = at;
+    while i < code.len() && code[i] != '{' {
+        i += 1;
+    }
+    code[at..i].iter().collect()
+}
+
+/// The string literals of the refusal that starts at `at`, joined: a message
+/// built from six pieces is six literals in one call, and joining them is what
+/// lets a fragment name a site without this test knowing how the sentence was
+/// assembled.
+///
+/// THE LITERALS COME FROM THE OTHER HALF OF THE SAME SCAN, because the blanked
+/// code is exactly the half with the literals taken out of it. The call's span
+/// is its own parentheses, matched the way `body_span` matches braces, and the
+/// literals are the ones whose LINES fall inside it.
+fn sentence_at(code: &[char], literals: &[(usize, String)], at: usize) -> String {
+    let mut i = at;
+    while i < code.len() && code[i] != '(' {
+        i += 1;
+    }
+    let mut depth = 0usize;
+    let mut end = code.len();
+    while i < code.len() {
+        match code[i] {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = i;
+                    break;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    let (first, last) = (line_of(code, at), line_of(code, end));
+    let mut out = String::new();
+    for (line, text) in literals {
+        if *line >= first && *line <= last {
+            out.push_str(text);
+        }
+    }
+    out
+}

@@ -888,9 +888,10 @@ func textFormatLine() string {
 // for. Setting a text aside is not the same as loading: the declared list is
 // held to every rule it always was, so a modpack in which that declaration
 // cannot produce a legal result still stops the load, and on a refused load the
-// log ops never reach the host at all (that is why withFallbackNote in data.go
-// exists). Naming both places the reason can be, the log or the load error, is
-// therefore the whole claim this line is allowed to make.
+// log ops never reach the host at all, so the load error is the only place the
+// reason can be: resolution.fallbackFact is what puts it there, which is what
+// keeps this line's second clause true. Naming both places, the log or the load
+// error, is therefore the whole claim this line is allowed to make.
 const textFallbackLine = "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway."
 
 // presetLine is one preset's line in a composed dropdown description.
@@ -998,8 +999,10 @@ const messagePrefix = "fkrecipes: "
 // NOTHING WOULD NOT ALSO HAVE HIT; AN INPUT THE AUTHOR DECLARES STILL REFUSES.
 // The claim is that narrow one on purpose: what a fallback lands on is the
 // author's declaration, and a modpack where that declaration cannot produce a
-// legal result stops the load either way. See resolution.withFallbackNote for
-// the sentence such a refusal then carries.
+// legal result stops the load either way. Such a refusal carries the ONE FACT
+// that a stored value was set aside (resolution.fallbackFact) and NO route to
+// the settings screen, because the client's error dialog has none: see PlanData
+// for the client walk that settled it.
 //
 // MEASURED (Factorio 2.0.77, build 84539): the engine
 // rewrites mod-settings.dat on every successful load and on NO failed one
@@ -1378,6 +1381,14 @@ type costTier struct {
 	unit     Value
 	dropdown string
 	chosen   string
+	// source is the technology the tier settled on, and it rides here for ONE
+	// reason: the tier arm may already have said, in the log and in this
+	// technology's own tooltip, that the source named no science pack this game
+	// has and that the mod's declared cost applies instead. A typed pack list
+	// makes both of those false, and taking them back needs the name they were
+	// composed from. Empty where the tier fell back without settling on a
+	// source, which is the arm that says nothing of the kind.
+	source string
 }
 
 // resolveCustomCost is a research cost the player writes: the count and the
@@ -1428,20 +1439,41 @@ func (l *Lib) resolveCustomCost(w, text World, res *resolution, prefix string, t
 	// the player typed, then the tier's own ingredients, then the author's
 	// declared list with its ladders walked and its drops logged.
 	entries := parsed.entries
+	var tried []string
 	if parsed.isDefault {
 		if tier.has {
 			entries = tierPackEntries(tier.unit)
 		} else {
-			entries = resolvePackLadders(w, res, t.name, packsSetting.defPacks)
+			entries, tried = resolvePackLadders(w, res, tgt, t.name, packsSetting.defPacks)
 		}
-	} else if tier.has && res.packless == t.name {
-		// A TYPED PACK LIST IS WHAT THIS TECHNOLOGY IS PRICED IN, so it is not
-		// packless any more. The only way the mark is here already is the
-		// CostBy fallback having lost every pack it declared a moment ago, and
-		// that unit's ingredients are about to be written over: refusing the
-		// load over packs nothing emits would be a refusal a player's own text
-		// had removed. The drop lines stay, because they are true.
-		res.packless = ""
+	} else if tier.has {
+		// A TYPED PACK LIST IS WHAT THIS TECHNOLOGY IS PRICED IN, so everything
+		// the tier arm said about the TIER'S packs is now about a price nothing
+		// emits, and each piece of it is taken back here.
+		//
+		// THE MARK FIRST. The only way it is here already is the CostBy
+		// fallback having lost every pack it declared a moment ago, and that
+		// unit's ingredients are about to be written over: refusing the load
+		// over packs nothing emits would be a refusal a player's own text had
+		// removed.
+		if res.packless == t.name {
+			res.packless = ""
+			res.packlessNames = nil
+		}
+		// AND THEN THE SENTENCE AND THE LINE, which is the half a mark does not
+		// cover. A tier whose source lost every pack says so in the log and in
+		// this technology's own tooltip and falls back to the mod's declared
+		// cost; when the player has ALSO typed a pack list, the packs (and
+		// maybe the count and the seconds) are theirs, so "this mod's own
+		// declared cost applies instead" is a false statement in a tooltip. It
+		// is composed from the source's name, which is why the tier carries it.
+		//
+		// THE DROP LINES STAY, because they are true: those packs really are
+		// absent from this game, and the line says only that.
+		if tier.source != "" {
+			res.retractLog(packlessSourceLine(t.name, tier.source))
+			res.retractNote(tgt, packlessSourceNote(tier.source))
+		}
 	}
 	if !tier.has {
 		// AND THE POST-CONDITION, on whatever the two reads settled on. After a
@@ -1460,12 +1492,17 @@ func (l *Lib) resolveCustomCost(w, text World, res *resolution, prefix string, t
 		if !res.refuseCostNumbers(countSetting.emittedName(prefix), secondsSetting.emittedName(prefix), count, seconds) {
 			return refusedCost(count, seconds), true
 		}
-		// A parsed list can never be empty here: the language refuses none in a
-		// pack list. So this is the ladder path having lost every pack, which is
-		// the same refusal a hand-rolled unit gets. A TIER'S OWN PACKS ARE NOT
-		// ASKED, because they are another technology's declaration.
-		if len(entries) == 0 && res.packless == "" {
-			res.packless = t.name
+		// THE LADDER PATH AND ONLY THE LADDER PATH, which is the arm the Rust
+		// mirror tests for by name. A list the PLAYER typed can never be empty
+		// (the language refuses both none and an empty field in a pack list,
+		// and testdata/ingredient-list/cases.txt pins both sentences), but the
+		// two halves agreeing must not rest on that: this arm names the path it
+		// is about, so a change to the language cannot silently make one half
+		// mark a technology packless while the other does not. A TIER'S OWN
+		// PACKS ARE NOT ASKED EITHER, because they are another technology's
+		// declaration.
+		if parsed.isDefault && len(entries) == 0 {
+			res.markPackless(t.name, tried)
 		}
 	}
 

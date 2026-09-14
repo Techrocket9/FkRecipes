@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // PlanData turns the declared items, recipes and technologies into an Op
@@ -37,33 +38,7 @@ func (l *Lib) PlanData(w World) ([]Op, error) {
 		return nil, err
 	}
 	res := l.resolve(w, prefix)
-	// THE CARRIED REFUSAL FIRST, before any check about what the plan
-	// declared, because it was found earliest in the walk and its "first one
-	// found wins" rule is what makes a plan with two problems answer the same
-	// way every run.
-	//
-	// NOTHING A PLAYER TYPES REACHES THIS LINE ANY MORE. A refused text and a
-	// number the engine would not take fall back to the author's own
-	// declaration with one log line each; what is left in the slot is an
-	// author's declaration or a hand-edited file. See resolution.refusal.
-	//
-	// WHICH IS NOT THE SAME AS "A PLAYER CANNOT BE HERE". The declaration a
-	// fallback lands on can fail a check further down, in a modpack where the
-	// author's own packs are all absent or the author's own ladders collapse
-	// onto one item; a player who never typed hits that refusal too, but a
-	// player who did type is owed the fact that their text was set aside. Every
-	// refusal below this line leaves through withFallbackNote, which is what
-	// says so.
-	if res.refusal != "" {
-		return nil, res.withFallbackNote(errors.New(res.refusal))
-	}
-	if err := res.withFallbackNote(l.checkResolvedCraftTimes(res)); err != nil {
-		return nil, err
-	}
-	if err := res.withFallbackNote(checkResolvedPacks(res)); err != nil {
-		return nil, err
-	}
-	if err := res.withFallbackNote(l.checkCycles(w, res, prefix)); err != nil {
+	if err := l.afterResolution(w, res, prefix); err != nil {
 		return nil, err
 	}
 
@@ -426,8 +401,12 @@ type resolvedTech struct {
 	// which source answered, and which rung of each pack's ladder the game
 	// actually has, are facts about the game.
 	//
-	// hasUnit is false only for CostOf, whose unit is copied verbatim out of
-	// the World at emit and so has nothing to resolve.
+	// hasUnit is true for every cost shape that RESOLVED one, which is now all
+	// four: CostOf copies its source's unit verbatim and then filters the
+	// science packs out of it, so the unit it settles on is a fact about this
+	// game rather than a value the emit layer can read back for itself. It is
+	// false only where the technology named no cost at all, and for a CostOf
+	// whose source carries no unit, which validate has already refused.
 	unit        Value
 	hasUnit     bool
 	maxLevel    Value
@@ -491,33 +470,39 @@ type resolution struct {
 	techNotes   []string
 
 	// packless is the first technology, in declaration order, whose every
-	// declared science pack dropped. It is carried out of resolve rather than
-	// raised inside it because resolve answers with facts and PlanData decides
-	// which of them is a refusal, exactly as the crafting-time floor does.
-	packless string
+	// declared science pack dropped, and packlessNames is what it tried, in
+	// declaration order and once each. They are carried out of resolve rather
+	// than raised inside it because resolve answers with facts and PlanData
+	// decides which of them is a refusal, exactly as the crafting-time floor
+	// does.
+	//
+	// THE NAMES ARE PART OF THE ANSWER. "has no science pack the game has" on
+	// its own tells an author that something is absent and not which thing, and
+	// the author reading it is one whose ladders all missed: the names are the
+	// rungs they wrote and the one thing that says which mod set this is.
+	packless      string
+	packlessNames []string
 
-	// refusal is the FIRST sentence the walk found that stops the load. Every
-	// producer left is an AUTHOR's declaration rather than a player's typing:
-	// a dropdown holding a value it does not offer (which the engine resets
-	// before any stage runs, so only a hand-edited file reaches it), a merged
-	// amount above its ceiling, and refuseCostNumbers' answers about a
-	// declared default the settings stage would already have refused. The two
-	// that used to be here and are not, the language's own refusal for a text
-	// the player typed and "is not text", are now fallback lines: see
-	// playerFallback. Carried out rather than raised for the same reason
+	// refusal is the FIRST sentence the walk found that stops the load. The
+	// producers left are a dropdown holding a value it does not offer (which
+	// the engine resets before any stage runs, so only a hand-edited file
+	// reaches it), refuseCostNumbers' answers about a declared default the
+	// settings stage would already have refused, and a copied research unit
+	// whose pack list is in neither engine form. The merged amounts that used
+	// to be here are CLAMPED now, with a line and a tooltip note each: see
+	// mergeIngredient. Carried out rather than raised for the same reason
 	// packless is: resolve answers with facts.
 	refusal string
 
 	// fellBack names every setting whose STORED value the library could not
 	// use, in walk order and ONCE EACH.
 	//
-	// IT IS THE DEDUPE AND THE NOTE AT ONCE. A crafting-time setting two
-	// recipes read is one field on the settings screen, so a bad value there
-	// is one problem and gets one line however many declarations reach it;
-	// this slice is what a second reader is checked against. And when a plan
-	// refuses anyway, its FIRST entry is the setting the refusal's added
-	// sentence names, because a walk-order first is the same every run. See
-	// withFallbackNote.
+	// IT HAS TWO READERS. It is the DEDUPE: a crafting-time setting two recipes
+	// read is one field on the settings screen, so a bad value there is one
+	// problem and gets one line however many declarations reach it, and this
+	// slice is what a second reader is checked against. And it is what
+	// fallbackFact states, because the first element is the setting a refusal
+	// raised after resolution names.
 	//
 	// A SLICE AND A LINEAR SCAN RATHER THAN A SET: the order is the answer, a
 	// map would not have one, and no plan declares enough settings for the
@@ -601,7 +586,7 @@ func (r *resolution) addRecipe(subject, product string, list []resolvedIngredien
 // destroysInputs is the caller's answer to "does this fallback change what the
 // recipe is made of", and it is passed rather than derived: see noteOn.
 func (r *resolution) noteFallback(tgt noteTarget, setting, line string, destroysInputs bool) {
-	r.noteOn(tgt, setting, destroysInputs)
+	r.noteOn(tgt, fallbackNote(setting, destroysInputs))
 	for _, seen := range r.fellBack {
 		if seen == setting {
 			return
@@ -611,26 +596,106 @@ func (r *resolution) noteFallback(tgt noteTarget, setting, line string, destroys
 	r.logs = append(r.logs, line)
 }
 
+// afterResolution is the whole post-resolution gate: the refusal resolution
+// carried, then the three checks over what it settled on, in the ORDER the
+// design record fixes so that the two languages answer one declaration with one
+// sentence. It answers nil when the plan may be emitted.
+//
+// THE CARRIED REFUSAL FIRST, before any check about what the plan declared,
+// because it was found earliest in the walk and its "first one found wins" rule
+// is what makes a plan with two problems answer the same way every run.
+//
+// NOTHING A PLAYER TYPES REACHES THAT LINE ANY MORE. A refused text and a
+// number the engine would not take fall back to the author's own declaration
+// with one log line each; what is left in the slot is an author's declaration
+// or a hand-edited file. See resolution.refusal.
+//
+// WHICH IS NOT THE SAME AS "A PLAYER CANNOT BE HERE". The declaration a
+// fallback lands on can fail a check further down, in a modpack where the
+// author's own packs are all absent or the author's own ladders collapse onto
+// one item; a player who never typed hits that refusal too.
+//
+// SO EVERY REFUSAL HERE LEAVES THROUGH fallbackFact, which states the FACT and
+// names no screen. The sentence that used to be appended routed the player to
+// Settings > Mod settings > Startup, and the client cannot get there from an
+// "Error loading mods" dialog: re-measured on 2.0.77, the dialog offers Disable
+// listed mods, Disable all mods, Manage mods, Restart, Exit and a Reset mod
+// settings checkbox; Manage mods has no Mod settings button and its Back
+// returns to the same dialog; Restart relaunches into an identical dialog over
+// a file whose sha256 has not moved. What was WRONG was the route, not the
+// fact: a player who typed something is still owed the knowledge that it was
+// set aside, because the accumulated log ops never reach the host on a refused
+// load. Every refusal left names what the AUTHOR must change, and that one
+// added sentence names what the PLAYER's value did, without advice.
+//
+// IT IS A FUNCTION OF ITS OWN RATHER THAN FOUR STATEMENTS IN PlanData, and the
+// reason is the LOWERING and not the prose. PlanData is the widest function
+// this library compiles to (the packaging report's jump row names it), resolve
+// inlines into it, and a Lua 5.2 function has a register ceiling as well as the
+// jump ceiling the report tracks: four decorated calls in that body is what
+// pushed the packaged module past "function or expression too complex" and made
+// the mirror gate refuse to load it. Keeping this gate whole and calling it once
+// costs nothing and gives PlanData its registers back. Keep it out of line.
+//
+//go:noinline
+func (l *Lib) afterResolution(w World, res resolution, prefix string) error {
+	if res.refusal != "" {
+		return res.fallbackFact(errors.New(res.refusal))
+	}
+	if err := res.fallbackFact(l.checkResolvedCraftTimes(res)); err != nil {
+		return err
+	}
+	if err := res.fallbackFact(checkResolvedPacks(res)); err != nil {
+		return err
+	}
+	return res.fallbackFact(l.checkCycles(w, res, prefix))
+}
+
+// fallbackFact adds the ONE sentence a refusal owes a player whose stored value
+// was set aside on the way to it, and it exists because the log ops never reach
+// the host on a refused load.
+//
+// THE OPS ARE LOST, WHICH IS THE WHOLE REASON. resolve accumulates its lines
+// into res.logs and PlanData turns them into Ops only AFTER every check has
+// passed, so a plan that refuses hands the host a message and nothing else: the
+// player would read a refusal about the mod's own declaration with no hint that
+// the field they edited was set aside at all.
+//
+// IT IS A FACT AND NOT A ROUTE, which is the whole of what changed. The
+// sentence used to end by sending the player to Settings > Mod settings >
+// Startup, and the client cannot get there from an "Error loading mods" dialog:
+// see PlanData for the walk that measured it. What the dialog cannot reach is
+// the SCREEN; the fact that a stored value was set aside is still true and is
+// still the one thing this message can add. So the sentence states it and stops
+// there: no screen, no route, no advice.
+//
+// IT APPEARS ONLY WHEN A FALLBACK HAPPENED, and it names the FIRST setting in
+// walk order, so a refusal on a plan nobody typed into carries nothing and a
+// plan with two fallbacks answers the same way every run.
+func (r *resolution) fallbackFact(err error) error {
+	if err == nil || len(r.fellBack) == 0 {
+		return err
+	}
+	return errors.New(err.Error() + ". The stored value of " + r.fellBack[0] +
+		" could not be used, so the mod's own declaration applied.")
+}
+
 // noteOn records the trailing line one prototype's description carries, keeping
 // the FIRST in walk order so the sentence is the same every run.
 //
-// destroysInputs IS THE CALLER'S TO ANSWER AND IS NOT THE PROTOTYPE KIND. Which
-// prototype the note lands on says nothing about whether the ingredient list
-// moved: a recipe whose crafting time fell back keeps a byte-identical
-// ingredients list and only its energy_required changes, so telling that player
-// their assemblers are about to be emptied would be false where they look. The
-// sentence belongs to a fallback that changes what the recipe is MADE OF, which
-// is the recipe ingredient text and nothing else, so every caller says which it
-// is. It is the same predicate textFallbackFor picks the ERROR line's tail
-// with, named once in movesIngredients so the tooltip and the log cannot
-// disagree about which fallbacks destroy anything.
+// IT TAKES THE WHOLE SENTENCE, not the pieces one composer happens to need.
+// Two kinds of thing reach it: a stored value the player typed that the library
+// set aside (fallbackNote), and an ENVIRONMENTAL degradation nobody typed, where
+// the game is missing something the plan names (degradeNote and its two
+// callers). Deciding which is which here would be a branch on a reason string,
+// which is the shape the destroyed-inputs correction already refused once.
 //
 // THE INDEX IS NEVER CHECKED, deliberately. Both slices are sized from the
 // declaration counts at the top of resolve and every index comes from the walk's
 // own loop, so an out-of-range one is this file having gone wrong rather than
 // anything a consumer can reach, and a panic naming the line is a better answer
 // than a note silently dropped.
-func (r *resolution) noteOn(tgt noteTarget, setting string, destroysInputs bool) {
+func (r *resolution) noteOn(tgt noteTarget, note string) {
 	notes := r.recipeNotes
 	if tgt.tech {
 		notes = r.techNotes
@@ -638,7 +703,45 @@ func (r *resolution) noteOn(tgt noteTarget, setting string, destroysInputs bool)
 	if notes[tgt.index] != "" {
 		return
 	}
-	notes[tgt.index] = fallbackNote(setting, destroysInputs)
+	notes[tgt.index] = note
+}
+
+// retractNote takes one prototype's note back, and ONLY the exact sentence the
+// caller says it wrote: a slot holding anything else is somebody else's answer
+// and is left alone.
+//
+// IT CLEARS RATHER THAN REPLACING, deliberately. noteOn keeps the first note in
+// walk order and drops the rest, so a note this one shut out is gone; handing
+// the slot back to it would mean remembering a sentence that was composed
+// about the SAME price this retraction is deleting (the fallback unit's own
+// clamp), and a false note is worse than no note. An empty slot emits no
+// localised_description line at all, which is exactly what a technology whose
+// price nobody degraded looks like.
+func (r *resolution) retractNote(tgt noteTarget, note string) {
+	notes := r.recipeNotes
+	if tgt.tech {
+		notes = r.techNotes
+	}
+	if notes[tgt.index] != note {
+		return
+	}
+	notes[tgt.index] = ""
+}
+
+// retractLog takes one accumulated log line back, the FIRST one that is exactly
+// the given line, so the stream reads as if the walk had never written it.
+//
+// THE LINES ARE STILL ONLY ORDERED BY THE WALK. Removing one shifts the rest up
+// and changes nothing else, which is what keeps the stream deterministic: the
+// line is composed from the same pieces the writer used, so a line that was
+// never written matches nothing and the call is a no-op.
+func (r *resolution) retractLog(line string) {
+	for i, have := range r.logs {
+		if have == line {
+			r.logs = append(r.logs[:i], r.logs[i+1:]...)
+			return
+		}
+	}
 }
 
 // recipeChangeSentence is what changing a recipe costs a player who has already
@@ -684,34 +787,58 @@ const recipeChangeSentence = "Changing a recipe empties an assembling machine's 
 func fallbackNote(setting string, destroysInputs bool) string {
 	note := "The stored value of " + setting +
 		" could not be used, so this mod's own choice applies instead. The reason is in the log."
+	return withDestruction(note, destroysInputs)
+}
+
+// withDestruction is the one place the engine's own permanent cost is joined to
+// a note, so a sentence about an emptied assembling machine cannot be written
+// onto a prototype whose ingredient list did not move. See noteOn.
+func withDestruction(note string, destroysInputs bool) string {
 	if destroysInputs {
 		return note + " " + recipeChangeSentence
 	}
 	return note
 }
 
-// withFallbackNote adds the ONE sentence a refusal owes a player whose stored
-// value was set aside on the way to it, and it exists because the log ops never
-// reach the host on a refused load.
+// The three notes an ENVIRONMENTAL degradation leaves in the prototype's own
+// description, in the voice fallbackNote established and for the same reason:
+// THE LOG IS NOT A DISCLOSURE.
 //
-// THE OPS ARE LOST, WHICH IS THE WHOLE REASON. resolve accumulates its lines
-// into res.logs and PlanData turns them into Ops only AFTER every check has
-// passed, so a plan that refuses hands the host a message and nothing else: the
-// player would read a refusal about the mod's own declaration with no hint that
-// the field they edited was set aside, and no hint that correcting it is the
-// one thing they can do from inside the game. This says both, in one sentence,
-// naming the first setting the walk set aside.
+// THEY ARE NOT FALLBACK NOTES AND MUST NOT READ AS ONE. Nothing was stored, so
+// there is no field to go and fix and no "stored value" to name: the game
+// itself is missing something the plan names, and the only honest thing to say
+// is what is missing and what the library did instead. That is also why they do
+// not go through playerFallback on the log side.
 //
-// IT APPEARS ONLY WHEN A FALLBACK HAPPENED. A refusal on a plan nobody typed
-// into carries no note, so the sentence is never advice about a field the
-// player never touched.
-func (r *resolution) withFallbackNote(err error) error {
-	if err == nil || len(r.fellBack) == 0 {
-		return err
-	}
-	return errors.New(err.Error() + ". The stored value of " + r.fellBack[0] +
-		" could not be used, so the mod's own declaration applied;" +
-		" correcting it under Settings > Mod settings > Startup is what a player can change here.")
+// SCOPED TO THIS COMMIT'S DEGRADATIONS AND NOT TO THE LADDER. A resolve-or-drop
+// ingredient ladder is the library's advertised contract and the dropdown's own
+// composed description already discloses it ("where one names something your
+// mods do not have, the nearest thing they do have is used instead"); a clamped
+// amount and a dropped science pack are arithmetic and presence a player cannot
+// check anywhere.
+func packDroppedNote(name string) string {
+	return "This game has no " + name + ", so this research was priced without it. The reason is in the log."
+}
+
+func packlessSourceNote(source string) string {
+	return "This game has none of the science packs the " + source +
+		" cost names, so this mod's own declared cost applies. The reason is in the log."
+}
+
+// clampedItemNote and clampedFluidNote are one degradation with two ceilings,
+// and they are two sentences because "what one slot holds" is true of an item
+// stack and false of a fluid. The numbers are spelled here rather than
+// formatted, for the reason mergedOpening's own comment gives.
+func clampedItemNote(name string) string {
+	return "Two ingredients resolved onto " + name +
+		" and the total was above what one slot holds, so it was capped at " +
+		strconv.FormatInt(maxItemAmount, 10) + ". The reason is in the log."
+}
+
+func clampedFluidNote(name string) string {
+	return "Two ingredients resolved onto " + name +
+		" and the total was above the largest amount the game can hold, so it was capped at 1e301." +
+		" The reason is in the log."
 }
 
 // resolve asks the World everything the plan needs to know and records what
@@ -791,14 +918,14 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 				continue
 			}
 			declared = choiceFor(by.Choices, chosen)
-			list := l.resolveIngredients(w, &res, prefix, r.name, declared)
+			list := l.resolveIngredients(w, &res, tgt, prefix, r.name, declared)
 			// A plan that named things and got none of them is a recipe made
 			// of nothing. The DEFAULT option is what applies then, because it
 			// is the one the mod ships as its own answer.
 			if len(declared) > 0 && len(list) == 0 && chosen != setting.defStr {
 				res.logs = append(res.logs, "fkrecipes: "+r.name+": the "+chosen+
 					" ingredients name nothing this game has, so the "+setting.defStr+" ingredients apply")
-				list = l.resolveIngredients(w, &res, prefix, r.name, choiceFor(by.Choices, setting.defStr))
+				list = l.resolveIngredients(w, &res, tgt, prefix, r.name, choiceFor(by.Choices, setting.defStr))
 			}
 			res.addRecipe(r.name, product, list)
 		} else if usedText {
@@ -806,7 +933,7 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 				l.settings[r.spec.IngredientsFrom.index-1].emittedName(prefix), "", "", parsed))
 			res.addRecipe(r.name, product, typedIngredients(parsed))
 		} else {
-			res.addRecipe(r.name, product, l.resolveIngredients(w, &res, prefix, r.name, declared))
+			res.addRecipe(r.name, product, l.resolveIngredients(w, &res, tgt, prefix, r.name, declared))
 		}
 	}
 
@@ -873,13 +1000,40 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 				// the drops that follow read as consequences of it.
 				res.logs = append(res.logs, "fkrecipes: "+t.name+": no source for the "+chosen+
 					" cost carries a unit, so the fallback cost applies and the technology has no prerequisite")
-				rt.unit = resolveUnit(w, &res, t.name, &by.Fallback)
+				rt.unit = resolveUnit(w, &res, tgt, t.name, &by.Fallback, nil)
 			} else {
 				// THE PREREQUISITE MOVES WITH THE UNIT, and it still does when
 				// the player has written over one of the tier's numbers: the
 				// tier is what named a source, and the settings beside it price
 				// the same rung rather than choosing another one.
 				rt.prereqs = []string{source}
+				// AND THE COPIED PACKS ARE PROBED, which is what keeps a mod
+				// set from stopping the load on the default setting. See
+				// filterCopiedPacks for the two engine refusals this replaces.
+				filtered := filterCopiedPacks(&res, w, t.name, source, rt.unit)
+				switch {
+				case filtered.unreadable:
+					res.refuse(copiedUnitRefusal(t.name, source))
+				case filtered.hasList && filtered.kept == 0 && len(filtered.dropped) > 0:
+					// EVERY PACK GONE, AND THERE IS A DECLARED COST BEHIND
+					// THIS ONE: the author's own fallback unit is what the
+					// technology is priced in, resolved through the same
+					// ladder so its own absent rungs drop the same way. The
+					// prerequisite and the level cap stay, because the tier
+					// still chose this rung; only the price moved.
+					res.logs = append(res.logs, packlessSourceLine(t.name, source))
+					res.noteOn(tgt, packlessSourceNote(source))
+					rt.unit = resolveUnit(w, &res, tgt, t.name, &by.Fallback, filtered.dropped)
+				default:
+					// A PACK DROPPED OUT OF A PRICE THE PLAYER CANNOT SEE gets
+					// the note, and the FIRST one does: the tooltip says one
+					// thing, and the log has the rest. A unit that kept
+					// everything says nothing at all.
+					if len(filtered.dropped) > 0 {
+						res.noteOn(tgt, packDroppedNote(filtered.dropped[0]))
+					}
+					rt.unit = filtered.unit
+				}
 			}
 			rt.hasUnit = true
 			// THE THREE SETTINGS OVER THE TIER, where the technology declares
@@ -889,7 +1043,7 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 			// for the measurement this seam exists for.
 			if c := t.spec.CostFrom; c != nil {
 				unit, custom := l.customCost(l, w, text, &res, prefix, t, c,
-					costTier{has: true, unit: rt.unit, dropdown: setting.emittedName(prefix), chosen: chosen}, tgt)
+					costTier{has: true, unit: rt.unit, dropdown: setting.emittedName(prefix), chosen: chosen, source: source}, tgt)
 				if custom {
 					rt.unit = unit
 				}
@@ -903,8 +1057,34 @@ func (l *Lib) resolve(w World, prefix string) resolution {
 		// drops belong in the log stream at the point they were decided, before
 		// this technology's tree placement.
 		if t.spec.Unit != nil {
-			rt.unit = resolveUnit(w, &res, t.name, t.spec.Unit)
+			rt.unit = resolveUnit(w, &res, tgt, t.name, t.spec.Unit, nil)
 			rt.hasUnit = true
+		}
+		// THE COPIED COST, PROBED HERE RATHER THAN COPIED AT EMIT. The unit is
+		// taken verbatim, which is what carries a count_formula and everything
+		// else this library has never heard of across; what is NOT taken
+		// verbatim any more is its science packs, because a pack this game
+		// demoted or removed stops the load with a sentence naming neither this
+		// mod nor the setting. See filterCopiedPacks.
+		//
+		// THERE IS NOTHING TO FALL BACK ON HERE, WHICH IS THE WHOLE DIFFERENCE
+		// FROM A TIER. A CostOf source is a bare string with no declared ladder
+		// behind it, so a copy that keeps no pack is refused by name rather
+		// than degraded onto a cost this library would have to invent.
+		if t.spec.CostOf != "" {
+			if u, ok := w.TechUnit(t.spec.CostOf); ok {
+				filtered := filterCopiedPacks(&res, w, t.name, t.spec.CostOf, u)
+				switch {
+				case filtered.unreadable:
+					res.refuse(copiedUnitRefusal(t.name, t.spec.CostOf))
+				case filtered.hasList && filtered.kept == 0 && len(filtered.dropped) > 0:
+					res.markPackless(t.name, filtered.dropped)
+				case len(filtered.dropped) > 0:
+					res.noteOn(tgt, packDroppedNote(filtered.dropped[0]))
+				}
+				rt.unit = filtered.unit
+				rt.hasUnit = true
+			}
 		}
 		// CostFrom is Unit with the three numbers read from settings, and it is
 		// placed by the ORDINARY placement fields below rather than by a ladder
@@ -1040,21 +1220,33 @@ func (l *Lib) checkResolvedCraftTimes(res resolution) error {
 // does: which packs the game has is a fact about the World, not about the plan,
 // and a fallback that never applies is never asked about at all.
 //
-// A COST WITH NO PACKS IS NOT A CHEAP RESEARCH, it is a free one. The engine
-// loads such a unit (measured), which is exactly why this half refuses: a
-// modpack missing every pack a technology was priced in would otherwise hand
-// the player a research they finish instantly and nobody would see a refusal.
+// A COST WITH NO PACKS IS NOT A CHEAP RESEARCH, IT IS A FREE ONE, and that is
+// measured in play now rather than only as far as the load. On 2.0.77 build
+// 84539 a unit of {count = 10, time = 15, ingredients = {}} loads with exit 0
+// and no engine line, force.add_research returns true, the research queue takes
+// it, progress advances in a lab holding nothing and the technology COMPLETES
+// after count * time ticks. So emitting one is not a stuck technology, it is a
+// free one, which is a balance change the player did not choose.
 //
-// ONE SENTENCE, NAMING THE FIRST SUCH TECHNOLOGY IN DECLARATION ORDER, because
-// resolution walks the plan in that order and records only the first. A plan
-// with two costs the game cannot pay answers the same way every run, in both
-// languages.
+// IT IS THE ONE ENVIRONMENTAL REFUSAL THIS FILE STILL RAISES, and it is here
+// because it is the floor under the degradations rather than in front of them:
+// every path that HAS an author-declared cost to fall back on has already
+// fallen back by the time this runs, so what reaches it is a technology with
+// nothing left to be priced in. The threat model puts an environment that broke
+// the base science packs out of scope, which is the shape of the mod set this
+// answers for.
+//
+// ONE SENTENCE, NAMING THE FIRST SUCH TECHNOLOGY IN DECLARATION ORDER AND THE
+// NAMES IT TRIED, because resolution walks the plan in that order and records
+// only the first. A plan with two costs the game cannot pay answers the same
+// way every run, in both languages.
 func checkResolvedPacks(res resolution) error {
 	if res.packless == "" {
 		return nil
 	}
 	return errors.New("fkrecipes: the technology " + res.packless +
-		" has no science pack the game has; research takes at least one")
+		" has no science pack the game has; research takes at least one, and none of " +
+		strings.Join(res.packlessNames, ", ") + " is a science pack here")
 }
 
 func (l *Lib) unlockedRecipes() []bool {
@@ -1244,7 +1436,7 @@ func techProto(prefix string, l *Lib, w World, t techDecl, rt resolvedTech, note
 	if len(rt.prereqs) > 0 {
 		pairs = append(pairs, kv("prerequisites", strArr(rt.prereqs)))
 	}
-	pairs = append(pairs, kv("unit", techUnit(w, t, rt)))
+	pairs = append(pairs, kv("unit", techUnit(rt)))
 	// max_level lives on the TECHNOLOGY, not in its unit, so copying the unit
 	// verbatim carries a count_formula but leaves the level cap behind. CostOf
 	// is one named point for cost AND position, so it reads the cap too: an
@@ -1280,22 +1472,184 @@ func techProto(prefix string, l *Lib, w World, t techDecl, rt resolvedTech, note
 	return Obj(append(pairs, t.spec.Extra...)...)
 }
 
-func techUnit(w World, t techDecl, rt resolvedTech) Value {
-	// Unit and CostBy both settled their cost during resolution, because both
-	// of them had a question to ask the game. CostOf is the one arm left.
+func techUnit(rt resolvedTech) Value {
+	// EVERY ARM SETTLES ITS COST DURING RESOLUTION NOW, CostOf with the rest:
+	// a copied unit's science packs are a question about the game, so they are
+	// asked where every other question about the game is asked and where a log
+	// line can still be written. The flag is still read rather than dropped,
+	// because a source that answers with no unit at all leaves it false and the
+	// Rust mirror maps that absent case to the same nil.
 	if rt.hasUnit {
 		return rt.unit
 	}
-	// Verbatim, whatever it holds: a count_formula is a string and copying one
-	// needs no evaluator, so multi-level and infinite technologies come along
-	// for free. Validation proved the unit is there; the flag is still read
-	// rather than dropped, because the Rust mirror maps its absent case to the
-	// same nil.
-	u, ok := w.TechUnit(t.spec.CostOf)
-	if !ok {
-		return Nil()
+	return Nil()
+}
+
+// copiedPacks is what a verbatim-copied research unit came to after every
+// science pack this game does not have was taken out of it.
+//
+// A COPIED UNIT IS SOMEBODY ELSE'S DECLARATION AND THE ENGINE DOES NOT FORGIVE
+// IT. MEASURED on 2.0.77 build 84539, headless: a unit priced in a plain item
+// refuses the load with `Error while running setup for technology prototype
+// "tprobe-t" (technology): Invalid research unit (iron-plate). Research unit(s)
+// can only be tool type items at the moment.`, and a name the game does not
+// have at all fails earlier and more coarsely, naming neither the technology
+// nor the property: `Error in assignID: item with name 'water' does not exist.`
+// So a pack that a modpack demoted from tool to item, or removed, stops the
+// load on the DEFAULT setting with no fkrecipes: line anywhere. The filter asks
+// BOTH questions at once, because ToolExists is the one probe that answers
+// them: a name that is not a tool-type item this game has is not a rung.
+type copiedPacks struct {
+	// unit is the copied unit with its ingredients array filtered, the rest of
+	// it in the order and the shape it arrived in.
+	unit Value
+	// hasList is whether the unit carried an ingredients array at all. A unit
+	// that carries none is left exactly as it was: there is nothing to filter
+	// and nothing to say.
+	hasList bool
+	// kept is how many packs survived, dropped the names that did not, in the
+	// copied unit's own order.
+	kept    int
+	dropped []string
+	// unreadable is an entry in NEITHER engine form, which is a unit this
+	// library cannot copy faithfully. A form it cannot decode is not a licence
+	// to pass it through: the name might be one the game does not have, and the
+	// refusal it would earn names neither the technology nor the property.
+	unreadable bool
+}
+
+// filterCopiedPacks drops the science packs a copied research unit names that
+// this game does not have, one log line each, and answers what became of it.
+//
+// THE DROP LINE IS THE LADDER'S VOICE with the source named, because the author
+// did not write this list: the technology it was copied out of did.
+//
+// BOTH ENGINE FORMS ARE DECODED. The engine takes the short tuple
+// {"automation-science-pack", 1} and the long {name = ..., amount = ...} alike
+// and base writes the short one; only the NAME is read out, and the entry
+// itself is what is kept, so an amount this library does not model and a field
+// no version of it has heard of survive the filter untouched.
+func filterCopiedPacks(res *resolution, w World, tech, source string, unit Value) copiedPacks {
+	out := copiedPacks{unit: unit}
+	if unit.Kind != KindMap {
+		return out
 	}
-	return u
+	for _, e := range unit.Map {
+		if e.Key != "ingredients" {
+			continue
+		}
+		if e.Val.Kind != KindArr {
+			// AN ingredients KEY THAT IS NOT AN ARRAY IS A FORM THIS LIBRARY
+			// CANNOT DECODE, and a form it cannot decode is not a licence to
+			// pass it through: the caller refuses with the CostOf family's own
+			// sentence, exactly as it does for an ENTRY in neither form. What
+			// would otherwise happen is worse: the unit crosses unfiltered and
+			// the engine answers about a science pack, naming neither this mod
+			// nor the property.
+			out.hasList = true
+			out.unreadable = true
+			return out
+		}
+		out.hasList = true
+		kept := make([]Value, 0, len(e.Val.Arr))
+		for _, item := range e.Val.Arr {
+			name, ok := copiedPackName(item)
+			if !ok {
+				out.unreadable = true
+				return out
+			}
+			// A NAME THIS LIBRARY CANNOT PUT TO THE WORLD IS KEPT UNASKED, and
+			// the empty name is that answer. Another mod's science pack can be
+			// named with bytes that are not UTF-8; fkdata hands those over
+			// unchanged and a copied unit has always crossed byte-exact.
+			// Rust's Value has a Bytes variant those arrive in and its
+			// tool_exists takes a &str, so that half CANNOT ask; this half
+			// could, and does not, because the two halves answer alike.
+			if name == "" {
+				kept = append(kept, item)
+				continue
+			}
+			if w.ToolExists(name) {
+				kept = append(kept, item)
+				continue
+			}
+			out.dropped = append(out.dropped, name)
+			res.logs = append(res.logs, "fkrecipes: "+tech+": "+name+
+				" is not a science pack this game has, so it is left out of the "+source+" cost")
+		}
+		out.kept = len(kept)
+		out.unit = setUnitField(unit, "ingredients", Arr(kept...))
+		return out
+	}
+	return out
+}
+
+// copiedPackName is the name out of one entry of a copied unit's ingredients,
+// in either of the two forms the engine takes.
+//
+// THREE ANSWERS IN TWO VALUES. `false` is an entry in NEITHER form, which the
+// caller refuses; the EMPTY name beside `true` is an entry in a form whose name
+// is not text this library can put to the World, which the caller keeps
+// unasked. No prototype is named by the empty string, so the sentinel names
+// nothing real.
+func copiedPackName(v Value) (string, bool) {
+	if v.Kind == KindArr && len(v.Arr) >= 1 && v.Arr[0].Kind == KindStr {
+		return askableName(v.Arr[0].Str), true
+	}
+	if v.Kind != KindMap {
+		return "", false
+	}
+	for _, e := range v.Map {
+		if e.Key != "name" {
+			continue
+		}
+		// THE FIRST name KEY ANSWERS, whatever it holds. Walking past one whose
+		// value is not a string would let a later duplicate key answer instead,
+		// and the Rust mirror stops at the first: two halves that disagree
+		// about which key wins is a divergence waiting for the map that has
+		// two.
+		if e.Val.Kind != KindStr {
+			return "", false
+		}
+		return askableName(e.Val.Str), true
+	}
+	return "", false
+}
+
+// askableName is a prototype name this library can hand to a World, or the
+// empty string where it cannot. See copiedPackName for why the Rust mirror
+// decides the same question by the value's own variant.
+func askableName(s string) string {
+	if !utf8.ValidString(s) {
+		return ""
+	}
+	return s
+}
+
+// copiedUnitRefusal is the sentence a copied unit whose pack list this library
+// cannot read earns, and it is the CostOf family's own phrase because it is the
+// same fact about the same value: a table that cannot be copied faithfully.
+//
+// IT NAMES THE TECHNOLOGY RATHER THAN WEARING THE CostOf( PREFIX, because the
+// same filter runs over a CostBy tier's chosen source, where there is no CostOf
+// to name.
+func copiedUnitRefusal(tech, source string) string {
+	return "fkrecipes: " + tech + ": the unit of " + source +
+		" holds a table this library cannot copy faithfully"
+}
+
+// packlessSourceLine is what a copied cost that named no science pack this game
+// has logs, and it is an ERROR because the technology is not priced the way
+// anybody declared it.
+//
+// IT IS NOT A PLAYER'S FALLBACK AND HAS ITS OWN COMPOSER FOR THAT REASON.
+// Nothing was stored and nothing was typed: there is no field on the settings
+// screen to send anybody to, so playerFallback's tail would be advice about a
+// value that does not exist. The two cannot drift, because neither reads the
+// other.
+func packlessSourceLine(tech, source string) string {
+	return messagePrefix + "ERROR: " + tech + ": the " + source +
+		" cost names no science pack this game has, so this mod's own declared cost applies instead"
 }
 
 // techMaxLevel is the level cap a technology carries, if any. A hand-rolled
@@ -1332,8 +1686,8 @@ func techMaxLevel(w World, t techDecl, rt resolvedTech) (Value, bool) {
 // with the author's name on it, and now loses that pack from the cost and says
 // so. A unit that loses ALL of them is refused instead, because a research with
 // no pack at all is not something to emit on an author's behalf.
-func resolveUnit(w World, res *resolution, tech string, u *UnitSpec) Value {
-	resolved := resolvePackLadders(w, res, tech, u.Packs)
+func resolveUnit(w World, res *resolution, tgt noteTarget, tech string, u *UnitSpec, alreadyTried []string) Value {
+	resolved, tried := resolvePackLadders(w, res, tgt, tech, u.Packs)
 	packs := make([]Value, 0, len(resolved))
 	for _, p := range resolved {
 		packs = append(packs, Arr(Str(p.name), Num(float64(p.amount))))
@@ -1344,8 +1698,14 @@ func resolveUnit(w World, res *resolution, tech string, u *UnitSpec) Value {
 	//
 	// The FIRST technology in declaration order is the one reported, because
 	// the walk runs in that order and the refusal is one sentence.
-	if len(packs) == 0 && res.packless == "" {
-		res.packless = tech
+	if len(packs) == 0 {
+		// EVERY RUNG THE WALK ASKED ABOUT, COPIED PACK FIRST. alreadyTried is
+		// what a caller asked the game before this unit was built at all: the
+		// science packs a chosen tier's copied unit named and lost. An author
+		// reading the refusal is one whose ladders all missed, and the one
+		// thing that says which mod set this is is the whole list of names,
+		// in the order they were asked.
+		res.markPackless(tech, append(append([]string{}, alreadyTried...), tried...))
 	}
 	return Obj(
 		kv("count", Num(float64(u.Count))),
@@ -1367,8 +1727,13 @@ func resolveUnit(w World, res *resolution, tech string, u *UnitSpec) Value {
 // Research unit(s) can only be tool type items at the moment", and a fluid name
 // in a unit refuses with "Error in assignID: item with name 'water' does not
 // exist". Asking ItemExists would let either of those through as a rung.
-func resolvePackLadders(w World, res *resolution, tech string, packs []Pack) ingredientList {
+// IT ALSO ANSWERS WHAT IT TRIED, in declaration order and once each, because
+// the refusal a unit that kept nothing gets has to name the names: see
+// checkResolvedPacks. Collected on every walk rather than only on the empty
+// one, so the answer costs the same branch whatever the game holds.
+func resolvePackLadders(w World, res *resolution, tgt noteTarget, tech string, packs []Pack) (ingredientList, []string) {
 	out := make(ingredientList, 0, len(packs))
+	tried := make([]string, 0, len(packs))
 	for _, p := range packs {
 		candidates := p.ladder()
 		picked := ""
@@ -1377,6 +1742,7 @@ func resolvePackLadders(w World, res *resolution, tech string, packs []Pack) ing
 				picked = c
 				break
 			}
+			tried = appendOnce(tried, c)
 		}
 		if picked == "" {
 			res.logs = append(res.logs, "fkrecipes: "+tech+": none of "+strings.Join(candidates, ", ")+
@@ -1386,9 +1752,35 @@ func resolvePackLadders(w World, res *resolution, tech string, packs []Pack) ing
 		// TWO LADDERS CAN LAND ON ONE PACK, exactly as two ingredient ladders
 		// can, and the emitted form here is the SHORT TUPLE rather than the
 		// recipe's dict. See mergePack.
-		out = mergePack(res, out, tech, listEntry{name: picked, amount: p.Amount})
+		out = mergePack(res, tgt, out, tech, listEntry{name: picked, amount: p.Amount})
 	}
-	return out
+	return out, tried
+}
+
+// appendOnce keeps a slice in first-seen order with no repeats, which is what
+// a sentence naming several names needs: two ladders ending on one absent rung
+// would otherwise print it twice.
+func appendOnce(list []string, name string) []string {
+	for _, seen := range list {
+		if seen == name {
+			return list
+		}
+	}
+	return append(list, name)
+}
+
+// markPackless records the FIRST technology in declaration order whose cost
+// came to no science pack, with the names it asked the game about.
+//
+// THE NAMES RIDE WITH THE TECHNOLOGY, never separately: a second technology
+// that also lost everything must not overwrite the first one's names and leave
+// the sentence naming one technology's rungs under another's name.
+func (r *resolution) markPackless(tech string, tried []string) {
+	if r.packless != "" {
+		return
+	}
+	r.packless = tech
+	r.packlessNames = tried
 }
 
 // appendLocalised is the ONE writer of localised_name and localised_description
@@ -1760,12 +2152,12 @@ func sourcesFor(choices []CostChoice, value string) []string {
 // pilot's own recipe: Error while running setup for recipe prototype
 // "bbb-balancer-part" (recipe): Duplicate item ingredients are not allowed
 // (iron-plate exists 2 or more times), exit 1, no dump). See mergeIngredient.
-func (l *Lib) resolveIngredients(w World, res *resolution, prefix, recipe string, ings []Ingredient) []resolvedIngredient {
+func (l *Lib) resolveIngredients(w World, res *resolution, tgt noteTarget, prefix, recipe string, ings []Ingredient) []resolvedIngredient {
 	list := make([]resolvedIngredient, 0, len(ings))
 	for _, ing := range ings {
 		if len(ing.candidates) == 0 {
 			own := l.items[ing.item.index-1].emittedName(prefix)
-			list = mergeIngredient(res, list, recipe, own,
+			list = mergeIngredient(res, tgt, list, recipe, own,
 				resolvedIngredient{name: own, amount: ing.amount})
 			continue
 		}
@@ -1785,11 +2177,11 @@ func (l *Lib) resolveIngredients(w World, res *resolution, prefix, recipe string
 			continue
 		}
 		if ing.kind == kindFluid {
-			list = mergeIngredient(res, list, recipe, ing.candidates[0],
+			list = mergeIngredient(res, tgt, list, recipe, ing.candidates[0],
 				resolvedIngredient{kind: kindFluid, name: picked, fluid: ing.fluidAmount})
 			continue
 		}
-		list = mergeIngredient(res, list, recipe, ing.candidates[0],
+		list = mergeIngredient(res, tgt, list, recipe, ing.candidates[0],
 			resolvedIngredient{name: picked, amount: ing.amount})
 	}
 	return list
@@ -1828,7 +2220,7 @@ func (l *Lib) resolveIngredients(w World, res *resolution, prefix, recipe string
 // sentences carry in place of the numbers they cannot print: without it a
 // three-way collapse writes the same line twice and names no declaration the
 // author could go and change.
-func mergeIngredient(res *resolution, list []resolvedIngredient, subject, from string, add resolvedIngredient) []resolvedIngredient {
+func mergeIngredient(res *resolution, tgt noteTarget, list []resolvedIngredient, subject, from string, add resolvedIngredient) []resolvedIngredient {
 	for i := range list {
 		if list[i].kind != add.kind || list[i].name != add.name {
 			continue
@@ -1840,8 +2232,18 @@ func mergeIngredient(res *resolution, list []resolvedIngredient, subject, from s
 			// crossed validateIngredients on their own and both were legal;
 			// their sum is a number no author wrote, and above the engine's
 			// wall it does not refuse, it ABORTS (see maxFluidAmount).
+			//
+			// AND IT CLAMPS RATHER THAN REFUSING. Which rungs the ladders
+			// landed on is a fact about the mod set, so this is an
+			// ENVIRONMENTAL check: a modpack that removed two first rungs must
+			// not stop the load on a number arithmetic can pin at the ceiling
+			// the engine itself takes. The amount is not the author's any more
+			// either way, so the line says what it became and the recipe's own
+			// tooltip carries a note.
 			if sum > maxFluidAmount {
-				res.refuse(mergedFluidRefusal(subject, add.name, from))
+				res.logs = append(res.logs, mergedFluidClamp(subject, add.name, from))
+				res.noteOn(tgt, withDestruction(clampedFluidNote(add.name), true))
+				sum = maxFluidAmount
 			}
 			list[i].fluid = sum
 			return list
@@ -1849,7 +2251,9 @@ func mergeIngredient(res *resolution, list []resolvedIngredient, subject, from s
 		res.logs = append(res.logs, mergedItemLine(subject, add.name, list[i].amount, add.amount))
 		sum := addAmounts(list[i].amount, add.amount)
 		if sum > maxItemAmount {
-			res.refuse(mergedItemRefusal(subject, add.name, list[i].amount, add.amount))
+			res.logs = append(res.logs, mergedItemClamp(subject, add.name, list[i].amount, add.amount))
+			res.noteOn(tgt, withDestruction(clampedItemNote(add.name), true))
+			sum = maxItemAmount
 		}
 		list[i].amount = sum
 		return list
@@ -1861,7 +2265,7 @@ func mergeIngredient(res *resolution, list []resolvedIngredient, subject, from s
 // technology and whose kind is never in question: the ladder asks ToolExists,
 // a tool is an item, so a pack list has one namespace and the names alone
 // decide identity.
-func mergePack(res *resolution, list ingredientList, subject string, add listEntry) ingredientList {
+func mergePack(res *resolution, tgt noteTarget, list ingredientList, subject string, add listEntry) ingredientList {
 	for i := range list {
 		if list[i].name != add.name {
 			continue
@@ -1875,9 +2279,13 @@ func mergePack(res *resolution, list ingredientList, subject string, add listEnt
 		// values from 0 to 65535" at
 		// ROOT.technology.<name>.unit.ingredients[0][1]. validateUnit holds a
 		// DECLARED pack to the same number, so this is the only pack amount
-		// left that no author wrote.
+		// left that no author wrote, and it is CLAMPED rather than refused for
+		// the reason mergeIngredient's twin is. A research costs no assembling
+		// machine anything, so the note carries no destruction sentence.
 		if sum > maxItemAmount {
-			res.refuse(mergedItemRefusal(subject, add.name, list[i].amount, add.amount))
+			res.logs = append(res.logs, mergedItemClamp(subject, add.name, list[i].amount, add.amount))
+			res.noteOn(tgt, clampedItemNote(add.name))
+			sum = maxItemAmount
 		}
 		list[i].amount = sum
 		return list
@@ -1927,8 +2335,8 @@ func addAmounts(a, b int64) int64 {
 }
 
 // The four merge sentences, in one place because they are two sentences with
-// two shapes each and an author who sees a log line and a refusal has to
-// recognise the pair: both open with the same clause.
+// two shapes each and a reader who sees the merge line and the clamp line
+// beside it has to recognise the pair: both open with the same clause.
 //
 // AN ITEM PRINTS ITS NUMBERS AND A FLUID NAMES THE RUNG INSTEAD. Rendering a
 // fluid amount is the ingredient language's job (formatListAmount), and the
@@ -1962,16 +2370,17 @@ func mergedFluidLine(subject, name, from string) string {
 	return mergedOpening(subject, name) + ", so the amounts are added" + mergedFrom(from)
 }
 
-func mergedItemRefusal(subject, name string, a, b int64) string {
+func mergedItemClamp(subject, name string, a, b int64) string {
 	return mergedOpening(subject, name) + ", and " + strconv.FormatInt(a, 10) + " plus " +
-		strconv.FormatInt(b, 10) + " is above the item ceiling of " + strconv.FormatInt(maxItemAmount, 10)
+		strconv.FormatInt(b, 10) + " is above the item ceiling of " + strconv.FormatInt(maxItemAmount, 10) +
+		", so it is capped there"
 }
 
 // The same, for the same reason: the ceiling is a constant this file may
 // spell, and the amount that crossed it is not.
-func mergedFluidRefusal(subject, name, from string) string {
+func mergedFluidClamp(subject, name, from string) string {
 	return mergedOpening(subject, name) +
-		", and the added amount is above the fluid ceiling of 1e301" + mergedFrom(from)
+		", and the added amount is above the fluid ceiling of 1e301, so it is capped there" + mergedFrom(from)
 }
 
 // mergedFrom is the clause both fluid sentences end with, naming the ladder

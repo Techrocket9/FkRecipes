@@ -1128,9 +1128,11 @@ pub(crate) fn text_format_line() -> String {
 /// for. Setting a text aside is not the same as loading: the declared list is
 /// held to every rule it always was, so a modpack in which that declaration
 /// cannot produce a legal result still stops the load, and on a refused load
-/// the log ops never reach the host at all (that is why `with_fallback_note`
-/// exists). Naming both places the reason can be, the log or the load error,
-/// is therefore the whole claim this line is allowed to make.
+/// the log ops never reach the host at all, so the load error is the only
+/// place the reason can be: `Resolution::fallback_fact` is what puts it there,
+/// which is what keeps this line's second clause true. Naming both places, the
+/// log or the load error, is therefore the whole claim this line is allowed to
+/// make.
 pub(crate) const TEXT_FALLBACK_LINE: &str =
     "\nA text this mod cannot use is set aside and that default applies instead; the reason is in the log, or in the load error if the load stops anyway.";
 

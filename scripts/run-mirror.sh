@@ -236,8 +236,24 @@ fi
 # player's. These name the GENERATED prototype rather than any unit field on its
 # own: the stand-in's own rows carry those fields too, so a grep for the field
 # alone would pass whether or not anything was copied.
-grep -q '^TRANSCRIPT extend#[0-9]*.*"name"="fkrecipes-example-hardened-tips".*"unit"={"count"=45,"ingredients"={1={1="automation-science-pack",2=1},2={1="logistic-science-pack",2=1},3={1="military-science-pack",2=1}},"time"=30}' "$T" ||
+grep -q '^TRANSCRIPT extend#[0-9]*.*"name"="fkrecipes-example-hardened-tips".*"unit"={"count"=45,"ingredients"={1={1="automation-science-pack",2=1},2={1="logistic-science-pack",2=1}},"time"=30}' "$T" ||
   fail "the partial custom cost did not take the tier's packs and time beside the player's count"
+# TWO OF THE TIER'S THREE PACKS AND NOT THREE, which is the degradation this
+# stand-in demotes a pack to reach: military-science-pack is an ITEM here and no
+# longer a TOOL, so the verbatim copy of military-4's unit loses it with a line
+# of its own. Without the filter the stand-in refuses the load with the engine's
+# own sentence ("Invalid research unit (military-science-pack). Research unit(s)
+# can only be tool type items at the moment."), naming neither this mod nor any
+# setting, which is finding 13 exactly.
+grep -q '^LOG fkrecipes: hardened-tips: military-science-pack is not a science pack this game has, so it is left out of the military-4 cost$' "$T" ||
+  fail "the demoted science pack was not dropped out of the copied unit"
+# AND THE PLAYER IS TOLD WHERE THEY LOOK. A dropped pack is presence a player
+# cannot check, so the technology's own tooltip carries the note beside the
+# author's description, and it carries NO assembling-machine sentence: repricing
+# a research destroys nothing.
+grep '^TRANSCRIPT extend#' "$T" |
+  grep -qF '"localised_description"={1="",2="Every level puts a harder edge on the same tools.",3="\nThis game has no military-science-pack, so this research was priced without it. The reason is in the log."}' ||
+  fail "the technology whose copied cost lost a pack carries no note in its own description"
 grep -q '^TRANSCRIPT extend#[0-9]*.*"name"="fkrecipes-example-hardened-tips".*"prerequisites"={1="military-4"}' "$T" ||
   fail "the prerequisite did not move with the chosen tier"
 
@@ -356,7 +372,7 @@ fi
 # are the tier's, in one unit, and the clause says what the tier still supplies
 # rather than pretending the whole cost was overridden. The cost override is per
 # FIELD, which is why this clause and the ingredient one are two sentences.
-grep -q '^LOG fkrecipes: fkrecipes-example-hardened-tips takes its research cost from fkrecipes-example-tips-packs: count 45, time 30, packs 1 automation-science-pack, 1 logistic-science-pack, 1 military-science-pack; the fkrecipes-example-tips-research-tier choice military supplies what the settings leave at default$' "$T" ||
+grep -q '^LOG fkrecipes: fkrecipes-example-hardened-tips takes its research cost from fkrecipes-example-tips-packs: count 45, time 30, packs 1 automation-science-pack, 1 logistic-science-pack; the fkrecipes-example-tips-research-tier choice military supplies what the settings leave at default$' "$T" ||
   fail "the partial custom cost logged no supplies-what-is-left clause"
 # A RESEARCH COST THE PLAYER PRICED WHOLE, with no dropdown in front of it: two
 # packs out of a TYPED list, the count and the seconds from their own settings,

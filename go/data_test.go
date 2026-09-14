@@ -224,7 +224,12 @@ func TestFluidLaddersMergeAndDoNotMergeWithAnItem(t *testing.T) {
 // declarations are legal apart, the plan validates, and the sum is a number no
 // author wrote: 40000 and 30000 are each under the engine's 65535 and 70000 is
 // not.
-func TestMergedItemAmountAboveTheCeilingIsRefused(t *testing.T) {
+//
+// AND IT CLAMPS RATHER THAN REFUSING, because WHICH RUNGS the ladders landed on
+// is a fact about the mod set and not about the declaration. The line says what
+// the number became and the recipe's own tooltip carries the note, with the
+// destruction sentence on it: the ingredient list is what moved.
+func TestMergedItemAmountAboveTheCeilingIsClamped(t *testing.T) {
 	lib := New()
 	part := lib.Item("balancer-part", ItemSpec{})
 	lib.Recipe(part, RecipeSpec{
@@ -234,21 +239,26 @@ func TestMergedItemAmountAboveTheCeilingIsRefused(t *testing.T) {
 		},
 	})
 
-	_, err := lib.PlanData(baseWorld())
-	if err == nil {
-		t.Fatal("the plan was accepted with a merged amount above the ceiling")
-	}
-	want := "fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, " +
-		"and 40000 plus 30000 is above the item ceiling of 65535"
-	if err.Error() != want {
-		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
-	}
+	ops, err := lib.PlanData(baseWorld())
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, so the amounts are added: 40000 plus 30000 is 70000`,
+		`log fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, and 40000 plus 30000 is above the item ceiling of 65535, so it is capped there`,
+		`extend {type="item", name="steelworks-balancer-part", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-balancer-part", ` +
+			`localised_description=["", "Two ingredients resolved onto iron-plate and the total was above what one slot holds, so it was capped at 65535. The reason is in the log. ` +
+			`Changing a recipe empties an assembling machine's input slots of anything the new list does not use."], ` +
+			`enabled=true, ingredients=[{type="item", name="iron-plate", amount=65535}], ` +
+			`results=[{type="item", name="steelworks-balancer-part", amount=1}]}`,
+	})
 }
 
 // The fluid twin. Above its ceiling the engine does not refuse, it ABORTS
 // inside FixedPointNumber and hands the player the crash handler, which is why
-// a merged fluid amount is refused here rather than emitted.
-func TestMergedFluidAmountAboveTheCeilingIsRefused(t *testing.T) {
+// a merged fluid amount may not be emitted as it stands; the cap is what keeps
+// the load standing without one.
+func TestMergedFluidAmountAboveTheCeilingIsClamped(t *testing.T) {
 	lib := New()
 	mix := lib.Item("sulfuric-mix", ItemSpec{})
 	lib.Recipe(mix, RecipeSpec{
@@ -259,15 +269,19 @@ func TestMergedFluidAmountAboveTheCeilingIsRefused(t *testing.T) {
 		},
 	})
 
-	_, err := lib.PlanData(baseWorld().withoutFluid("steam"))
-	if err == nil {
-		t.Fatal("the plan was accepted with a merged fluid amount above the ceiling")
-	}
-	want := "fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, " +
-		"and the added amount is above the fluid ceiling of 1e301; the ladder from steam resolved onto it"
-	if err.Error() != want {
-		t.Errorf("\n got: %s\nwant: %s", err.Error(), want)
-	}
+	ops, err := lib.PlanData(baseWorld().withoutFluid("steam"))
+	assertNoError(t, err)
+
+	assertLines(t, transcript(ops), []string{
+		`log fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, so the amounts are added; the ladder from steam resolved onto it`,
+		`log fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, and the added amount is above the fluid ceiling of 1e301, so it is capped there; the ladder from steam resolved onto it`,
+		`extend {type="item", name="steelworks-sulfuric-mix", stack_size=50}`,
+		`extend {type="recipe", name="steelworks-sulfuric-mix", ` +
+			`localised_description=["", "Two ingredients resolved onto water and the total was above the largest amount the game can hold, so it was capped at 1e301. The reason is in the log. ` +
+			`Changing a recipe empties an assembling machine's input slots of anything the new list does not use."], ` +
+			`category="chemistry", enabled=true, ingredients=[{type="fluid", name="water", amount=1.0000000000000001e301}], ` +
+			`results=[{type="item", name="steelworks-sulfuric-mix", amount=1}]}`,
+	})
 }
 
 // THE BOUNDARY, THREE TIMES, because a ceiling written with the wrong
@@ -1135,7 +1149,7 @@ func TestPlanDataRefusals(t *testing.T) {
 			build: func(l *Lib) {
 				l.Technology("steel-axes", TechSpec{Unit: &UnitSpec{Count: 50, Seconds: 15, Packs: []Pack{{Name: "military-science-pack", Amount: 1}}}})
 			},
-			want: "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one",
+			want: packlessRefusal("steel-axes", "military-science-pack"),
 		},
 		{
 			// And with a ladder: every rung absent is the same refusal, and the
@@ -1146,7 +1160,7 @@ func TestPlanDataRefusals(t *testing.T) {
 				l.Technology("steel-axes", TechSpec{Unit: &UnitSpec{Count: 50, Seconds: 15,
 					Packs: []Pack{{Name: "military-science-pack", Amount: 1, Fallbacks: []string{"space-science-pack"}}}}})
 			},
-			want: "fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one",
+			want: packlessRefusal("steel-axes", "military-science-pack", "space-science-pack"),
 		},
 		{
 			// An empty rung is a ladder that can never answer, and it would
@@ -1337,8 +1351,9 @@ func TestPlanDataRefusals(t *testing.T) {
 			// THE SENTENCE NAMES THE DECLARED DEFAULT, not what the setting
 			// answered: the stored NaN is gone by the time this check runs,
 			// and the number it is about is the 0.001 the plan wrote. The
-			// trailing sentence is the fallback note, which is here because
-			// the stored value WAS set aside on the way to this refusal.
+			// stored value that was set aside on the way here adds one FACT
+			// and no advice, because the log ops never reach the host on a
+			// refused load and there is no screen to send anybody to.
 			name: "a bound crafting time whose declared default is below the engine floor",
 			build: func(l *Lib) {
 				axe := l.Item("steel-axe", ItemSpec{})
@@ -1348,8 +1363,7 @@ func TestPlanDataRefusals(t *testing.T) {
 			world: func(w *fixtureWorld) *fixtureWorld {
 				return w.withSetting("steelworks-axe-craft-time", Num(math.NaN()))
 			},
-			want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, whose declared default is at or below the engine floor (energy_required can't be <= 0.001)" +
-				". The stored value of steelworks-axe-craft-time could not be used, so the mod's own declaration applied; correcting it under Settings > Mod settings > Startup is what a player can change here.",
+			want: withFallbackFact("fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, whose declared default is at or below the engine floor (energy_required can't be <= 0.001)", "steelworks-axe-craft-time"),
 		},
 		{
 			// The same pair for finiteness: a declared default of an infinity
@@ -1364,8 +1378,7 @@ func TestPlanDataRefusals(t *testing.T) {
 			world: func(w *fixtureWorld) *fixtureWorld {
 				return w.withSetting("steelworks-axe-craft-time", Num(0.001))
 			},
-			want: "fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, whose declared default is not a finite number" +
-				". The stored value of steelworks-axe-craft-time could not be used, so the mod's own declaration applied; correcting it under Settings > Mod settings > Startup is what a player can change here.",
+			want: withFallbackFact("fkrecipes: the recipe steel-axe reads its crafting time from steelworks-axe-craft-time, whose declared default is not a finite number", "steelworks-axe-craft-time"),
 		},
 		{
 			// PRESENT and nil, which is what a unit whose table carried a

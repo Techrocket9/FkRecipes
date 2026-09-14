@@ -235,12 +235,20 @@ fkrecipes: the technology steel-axes names automation-science-pack twice; each s
 
 A text setting's declared default is refused the same way, in the words the setting's own language uses (`fkrecipes: the ingredients setting axe-ingredients: entries 1 and 2 both name steel-plate`), because that list has to survive being written into the description and read back.
 
-An added amount is held to the engine's ceiling, which is 65535 for an item and 1e301 for a fluid. Two declarations that are legal apart can add up to one that is not, and that is refused at plan time rather than emitted:
+An added amount is held to the engine's ceiling, which is 65535 for an item and 1e301 for a fluid. Two declarations that are legal apart can add up to one that is not, and the total is capped at the ceiling with a line saying so, because which rungs the ladders landed on is a fact about the player's mod set rather than about your declaration:
 
 ```
-fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, and 40000 plus 30000 is above the item ceiling of 65535
-fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, and the added amount is above the fluid ceiling of 1e301; the ladder from steam resolved onto it
+fkrecipes: balancer-part: iron-plate is in the list twice after the fallbacks, and 40000 plus 30000 is above the item ceiling of 65535, so it is capped there
+fkrecipes: sulfuric-mix: water is in the list twice after the fallbacks, and the added amount is above the fluid ceiling of 1e301, so it is capped there; the ladder from steam resolved onto it
 ```
+
+A capped amount is arithmetic the player cannot check, so the recipe's own `localised_description` gains a trailing line saying it happened, and for a recipe that line carries what changing a recipe costs a player who has already built with it:
+
+```
+Two ingredients resolved onto iron-plate and the total was above what one slot holds, so it was capped at 65535. The reason is in the log. Changing a recipe empties an assembling machine's input slots of anything the new list does not use.
+```
+
+A DECLARED amount above the ceiling is a different thing and is still refused: `Ingredients`, a dropdown preset, a hand-rolled `Unit` and a `CostBy` fallback all read only your declaration, and an author who writes 70000 of something has written something the engine will not take.
 
 A resolved list may name the very item the recipe makes, and that is accepted rather than refused, because the engine itself ships recipes that consume what they make. Base has exactly two (measured on Factorio 2.0.77, base alone): `kovarex-enrichment-process`, which takes 40 `uranium-235` and gives back 41 and is the item shape, and `coal-liquefaction`, which takes 25 `heavy-oil` and gives back 90 and is the fluid shape. What this library emits is always an item, so only the item shape can arise in a plan of yours, and only that shape gets the line. The recipe is emitted as it resolved and a line records it, because a recipe that consumes its own product cannot make the first one:
 
@@ -280,7 +288,9 @@ fkrecipes: steelworks-steel-rivet takes its ingredients from steelworks-rivet-in
 fkrecipes: ERROR: steelworks-rivet-ingredients, entry 1 ("2 iron-plat"): no item or fluid is named iron-plat. The mod loaded with its own default instead; fix the text under Settings > Mod settings > Startup, then restart.
 ```
 
-That is a rule about every field the player controls: a typed list, a stored value that is not text, and the numeric fields of a research cost (whose line ends `fix the number` instead). It is the narrow claim and not "a player is never refused": your declared list is what the fallback lands on, and it is held to the rules it always was, so a modpack that leaves it with no science pack the game has, or with two ladder rungs collapsed onto one name above the item ceiling, still stops the load. That refusal is one a player who typed nothing meets too. When a stored value was set aside on the way to it, the refusal carries one more sentence naming the first such setting and saying that correcting it under Settings then Mod settings then Startup is what a player can change; the log lines never reach the game on a failed load, so the refusal is the only place left to say it. Measured behaviour of the client is what makes the fallback a rule rather than a preference. Factorio rewrites `mod-settings.dat` on every successful load and on no failed one, so a value that fails the load is a value nothing in the game will then edit; the `Error loading mods` dialog offers Disable listed mods, Disable all mods, Manage mods, Restart and Exit, and `Manage mods` reaches only the Mods screen, which has no Mod settings button and whose Back returns to the same dialog. Disabling and re-enabling the mod does not help, because the engine keeps a disabled mod's settings and does not show them on the Mod Settings screen. The one way out is `Reset mod settings` with `Disable listed mods`, which costs every startup preference in the file. Measured on Factorio 2.0.77 (build 84539, mac-arm64).
+That is a rule about every field the player controls: a typed list, a stored value that is not text, and the numeric fields of a research cost (whose line ends `fix the number` instead). It is the narrow claim and not "a player is never refused": your declared list is what the fallback lands on, and it is held to the rules it always was, so a modpack that leaves a technology with no science pack the game has and no declared cost behind it still stops the load. That refusal is one a player who typed nothing meets too, and it names what the mod must change rather than a screen: the `Error loading mods` dialog cannot reach the Mod Settings screen at all. When a stored value was set aside on the way to it, the refusal carries one more sentence, `. The stored value of <setting> could not be used, so the mod's own declaration applied.`, naming the first such setting in the order the library reads them. It is there because no log line reaches the game on a failed load, and it is a fact rather than advice for the same reason the rest of the message is: there is nowhere to send the player. Measured behaviour of the client is what makes the fallback a rule rather than a preference. Factorio rewrites `mod-settings.dat` on every successful load and on no failed one, so a value that fails the load is a value nothing in the game will then edit; the dialog offers Disable listed mods, Disable all mods, Manage mods, Restart, Exit and a Reset mod settings checkbox, `Manage mods` reaches only the Mods screen, which has no Mod settings button and whose Back returns to the same dialog, and `Restart` comes back to an identical dialog over a file that has not moved. Disabling and re-enabling the mod does not help, because the engine keeps a disabled mod's settings and does not show them on the Mod Settings screen. The one way out is `Reset mod settings` with `Disable listed mods`, which costs every startup preference in the file. Measured on Factorio 2.0.77 (build 84539, mac-arm64).
+
+**What the player's mod set does is a separate rule, and it degrades rather than refusing.** A check that asks the game a question about what is installed is one this library answers by using the nearest thing that works and saying so; a check that reads only your declaration refuses by name. So a science pack removed from a copied research cost is dropped, a cost whose packs are all gone falls back to the one you declared, and two ladder rungs collapsing above an amount ceiling are capped at it. What stays a refusal is enumerated rather than open-ended: a name your plan would overwrite in `data.raw`, a prerequisite cycle, a `PlaceResult` or a `ResultNamed` naming a prototype the game does not have, a `CostOf` source that is absent or carries nothing this library can copy, a technology left with no science pack and no declared cost behind it, a host that hands the library no `World` or no mod name, and every check that reads only your declaration. The two naming probes are on that list because a name nothing answers to is a value this library would have to invent to degrade, and it would be inventing it into your own prototype.
 
 **And the recipe or technology says so where the player looks.** The log is evidence for you; a player reads the settings screen, the changelog and the tooltip of the thing in front of them. So a prototype whose stored setting value was set aside carries one trailing line in its own `localised_description`, joined onto the description you declared or standing alone when you declared none:
 
@@ -289,6 +299,16 @@ The stored value of steelworks-rivet-ingredients could not be used, so this mod'
 ```
 
 A fallback on a recipe's **ingredient text** carries one sentence more, because fixing that setting costs the player something the engine will not give back: `Changing a recipe empties an assembling machine's input slots of anything the new list does not use.` The same sentence ends the `ERROR:` line of a recipe's ingredient text, and no other note and no other fallback line carries it. A crafting time, a pack text and the two research numbers do not: a repriced research destroys nothing, and a recipe whose crafting time fell back emits the same ingredient list it always did and moves only its `energy_required`. One line per prototype, naming the first setting the walk set aside, and a crafting-time setting two recipes read puts it on both of them. A prototype nothing fell back on carries exactly what it carried before, byte for byte.
+
+A degradation the player's mod set caused writes its own trailing line in the same place and in the same voice, and it names no setting, because nothing was stored and there is nothing for anybody to go and fix:
+
+```
+This game has no military-science-pack, so this research was priced without it. The reason is in the log.
+This game has none of the science packs the steel-processing cost names, so this mod's own declared cost applies. The reason is in the log.
+Two ingredients resolved onto iron-plate and the total was above what one slot holds, so it was capped at 65535. The reason is in the log.
+```
+
+A resolve-or-drop ingredient ladder gets no such line, on purpose: it is what the ladder is for, and a dropdown's own composed description already tells the player that the nearest thing their mods do have is used instead. A dropped science pack and a capped amount are presence and arithmetic a player cannot check anywhere.
 
 The line is English for every player, and that is deliberate rather than an omission: a locale key the game does not define deletes a prototype's whole description on the client, silently and with the load still exiting 0, so composing one would risk the sentence it was meant to carry. Every sentence this library composes is an English literal for the same reason.
 
@@ -356,7 +376,15 @@ A technology needs exactly one source of cost and at most one anchor in the tree
 
 ### Cost
 
-`CostOf` names an existing technology and copies its whole `unit` unchanged. This is the intended way to price research: cost and tree position then come from one named point, and a multi-level source brings its `count_formula` and its `max_level` across without this library needing to evaluate either.
+`CostOf` names an existing technology and copies its whole `unit` unchanged, except for its science packs. This is the intended way to price research: cost and tree position then come from one named point, and a multi-level source brings its `count_formula` and its `max_level` across without this library needing to evaluate either.
+
+The packs are filtered because a copied unit is somebody else's declaration and the engine is strict about what a research can be priced in. A pack the player's mod set removed, or demoted from a `tool` to a plain `item`, is left out of the copy with a line, and the technology's own tooltip says so:
+
+```
+fkrecipes: hardened-tips: military-science-pack is not a science pack this game has, so it is left out of the military-4 cost
+```
+
+Without that filter the load stops on the mod's default setting with `Invalid research unit (military-science-pack). Research unit(s) can only be tool type items at the moment.`, or, for a name the game does not have at all, with `Error in assignID: item with name 'water' does not exist.` (both measured on Factorio 2.0.77). Neither names your mod, and the second names neither the technology nor the property. A copied pack list written in a form this library cannot read is refused instead of passed through, with the same sentence the other `CostOf` checks use.
 
 **Pointing a cost at an infinite technology mis-prices a one-level one, and nothing warns you.** A `count_formula` is written in terms of the level `L` and is copied verbatim, so a formula written for a source that starts at level 7 evaluates at level 1 on a technology of yours that has no `max_level`: measured on Factorio 2.0.77, `count_formula = "2^(L-7)*1000"` copied onto a one-level technology reads `research_unit_count = 15`. The load succeeds, the engine logs nothing, and the same hazard reaches a `CostBy` tier whose ladder lands on such a source. Read the source's own `unit` before you name it, and prefer a source whose cost does not depend on a level your technology does not have.
 
@@ -386,9 +414,23 @@ Some base technologies are `research_trigger` technologies and carry no unit at 
 fkrecipes: CostOf(steam-power): steam-power is a research_trigger technology with no unit to copy; name a unit-carrying technology instead
 ```
 
-`CostBy` is `CostOf` with a ladder per dropdown value: the player picks a tier, and the ladder is walked to the first technology that exists and carries a unit. That unit is copied verbatim with its `max_level`, and the source becomes the technology's sole prerequisite, so it does not combine with any of the placement fields. A `Fallback` unit applies when no rung works out. See [Migrating a mod that already ships settings](migration.md).
+`CostBy` is `CostOf` with a ladder per dropdown value: the player picks a tier, and the ladder is walked to the first technology that exists and carries a unit. That unit is copied with its `max_level`, its packs filtered as above, and the source becomes the technology's sole prerequisite, so it does not combine with any of the placement fields. A `Fallback` unit applies when no rung works out. See [Migrating a mod that already ships settings](migration.md).
 
-`Unit` is the escape hatch when no existing technology has the price you want. It takes a count, a time in seconds and a list of science packs. A pack is a presence ladder like an ingredient: `Pack{Name: "automation-science-pack", Amount: 1}` is a one-rung ladder, `Fallbacks` adds rungs, and a pack whose rungs are all absent is dropped with a log line. A unit whose packs all drop is refused, because a research with no packs is not something this library emits on your behalf, and a unit declared with no pack at all is refused for the same reason. Two pack ladders that land on the same pack add their amounts exactly as two ingredient ladders do, with the technology as the subject of the line.
+When the chosen source's packs are all unusable, your `Fallback` unit is what the technology is priced in instead, with its own ladders walked, and the prerequisite and the level cap stay where the tier put them:
+
+```
+fkrecipes: ERROR: steel-axes: the steel-processing cost names no science pack this game has, so this mod's own declared cost applies instead
+```
+
+That line is not about anything the player typed and points at no setting; the technology's tooltip carries the same fact. `CostOf` has no `Fallback` behind it, so a copy there that keeps no pack is refused by name instead. If the `Fallback` loses every pack as well, the refusal below names both sets in the order they were asked: the packs the copied unit lost first, then the rungs the `Fallback`'s own ladders tried. If the technology also declares `CostFrom` and the player has typed a pack list into it, neither the line nor the tooltip sentence is written at all, because the cost that applies is then theirs and not the one you declared.
+
+`Unit` is the escape hatch when no existing technology has the price you want. It takes a count, a time in seconds and a list of science packs. A pack is a presence ladder like an ingredient: `Pack{Name: "automation-science-pack", Amount: 1}` is a one-rung ladder, `Fallbacks` adds rungs, and a pack whose rungs are all absent is dropped with a log line. A unit whose packs all drop is refused, naming every rung it tried, and a unit declared with no pack at all is refused for the same reason. Two pack ladders that land on the same pack add their amounts exactly as two ingredient ladders do, with the technology as the subject of the line.
+
+```
+fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one, and none of military-science-pack, space-science-pack is a science pack here
+```
+
+That is one of the few things a player's mod set can still stop the load over, and the reason is that the alternative is worse. A research unit with an empty ingredient list loads with no complaint from the engine, `add_research` accepts it, the queue takes it, and it completes after `count * time` ticks in a lab holding nothing at all, consuming nothing (measured in play on Factorio 2.0.77, build 84539). A packless research is not a stuck technology; it is a free one, which is a balance change nobody chose. So where there is an author-declared cost to fall back on the library uses it, and where there is none it says what is missing.
 
 A science pack amount goes up to 65535, declared or added, and that is the engine's own limit rather than this library's caution. Measured on Factorio 2.0.77 (build 84539, mac-arm64), on a technology whose `unit.ingredients` carries one pack: 65535 loads and is dumped as written, while 65536, 2147483648 and 9007199254740992 each fail the load with `Value (<n>) outside of range. The data type allows values from 0 to 65535 in property tree at ROOT.technology.<name>.unit.ingredients[0][1]`, exit code 1 and no dump. It is the same 16 bits an item ingredient's amount is held in, so this library refuses such a pack by name rather than letting the engine blame your mod for it.
 

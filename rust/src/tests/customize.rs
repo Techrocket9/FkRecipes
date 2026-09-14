@@ -2580,7 +2580,15 @@ fn a_pack_text_that_resolves_to_nothing_is_refused() {
     };
     assert_eq!(
         chain_plan().plan_data(&bare).err().as_deref(),
-        Some("fkrecipes: the technology chain-forging has no science pack the game has; research takes at least one")
+        Some(packless_refusal(
+            "chain-forging",
+            &[
+                "automation-science-pack",
+                "military-science-pack",
+                "logistic-science-pack"
+            ]
+        ))
+        .as_deref()
     );
 }
 
@@ -2771,7 +2779,11 @@ fn a_declared_cost_default_the_engine_would_not_take_is_refused() {
         );
     assert_eq!(
         plan().plan_data(&w).err().as_deref(),
-        Some("fkrecipes: steelworks-chain-count declares a default research count below 1. The stored value of steelworks-chain-count could not be used, so the mod's own declaration applied; correcting it under Settings > Mod settings > Startup is what a player can change here.")
+        Some(with_fallback_fact(
+            "fkrecipes: steelworks-chain-count declares a default research count below 1",
+            "steelworks-chain-count"
+        ))
+        .as_deref()
     );
 }
 
@@ -2823,11 +2835,12 @@ fn every_bad_field_of_a_custom_cost_answers() {
 /// narrow one: a value the player TYPED never introduces a refusal that a
 /// player who never typed would not also have hit. It is not "a player can
 /// never be refused". The same modpack refuses the same plan with the fields
-/// untouched, which is the third world below, and the only difference the
-/// typing makes is the added sentence: the log ops never reach the host on a
+/// untouched, which is the second world below, and the only difference the
+/// typing makes is one added FACT: the log ops never reach the host on a
 /// refused load, so the refusal itself is the only place left to say that a
-/// stored value was set aside. See `Resolution::with_fallback_note`. The Go
-/// half pins the same three worlds.
+/// stored value was set aside. It says that and nothing else, because the
+/// screen the old sentence routed to cannot be reached from the error dialog.
+/// See `Resolution::fallback_fact`. The Go half pins the same worlds.
 #[test]
 fn player_fields_fall_back_while_the_author_channel_still_refuses() {
     let plan = || {
@@ -2870,19 +2883,31 @@ fn player_fields_fall_back_while_the_author_channel_still_refuses() {
     // All three at once: the packs are what stops the load, because the other
     // two are the player's and neither one refuses any more.
     assert_eq!(
-        plan().plan_data(&world("2 unobtainium", 0.001)).err().as_deref(),
-        Some("fkrecipes: the technology steel-riveting has no science pack the game has; research takes at least one. The stored value of steelworks-forging-time could not be used, so the mod's own declaration applied; correcting it under Settings > Mod settings > Startup is what a player can change here.")
+        plan()
+            .plan_data(&world("2 unobtainium", 0.001))
+            .err()
+            .as_deref(),
+        Some(with_fallback_fact(
+            &packless_refusal("steel-riveting", &["military-science-pack"]),
+            "steelworks-forging-time"
+        ))
+        .as_deref()
     );
 
-    // AND THE SAME REFUSAL WITH NOTHING TYPED, which is what makes the note a
-    // fact about this player rather than boilerplate: a player who never opened
-    // the settings screen meets the identical modpack problem, and is told only
-    // about the mod. The note names the crafting time rather than the text
-    // because the crafting time is read first; the pair is the walk's order,
-    // which is the same every run.
+    // AND THE SAME REFUSAL WITH NOTHING TYPED, which is what makes the added
+    // fact a fact about THIS player rather than boilerplate: a player who never
+    // opened the settings screen meets the identical modpack problem, and is
+    // told only about the mod. The fact names the crafting time rather than the
+    // text because the crafting time is read first; the pair is the walk's
+    // order, which is the same every run. Neither sentence sends anybody to a
+    // screen the error dialog cannot reach.
     assert_eq!(
         plan().plan_data(&base_world()).err().as_deref(),
-        Some("fkrecipes: the technology steel-riveting has no science pack the game has; research takes at least one")
+        Some(packless_refusal(
+            "steel-riveting",
+            &["military-science-pack"]
+        ))
+        .as_deref()
     );
 
     // The same plan with the pack put back loads, and the two player fields are
@@ -2972,7 +2997,7 @@ fn a_carried_refusal_is_reported_before_the_checks_behind_it() {
             .plan_data(&base_world().with_setting("steelworks-axe-style", Value::string("fancy")))
             .err()
             .as_deref(),
-        Some("fkrecipes: the technology steel-axes has no science pack the game has; research takes at least one"),
+        Some(packless_refusal("steel-axes", &["military-science-pack"])).as_deref(),
         "the packs did not answer once the carried refusal was repaired"
     );
 }

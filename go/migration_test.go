@@ -545,7 +545,7 @@ func TestChoiceRefusals(t *testing.T) {
 							Packs: []Pack{{Name: "military-science-pack", Amount: 1}}}},
 				})
 			},
-			want: "fkrecipes: the technology hardened-tips has no science pack the game has; research takes at least one",
+			want: packlessRefusal("hardened-tips", "military-science-pack"),
 		},
 	}
 	for _, c := range cases {
