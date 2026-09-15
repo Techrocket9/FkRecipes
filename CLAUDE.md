@@ -154,10 +154,14 @@ rust/                   the Rust half: crate fkrecipes, workspace root. fkdata a
                         THE HARNESS CAN DRIFT APART and currently have: the lock pins the fkdata
                         DEPENDENCY this crate compiles against, while run-mirror.sh and run-ingame.sh
                         build the `fklua` BINARY out of whatever the FKLUA_CHECKOUT sibling holds,
-                        which is 01d640a as of 2026-09-13. Nothing reconciles the two, so a size or a
-                        transcript figure names the head it was taken at. Syncing this repository
-                        onto the newer head is owed as its own round; see
-                        agents/implementation-notes.md. src/ingredient_list.rs is the language's
+                        which is 9709989 as of 2026-09-14 (four documentation-only commits past
+                        b88965d: FkLua's agents/engine-findings.md and its index row; no Go, Rust
+                        or Lua moved, so the binary the harness builds is functionally the one
+                        b88965d builds). Nothing reconciles the two, so a size or a transcript
+                        figure names the head it was taken at. The pin cannot move until those
+                        four commits are on GitHub, because the dependency is fetched from there
+                        and never from the sibling checkout; when they are, `cargo update -p fkdata
+                        -p fk` and this paragraph are the whole sync. src/ingredient_list.rs is the language's
                         mirror; tests/ is the public-surface witness, a separate crate that sees only
                         what a consumer sees (it is what proved World was sealed by accident)
 go/examples/datastage   the Go example guest, its own module (a consumer-shaped project; fkrecipes by
