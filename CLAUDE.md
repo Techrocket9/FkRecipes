@@ -149,19 +149,15 @@ go/                     the Go half: module github.com/Techrocket9/fkrecipes/go,
 rust/                   the Rust half: crate fkrecipes, workspace root. fkdata arrives as a git
                         dependency on https://github.com/Techrocket9/fklua, wasm-gated so the host
                         cargo test needs no wasm target; the [patch] one-source note is in Cargo.toml.
-                        Cargo.lock pins that repository at b88965d (moved only by
-                        `cargo update -p fkdata -p fk`, never by a replace or a patch). THAT PIN AND
-                        THE HARNESS CAN DRIFT APART and currently have: the lock pins the fkdata
-                        DEPENDENCY this crate compiles against, while run-mirror.sh and run-ingame.sh
-                        build the `fklua` BINARY out of whatever the FKLUA_CHECKOUT sibling holds,
-                        which is 9709989 as of 2026-09-14 (four documentation-only commits past
-                        b88965d: FkLua's agents/engine-findings.md and its index row; no Go, Rust
-                        or Lua moved, so the binary the harness builds is functionally the one
-                        b88965d builds). Nothing reconciles the two, so a size or a transcript
-                        figure names the head it was taken at. The pin cannot move until those
-                        four commits are on GitHub, because the dependency is fetched from there
-                        and never from the sibling checkout; when they are, `cargo update -p fkdata
-                        -p fk` and this paragraph are the whole sync. src/ingredient_list.rs is the language's
+                        Cargo.lock pins that repository at 9709989 (moved only by
+                        `cargo update -p fkdata -p fk`, never by a replace or a patch), the same
+                        head the harness builds fklua from as of 2026-09-14. The pin and the
+                        harness CAN drift apart, because the lock pins the fkdata DEPENDENCY
+                        this crate compiles against while run-mirror.sh and run-ingame.sh build
+                        the `fklua` BINARY out of whatever the FKLUA_CHECKOUT sibling holds;
+                        nothing reconciles the two, a size or transcript figure names the head it
+                        was taken at, and the pin can only follow a head that is on GitHub.
+                        src/ingredient_list.rs is the language's
                         mirror; tests/ is the public-surface witness, a separate crate that sees only
                         what a consumer sees (it is what proved World was sealed by accident)
 go/examples/datastage   the Go example guest, its own module (a consumer-shaped project; fkrecipes by
