@@ -10,7 +10,7 @@ Everything is validated before a prototype reaches the game, because the engine'
 
 Both halves implement the v1 surface and are mirrored: the same verbs, the same refusal text byte for byte, and the same emitted prototypes. The library has host tests in both languages, a harness that packages both example mods and compares their behaviour byte for byte, and a gate that runs both in a real Factorio and hashes the result against a committed golden.
 
-There is no published version tag yet, so both halves are consumed from a checkout rather than from a release, and the surface may still change. The quickstart below shows both forms.
+The first release is tagged: the Go module as `go/v0.1.0` (require `github.com/Techrocket9/fkrecipes/go v0.1.0`) and the Rust crate as `rust/v0.1.0` (a git dependency on this repository at that tag). The surface may still change before 1.0. The quickstart below shows the release form and the checkout form.
 
 ## Requirements
 
