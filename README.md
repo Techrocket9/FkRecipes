@@ -1,6 +1,6 @@
 # FkRecipes
 
-FkRecipes ("Factorio: konfigurierbare Recipes", joining the [FkLua](https://github.com/Techrocket9/FkLua) naming pattern) is a guest library for Factorio mods built with FkLua. Your mod declares items, crafting recipes and technologies in Go or Rust; the library turns them into prototypes at the data stage and generates the startup settings that let a player configure them from the mod settings screen.
+FkRecipes ("Factorio: konfigurierbare Recipes") is a guest library for Factorio mods built with FkLua. Your mod declares items, crafting recipes and technologies in Go or Rust; the library turns them into prototypes at the data stage and generates the startup settings that let a player configure them from the mod settings screen.
 
 Two kinds of configuration are wired for you. A technology's enablement binds to a generated bool setting: switch it off and the technology is emitted hidden rather than dropped, so a save that already researched it does not lose it. A recipe's crafting time binds to a generated double setting: the player picks the seconds, and the library gives that setting a minimum the engine will accept.
 
