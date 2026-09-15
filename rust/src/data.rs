@@ -4933,12 +4933,19 @@ const ITEM_OWN_FIELDS: &[&str] = &[
 // file: `validate` takes it on its own, because whether the library owns it
 // depends on the PLAN rather than on which arms the builder fired, and the
 // sentence it is refused with names the technology that decided.
+// BOTH SPELLINGS OF THE CATEGORY, because the library owns the CONCEPT on
+// either engine and only one of the two names reaches a given one. On 2.1 what
+// it writes is `categories` (`respell_recipe_category`, `world.rs`), so an
+// author's extra carrying that name would be silently overwritten there and
+// would mean nothing here; naming both makes it the same refusal on both
+// engines instead of a refusal on one and a surprise on the other.
 const RECIPE_OWN_FIELDS: &[&str] = &[
     "type",
     "name",
     "localised_name",
     "localised_description",
     "category",
+    "categories",
     "energy_required",
     "ingredients",
     "results",

@@ -2,7 +2,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::value::{kv, Value};
-use crate::world::{stage_kind, Named, StageKind, World};
+use crate::world::{
+    major_minor, recipe_categories_are_a_list, research_unit_takes_items, respell_recipe_category,
+    stage_kind, Named, StageKind, World, PACK_SUBGROUP,
+};
 
 /// The host stand-in for the game: a slice of base Factorio big enough to
 /// exercise every branch, and small enough to read. Vectors, not hash maps,
@@ -523,4 +526,140 @@ fn the_not_text_refusal_names_the_surface_and_prints_the_bytes() {
         crate::value::not_text("a technology name in data.raw", &[]),
         "fkrecipes: a technology name in data.raw is not valid UTF-8, and this library reads it as text rather than rewriting it: the bytes are "
     );
+}
+
+/// THE ENGINE KEY, which decides which probe answers the science-pack question
+/// in the emit layer. It lives in `world.rs` rather than in `emit.rs` for the
+/// reason `stage_kind` does: `emit.rs` is behind `cfg(target_family = "wasm")`,
+/// so a decision written there is a decision no host test can reach, and this
+/// one changes what every priced research in the game is made of.
+///
+/// THE TWO MEASURED ROWS ARE THE FIRST TWO. 2.0.77 is the engine the tool rule
+/// was probed on, 2.1.17 is the engine that has no `data.raw.tool` at all. The
+/// rest are the shapes a host can hand back.
+#[test]
+fn research_unit_takes_items_keys_on_bases_own_version() {
+    for (version, want, why) in [
+        (
+            "2.0.77",
+            false,
+            "the engine the tool-type rule was measured on",
+        ),
+        ("2.1.17", true, "the engine with no data.raw.tool at all"),
+        ("2.0", false, "a version with no patch part"),
+        ("2.1", true, "the same, one minor up"),
+        (
+            "1.1.110",
+            false,
+            "the series before the one this library was written for",
+        ),
+        ("2.2.0", true, "a minor this library has never seen"),
+        ("3.0.0", true, "a major this library has never seen"),
+        ("2", false, "a major alone reads as minor 0"),
+        ("", true, "unreadable: the current engine"),
+        ("experimental", true, "unreadable: the current engine"),
+    ] {
+        let got = research_unit_takes_items(version);
+        assert_eq!(
+            got, want,
+            "research_unit_takes_items({version:?}) = {got}, want {want} ({why})"
+        );
+    }
+}
+
+/// The parser under it, including the two refusals: no leading digit at all,
+/// and a run of digits long enough that reading it as a number would be a
+/// guess.
+#[test]
+fn major_minor_reads_the_leading_two_numbers() {
+    for (version, want) in [
+        ("2.1.17", Some((2, 1))),
+        ("2.0.77", Some((2, 0))),
+        ("2.1", Some((2, 1))),
+        ("2", Some((2, 0))),
+        ("0.18.47", Some((0, 18))),
+        ("2.", Some((2, 0))),
+        ("2.x", Some((2, 0))),
+        ("", None),
+        (".1", None),
+        ("v2.1", None),
+        ("99999.1", None),
+        ("2.99999", Some((2, 0))),
+    ] {
+        let got = major_minor(version);
+        assert_eq!(
+            got, want,
+            "major_minor({version:?}) = {got:?}, want {want:?}"
+        );
+    }
+}
+
+/// The subgroup constant is a NAME the emit layer compares a leaf against, and
+/// a typo in it would answer no for every science pack on a 2.1 engine with
+/// nothing else in the library changing. Measured on 2.1.17 build 87315.
+#[test]
+fn pack_subgroup_is_the_measured_name() {
+    assert_eq!(
+        PACK_SUBGROUP, "science-pack",
+        "PACK_SUBGROUP is the subgroup base's seven packs carry on 2.1.17"
+    );
+}
+
+/// THE SECOND ENGINE-KEYED FACT: the spelling of a recipe's category. A 2.1
+/// engine refuses `category` outright, so this one is the whole mod failing to
+/// load rather than a degradation, and it is answered on the way out so the
+/// `Op` stream a consumer asserts on does not move under them.
+#[test]
+fn respell_recipe_category_rewrites_only_a_recipes_own_field() {
+    let recipe = Value::Map(alloc::vec![
+        kv("type", Value::string("recipe")),
+        kv("name", Value::string("m-quenching")),
+        kv("category", Value::string("crafting-with-fluid")),
+        kv("energy_required", Value::num(7.5)),
+    ]);
+    let want = Value::Map(alloc::vec![
+        kv("type", Value::string("recipe")),
+        kv("name", Value::string("m-quenching")),
+        kv(
+            "categories",
+            Value::arr(alloc::vec![Value::string("crafting-with-fluid")])
+        ),
+        kv("energy_required", Value::num(7.5)),
+    ]);
+    assert_eq!(respell_recipe_category(&recipe), Some(want));
+
+    // A RECIPE WITH NO CATEGORY IS UNTOUCHED, which this signature spells as
+    // None: the library omits the field for a recipe that declared none, and
+    // an invented "crafting" would be a value the author never wrote.
+    let plain = Value::Map(alloc::vec![
+        kv("type", Value::string("recipe")),
+        kv("name", Value::string("m-rivet")),
+    ]);
+    assert_eq!(respell_recipe_category(&plain), None);
+
+    // AND IT TOUCHES NOTHING ELSE. "category" on another prototype kind is
+    // that kind's own field with its own meaning; the type is read off the
+    // prototype rather than assumed.
+    let other = Value::Map(alloc::vec![
+        kv("type", Value::string("item")),
+        kv("category", Value::string("science-pack")),
+    ]);
+    assert_eq!(respell_recipe_category(&other), None);
+
+    let scalar = Value::string("not a prototype");
+    assert_eq!(respell_recipe_category(&scalar), None);
+}
+
+/// The two keys agree, and they agree BY CONSTRUCTION rather than by two
+/// tables drifting apart: both engine facts were measured on the same two
+/// binaries.
+#[test]
+fn both_engine_facts_key_the_same_way() {
+    for version in ["2.0.77", "2.1.17", "2.0", "2.1", "", "1.1.110"] {
+        assert_eq!(
+            recipe_categories_are_a_list(version),
+            research_unit_takes_items(version),
+            "the two engine keys disagree at {version:?}"
+        );
+    }
 }

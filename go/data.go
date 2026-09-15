@@ -2985,9 +2985,16 @@ var (
 	// file: validate takes it on its own, because whether the library owns it
 	// depends on the plan rather than on the builder's arms, and the sentence
 	// it is refused with names the technology that decided.
+	// BOTH SPELLINGS OF THE CATEGORY, because the library owns the CONCEPT on
+	// either engine and only one of the two names reaches a given one. On 2.1
+	// what it writes is `categories` (respellRecipeCategory, world.go), so an
+	// author's Extra carrying that name would be silently overwritten there
+	// and would mean nothing here; naming both makes it the same refusal on
+	// both engines instead of a refusal on one and a surprise on the other.
 	recipeOwnFields = []string{
 		"type", "name", "localised_name", "localised_description",
-		"category", "energy_required", "ingredients", "results", "order",
+		"category", "categories", "energy_required", "ingredients", "results",
+		"order",
 	}
 	techOwnFields = []string{
 		"type", "name", "localised_name", "localised_description",

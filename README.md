@@ -10,13 +10,13 @@ Everything is validated before a prototype reaches the game, because the engine'
 
 Both halves implement the v1 surface and are mirrored: the same verbs, the same refusal text byte for byte, and the same emitted prototypes. The library has host tests in both languages, a harness that packages both example mods and compares their behaviour byte for byte, and a gate that runs both in a real Factorio and hashes the result against a committed golden.
 
-The first release is tagged: the Go module as `go/v0.1.0` (require `github.com/Techrocket9/fkrecipes/go v0.1.0`) and the Rust crate as `rust/v0.1.0` (a git dependency on this repository at that tag). The surface may still change before 1.0. The quickstart below shows the release form and the checkout form.
+The current release is tagged: the Go module as `go/v0.1.1` (require `github.com/Techrocket9/fkrecipes/go v0.1.1`) and the Rust crate as `rust/v0.1.1` (a git dependency on this repository at that tag). v0.1.1 is the release to be on for Factorio 2.1: under v0.1.0 a recipe that declares a crafting category stops the load on that engine, and every research this library prices comes out free. The surface may still change before 1.0. The quickstart below shows the release form and the checkout form.
 
 ## Requirements
 
 - Go 1.24 with TinyGo, or Rust 2021 with the `wasm32-unknown-unknown` target, matching the half you consume.
 - An FkLua checkout for `fklua mod`, which packages your guest into a mod. See [FkLua's data-stage documentation](https://github.com/Techrocket9/FkLua/blob/master/docs/data-stage.md).
-- Factorio 2.0 to run the result.
+- Factorio 2.0 or 2.1 to run the result. The library is measured on both and asks each one its own questions; the mod you package has to declare the one the player runs.
 
 ## Quickstart
 
@@ -29,7 +29,7 @@ The Go half is the module `github.com/Techrocket9/fkrecipes/go`, rooted in this 
 ```
 require (
 	github.com/Techrocket9/fklua/guest/go v0.2.0
-	github.com/Techrocket9/fkrecipes/go v0.1.0
+	github.com/Techrocket9/fkrecipes/go v0.1.1
 )
 
 // Until a version is tagged, point the require at a checkout:
@@ -151,14 +151,14 @@ pub extern "C" fn fk_data() { plan().emit(); }
 
 Build it with `cargo build --release --target wasm32-unknown-unknown`.
 
-Both guests above declare the same mod. Package either with `fklua mod --data-module datastage.wasm --name your-mod --factorio-version 2.0`.
+Both guests above declare the same mod. Package either with `fklua mod --data-module datastage.wasm --name your-mod --factorio-version <series>`, where `<series>` is the Factorio series the player runs, `2.0` or `2.1`. IT HAS TO MATCH: measured on 2.1.17, a mod whose `info.json` declares `2.0` is refused at game start, before a line of it runs, with `Incompatible Factorio version (current: 2.1, required: 2.0)`.
 
 ## What it does
 
 - **Generates the settings.** Bool, int, double, dropdown and ingredient-list text startup settings, named after your mod, ordered as you declared them or placed under a legacy order you name. A double setting bound as a crafting time is given a minimum of 0.002 unless you set one yourself.
 - **Prefixes everything.** The prefix comes from the mod name FkLua packaged, read at emit time. There is no prefix parameter, so a generated name cannot drift from the mod it ships in.
 - **Resolves ingredient names, or drops them.** `IngredientNamed` takes a list of candidates and uses the first one the game actually has. If none is present the ingredient is dropped and a line is written to the log, because a name the game does not have is a hard load failure that names your mod, and a guess is worse than an omission.
-- **Copies a research cost from a technology you name.** `CostOf` takes the source's whole `unit`, filtering only its science packs, so a `count_formula` and a multi-level technology's `max_level` come across without this library needing to understand either. A pack the player's mod set removed, or demoted from a `tool` to a plain `item`, is left out of the copy with a line rather than handed to an engine that stops the load over it.
+- **Copies a research cost from a technology you name.** `CostOf` takes the source's whole `unit`, filtering only its science packs, so a `count_formula` and a multi-level technology's `max_level` come across without this library needing to understand either. A pack the player's mod set removed, or demoted out of whatever the running engine treats as a science pack, is left out of the copy with a line rather than handed to an engine that stops the load over it. What a science pack IS is the engine's answer and not a fixed one: a prototype of type `tool` on Factorio 2.0, an item whose subgroup is `science-pack` on 2.1, where base and its bundled expansions declare no `tool` prototype at all. A mod may still declare one there, and the library still finds it.
 - **Lets a setting choose the ingredients or the cost.** `IngredientsBy` binds a recipe's whole ingredient list to a dropdown, one plan per value. `CostBy` binds a technology's research cost to a dropdown, walking a ladder of source technologies per value to the first one the game actually has; the source it settles on also becomes the technology's prerequisite.
 - **Lets the player write the recipe.** `IngredientsFrom` binds a recipe's ingredients to a text setting holding an ingredient list, `2 iron-plate, 3 copper-cable`, checked at load with a sentence per mistake and never guessed at; `CostFrom` does the same for a research cost with its count and seconds beside it. Either may be declared beside a dropdown of presets, and then the text is the switch: while it says `default` the dropdown decides, and anything else applies instead. The dropdown keeps its exact option list, so adopting the customizer on one a mod already ships disturbs no stored choice at all. The text is documented in [The ingredient list](docs/ingredient-list.md).
 - **Keeps the names an existing mod already ships.** Four `Legacy` setting constructors take a full name and an explicit order and emit both verbatim, because Factorio persists startup values by name with no rename mechanism and a regenerated name resets every existing save to its default. `LegacyItem`, `LegacyRecipe` and `LegacyTechnology` do the same for prototypes, where the stakes are higher: a save references a prototype by name, and a renamed one is an `assignID` abort rather than a reset.

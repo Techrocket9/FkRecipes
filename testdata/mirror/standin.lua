@@ -27,14 +27,52 @@
 --     and so a line-oriented reader (diff, grep, the golden) sees one record
 --     per line.
 --
--- Usage: lua52f standin.lua <packaged-mod-dir>
+-- THE STAND-IN MODELS BOTH MEASURED ENGINES, one per run, because the science
+-- pack stopped being a prototype TYPE between them. The second argument picks
+-- which, and 2.0 is the default so every existing caller and the committed
+-- golden mean what they always meant:
+--
+--   * 2.0 (Factorio 2.0.77 build 84539): a science pack is a data.raw.tool
+--     entry, and a research unit naming anything else refuses with "Invalid
+--     research unit (<name>). Research unit(s) can only be tool type items at
+--     the moment."
+--   * 2.1 (Factorio 2.1.17 build 87315): there is NO data.raw.tool at all. A
+--     science pack is a data.raw.item entry with subgroup "science-pack", and
+--     the research unit's own gate is LAB COVERAGE: a unit naming something no
+--     lab accepts refuses with "Technology <name>: there is no lab that will
+--     accept all of the science packs this technology requires.\nScience
+--     packs: <names>", measured for an item outside the subgroup AND for a
+--     fresh item inside it that no lab lists.
+--
+--   * AND A RECIPE'S CATEGORY IS SPELLED DIFFERENTLY: `category` on 2.0,
+--     `categories` (a list) on 2.1, where the old spelling is REFUSED outright
+--     rather than ignored. check_recipe holds each arm to its own spelling and
+--     refuses the other, so a guest that got it the wrong way round fails here
+--     rather than in a player's game.
+--
+-- Both engine arms demote military-science-pack the same way, so the guest has
+-- the same pack to drop on both and the prototypes it emits must come out
+-- byte-identical APART FROM THAT ONE FIELD: run-mirror.sh compares exactly
+-- that, normalising the category spelling and asserting it separately.
+--
+-- Usage: lua52f standin.lua <packaged-mod-dir> [2.0|2.1]
 
 local moddir = arg[1] or error("standin.lua needs the packaged mod directory", 0)
 package.path = moddir .. "/?.lua"
 
+local engine = arg[2] or "2.0"
+if engine ~= "2.0" and engine ~= "2.1" then
+  error("standin.lua takes 2.0 or 2.1 as its engine, not " .. tostring(engine), 0)
+end
+local packs_are_items = (engine == "2.1")
+
 function log(s) print("LOG " .. s) end
 
-mods = { base = "2.0.77", ["fkrecipes-example"] = "0.1.0" }
+-- MEASURED VERSIONS, both of them: the guest keys its science-pack probe on
+-- base's own version, so a stand-in that reported something else would be
+-- modelling an engine nobody ran.
+mods = { base = (packs_are_items and "2.1.17" or "2.0.77"),
+         ["fkrecipes-example"] = "0.1.0" }
 feature_flags = { space_travel = false, quality = true }
 
 -- defines.prototypes in the engine's own base -> {derived -> 0} shape. The
@@ -112,14 +150,61 @@ local function is_tool(name)
   return data.raw.tool ~= nil and data.raw.tool[name] ~= nil
 end
 
+-- WHAT A LAB TAKES, which is the 2.1 engine's own research-unit gate (see the
+-- header). It is a SET THAT CHANGES rather than a constant, for the same
+-- reason the tool table is one: base declares military-4 in the pack's science
+-- days and a later mod demotes the pack, so a technology that was legal when
+-- it was written stops being legal, and this library's data stage runs after
+-- both. The demotion below takes the pack out of here on the 2.1 arm exactly
+-- as it takes it out of data.raw.tool on the 2.0 arm.
+--
+-- The 2.0 arm never reads it; is_tool is that arm's gate.
+local lab_accepts = {
+  ["automation-science-pack"] = true,
+  ["logistic-science-pack"] = true,
+  ["military-science-pack"] = true,
+  ["chemical-science-pack"] = true,
+}
+
 local function is_whole(n)
   return n == math.floor(n)
 end
 
 local function check_recipe(p)
+  -- THE CATEGORY IS SPELLED DIFFERENTLY ON THE TWO ENGINES, and the 2.1 one
+  -- REFUSES THE OLD SPELLING OUTRIGHT rather than ignoring it. Measured on
+  -- Factorio 2.1.17 build 87315: a recipe carrying `category` stops the load
+  -- with the sentence below, the same recipe carrying
+  -- `categories = {"crafting-with-fluid"}` loads with exit 0, and base's own
+  -- sulfuric-acid reads `categories = {"chemistry"}`. So this is the one field
+  -- whose EMITTED SPELLING the two engine arms must differ on, and the arm
+  -- that gets the wrong one has to say so here rather than let a mod that
+  -- cannot load anywhere read as green.
+  local category
+  if packs_are_items then
+    if p.category ~= nil then
+      error("Error while loading recipe prototype \"" .. p.name ..
+            "\" (recipe): In RecipePrototype, `category` and " ..
+            "`additional_categories` got merged into `categories` table. " ..
+            "Please use that instead.", 0)
+    end
+    if p.categories ~= nil then
+      if type(p.categories) ~= "table" or type(p.categories[1]) ~= "string" then
+        error("the stand-in: recipe \"" .. p.name ..
+              "\" has a categories field that is not a list of names", 0)
+      end
+      category = p.categories[1]
+    end
+  else
+    if p.categories ~= nil then
+      error("the stand-in: recipe \"" .. p.name ..
+            "\" carries the 2.1 spelling `categories` on a 2.0 engine", 0)
+    end
+    category = p.category
+  end
   -- MEASURED: the rule keys on the category NAME and not on hand-craftability,
   -- and an absent category IS `crafting`.
-  local category = p.category or "crafting"
+  category = category or "crafting"
   local seen = {}
   for i, ing in ipairs(p.ingredients or {}) do
     if type(ing) ~= "table" or type(ing.name) ~= "string" then
@@ -196,7 +281,18 @@ local function check_technology(p)
     if not is_item(name) then
       error("Error in assignID: item with name '" .. name .. "' does not exist.", 0)
     end
-    if not is_tool(name) then
+    -- THE ENGINE'S OWN GATE, and it is a different sentence on each of the two
+    -- measured engines. On 2.0 the unit ingredient has to be the right TYPE;
+    -- on 2.1 the type is gone and what refuses is lab coverage, which this
+    -- stand-in models with the lab_accepts set below. Both are quoted from a
+    -- real run: see the header.
+    if packs_are_items then
+      if not lab_accepts[name] then
+        error("Technology " .. p.name .. ": there is no lab that will accept " ..
+              "all of the science packs this technology requires.\nScience packs: " ..
+              name, 0)
+      end
+    elseif not is_tool(name) then
       error("Invalid research unit (" .. name ..
             "). Research unit(s) can only be tool type items at the moment.", 0)
     end
@@ -328,6 +424,28 @@ function data:extend(list)
   end
 end
 
+-- One science pack in the shape the engine under test gives it. The two shapes
+-- differ in three fields and in nothing else, so the difference the guests see
+-- is the difference the engine made and not one this stand-in invented.
+--
+-- THE SECOND ARGUMENT IS THE 2.1 ARM'S PROTOTYPE TYPE, and it is here so the
+-- library's 2.1 probe has to WALK the item family rather than reading the
+-- plain `item` table alone. On 2.1 a science pack is an item carrying subgroup
+-- "science-pack", and `item` is one of 21 types in that family: base's own
+-- packs are plain items and answer on the first probe, so a pack declared as
+-- one of the other twenty is the only thing that exercises the walk, and a mod
+-- may declare one. `capsule` is that row below. On the 2.0 arm the argument is
+-- ignored: a pack there is a `tool` and nothing else.
+local function pack_row(name, item_type)
+  if packs_are_items then
+    return { type = item_type or "item", name = name,
+             icon = "__base__/" .. name .. ".png",
+             icon_size = 64, stack_size = 200, subgroup = "science-pack" }
+  end
+  return { type = "tool", name = name, icon = "__base__/" .. name .. ".png",
+           icon_size = 64, stack_size = 200, durability = 1 }
+end
+
 -- Base's own prototypes. The technologies carry real-ish units in the short
 -- tuple form, and the prerequisite chain steel-processing -> logistics-2 ->
 -- logistics-3 is what the example's InsertBetween splices into.
@@ -340,27 +458,29 @@ data:extend{
   -- the one the mirror's flipped rivet list names in its rich-text tag.
   { type = "item", name = "iron-stick", icon = "__base__/iron-stick.png",
     icon_size = 64, stack_size = 100 },
-  -- A science pack is a TOOL, not an item: the library's ItemExists has to
-  -- walk the derived types to find it, which is the walk this row exists for,
-  -- and a pack list asks ToolExists, which reads this table by name.
+  -- THE SCIENCE PACKS, in whichever shape the engine under test has them.
+  --
+  -- On 2.0 a pack is a TOOL and not an item: the library's ItemExists has to
+  -- walk the derived types to find it, which is the walk those rows exist for,
+  -- and a pack list asks ToolExists, which reads that table by name. On 2.1
+  -- there is no data.raw.tool at all and a pack is an ITEM carrying subgroup
+  -- "science-pack", which is the leaf the library's 2.1 arm reads; the
+  -- durability field goes with the type, because an item has none.
   --
   -- ALL FOUR PACKS THE BASE TECHNOLOGIES BELOW PRICE THEMSELVES IN. The
-  -- stand-in now enforces the engine's measured research-unit rule (a unit
-  -- ingredient is a tool or the load fails), so a base row naming a pack with
-  -- no table entry would be an UNFAITHFUL stand-in rather than a deliberate
-  -- gap: the engine has no such technology either.
-  { type = "tool", name = "automation-science-pack",
-    icon = "__base__/automation-science-pack.png", icon_size = 64,
-    stack_size = 200, durability = 1 },
-  { type = "tool", name = "logistic-science-pack",
-    icon = "__base__/logistic-science-pack.png", icon_size = 64,
-    stack_size = 200, durability = 1 },
-  { type = "tool", name = "military-science-pack",
-    icon = "__base__/military-science-pack.png", icon_size = 64,
-    stack_size = 200, durability = 1 },
-  { type = "tool", name = "chemical-science-pack",
-    icon = "__base__/chemical-science-pack.png", icon_size = 64,
-    stack_size = 200, durability = 1 },
+  -- stand-in enforces the engine's measured research-unit rule on both arms,
+  -- so a base row naming a pack with no entry would be an UNFAITHFUL stand-in
+  -- rather than a deliberate gap: the engine has no such technology either.
+  pack_row("automation-science-pack"),
+  -- A DERIVED ITEM TYPE, for the reason pack_row's comment gives. THIS PACK
+  -- AND NOT ANOTHER: it is the one the guests' own ladders and their copied
+  -- units both name, so on the 2.1 arm a probe that read the plain `item`
+  -- table alone would drop it and the arm's prototype comparison would go red.
+  -- A pack base alone prices itself in proves nothing, because the guest never
+  -- asks about it.
+  pack_row("logistic-science-pack", "capsule"),
+  pack_row("military-science-pack"),
+  pack_row("chemical-science-pack"),
 
   -- THE FLUIDS, because a player can now type one. An untagged name resolves
   -- as an item first and only then as a fluid, so water being here and NOT in
@@ -445,10 +565,22 @@ data:extend{
 -- unit(s) can only be tool type items at the moment.` and nothing naming this
 -- mod. check_technology above enforces exactly that sentence, so the guests'
 -- own filter is what keeps this run green.
-data.raw.item["military-science-pack"] = data.raw.tool["military-science-pack"]
-data.raw.item["military-science-pack"].type = "item"
-data.raw.item["military-science-pack"].durability = nil
-data.raw.tool["military-science-pack"] = nil
+--
+-- ON THE 2.1 ARM THE PROTOTYPE IS ALREADY AN ITEM, so the demotion is the
+-- other half of the same move: the pack loses the subgroup that made it a
+-- science pack and the labs stop taking it. The engine's refusal there is the
+-- lab-coverage sentence rather than the tool-type one, and check_technology
+-- enforces that one on that arm. Either way the guest has one pack to drop
+-- and the prototypes it emits must not move between the two.
+if packs_are_items then
+  data.raw.item["military-science-pack"].subgroup = nil
+  lab_accepts["military-science-pack"] = nil
+else
+  data.raw.item["military-science-pack"] = data.raw.tool["military-science-pack"]
+  data.raw.item["military-science-pack"].type = "item"
+  data.raw.item["military-science-pack"].durability = nil
+  data.raw.tool["military-science-pack"] = nil
+end
 
 print("--- SETTINGS ---")
 -- `settings` DOES NOT EXIST at the settings stage: a mod's own startup

@@ -1,6 +1,6 @@
 [package]
 name = "fkrecipes"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "User-configurable crafting recipes and research for Factorio mods built with FkLua"
 license = "MIT"

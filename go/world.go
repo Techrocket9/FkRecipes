@@ -57,15 +57,29 @@ type World interface {
 	// tie rule the reference states.
 	FluidExists(name string) bool
 
-	// ToolExists answers whether a name is a SCIENCE PACK. The engine takes
-	// tool-type items and nothing else in a research unit (measured: an item
-	// ingredient refuses with "Research unit(s) can only be tool type items at
-	// the moment"), so a pack list asks this rather than ItemExists, and an
-	// item that is not a tool gets a sentence of its own.
+	// ToolExists answers whether a name is a SCIENCE PACK, and THE NAME IS
+	// HISTORICAL. The question it asks is "is this a science pack the running
+	// engine's research units accept", which is not the same probe on the two
+	// engines this library has been measured on, and the method kept its name
+	// because a consumer's fixture World implements it.
 	//
-	// It is also the question a declared Pack's ladder walks, so a fixture
-	// that names a science pack only in its items will see every hand-rolled
-	// research cost lose its packs.
+	// MEASURED (Factorio 2.0.77 build 84539): a research unit takes tool-type
+	// items and nothing else; an item ingredient refuses with "Invalid
+	// research unit (iron-plate). Research unit(s) can only be tool type items
+	// at the moment."
+	//
+	// MEASURED (Factorio 2.1.17 build 87315): data.raw.tool DOES NOT EXIST,
+	// base's science packs are data.raw.item entries with subgroup
+	// "science-pack", and technology.logistics.unit.ingredients names one of
+	// those items. So the 2.0 sentence is a 2.0 rule. The emit layer answers
+	// this method on both engines; see researchUnitTakesItems below for the
+	// key and for what the 2.1 engine really gates on.
+	//
+	// A pack list asks this rather than ItemExists either way, and a name it
+	// answers no for gets a sentence of its own. It is also the question a
+	// declared Pack's ladder walks, so a fixture that names a science pack
+	// only in its items will see every hand-rolled research cost lose its
+	// packs.
 	ToolExists(name string) bool
 
 	// EntityExists answers it for ItemSpec.PlaceResult. The engine's failure
@@ -222,4 +236,180 @@ func StageKindOf(name string) (StageKind, bool) {
 		return StageKindData, true
 	}
 	return StageNone, false
+}
+
+// packSubgroup is the item subgroup a science pack carries on an engine whose
+// research units take items rather than tools.
+//
+// MEASURED (Factorio 2.1.17 build 87315, base plus its bundled DLC data,
+// `factorio -c <a private config> --mod-directory <a probe mod> --dump-data`):
+// every one of base's seven packs is a data.raw.item entry with subgroup
+// "science-pack". The same walk over data.raw at the DATA stage finds two
+// other items in that subgroup, coin and science, which are not science packs,
+// so this probe is a NAMED APPROXIMATION and not the engine's own gate.
+//
+// THE ENGINE'S OWN GATE IS LAB COVERAGE, and it is not askable here. Measured
+// on the same engine, a technology whose unit names iron-plate refuses with
+//
+//	Technology probe-item-unit: there is no lab that will accept all of the science packs this technology requires.
+//	Science packs: iron-plate
+//
+// and the same refusal comes for a freshly declared item whose subgroup IS
+// "science-pack" and which no lab lists, while adding iron-plate to
+// data.raw.lab.lab.inputs makes a unit naming iron-plate load with exit 0. So
+// the gate is the lab's inputs and the subgroup has nothing to do with it. A
+// lab-keyed probe is still the wrong probe for this library, because the data
+// stage cannot see the answer: measured in the same run, at the data stage
+// base's `lab` lists seven inputs, space-age's five packs are not items yet
+// and its biolab does not exist, and all of them arrive by data-final-fixes.
+// A lab-keyed probe would therefore drop every pack of any modpack that
+// assembles its labs after the data stage, which is a free research per
+// technology; the subgroup is visible at the data stage and selects exactly
+// base's seven. The 2.0 probe was an approximation of the same kind: it asked
+// whether a name was the right TYPE, not whether a lab would take it.
+const packSubgroup = "science-pack"
+
+// researchUnitTakesItems answers WHICH OF THE TWO MEASURED ENGINES this is,
+// from base's own version, and it is a pure function for the reason
+// StageKindOf is: the emit layer sits behind the wasm build gate, so a
+// decision written there is one no host test can reach.
+//
+// WHY THE VERSION AND NOT THE PRESENCE OF data.raw.tool. "Ask data.raw.tool
+// where that table exists and data.raw.item where it does not" is the obvious
+// key and it is MEASURABLY WRONG. The tool prototype type still exists on 2.1
+// (defines.prototypes.item still lists "tool" among its 21 keys, measured),
+// and a mod that declares a tool-type prototype loads on 2.1 with exit 0 while
+// a technology beside it prices itself in an ITEM, also measured. One ported
+// mod still shipping a legacy tool-typed pack would put a table there and take
+// every base science pack away from this library, which is the free-research
+// outcome this whole fix exists to close. base's version is the engine's, is
+// one env read, and says which engine is running whatever the mod set did.
+//
+// UNREADABLE MEANS THE CURRENT ENGINE. base is always installed, so this arm
+// is for a host that answered something this parser cannot read.
+//
+// WHAT A WRONG ANSWER COSTS, per fact rather than as one claim. On the SCIENCE
+// PACK neither way can stop a load: the tool branch on a 2.1 engine and the
+// item branch on a 2.0 engine both DROP packs, a free research and disclosed,
+// because a 2.0 science pack is not in data.raw.item at all. On the RECIPE
+// CATEGORY the wrong answer is worse and is UNMEASURED: emitting `categories`
+// to a 2.0 engine either has it ignore an unknown key, which silently puts the
+// recipe in `crafting` and refuses a fluid ingredient there, or has it refuse
+// the key outright. The 2.0 binary was gone from the machine that found this,
+// so neither outcome was probed. That is an argument for keying on something
+// always readable, which base's version is, and not a claim that the arm is
+// harmless.
+func researchUnitTakesItems(baseVersion string) bool {
+	major, minor, ok := majorMinor(baseVersion)
+	if !ok {
+		return true
+	}
+	return major > 2 || (major == 2 && minor >= 1)
+}
+
+// majorMinor reads the leading "<major>.<minor>" of a version string. A
+// version with no minor part reads as minor 0, and anything with no leading
+// digit at all is not a version this library will key on.
+//
+// HAND-ROLLED RATHER THAN strconv, because the whole input is two small
+// unsigned numbers and an overflow on a hostile string would be a silent wrong
+// answer rather than an error: a run of digits longer than four is refused
+// here instead.
+func majorMinor(v string) (int, int, bool) {
+	major, rest, ok := leadingNumber(v)
+	if !ok {
+		return 0, 0, false
+	}
+	if len(rest) == 0 || rest[0] != '.' {
+		return major, 0, true
+	}
+	minor, _, ok := leadingNumber(rest[1:])
+	if !ok {
+		return major, 0, true
+	}
+	return major, minor, true
+}
+
+// leadingNumber reads the run of digits at the front of s, and what follows.
+func leadingNumber(s string) (int, string, bool) {
+	n := 0
+	for n < len(s) && s[n] >= '0' && s[n] <= '9' {
+		n++
+	}
+	if n == 0 || n > 4 {
+		return 0, s, false
+	}
+	value := 0
+	for i := 0; i < n; i++ {
+		value = value*10 + int(s[i]-'0')
+	}
+	return value, s[n:], true
+}
+
+// recipeCategoriesAreAList is the SECOND engine-keyed fact, and it is keyed by
+// the same function for the same reason: the emit layer cannot make this call
+// where a host test could see it.
+//
+// MEASURED (Factorio 2.1.17 build 87315): a recipe prototype carrying
+// `category` refuses the load outright, with
+//
+//	Error while loading recipe prototype "<name>" (recipe): In RecipePrototype, `category` and `additional_categories` got merged into `categories` table. Please use that instead.
+//
+// while the same recipe carrying `categories = {"crafting-with-fluid"}` loads
+// with exit 0, and base's own sulfuric-acid reads `categories = {"chemistry"}`
+// with no `category` at all. That is not a degradation, it is the WHOLE MOD
+// failing to load, so it is the more severe of this round's two findings and
+// the one that made a 2.1 golden row impossible until it was answered.
+//
+// THE SPELLING IS THE EMIT LAYER'S AND NOT THE PLAN'S. respellRecipeCategory
+// rewrites the pair on the way out, so the Op stream a consumer's host test
+// asserts on says `category` on every engine and does not move under them.
+// The alternative was a question on World, which is an interface a consumer's
+// own fixture implements: adding a method to it would break every one of them
+// for a spelling this library can answer by itself.
+func recipeCategoriesAreAList(baseVersion string) bool {
+	return researchUnitTakesItems(baseVersion)
+}
+
+// respellRecipeCategory rewrites a recipe prototype's "category" pair into the
+// "categories" pair a 2.1 engine wants, holding that one name.
+//
+// IT TOUCHES A RECIPE AND NOTHING ELSE. The type is read off the prototype
+// itself rather than assumed from the caller, because the same Op stream
+// carries items, technologies and four kinds of setting, and "category" is a
+// field name a future prototype of another kind could carry with a meaning of
+// its own.
+//
+// A PROTOTYPE WITH NO CATEGORY COMES BACK UNTOUCHED, by identity: the library
+// omits the field entirely for a recipe that declared no category, because an
+// absent field is the engine's own default and "crafting" spelled out would be
+// this library inventing a value the author never wrote.
+func respellRecipeCategory(proto Value) Value {
+	if proto.Kind != KindMap || !protoTypeIs(proto, "recipe") {
+		return proto
+	}
+	out := make([]KV, 0, len(proto.Map))
+	changed := false
+	for _, p := range proto.Map {
+		if p.Key == "category" && p.Val.Kind == KindStr {
+			out = append(out, kv("categories", Arr(p.Val)))
+			changed = true
+			continue
+		}
+		out = append(out, p)
+	}
+	if !changed {
+		return proto
+	}
+	return Obj(out...)
+}
+
+// protoTypeIs answers whether a prototype's own "type" field is this name.
+func protoTypeIs(proto Value, typ string) bool {
+	for _, p := range proto.Map {
+		if p.Key == "type" {
+			return p.Val.Kind == KindStr && p.Val.Str == typ
+		}
+	}
+	return false
 }

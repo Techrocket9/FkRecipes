@@ -7,6 +7,7 @@ FkRecipes ("Factorio: konfigurierbare Recipes") is a guest library for mods buil
 - **Rebase, never merge.** Trunk is `master`, history is linear, and `git merge --ff-only` is the guard: if it refuses, the branch was not rebased first.
 - **Every behavioural test is red-proven.** The guarded code is broken on purpose, the designed failure message is observed, the break is reverted, and the commit message says so. A proof that fails to go red is a finding, not a formality.
 - **Measured, not argued.** Every number in these notes carries the command that produced it. Engine behaviour (the crafting-time floor, refusal shapes) is probed on a real binary, never assumed, and the binary is re-asked its version (`"$FACTORIO" --version`) before any in-game gate.
+- **THE ENGINE IS TWO ENGINES, and every fact that differs between them is keyed on base's own version by ONE pure function.** Factorio 2.1 moved two things under this library and neither was visible to a host gate. A SCIENCE PACK IS NO LONGER A `tool`: measured on 2.1.17 build 87315, `data.raw.tool` does not exist, base's packs are `data.raw.item` entries with subgroup `science-pack`, and `technology.logistics.unit.ingredients` names one of those items, so the 2.0 probe answered no for every pack and every research this library priced came out FREE. A RECIPE'S CATEGORY IS SPELLED `categories`, A LIST: a recipe carrying `category` refuses the WHOLE LOAD there with ``In RecipePrototype, `category` and `additional_categories` got merged into `categories` table.``, which is not a degradation at all. Both are answered by `researchUnitTakesItems` / `research_unit_takes_items` over `fkdata.ModVersion("base")`, with `recipeCategoriesAreAList` / `recipe_categories_are_a_list` delegating to it so the two cannot drift, and BOTH LIVE IN `world.go` / `world.rs` WHERE A HOST TEST REACHES THEM, for the reason `StageKindOf` does. **THE KEY IS NOT THE PRESENCE OF `data.raw.tool`**, which is the obvious key and is measurably wrong: `defines.prototypes.item` still lists `tool` on 2.1 and a mod declaring a tool-type prototype loads there with exit 0 beside a technology priced in an item, so one ported mod would put that table back and take every pack away again. `ToolExists` / `tool_exists` KEEPS ITS NAME, which is historical now, and `World` is UNCHANGED in both languages: a consumer's own fixture implements that interface and a new method would break every one of them. The category spelling is the EMIT LAYER's and not the plan's (`respellRecipeCategory` / `respell_recipe_category`, a pure host-tested transform on the way out), so the `Op` stream a consumer asserts on says `category` on every engine. **THE 2.1 ARM IS NOT THE ENGINE'S OWN GATE AND SAYS SO.** Measured, the engine gates a research unit on LAB COVERAGE (`Technology <name>: there is no lab that will accept all of the science packs this technology requires.`), for an item in the subgroup as readily as for one outside it, and the DATA STAGE CANNOT SEE THAT ANSWER: at data.lua there is one lab with seven inputs and by data-final-fixes there are two with twelve, space-age's packs having become items in between. The subgroup selects base's seven exactly, over-accepts `coin` and `science`, and never accepts `iron-plate`, which is what keeps a player's typo a fallback rather than a lock-out; the 2.0 probe was an approximation of the same kind. The measurements and their commands are in `agents/customizer-design.md` under the 2.1.17 heading, and what the round found is in `agents/implementation-notes.md` under "The 2.1 engine".
 - **Documentation drift is a gate failure, not a follow-up.** This file and the docs are updated in the same commit as the change they describe. Human-facing documents follow [`agents/docs-style.md`](agents/docs-style.md); run its grep check before committing.
 - **A skipped gate reads exactly like a pass.** Anything a gate needs and cannot find (lua52f, a Factorio binary, a wasm toolchain) fails or prints a loud NOT RUN naming the remedy; it never exits 0 silently.
 - **Determinism is a correctness property.** Plans are slices in declaration order; no map iteration anywhere in either language; everything host-visible is sorted or in declared order. Lua `pairs` order over string keys is seeded per run, so nothing may depend on it, in the library or in the harness.
@@ -48,6 +49,19 @@ scripts/run-mirror.sh         # the cross-language mirror: both example guests p
                               # of finding 13: a copied research unit that kept it would be refused by
                               # the stand-in with the engine's own sentence, so this gate is where the
                               # copied-unit pack filter is proven end to end.
+                              # IT RUNS BOTH GUESTS TWICE, once per MEASURED ENGINE. The stand-in takes
+                              # 2.0 or 2.1 as a second argument; the 2.1 arm reports base as 2.1.17, has
+                              # no data.raw.tool at all, carries the packs as items with subgroup
+                              # science-pack, gates a research unit on LAB COVERAGE and REFUSES a recipe
+                              # carrying `category`, each with the engine's own measured sentence. There
+                              # is NO SECOND GOLDEN: a 2.1 transcript's RAW and FINAL lines dump a
+                              # differently shaped data.raw, so a golden of them would pin the fixture
+                              # rather than the behaviour. What is asserted instead is that the SAME
+                              # BUILD's guest extends the same prototypes and logs the same lines on both
+                              # arms, from the `--- SETTINGS ---` marker down, with the one field the
+                              # engine forces to differ (category/categories) normalised and asserted on
+                              # its own. It is also where the 2.1 shape of the demotion is covered at
+                              # all, since run-ingame.sh's demote arm cannot run on a 2.1 engine.
                               # IT IS ALSO THE ONLY GATE THAT COMPILES THE PACKAGED LUA, so a Go change
                               # that grows (*Lib).PlanData past Lua 5.2's per-function register ceiling
                               # (200 locals, 250 registers; resolve inlines into it) fails HERE with
@@ -108,6 +122,18 @@ scripts/run-ingame.sh         # the engine gate: both packaged examples under a 
                               # each other. It uses refuse where the hash rows use SKIPPED, because
                               # it asserts nothing against a golden and the pack it demotes is
                               # base's own.
+                              # AND IT DOES NOT RUN ON A 2.1 ENGINE AT ALL. The fixture moves a
+                              # prototype OUT OF data.raw.tool, and 2.1 has no such table, so the
+                              # gate asks its own default-row dump `has("tool")` and reports
+                              # SKIPPED with the reason where the answer is no. That skip does NOT
+                              # set SKIPPED and --strict does NOT turn it into a failure, which is
+                              # the one place this file's two skips differ: a mod-set skip means
+                              # THIS MACHINE cannot confirm a golden that is still true somewhere,
+                              # while this one means the engine under test has no such world at
+                              # all. The fixture itself REFUSES loudly rather than doing nothing
+                              # when the table is absent, so a skip that failed to fire is a red
+                              # arm rather than a vacuous green, and run-mirror.sh's 2.1 arm is
+                              # where the 2.1 shape of the same degradation is covered.
                               # About 50 seconds wall (measured at this commit). The two gates are
                               # COMPLEMENTS field by field:
                               # where one types into a text the other leaves it alone and lets the
@@ -181,7 +207,10 @@ scripts/                gate scripts: run-mirror.sh is the cross-language mirror
 testdata/mirror/        the strict engine-shaped stand-in and the committed transcript golden. The
                         stand-in polices the 200-byte-per-element localised-string ceiling on every
                         data-stage prototype and skips the four setting types, which is measured
-                        rather than assumed: a setting prototype is exempt on the engine
+                        rather than assumed: a setting prototype is exempt on the engine. IT MODELS
+                        BOTH MEASURED ENGINES, `lua52f standin.lua <moddir> [2.0|2.1]`, and 2.0 is
+                        the default so the committed golden means what it always meant; the golden
+                        is the 2.0 arm's and there is none for 2.1
 testdata/locale/        the locale checker's committed fixture cfg and findings golden, the
                         cross-language pin that needs no toolchain (both suites reproduce it). The
                         golden holds the required findings and NOTHING ELSE: a key inside the mod's
@@ -204,13 +233,24 @@ testdata/ingame/        the engine gate's per-engine golden (two tagged rows, de
                         flipped row installs) and flipped.golden.dat (the bytes
                         `fklua modsettings write` must produce for it, cmp'd on every run before
                         the engine is touched, so a codec change upstream fails here loudly and by
-                        name; the same --update re-records it and the hash rows)
+                        name; the same --update re-records it and the hash rows). FOUR ROWS NOW,
+                        two engines: 2.0.77 recorded on the last day that binary was on this
+                        machine, and 2.1.17 recorded this round. The 2.0.77 rows CANNOT BE RE-RUN
+                        here and stand as recorded. All four share one settings hash, because a
+                        setting prototype is this library's own and no engine moved one
 testdata/ingame/demote/ the demote arm's Lua-only fixture mod: info.json, data.lua (which moves
                         automation-science-pack from data.raw.tool to data.raw.item and keeps every
                         other field) and data-final-fixes.lua (which takes the demoted pack out of
                         every technology's unit EXCEPT the guest's own, by prefix, and out of every
                         lab's inputs, so the base game still loads and the row is scope F rather
-                        than scope I). It has no golden row: its mod set is not the golden's
+                        than scope I). It has no golden row: its mod set is not the golden's. IT IS
+                        2.0's: 2.1 has no data.raw.tool to move anything out of, the gate skips the
+                        whole arm on any series but 2.0, and the fixture refuses loudly rather than
+                        demoting nothing if it is ever reached on such an engine. Its info.json
+                        declares 2.0 and the gate STAMPS the binary's own series over it on copy,
+                        the way it stamps the packaged guest's: measured, a 2.1 engine refuses a mod
+                        declaring 2.0 at game start, so without the stamp that guard could never
+                        fire
 docs/                   human-facing docs (usage.md, migration.md, ingredient-list.md; docs-style.md
                         governs, run its grep before commit)
 agents/                 working notes; index below

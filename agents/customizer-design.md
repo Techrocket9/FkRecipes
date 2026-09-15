@@ -387,6 +387,40 @@ The `mod-settings.dat` round trip, which is what lets a gate flip a text setting
 | Number encodings | the int written as type 6 and as type 2 | both read as the same number |
 | Unknown keys and non-ASCII | a value under a name no mod declares; `"unicode ✓ café"` | ignored; survives byte for byte |
 
+## Measured on Factorio 2.1.17 (build 87315, mac-arm64, steam), 2026-09-14
+
+THE 2.0 BINARY IS GONE FROM THIS MACHINE'S STEAM INSTALL, so every row above stands as recorded and none of it was re-taken. What follows is the SAME QUESTIONS asked of 2.1.17, and two of the answers moved. Each run is one Lua-only probe mod under a private config, exit code read directly. The whole of it is one command with the body swapped:
+
+```sh
+W=/tmp/probe21
+F="${FACTORIO_BIN:-$HOME/Library/Application Support/Steam/steamapps/common/Factorio/factorio.app/Contents/MacOS/factorio}"
+rm -rf "$W"; mkdir -p "$W/mods/fkprobe_1.0.0" "$W/userdir/config"
+printf '[path]\nread-data=__PATH__system-read-data__\nwrite-data=%s\n\n[general]\nlocale=auto\n' "$W/userdir" > "$W/userdir/config/config.ini"
+printf '{"name":"fkprobe","version":"1.0.0","factorio_version":"2.1","title":"p","author":"a","dependencies":["base"]}\n' > "$W/mods/fkprobe_1.0.0/info.json"
+cat > "$W/mods/fkprobe_1.0.0/data.lua" <<'LUA'
+log("PROBE tool-table-present=" .. tostring(data.raw.tool ~= nil))
+local asp = data.raw.item["automation-science-pack"]
+log("PROBE asp type=" .. tostring(asp.type) .. " subgroup=" .. tostring(asp.subgroup))
+LUA
+"$F" --version | head -1
+"$F" -c "$W/userdir/config/config.ini" --mod-directory "$W/mods" --dump-data > "$W/run.log" 2>&1
+echo "exit=$?"; grep "PROBE\|^.*Error" "$W/run.log"
+```
+
+| Question | Probe | Answer |
+|---|---|---|
+| Is a science pack still a `tool`? | the body above | `data.raw.tool` DOES NOT EXIST. `automation-science-pack` is `{type="item", subgroup="science-pack"}` in `data.raw.item`, and `technology.logistics.unit.ingredients` is `{{"automation-science-pack", 1}}` naming that item. So the 2.0 research-pack row above is a 2.0 rule |
+| Is the `tool` prototype TYPE gone too? | `defines.prototypes.item` logged as sorted keys | NO. The list still has 21 keys and still includes `tool`, alongside `item`, `ammo`, `armor` and the rest; `defines.prototypes.tool` is nil, as it was, because tool is a derived item type. A mod may still DECLARE a tool-type prototype and one loads with exit 0, with a technology beside it priced in an ITEM. THAT IS WHY THE PRESENCE OF `data.raw.tool` IS NOT THE ENGINE KEY: one ported mod shipping a legacy tool-typed pack would put that table back on a 2.1 engine |
+| Research pack type, 2.1 | `unit.ingredients={{"iron-plate", 1}}` | `Technology probe-item-unit: there is no lab that will accept all of the science packs this technology requires.` then, on its own line, `Science packs: iron-plate`. Exit 1, no dump. NOT the 2.0 sentence, and not a type check at all |
+| Is the gate the `science-pack` SUBGROUP? | a freshly declared item with `subgroup="science-pack"` that no lab lists, in a unit | NO. Same lab-coverage refusal, naming the new item. The subgroup has nothing to do with it |
+| Is the gate a LAB's `inputs`? | `iron-plate` (subgroup `raw-material`) appended to `data.raw.lab.lab.inputs` at data-updates, and a unit naming it | YES. Exit 0. So the 2.1 gate is lab coverage and neither the type nor the subgroup |
+| Can the DATA stage see that gate? | the science-pack subgroup walked over all of `data.raw` at data.lua and again at data-final-fixes, and every lab's `inputs` logged at both | NO. At data.lua there is ONE lab, `lab`, with base's seven packs in its inputs, and the only items in subgroup `science-pack` are those seven plus `coin` and `science`. By data-final-fixes there are TWO labs (`biolab` arrived) with twelve inputs each, and space-age's five packs have become items. A lab-keyed probe at the data stage would therefore drop every pack of any modpack that assembles its labs later |
+| A unit naming a prototype the game does not have | `unit.ingredients={{"water", 1}}` | `Error in assignID: item with name 'water' does not exist.`, the SAME sentence 2.0.77 gives, with `At ROOT.technology.<name>.unit.ingredients[0][0]` and `Source: <name> (technology).` added under it. Exit 1, no dump |
+| A mod declaring the wrong series | an `info.json` carrying `"factorio_version": "2.0"` | `Failed to load mod "fkprobe":` then `• Incompatible Factorio version (current: 2.1, required: 2.0)`. Exit 1, AT GAME START: not a line of the mod runs, so a fixture or a guest carrying a hard-coded series takes the whole mod set down before anything it says can be read |
+| A recipe's crafting category | `data:extend` of a recipe carrying `category="crafting-with-fluid"`; the same recipe carrying `categories={"crafting-with-fluid"}`; base's own `sulfuric-acid` read back | `category` REFUSES THE WHOLE LOAD: ``Error while loading recipe prototype "<name>" (recipe): In RecipePrototype, `category` and `additional_categories` got merged into `categories` table. Please use that instead.`` `categories` loads with exit 0. base's sulfuric-acid carries `categories = {"chemistry"}` and no `category` at all, and `iron-gear-wheel` carries neither |
+
+**WHAT THE LIBRARY DOES WITH THESE, and the one place it does not follow the engine.** The science-pack probe asks `data.raw.tool` first on both engines and then, on 2.1 only, `data.raw.item[<name>].subgroup == "science-pack"`; the recipe category goes out as `categories` on 2.1. BOTH ARE KEYED ON BASE'S OWN VERSION, not on the presence of a table, for the reason the second row above gives. The subgroup is a NAMED APPROXIMATION of the engine's real gate and it is the closest one the data stage can see: it selects base's seven packs exactly, over-accepts `coin` and `science`, and never accepts `iron-plate`, which is what keeps a player's typo a fallback rather than a lock-out. The 2.0 probe was an approximation of the same kind, asking whether a name was the right TYPE rather than whether a lab would take it; a tool no lab accepted would have stopped a 2.0 load just as surely, and neither engine's lab check is something this library has ever modelled.
+
 ## The language, and why it looks this way
 
 The reference is docs/ingredient-list.md. The choices:

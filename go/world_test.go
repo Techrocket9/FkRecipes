@@ -498,3 +498,163 @@ func TestEveryFkdataStageNameIsDecided(t *testing.T) {
 		}
 	}
 }
+
+// THE ENGINE KEY, which decides which probe answers the science-pack question
+// in the emit layer. It lives here rather than in guest.go for the reason
+// StageKindOf does: guest.go is behind //go:build tinygo.wasm, so a decision
+// written there is a decision no host test can reach, and this one changes
+// what every priced research in the game is made of.
+//
+// THE TWO MEASURED ROWS ARE THE FIRST TWO. 2.0.77 is the engine the tool rule
+// was probed on, 2.1.17 is the engine that has no data.raw.tool at all. The
+// rest are the shapes a host can hand back.
+func TestResearchUnitTakesItemsKeysOnBasesOwnVersion(t *testing.T) {
+	for _, row := range []struct {
+		version string
+		want    bool
+		why     string
+	}{
+		{"2.0.77", false, "the engine the tool-type rule was measured on"},
+		{"2.1.17", true, "the engine with no data.raw.tool at all"},
+		{"2.0", false, "a version with no patch part"},
+		{"2.1", true, "the same, one minor up"},
+		{"1.1.110", false, "the series before the one this library was written for"},
+		{"2.2.0", true, "a minor this library has never seen"},
+		{"3.0.0", true, "a major this library has never seen"},
+		{"2", false, "a major alone reads as minor 0"},
+		{"", true, "unreadable: the current engine"},
+		{"experimental", true, "unreadable: the current engine"},
+	} {
+		if got := researchUnitTakesItems(row.version); got != row.want {
+			t.Errorf("researchUnitTakesItems(%q) = %v, want %v (%s)",
+				row.version, got, row.want, row.why)
+		}
+	}
+}
+
+// The parser under it, including the two refusals: no leading digit at all,
+// and a run of digits long enough that reading it as an int would be a guess.
+func TestMajorMinorReadsTheLeadingTwoNumbers(t *testing.T) {
+	for _, row := range []struct {
+		version      string
+		major, minor int
+		ok           bool
+	}{
+		{"2.1.17", 2, 1, true},
+		{"2.0.77", 2, 0, true},
+		{"2.1", 2, 1, true},
+		{"2", 2, 0, true},
+		{"0.18.47", 0, 18, true},
+		{"2.", 2, 0, true},
+		{"2.x", 2, 0, true},
+		{"", 0, 0, false},
+		{".1", 0, 0, false},
+		{"v2.1", 0, 0, false},
+		{"99999.1", 0, 0, false},
+		{"2.99999", 2, 0, true},
+	} {
+		major, minor, ok := majorMinor(row.version)
+		if major != row.major || minor != row.minor || ok != row.ok {
+			t.Errorf("majorMinor(%q) = %d, %d, %v; want %d, %d, %v",
+				row.version, major, minor, ok, row.major, row.minor, row.ok)
+		}
+	}
+}
+
+// The subgroup constant is a NAME the emit layer compares a leaf against, and
+// a typo in it would answer no for every science pack on a 2.1 engine with
+// nothing else in the library changing. Measured on 2.1.17 build 87315.
+func TestPackSubgroupIsTheMeasuredName(t *testing.T) {
+	if packSubgroup != "science-pack" {
+		t.Errorf("packSubgroup = %q, want %q: the subgroup base's seven packs "+
+			"carry on 2.1.17", packSubgroup, "science-pack")
+	}
+}
+
+// THE SECOND ENGINE-KEYED FACT: the spelling of a recipe's category. A 2.1
+// engine refuses `category` outright, so this one is the whole mod failing to
+// load rather than a degradation, and it is answered on the way out so the Op
+// stream a consumer asserts on does not move under them.
+func TestRespellRecipeCategoryRewritesOnlyARecipesOwnField(t *testing.T) {
+	recipe := Obj(
+		kv("type", Str("recipe")),
+		kv("name", Str("m-quenching")),
+		kv("category", Str("crafting-with-fluid")),
+		kv("energy_required", Num(7.5)),
+	)
+	got := respellRecipeCategory(recipe)
+	want := Obj(
+		kv("type", Str("recipe")),
+		kv("name", Str("m-quenching")),
+		kv("categories", Arr(Str("crafting-with-fluid"))),
+		kv("energy_required", Num(7.5)),
+	)
+	if !valuesEqualForCategory(got, want) {
+		t.Errorf("respellRecipeCategory rewrote the recipe as %v, want %v", got, want)
+	}
+
+	// A RECIPE WITH NO CATEGORY IS UNTOUCHED: the library omits the field for
+	// a recipe that declared none, and an invented "crafting" would be a value
+	// the author never wrote.
+	plain := Obj(kv("type", Str("recipe")), kv("name", Str("m-rivet")))
+	if !valuesEqualForCategory(respellRecipeCategory(plain), plain) {
+		t.Error("respellRecipeCategory changed a recipe that declared no category")
+	}
+
+	// AND IT TOUCHES NOTHING ELSE. "category" on another prototype kind is
+	// that kind's own field with its own meaning; the type is read off the
+	// prototype rather than assumed.
+	other := Obj(kv("type", Str("item")), kv("category", Str("science-pack")))
+	if !valuesEqualForCategory(respellRecipeCategory(other), other) {
+		t.Error("respellRecipeCategory rewrote a field on a prototype that is not a recipe")
+	}
+	if !valuesEqualForCategory(respellRecipeCategory(Str("not a prototype")), Str("not a prototype")) {
+		t.Error("respellRecipeCategory rewrote something that is not a map")
+	}
+}
+
+// The two keys agree, and they agree BY CONSTRUCTION rather than by two tables
+// drifting apart: both engine facts were measured on the same two binaries.
+func TestBothEngineFactsKeyTheSameWay(t *testing.T) {
+	for _, version := range []string{"2.0.77", "2.1.17", "2.0", "2.1", "", "1.1.110"} {
+		if recipeCategoriesAreAList(version) != researchUnitTakesItems(version) {
+			t.Errorf("the two engine keys disagree at %q", version)
+		}
+	}
+}
+
+// valuesEqualForCategory is a structural compare deep enough for the rows
+// above: maps in order, arrays in order, scalars by kind and value.
+func valuesEqualForCategory(a, b Value) bool {
+	if a.Kind != b.Kind {
+		return false
+	}
+	switch a.Kind {
+	case KindStr:
+		return a.Str == b.Str
+	case KindNum:
+		return a.Num == b.Num
+	case KindArr:
+		if len(a.Arr) != len(b.Arr) {
+			return false
+		}
+		for i := range a.Arr {
+			if !valuesEqualForCategory(a.Arr[i], b.Arr[i]) {
+				return false
+			}
+		}
+		return true
+	case KindMap:
+		if len(a.Map) != len(b.Map) {
+			return false
+		}
+		for i := range a.Map {
+			if a.Map[i].Key != b.Map[i].Key ||
+				!valuesEqualForCategory(a.Map[i].Val, b.Map[i].Val) {
+				return false
+			}
+		}
+		return true
+	}
+	return true
+}

@@ -408,13 +408,13 @@ A technology needs exactly one source of cost and at most one anchor in the tree
 
 `CostOf` names an existing technology and copies its whole `unit` unchanged, except for its science packs. This is the intended way to price research: cost and tree position then come from one named point, and a multi-level source brings its `count_formula` and its `max_level` across without this library needing to evaluate either.
 
-The packs are filtered because a copied unit is somebody else's declaration and the engine is strict about what a research can be priced in. A pack the player's mod set removed, or demoted from a `tool` to a plain `item`, is left out of the copy with a line, and the technology's own tooltip says so:
+The packs are filtered because a copied unit is somebody else's declaration and the engine is strict about what a research can be priced in. A pack the player's mod set removed, or demoted out of whatever the running engine treats as a science pack, is left out of the copy with a line, and the technology's own tooltip says so:
 
 ```
 fkrecipes: hardened-tips: military-science-pack is not a science pack this game has, so it is left out of the military-4 cost
 ```
 
-Without that filter the load stops on the mod's default setting with `Invalid research unit (military-science-pack). Research unit(s) can only be tool type items at the moment.`, or, for a name the game does not have at all, with `Error in assignID: item with name 'water' does not exist.` (both measured on Factorio 2.0.77). Neither names your mod, and the second names neither the technology nor the property. A copied pack list written in a form this library cannot read is never passed through, because passing a name it never read to the engine earns the second of those two refusals. What happens instead depends on whether there is anything declared behind the source. Under `CostOf` there is not, so the unit is kept with its `ingredients` REPLACED BY AN EMPTY LIST: the count, the time, a `count_formula` and every field this library has never heard of survive untouched and nothing is invented.
+Without that filter the load stops on the mod's default setting. What it stops with is the engine's own sentence and it differs between engines: on Factorio 2.0.77 a pack that is an item and not a `tool` gives `Invalid research unit (military-science-pack). Research unit(s) can only be tool type items at the moment.`, while on 2.1.17 the prototype type is gone and what refuses instead is lab coverage, `Technology <name>: there is no lab that will accept all of the science packs this technology requires.` followed by the pack names. For a name the game does not have at all, both give `Error in assignID: item with name 'water' does not exist.`, with 2.1 adding a line naming the property path under it (all measured, 2.0 on 2.0.77 and 2.1 on 2.1.17). Neither names your mod, and the second names neither the technology nor the property. A copied pack list written in a form this library cannot read is never passed through, because passing a name it never read to the engine earns the second of those two refusals. What happens instead depends on whether there is anything declared behind the source. Under `CostOf` there is not, so the unit is kept with its `ingredients` REPLACED BY AN EMPTY LIST: the count, the time, a `count_formula` and every field this library has never heard of survive untouched and nothing is invented.
 
 ```
 fkrecipes: ERROR: hardened-tips: the unit of military-4 holds a table this library cannot copy faithfully, so the research is emitted with no science pack and completes for free
@@ -580,7 +580,7 @@ lib.technology("chain-forging", TechSpec {
 });
 ```
 
-Only items the game treats as science packs (prototype type `tool`) are accepted in the pack list, and the word `default` means the packs you declared, with their fallbacks. The unit is emitted in the engine's short tuple form, and one line records what was read:
+Only items the game treats as science packs are accepted in the pack list, and the word `default` means the packs you declared, with their fallbacks. What the game treats as a science pack is the engine's answer and not a fixed one: a prototype of type `tool` on Factorio 2.0, and an item whose subgroup is `science-pack` on 2.1, where base and its bundled expansions declare no `tool` prototype at all. A mod may still declare one there, and the library still asks about it. The unit is emitted in the engine's short tuple form, and one line records what was read:
 
 ```
 fkrecipes: steelworks-chain-forging takes its research cost from steelworks-chain-packs: count 25, time 12, packs 1 automation-science-pack, 1 logistic-science-pack

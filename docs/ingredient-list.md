@@ -46,7 +46,7 @@ Anything these rules turn down is reported in the log and the field behaves as t
 
 ## Science packs
 
-The same text names the science packs of a research cost, with two differences: only items the game treats as science packs (prototype type `tool`) are accepted, and `none` is not, because a research with no packs is not something this library will emit on a player's behalf.
+The same text names the science packs of a research cost, with two differences: only items the game treats as science packs are accepted, and `none` is not, because a research with no packs is not something this library will emit on a player's behalf. What counts as a science pack is the running engine's answer rather than a fixed one: on Factorio 2.0 it is a prototype of type `tool`, and on 2.1, where base and its bundled expansions declare no prototype of that type, it is an item whose subgroup is `science-pack` (a mod may still declare a `tool` there, and that is still a science pack). Both were measured, and the library asks whichever question the engine under the player's game answers.
 
 ```
 1 automation-science-pack, 1 logistic-science-pack

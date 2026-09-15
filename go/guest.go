@@ -89,13 +89,28 @@ func (l *Lib) run(ops []Op, err error) {
 		fkdata.Raise(err.Error())
 	}
 
+	// THE ONE FIELD WHOSE SPELLING IS THE ENGINE'S, decided once for the whole
+	// stream and by a pure, host-tested predicate. See recipeCategoriesAreAList
+	// in world.go for the measurement: a 2.1 engine refuses a recipe carrying
+	// `category` outright, which is the whole mod failing to load.
+	//
+	// THE VERSION IS READ HERE AND NOT TAKEN FROM A World, because run is the
+	// settings stage's tail as well as the data stage's and PlanSettings takes
+	// a Named rather than a World. One env read per stage either way.
+	baseVersion, _ := fkdata.ModVersion("base")
+	respell := recipeCategoriesAreAList(baseVersion)
+
 	for _, op := range ops {
 		switch op.Kind {
 		case OpExtend:
 			// One prototype per call. Extend takes a variadic, but a plan's
 			// prototypes are independent and a failure names the offending
 			// one better when it is the only one in the call.
-			fkdata.Extend(toV(op.Proto))
+			proto := op.Proto
+			if respell {
+				proto = respellRecipeCategory(proto)
+			}
+			fkdata.Extend(toV(proto))
 		case OpSet:
 			// A nil VALUE here would DELETE the key rather than write one.
 			// The planner never puts a Nil in a Set op and a pure-half test
@@ -114,6 +129,16 @@ func (l *Lib) run(ops []Op, err error) {
 // planner asks about the same ingredient names once per recipe that mentions
 // them.
 type dataWorld struct {
+	// WHICH OF THE TWO MEASURED ENGINES THIS IS, read ONCE and for the same
+	// reason as the type lists below it. It is base's own version through
+	// researchUnitTakesItems (world.go), and it decides which arm of
+	// ToolExists answers; on a 2.1 engine the tool arm always misses, so
+	// every pack query would otherwise re-read it. Go's ModVersion returns
+	// the cached env value with its slices shared, but the Rust twin's
+	// clones the whole mods dictionary per call into an arena that never
+	// frees, so reading it once is what keeps the two halves' cost alike.
+	takesItems bool
+
 	// The engine's item types, read ONCE. env(5) cannot change during a
 	// stage, and fkdata rebuilds its answer per call.
 	itemTypes []string
@@ -141,7 +166,11 @@ type itemAnswer struct {
 }
 
 func newDataWorld() *dataWorld {
-	return &dataWorld{itemTypes: fkdata.DerivedTypes("item")}
+	baseVersion, _ := fkdata.ModVersion("base")
+	return &dataWorld{
+		takesItems: researchUnitTakesItems(baseVersion),
+		itemTypes:  fkdata.DerivedTypes("item"),
+	}
 }
 
 func (w *dataWorld) ModName() string { return fkdata.ModName() }
@@ -236,22 +265,70 @@ func (w *dataWorld) ItemExists(name string) bool {
 	return present
 }
 
-// FluidExists and ToolExists are ONE probe each and carry no memo, which is
-// the whole difference from ItemExists above. data.raw.fluid and data.raw.tool
-// are concrete types with no derived family to walk (defines.prototypes.item
-// lists tool as one of its 21 types, and a fluid is not in that family at
-// all), so the answer costs a single Get and the memo would cost more code
-// than the probes it saves.
+// FluidExists and ToolExists carry NO MEMO, which is the whole difference from
+// ItemExists above. data.raw.fluid and data.raw.tool are concrete types with
+// no derived family to walk (defines.prototypes.item lists tool among its 21
+// types, and a fluid is not in that family at all), so those answers cost a
+// leaf get each and a memo would cost more code than the probes it saves.
+// ToolExists' 2.1 arm does walk the item family, for the reason its own
+// comment gives, and still without a memo: the walk stops at the first type
+// that has the name.
 func (w *dataWorld) FluidExists(name string) bool {
 	_, ok := fkdata.Get("fluid", name, "name")
 	return ok
 }
 
-// ToolExists is the science-pack question: a research unit takes tool-type
-// items and nothing else (measured), so this asks the one type that answers it.
+// ToolExists is the science-pack question, and it asks TWO ENGINES, keyed on
+// base's own version by researchUnitTakesItems (go/world.go, which carries the
+// measurements and the reasoning).
+//
+// THE TOOL ARM RUNS ON BOTH ENGINES and is first. On 2.0 it is the whole
+// answer: a research unit takes tool-type items and nothing else. On 2.1 it is
+// what still finds a legacy tool-typed pack from a ported mod, which
+// data.raw.item does not hold at all.
+//
+// THE ITEM ARM RUNS ONLY ON 2.1, where data.raw.tool does not exist and
+// base's packs are items carrying subgroup "science-pack". It walks the item
+// family the way ItemExists does rather than asking the plain "item" table
+// alone: a name is unique across those types, base's own packs are in "item"
+// and answer on the first probe, and a modded pack declared as some other
+// derived item type would otherwise be dropped from every research that names
+// it. No memo, as with FluidExists: the walk stops at the first type that has
+// the name, so only a name the game does not have at all pays for all of it.
+//
+// NOTHING HERE BRANCHES ON A VALUE THIS FILE DECIDED. The engine key is pure,
+// host-tested and read once at construction; this function reads leaves and
+// asks it.
 func (w *dataWorld) ToolExists(name string) bool {
-	_, ok := fkdata.Get("tool", name, "name")
-	return ok
+	if _, ok := fkdata.Get("tool", name, "name"); ok {
+		return true
+	}
+	if !w.takesItems {
+		return false
+	}
+	sub, found := subgroupIn("item", w.itemTypes, name)
+	return found && sub == packSubgroup
+}
+
+// subgroupIn is probeIn's answer-carrying twin: the named type first and then
+// every type derived from it, stopping at the first that HAS the name, and
+// reporting that prototype's subgroup. A prototype with no subgroup field
+// reports the empty string, which no subgroup is named.
+func subgroupIn(base string, derived []string, name string) (string, bool) {
+	if _, ok := fkdata.Get(base, name, "name"); ok {
+		sub, _ := fkdata.Get(base, name, "subgroup")
+		return sub.String(), true
+	}
+	for _, typ := range derived {
+		if typ == base {
+			continue
+		}
+		if _, ok := fkdata.Get(typ, name, "name"); ok {
+			sub, _ := fkdata.Get(typ, name, "subgroup")
+			return sub.String(), true
+		}
+	}
+	return "", false
 }
 
 // EntityExists is ItemExists over the entity family: the same memo, the same

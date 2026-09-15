@@ -480,6 +480,18 @@ demote_once() {
   cp -R "$DEMOTE_FIXTURE" "$moddir/fkrecipes-demote_0.1.0" ||
     refuse "$lang: could not install the demote fixture from $DEMOTE_FIXTURE"
 
+  # STAMPED WITH THE SERIES THE BINARY REPORTS, like the packaged guest beside
+  # it. MEASURED on 2.1.17: a mod whose info.json declares 2.0 is refused at
+  # game start, before a line of it runs, with `Incompatible Factorio version
+  # (current: 2.1, required: 2.0)`. A fixture carrying a hard-coded series
+  # would therefore take the whole mod set down on any engine but its own, and
+  # this arm's refusal would name findings 13 and 14 for a cause that is not
+  # theirs.
+  local finfo="$moddir/fkrecipes-demote_0.1.0/info.json"
+  jq --arg s "$SERIES" '.factorio_version = $s' "$finfo" > "$finfo.tmp" ||
+    refuse "$lang: could not stamp the demote fixture's factorio_version"
+  mv "$finfo.tmp" "$finfo"
+
   rm -f "$DUMP" "$SDUMP"
   "$FACTORIO" -c "$CFG" --mod-directory "$moddir" --dump-data \
     >"$TMP/dump-$lang-demote.log" 2>&1 ||
@@ -575,6 +587,49 @@ done
 # whose whole subject is that the load DOES NOT STOP.
 # ---------------------------------------------------------------------------
 echo "--- demote ---"
+
+# WHETHER THIS ENGINE HAS THE WORLD THE FIXTURE BUILDS. The fixture's whole
+# subject is moving a prototype OUT OF data.raw.tool, and measured on Factorio
+# 2.1.17 build 87315 there is no data.raw.tool to move it out of: the tool
+# prototype TYPE still exists (defines.prototypes.item still lists it) and not
+# one prototype in the game is of that type, so base's science packs are
+# data.raw.item entries carrying subgroup "science-pack" and a research unit
+# names one of those items. On such an engine this arm has nothing to demote.
+#
+# KEYED ON THE ENGINE SERIES, the same key the library itself uses, and NOT on
+# `has("tool")` over a dump. The dump this gate has in hand is the FINAL dump
+# of the DEFAULT mod set, while the fixture runs at data.lua of the DEMOTE mod
+# set: a mod creating its first tool prototype after data.lua would put `tool`
+# in one world and not the other, and the skip would then not fire while the
+# fixture found nothing. The series is one question about the binary and it is
+# the same answer in both worlds.
+#
+# IT DOES NOT SET SKIPPED AND --strict DOES NOT TURN IT INTO A FAILURE, which
+# is the one place this file's two skips differ. A mod-set skip means THIS
+# MACHINE cannot confirm a golden that is still true somewhere, so a CI job
+# wants to hear about it; this one means the engine under test has no such
+# world at all, permanently, and a --strict CI on 2.1 that failed over it would
+# be failing over a fact about Factorio.
+#
+# WHAT COVERS THE 2.1 SHAPE INSTEAD is scripts/run-mirror.sh's 2.1 engine arm,
+# where the stand-in demotes a pack the way 2.1 demotes one (the item keeps its
+# name and loses the subgroup that made it a science pack) and the two guests
+# must emit the same prototypes they emit on the 2.0 arm.
+if [ "$SERIES" != "2.0" ]; then
+  echo "  SKIPPED: this engine ($ENGINE) is series $SERIES, which has no data.raw.tool"
+  echo "           at all, so there is no tool-typed science pack for"
+  echo "           testdata/ingame/demote/ to demote. The 2.1 shape of the same"
+  echo "           degradation is covered by run-mirror.sh's 2.1 engine arm."
+  # AND THE CLAIM IS CORROBORATED BY THIS RUN'S OWN DUMP rather than left as a
+  # statement about a version number. It is not the key (see above), because it
+  # describes the wrong world to key on; it is a second reading of the same
+  # fact, and a series that grew a tool table back would say so here.
+  if jq -e 'has("tool")' "$TMP/raw-data-go-1.json" >/dev/null 2>&1; then
+    echo "           NOTE: this engine's default-row dump DOES carry a tool table, so the"
+    echo "           skip above rests on the series alone. If that is a real tool-typed"
+    echo "           science pack, this arm is owed an engine arm of its own."
+  fi
+else
 DEMOTE_STARTED=$(date +%s)
 for lang in go rust; do
   demote_once "$lang"
@@ -666,6 +721,7 @@ jqassert "the custom-cost technology left with no science pack says so in its ow
   '.technology["fkrecipes-example-chain-forging"].localised_description ==
    ["", ["?", ["", ["technology-description.fkrecipes-example-chain-forging"], "\n"], ""],
     "This game has none of the science packs this research names, so it takes no science pack at all. The reason is in the log."]'
+fi  # end of the demote arm, skipped above on an engine with no data.raw.tool
 
 # ---------------------------------------------------------------------------
 # ANTI-VACUITY AND CAUSE-NAMING. A hash says "different"; these say WHICH
@@ -689,6 +745,24 @@ jqassert "the prerequisite splice reached logistics-2" "$DDUMP" \
   '(.technology["logistics-2"].prerequisites // []) | index("fkrecipes-example-hardened-steel") != null'
 jqassert "the bound crafting time reached the quenching recipe" "$DDUMP" \
   '.recipe["fkrecipes-example-hardened-steel-plate-quenching"].energy_required == 3'
+# THE CRAFTING CATEGORY, IN THIS ENGINE'S OWN SPELLING, and keyed on the series
+# rather than asserted one way for both. MEASURED on 2.1.17: a recipe carrying
+# `category` refuses the whole load with "In RecipePrototype, `category` and
+# `additional_categories` got merged into `categories` table.", so on 2.1 this
+# run reaching a dump at all is already evidence; what this row adds is that
+# the NAME survived the respelling rather than the field being dropped, and
+# that the old spelling is gone. On 2.0 it is the other way round. Without it
+# the spelling is load-bearing only by accident, through the fluid ingredient
+# the engine refuses in the default `crafting` category.
+if [ "$SERIES" = "2.0" ]; then
+  jqassert "the quench recipe's category is in the 2.0 spelling" "$DDUMP" \
+    '.recipe["fkrecipes-example-hardened-steel-plate-quenching"] |
+     (.category == "crafting-with-fluid") and (has("categories") | not)'
+else
+  jqassert "the quench recipe's category is in the 2.1 spelling" "$DDUMP" \
+    '.recipe["fkrecipes-example-hardened-steel-plate-quenching"] |
+     (.categories == ["crafting-with-fluid"]) and (has("category") | not)'
+fi
 jqassert "the switched-on technology is enabled with no hidden field" "$DDUMP" \
   '.technology["fkrecipes-example-hardened-tips"] | (.enabled == true) and (has("hidden") | not)'
 # NO PLAYER HAS TOUCHED A SETTING HERE, so every EnabledBy reads its DECLARED

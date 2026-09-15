@@ -18,7 +18,10 @@ use core::cell::RefCell;
 use crate::op::{Op, PathEl};
 use crate::plan::Lib;
 use crate::value::{kv, Value};
-use crate::world::{Named, World};
+use crate::world::{
+    recipe_categories_are_a_list, research_unit_takes_items, respell_recipe_category, Named, World,
+    PACK_SUBGROUP,
+};
 
 impl Lib {
     /// Plans and then writes. It is the one call a consumer makes:
@@ -105,12 +108,36 @@ impl Lib {
             Err(message) => fkdata::raise(&message),
         };
 
+        // THE ONE FIELD WHOSE SPELLING IS THE ENGINE'S, decided once for the
+        // whole stream and by a pure, host-tested predicate. See
+        // `recipe_categories_are_a_list` in `world.rs` for the measurement: a
+        // 2.1 engine refuses a recipe carrying `category` outright, which is
+        // the whole mod failing to load.
+        let base_version = fkdata::mod_version("base").unwrap_or_default();
+        let respell = recipe_categories_are_a_list(&base_version);
+
         for op in &ops {
             match op {
                 // One prototype per call. extend takes a slice, but a plan's
                 // prototypes are independent and a failure names the offending
                 // one better when it is the only one in the call.
-                Op::Extend(proto) => fkdata::extend(&[to_v(proto)]),
+                Op::Extend(proto) => {
+                    // THE REWRITE IS AN Option AND NOT A VALUE, so a prototype
+                    // it does not touch is not cloned: on a 2.1 engine every
+                    // item, technology and setting in the stream would
+                    // otherwise be deep-copied to change nothing, into an
+                    // allocator whose free is a no-op. The Go twin returns its
+                    // input by identity, which is the same property spelled by
+                    // a language that has it for free.
+                    match if respell {
+                        respell_recipe_category(proto)
+                    } else {
+                        None
+                    } {
+                        Some(rewritten) => fkdata::extend(&[to_v(&rewritten)]),
+                        None => fkdata::extend(&[to_v(proto)]),
+                    }
+                }
                 Op::Set(path, val) => {
                     // Borrowed straight out of the op, which outlives the
                     // call: fkdata::P holds a &str and nothing here needs an
@@ -142,6 +169,16 @@ impl Lib {
 /// them. The memo is behind a `RefCell` because the World trait answers
 /// through `&self`, which is the right shape for a set of questions.
 struct DataWorld {
+    /// WHICH OF THE TWO MEASURED ENGINES THIS IS, read ONCE and for the same
+    /// reason as the type lists below it. It is base's own version through
+    /// [`research_unit_takes_items`], and it decides which arm of
+    /// `tool_exists` answers; on a 2.1 engine the tool arm always misses, so
+    /// every pack query would otherwise re-read it. `mod_version` CLONES THE
+    /// WHOLE MODS DICTIONARY on every call, into an allocator whose free is a
+    /// no-op, so reading it once is the difference between one clone per Emit
+    /// and one per science pack the plan names.
+    takes_items: bool,
+
     /// The engine's item types, read ONCE. env(5) cannot change during a
     /// stage, and fkdata rebuilds its answer per call.
     item_types: Vec<String>,
@@ -166,6 +203,9 @@ struct DataWorld {
 impl DataWorld {
     fn new() -> DataWorld {
         DataWorld {
+            takes_items: research_unit_takes_items(
+                &fkdata::mod_version("base").unwrap_or_default(),
+            ),
             item_types: fkdata::derived_types("item"),
             item_answers: RefCell::new(Vec::new()),
             entity_types: RefCell::new(None),
@@ -175,6 +215,37 @@ impl DataWorld {
 
     fn probe_item(&self, name: &str) -> bool {
         probe_in("item", &self.item_types, name)
+    }
+
+    /// `probe_in`'s answer-carrying twin: the named type first and then every
+    /// type derived from it, stopping at the first that HAS the name, and
+    /// reporting that prototype's subgroup. A prototype with no subgroup field
+    /// reports the empty string, which no subgroup is named.
+    fn subgroup_in(&self, name: &str) -> Option<String> {
+        let leaf = |typ: &str| {
+            name_leaf_exists(typ, name).then(|| {
+                match fkdata::get(&[
+                    fkdata::P::S(typ),
+                    fkdata::P::S(name),
+                    fkdata::P::S("subgroup"),
+                ]) {
+                    Some(v) => String::from(v.string().unwrap_or_default()),
+                    None => String::new(),
+                }
+            })
+        };
+        if let Some(found) = leaf("item") {
+            return Some(found);
+        }
+        for typ in &self.item_types {
+            if typ == "item" {
+                continue;
+            }
+            if let Some(found) = leaf(typ) {
+                return Some(found);
+            }
+        }
+        None
     }
 
     fn probe_entity(&self, name: &str) -> bool {
@@ -385,12 +456,36 @@ impl World for DataWorld {
         name_leaf_exists("fluid", name)
     }
 
-    /// `data.raw.tool` alone, for the same reason as
-    /// [`World::fluid_exists`]: the engine takes tool-type items in a
-    /// research unit and nothing else, and "tool" is a concrete type with no
-    /// family under it.
+    /// The science-pack question, asking TWO ENGINES, keyed on base's own
+    /// version by [`research_unit_takes_items`] (`world.rs`, which carries the
+    /// measurements and the reasoning).
+    ///
+    /// THE TOOL ARM RUNS ON BOTH ENGINES and is first. On 2.0 it is the whole
+    /// answer: a research unit takes tool-type items and nothing else. On 2.1
+    /// it is what still finds a legacy tool-typed pack from a ported mod,
+    /// which `data.raw.item` does not hold at all.
+    ///
+    /// THE ITEM ARM RUNS ONLY ON 2.1, where `data.raw.tool` does not exist and
+    /// base's packs are items carrying subgroup "science-pack". It walks the
+    /// item family the way `item_exists` does rather than asking the plain
+    /// "item" table alone: a name is unique across those types, base's own
+    /// packs are in "item" and answer on the first probe, and a modded pack
+    /// declared as some other derived item type would otherwise be dropped
+    /// from every research that names it. No memo, as with
+    /// [`World::fluid_exists`]: the walk stops at the first type that has the
+    /// name, so only a name the game does not have at all pays for all of it.
+    ///
+    /// NOTHING HERE BRANCHES ON A VALUE THIS FILE DECIDED. The engine key is
+    /// pure, host-tested and read once at construction; this method reads
+    /// leaves and asks it.
     fn tool_exists(&self, name: &str) -> bool {
-        name_leaf_exists("tool", name)
+        if name_leaf_exists("tool", name) {
+            return true;
+        }
+        if !self.takes_items {
+            return false;
+        }
+        self.subgroup_in(name).as_deref() == Some(PACK_SUBGROUP)
     }
 }
 

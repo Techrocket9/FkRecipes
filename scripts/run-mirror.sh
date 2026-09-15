@@ -488,6 +488,116 @@ grep -q 'FINAL .*"logistics-2".*fkrecipes-example-hardened-steel' "$T" ||
   fail "the prerequisite splice is not visible in the final data.raw"
 
 # ---------------------------------------------------------------------------
+# THE 2.1 ENGINE ARM. The same two packaged mods, run again against the
+# stand-in's OTHER engine: no data.raw.tool at all, science packs as items
+# carrying subgroup "science-pack", base reporting 2.1.17, and the research
+# unit gated on lab coverage rather than on prototype type. All of that is
+# measured on Factorio 2.1.17 build 87315; testdata/mirror/standin.lua's header
+# quotes the probes.
+#
+# THERE IS NO SECOND GOLDEN, deliberately. A 2.1 transcript's RAW and FINAL
+# lines dump a data.raw with a different SHAPE in it (no tool table, an item
+# where a tool was), so a golden of them would pin the stand-in's own fixture
+# rather than the library's behaviour, and it would have to be recaptured
+# whenever that fixture moved. What is asserted instead is the thing the fix
+# claims: THE GUEST EMITS THE SAME PROTOTYPES AND LOGS THE SAME LINES ON BOTH
+# ENGINES. Those two comparisons are against the 2.0 run of the same build, so
+# they need nothing on disk and they cannot go stale.
+# ---------------------------------------------------------------------------
+echo "== running both guests against the 2.1 engine arm"
+for lang in go rust; do
+  inner="$(find "$TMP/mods-$lang" -maxdepth 1 -mindepth 1 -type d | head -1)"
+  [ -n "$inner" ] || refuse "$lang: the packaged mod vanished before the 2.1 arm"
+  "$LUA52F" "$STANDIN" "$inner" 2.1 >"$TMP/transcript-$lang-21.txt" 2>&1 ||
+    { cat "$TMP/transcript-$lang-21.txt" >&2
+      refuse "$lang: the stages did not run against the 2.1 engine arm"; }
+done
+
+if ! diff -q "$TMP/transcript-go-21.txt" "$TMP/transcript-rust-21.txt" >/dev/null; then
+  fail "the Go and Rust 2.1 transcripts differ; first differing line:"
+  # Non-fatal for the reason the 2.0 comparison above gives.
+  diff "$TMP/transcript-go-21.txt" "$TMP/transcript-rust-21.txt" | head -6 >&2 || true
+fi
+
+# THE BEHAVIOURAL ASSERTION. Every prototype the guest extended, and every line
+# it logged, byte for byte against the 2.0 run of the same wasm. Before the
+# engine key went in, the 2.1 arm answered no for every science pack: each
+# priced research came out with an empty ingredient list and each carried a
+# dropped-pack line the 2.0 run does not have, so this is the comparison that
+# goes red for the defect.
+# FROM THE `--- SETTINGS ---` MARKER ONWARD, because everything above it is the
+# STAND-IN's own base data:extend, which is where the two engine arms differ on
+# purpose: a tool with a durability on one and an item with a subgroup on the
+# other. Below the marker every line is the guest's.
+#
+# AND WITH ONE FIELD NORMALISED, the ONLY one the guest is supposed to spell
+# differently on the two engines: a recipe's category is `category` on 2.0 and
+# `categories` (a list of one) on 2.1, because 2.1 refuses the old spelling
+# outright. The 2.1 slice is rewritten back to the 2.0 spelling so the rest of
+# the prototype is compared byte for byte, and the field itself is asserted on
+# its own below, on both arms, so normalising it here does not stop it being
+# checked.
+guest_lines() {
+  sed -n '/^--- SETTINGS ---/,$p' "$1" | grep "^$2" |
+    sed 's/"categories"={1="\([^"]*\)"}/"category"="\1"/g' || true
+}
+
+for kind in 'TRANSCRIPT extend#' 'LOG '; do
+  for lang in go rust; do
+    guest_lines "$TMP/transcript-$lang.txt"    "$kind" >"$TMP/$lang-20-slice.txt"
+    guest_lines "$TMP/transcript-$lang-21.txt" "$kind" >"$TMP/$lang-21-slice.txt"
+    # NOT EMPTY, so "the two arms agree" cannot be a statement about nothing: a
+    # marker that stopped matching would compare two empty files and pass.
+    for run in 20 21; do
+      [ -s "$TMP/$lang-$run-slice.txt" ] ||
+        fail "$lang: the 2.$((run - 20)) arm has no '$kind' line below the marker, so the arms were compared over nothing"
+    done
+    if ! diff -q "$TMP/$lang-20-slice.txt" "$TMP/$lang-21-slice.txt" >/dev/null; then
+      fail "$lang: the '$kind' lines differ between the 2.0 and 2.1 engine arms; first difference:"
+      diff "$TMP/$lang-20-slice.txt" "$TMP/$lang-21-slice.txt" | head -6 >&2 || true
+    fi
+  done
+done
+
+# ANTI-VACUITY FOR THE ARM ITSELF. A 2.1 run that silently fell back to the 2.0
+# fixture would pass every comparison above by being the same run twice, so the
+# thing that MUST differ is checked too: the 2.0 arm has a tool table and the
+# 2.1 arm has none.
+grep -q '^RAW tool: ' "$TMP/transcript-go.txt" ||
+  fail "the 2.0 arm has no data.raw.tool, so the engine arms are not two engines"
+if grep -q '^RAW tool: ' "$TMP/transcript-go-21.txt"; then
+  fail "the 2.1 arm still has a data.raw.tool, so it is not modelling 2.1.17"
+fi
+grep -q '^RAW item: .*automation-science-pack' "$TMP/transcript-go-21.txt" ||
+  fail "the 2.1 arm has no automation-science-pack among its items"
+
+# AND THE ONE FIELD THE NORMALISER ABOVE HIDES, asserted on each arm in the
+# spelling that arm's engine demands. The quench recipe is the one prototype the
+# example gives a category at all.
+#
+# MATCHED INSIDE THAT RECIPE'S OWN EXTEND LINE and not anywhere in the file: a
+# bare grep for the category would pass if the field had migrated to some other
+# prototype, which is a failure this assertion exists to catch. Written as `if`
+# rather than as an AND-list for the reason package_and_run gives above.
+quench_field() {
+  grep '^TRANSCRIPT extend' "$1" |
+    grep -F '"name"="fkrecipes-example-hardened-steel-plate-quenching"' |
+    grep -qF "$2"
+}
+
+for lang in go rust; do
+  if ! quench_field "$TMP/transcript-$lang.txt" '"category"="crafting-with-fluid"'; then
+    fail "$lang: the 2.0 arm did not emit the quench recipe's category in the 2.0 spelling"
+  fi
+  if ! quench_field "$TMP/transcript-$lang-21.txt" '"categories"={1="crafting-with-fluid"}'; then
+    fail "$lang: the 2.1 arm did not emit the quench recipe's category as a categories list"
+  fi
+  if quench_field "$TMP/transcript-$lang-21.txt" '"category"="crafting-with-fluid"'; then
+    fail "$lang: the 2.1 arm still emits the 2.0 category spelling, which 2.1 refuses outright"
+  fi
+done
+
+# ---------------------------------------------------------------------------
 # The golden.
 # ---------------------------------------------------------------------------
 if [ "$UPDATE" = 1 ]; then
