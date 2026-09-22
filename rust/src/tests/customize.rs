@@ -654,10 +654,10 @@ fn the_switch_lines_follow_the_emitted_order() {
 /// says is which one, in the technology's own localised name: the internal
 /// name rides inside the name key and is not shown to the player.
 ///
-/// AND THE WHOLE VALUE IS PINNED, WHICH IS WHERE THE TWO NEGATIVES LIVE. A cost
-/// dropdown carries neither `LIST_WRAP_LINE` nor `DROPDOWN_LADDER_LINE`: its
-/// presets render no typeable list of internal names, so there is nothing for a
-/// wrap to cut and nothing for a ladder to shorten. Comparing the composition
+/// AND THE WHOLE VALUE IS PINNED, WHICH IS WHERE THE NEGATIVE LIVES. A cost
+/// dropdown carries no `DROPDOWN_LADDER_LINE`: its presets render no typeable
+/// list of internal names, so there is nothing for a ladder to shorten.
+/// Comparing the composition
 /// whole is what makes a line added to the wrong dropdown a failure here rather
 /// than a silent gain, so this expectation may not be loosened to a contains
 /// check.

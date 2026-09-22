@@ -212,10 +212,10 @@ func TestPlanSettingsComposesADropdownDescription(t *testing.T) {
 // the mod to write; a choice with no source at all still ends in a plain
 // string, because there is no technology to name.
 //
-// AND THE WHOLE VALUE IS PINNED, WHICH IS WHERE THE TWO NEGATIVES LIVE. A cost
-// dropdown carries neither listWrapLine nor dropdownLadderLine: its presets
-// render no typeable list of internal names, so there is nothing for a wrap to
-// cut and nothing for a ladder to shorten. Comparing the composition whole is
+// AND THE WHOLE VALUE IS PINNED, WHICH IS WHERE THE NEGATIVE LIVES. A cost
+// dropdown carries no dropdownLadderLine: its presets render no typeable list
+// of internal names, so there is nothing for a ladder to shorten. Comparing
+// the composition whole is
 // what makes a line added to the wrong dropdown a failure here rather than a
 // silent gain, so this want string may not be loosened to a contains check.
 func TestPlanSettingsComposesACostDropdownDescription(t *testing.T) {
