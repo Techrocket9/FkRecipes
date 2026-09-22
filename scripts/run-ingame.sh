@@ -895,28 +895,36 @@ jqassert "no composed description carries the list-wrap line" "$DSDUMP" \
 # deliberately, because it is the advertised contract rather than a degradation;
 # until this line existed the only text saying so was a locale entry the PILOT
 # CONSUMER happened to write, which a consumer is free to write differently or
-# not at all. Three clauses, because the ladder does three things: the next name
-# the entry offers where there is one, the entry left out where there is not,
+# not at all. Three facts, because the ladder does three things: the mod's next
+# name for the entry where there is one, the entry left out where there is not,
 # and two entries landing on one name having their amounts added, which is why
-# the sentence ends by saying what you craft can be A SHORTER LIST than what the
+# the sentence ends by saying what you craft can be SHORTER than what the
 # tooltip renders.
 jqassert "the text setting's composed description discloses the ladder" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-rivet-ingredients") | .localised_description]
-   | length > 0 and all(any(.[]; . == "\nWhere a list this mod chose names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."))'
+   | length > 0 and all(any(.[]; . == "\nAn entry your mods lack takes the mod'"'"'s next name for it or is left out; two landing on one name are added, so what you craft can be shorter than shown."))'
 jqassert "a packs setting's composed description discloses the ladder in packs" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-chain-packs") | .localised_description]
-   | length > 0 and all(any(.[]; . == "\nWhere a list this mod chose names a science pack your mods do not have, the next name it offers is used instead; a pack it offers nothing for is left out, and two that land on one pack have their amounts added, so the research can take fewer packs than the list shows."))'
+   | length > 0 and all(any(.[]; . == "\nA pack your mods lack takes the mod'"'"'s next name for it or is left out; two landing on one pack are added, so the research can take fewer packs than shown."))'
 jqassert "an ingredient dropdown discloses the ladder beside its preset lines" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-quench-medium") | .localised_description]
-   | length > 0 and all(any(.[]; . == "\nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."))'
+   | length > 0 and all(any(.[]; . == "\nAn entry your mods lack takes the mod'"'"'s next name for it or is left out; two landing on one name are added, so an option can craft a shorter list than it shows."))'
 # AND THE TEXT SETTING BESIDE THAT DROPDOWN CARRIES NO LADDER LINE, which is
 # where the line moved FROM: the lists a player there is choosing between are
 # the dropdown's presets, so the dropdown's own row is where the ladder is
 # disclosed and a second copy on the text field would say one thing twice on one
 # screen. The standalone text setting above is the shape that still carries it.
-jqassert "a text setting beside a dropdown carries no ladder line" "$DSDUMP" \
+jqassert "a text setting beside an ingredient dropdown carries no ladder line" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-quench-ingredients") | .localised_description | .. | strings]
-   | length > 0 and all(contains("the next name it offers") | not)'
+   | length > 0 and all(contains("next name for it or is left out") | not)'
+# AND THE PACKS TEXT BESIDE A COST DROPDOWN CARRIES ONE, which is the other arm
+# of the same rule: a cost dropdown renders no list of internal names and
+# carries no ladder line, so that field is the only one of the pair where a
+# player can read the rule at all. A rule keyed on "is there a dropdown beside
+# it" answers no here and leaves the pair silent.
+jqassert "a packs setting beside a cost dropdown discloses the ladder" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-tips-packs") | .localised_description]
+   | length > 0 and all(any(.[]; . == "\nA pack your mods lack takes the mod'"'"'s next name for it or is left out; two landing on one pack are added, so the research can take fewer packs than shown."))'
 # AND THE PACKS VOCABULARY IS THE PACKS ONE, on every packs setting: an
 # ingredient arm composed onto a packs field would tell a player about a craft
 # on a field that prices a research.
@@ -925,7 +933,7 @@ jqassert "no packs setting carries the ingredient vocabulary of the ladder line"
     | select((.name? // "") | startswith("fkrecipes-example-") and endswith("-packs"))
     | .localised_description // []
     | .. | strings]
-   | length > 0 and all(contains("so what you craft can be a shorter list") | not)'
+   | length > 0 and all(contains("so what you craft can be shorter than shown") | not)'
 # AND THE INGREDIENT VOCABULARY IS THE INGREDIENT ONE, the twin negative the
 # mirror already carries: a packs arm composed onto an ingredient field would
 # tell a player their recipe is priced in science packs. Two negatives rather
@@ -936,12 +944,12 @@ jqassert "no ingredient setting carries the packs vocabulary of the ladder line"
     | select((.name? // "") | startswith("fkrecipes-example-") and endswith("-ingredients"))
     | .localised_description // []
     | .. | strings]
-   | length > 0 and all(contains("names a science pack your mods do not have") | not)'
+   | length > 0 and all(contains("so the research can take fewer packs") | not)'
 # AND NOT ON A COST DROPDOWN: its presets render no typeable list of internal
 # names, so there is no list for a ladder to shorten.
 jqassert "a cost dropdown carries no ladder line" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-tips-research-tier") | .localised_description | .. | strings]
-   | length > 0 and all(contains("the next name it offers") | not)'
+   | length > 0 and all(contains("next name for it or is left out") | not)'
 jqassert "the text setting's composed description states what an unusable text costs" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-rivet-ingredients") | .localised_description]
    | length > 0 and all(any(.[]; . == "\nText this mod cannot use is set aside as though it said default; the reason is in the log or the load error."))'

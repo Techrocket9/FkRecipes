@@ -16,18 +16,20 @@ use crate::value::{Value, MAX_EXACT_INT};
 /// decides while this one holds the reserved word; and what a text it cannot
 /// use costs.
 ///
-/// THE LADDER LINE IS NOT ON EVERY TEXT SETTING. Beside a dropdown the ladder
-/// is disclosed on the dropdown's own description, over the presets a player is
-/// choosing between, so [`WANT_TEXT_TAIL`] and [`WANT_PACKS_TAIL`] carry it
-/// (they are the standalone shape) and [`WANT_TEXT_TAIL_ABOVE`] and
-/// [`WANT_TEXT_TAIL_BELOW`] do not.
+/// THE LADDER LINE IS NOT ON EVERY TEXT SETTING, and which ones it is on
+/// follows the KIND of the dropdown beside the field rather than whether there
+/// is one. An INGREDIENT dropdown discloses the ladder itself, over the presets
+/// a player is choosing between, so an ingredient text beside one does not
+/// repeat it: that is [`WANT_TEXT_TAIL_ABOVE`] and [`WANT_TEXT_TAIL_BELOW`]. A
+/// COST dropdown renders no list and discloses nothing, so a packs text beside
+/// one keeps the line. [`WANT_TEXT_TAIL`] and [`WANT_PACKS_TAIL`] are the
+/// standalone shape and both carry it.
 ///
 /// THE FORMAT LINE AND THE LADDER LINE ARE PER KIND, which is why there is a
 /// `PACKS` tail beside every `TEXT` one: the word `none` empties an ingredient
 /// list and is REFUSED on a pack list, so naming it there would be telling a
 /// player to type a word the library turns down, and a packs ladder is about a
-/// science pack and a research that takes fewer of them rather than about a
-/// craft.
+/// pack and a research that takes fewer of them rather than about a craft.
 ///
 /// SPELLED OUT HERE RATHER THAN TAKEN FROM THE SOURCE, which is the whole
 /// point of a golden: `text_format_line` builds the number from `MAX_TEXT`, so
@@ -39,7 +41,7 @@ use crate::value::{Value, MAX_EXACT_INT};
 /// expands it, because a `&[&str]` of raw strings cannot concatenate a
 /// constant the way the Go twin's `+` does.
 pub(crate) const WANT_TEXT_TAIL: &str = concat!(
-    r#", "\nWhere a list this mod chose names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown.""#,
+    r#", "\nAn entry your mods lack takes the mod's next name for it or is left out; two landing on one name are added, so what you craft can be shorter than shown.""#,
     r#", "\nInternal names, as on the default line, up to 2000 characters. The word none empties the list, so the recipe costs nothing to craft.""#,
     r#", "\nLeave this as default and this mod's own list applies; anything else applies instead.""#,
     r#", "\nText this mod cannot use is set aside as though it said default; the reason is in the log or the load error.""#
@@ -47,7 +49,7 @@ pub(crate) const WANT_TEXT_TAIL: &str = concat!(
 
 /// The same tail on a PACKS setting, whose format line stops at the ceiling.
 pub(crate) const WANT_PACKS_TAIL: &str = concat!(
-    r#", "\nWhere a list this mod chose names a science pack your mods do not have, the next name it offers is used instead; a pack it offers nothing for is left out, and two that land on one pack have their amounts added, so the research can take fewer packs than the list shows.""#,
+    r#", "\nA pack your mods lack takes the mod's next name for it or is left out; two landing on one pack are added, so the research can take fewer packs than shown.""#,
     r#", "\nInternal names, as on the default line, up to 2000 characters.""#,
     r#", "\nLeave this as default and this mod's own list applies; anything else applies instead.""#,
     r#", "\nText this mod cannot use is set aside as though it said default; the reason is in the log or the load error.""#

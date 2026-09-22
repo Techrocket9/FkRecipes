@@ -186,7 +186,8 @@ impl Lib {
             }
             // THE THREE SETTINGS WHOSE DESCRIPTION IS NOT OPTIONAL. A text
             // setting's description is where the library writes the declared
-            // list, the format, the length limit, the switch and the fallback,
+            // list, the format and its length limit, the switch, the fallback
+            // and, on every field that is the one to disclose it, the ladder,
             // so a missing entry loses all of them along with whatever the
             // consumer meant to say; a research number's is where the range and
             // what 0 means are written; and a dropdown with a text setting
@@ -460,10 +461,12 @@ impl Lib {
     ///
     /// ONCE PER REPORT, NOT ONCE PER SETTING, and the sentence names the library
     /// rather than a setting. What it inspects does not vary with the setting in
-    /// any way the rule reads: two of the five lines are constants, the other
-    /// three are the switch line and the kind-dependent pair (the ladder line
-    /// and the format line) the guarded composition was built with and which
-    /// are handed in beside it, and the only per-setting part of the
+    /// any way the rule reads: it asks for four lines at most, of which the
+    /// fallback line is a constant, the ladder line and the format line are
+    /// constants the KIND chooses between and the switch line is one of two
+    /// sentences the declaration chooses between; all four arrive from the
+    /// caller that built the composition, beside the flag saying whether the
+    /// ladder line is one of them at all, and the only per-setting part of the
     /// composition, the consumer's own key, is not what it looks at. Run inside the per-setting loop it turned
     /// ONE library defect into one finding per text setting, five of them on the
     /// example guest, and at fifty text settings the sentences alone would fill
@@ -510,21 +513,22 @@ impl Lib {
     /// constant in. The switch line names the option above or below when a
     /// dropdown is bound to the same declaration and the mod's own list when
     /// none is; the kind decides TWO lines, the ladder line's whole vocabulary
-    /// (a science pack and a research that takes fewer packs, against a name
-    /// and a shorter craft) and whether the format line names the word `none`,
+    /// (a pack and a research that takes fewer of them, against a name and a
+    /// shorter craft) and whether the format line names the word `none`,
     /// which only an ingredient list takes; and the ladder flag decides whether
     /// the ladder line is there to look for at all, which is the same question
-    /// `text_switch_dropdown` answers for the composition. The rule cannot
+    /// `text_carries_ladder_line` answers for the composition. The rule cannot
     /// recompute any of them without the
     /// declaration, so the caller that built the composition hands over what it
     /// built it with, and what the guard then answers is whether
     /// [`text_description`] put those lines into the table it returned.
     ///
     /// THE FLAG IS WHAT KEEPS THE GUARD FROM ASKING FOR A LINE THAT IS NOT
-    /// OWED. Beside a dropdown the ladder is disclosed on the dropdown instead,
-    /// so a guard that always looked for it would report a defect on every plan
-    /// the customizer was designed for; one that never looked for it would stop
-    /// watching the one composition that still carries it.
+    /// OWED. Beside an ingredient dropdown the ladder is disclosed on that
+    /// dropdown instead, so a guard that always looked for it would report a
+    /// defect on every plan the customizer was designed for; one that never
+    /// looked for it would stop watching the compositions that do carry it,
+    /// which is every other shape.
     ///
     /// The tuple is the composition, the switch line, whether the setting is an
     /// ingredient list, and whether it carries a ladder line.
@@ -539,7 +543,7 @@ impl Lib {
             .map(|(i, s)| {
                 let line = self.text_switch_line(i);
                 let ingredients = s.kind == SettingKind::Ingredients;
-                let ladder = self.text_switch_dropdown(i).is_none();
+                let ladder = self.text_carries_ladder_line(i);
                 (
                     text_description(&s.emitted_name(prefix), "", &line, ingredients, ladder),
                     line,
@@ -560,8 +564,10 @@ impl Lib {
 /// `ladder` IS THE COMPOSITION'S OWN ANSWER AND NOT A SECOND RULE. It arrives
 /// beside the description from the caller that built it, so the guard asks for
 /// exactly the lines that composition put in; deriving it here from the switch
-/// line's wording would be a second spelling of `text_switch_dropdown`, and the
-/// two could then disagree about which shape they are looking at.
+/// line's wording would be a second spelling of `text_carries_ladder_line`, and
+/// the two could then disagree about which shape they are looking at. The
+/// switch line cannot answer it in any case: it says a dropdown decides without
+/// saying which kind of dropdown, and the kind is the whole of the rule.
 pub(crate) fn composed_text_lines_missing(
     desc: &Value,
     switch_line: &str,
@@ -1590,10 +1596,10 @@ fkrecipes-example-quench-medium-water=Water
     /// the rule does not look at. One defect is therefore one finding.
     ///
     /// THE LADDER FLAG IS THE FOURTH INPUT AND BOTH OF ITS ARMS ARE WALKED
-    /// HERE. A standalone text setting carries the ladder line and the rule
-    /// looks for it; one beside a dropdown does not, and a rule that looked for
-    /// it anyway would report a defect on every plan the customizer was
-    /// designed for.
+    /// HERE. A text setting that discloses the ladder carries the line and the
+    /// rule looks for it; one beside an ingredient dropdown does not, and a
+    /// rule that looked for it anyway would report a defect on every plan the
+    /// customizer was designed for.
     ///
     /// THE HEALTHY PATH FIRST, so a rule that fired on everything would be
     /// caught here rather than in a golden somewhere: the real composition
@@ -1720,9 +1726,11 @@ fkrecipes-example-quench-medium-water=Water
     /// rule says. Run once per text setting it turned one library defect into
     /// five findings on the example guest.
     ///
-    /// AND THE LADDER FLAG COMES BACK WITH IT, off a real plan in both of its
-    /// arms: a standalone text setting carries the ladder line and one beside a
-    /// dropdown does not.
+    /// AND THE LADDER FLAG COMES BACK WITH IT, off a real plan in all three of
+    /// its shapes: a standalone text setting carries the ladder line, one
+    /// beside an INGREDIENT dropdown does not, and a packs setting beside a
+    /// COST dropdown does, because that dropdown composes no ladder line of its
+    /// own.
     #[test]
     fn the_drift_guard_inspects_the_first_text_setting_only() {
         use crate::plan::{Ingredient, ItemSpec, Pack};
@@ -1776,6 +1784,77 @@ fkrecipes-example-quench-medium-water=Water
                 false
             ))
         );
+
+        // AND THE THIRD SHAPE, which is the one that says the flag follows the
+        // dropdown's KIND rather than its presence: a packs text setting
+        // beside a COST dropdown is handed a composition that DOES carry the
+        // ladder line, and the flag that says to look for it. A guard keyed on
+        // "is there a dropdown" answers false here and would stop watching the
+        // line on every research-cost plan there is.
+        const COST: &str =
+            "\nLeave this as default and the option chosen above decides; anything else applies instead.";
+        assert_eq!(
+            packs_beside_cost_dropdown_plan().guarded_text_description("steelworks-"),
+            Some((
+                text_description("steelworks-tips-packs", "", COST, false, true),
+                String::from(COST),
+                false,
+                true
+            ))
+        );
+    }
+
+    /// A packs text setting whose technology also names a COST dropdown.
+    ///
+    /// A cost dropdown's presets are a localised label and a localised
+    /// technology name, so it composes no ladder line of its own and the packs
+    /// field beside it is the only one of the two where the ladder can be
+    /// disclosed. The twin of this plan is in `tests::customize`, which is
+    /// another module and builds its own.
+    fn packs_beside_cost_dropdown_plan() -> Lib {
+        use crate::plan::{
+            CostChoice, CostChoices, CustomCost, NumericSpec, Pack, TechSpec, UnitSpec,
+        };
+
+        let mut lib = Lib::new();
+        let tier =
+            lib.dropdown_setting_needing_locale("tips-tier", "projectile", &["projectile", "none"]);
+        let packs = lib.packs_setting(
+            "tips-packs",
+            alloc::vec![Pack::named(1, "automation-science-pack", &[])],
+        );
+        let count = lib.int_setting("tips-count", 0, NumericSpec::between(0.0, 100000.0));
+        let seconds = lib.int_setting("tips-seconds", 0, NumericSpec::between(0.0, 600.0));
+        lib.technology(
+            "hardened-tips",
+            TechSpec {
+                cost_by: Some(CostChoices {
+                    setting: tier,
+                    choices: alloc::vec![
+                        CostChoice {
+                            value: String::from("projectile"),
+                            sources: alloc::vec![String::from("mining-productivity-4")],
+                        },
+                        CostChoice {
+                            value: String::from("none"),
+                            sources: alloc::vec![],
+                        },
+                    ],
+                    fallback: UnitSpec {
+                        count: 200,
+                        seconds: 30.0,
+                        packs: alloc::vec![Pack::named(1, "automation-science-pack", &[])],
+                    },
+                }),
+                cost_from: Some(CustomCost {
+                    packs,
+                    count,
+                    seconds,
+                }),
+                ..Default::default()
+            },
+        );
+        lib
     }
 
     /// The same file with the three descriptions written: clean. The ordinary

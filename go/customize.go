@@ -620,16 +620,16 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		// validateTextSettings in front of this walk, and it refuses a text
 		// setting whose language is missing before anything renders.
 		//
-		// THE LADDER LINE IS THE STANDALONE TEXT'S ALONE, which is the one
-		// condition this call carries beyond the kind. Where a dropdown sits
-		// beside the field, the lists the ladder is about are that dropdown's
-		// presets and dropdownLadderLine says so on the field that renders
-		// them; composing it here as well would say one thing twice on one
-		// screen. Where there is none, this field's own default line is the
-		// list that applies and this is the only place its ladder can be
-		// disclosed. See textLadderLine.
+		// THE LADDER LINE GOES WHERE NOTHING ELSE SAYS IT, which is the one
+		// condition this call carries beyond the kind. An INGREDIENT dropdown
+		// beside the field renders the lists the ladder is about and
+		// dropdownLadderLine says so there, so composing it here as well would
+		// say one thing twice on one screen; a COST dropdown renders no list
+		// and carries no such line, so a packs text beside one keeps it. With
+		// no dropdown at all this field's own default line is the list that
+		// applies. See textCarriesLadderLine and textLadderLine.
 		out[i] = textDescription(s.emittedName(prefix), l.lang.render(entries),
-			l.textSwitchLine(i), s.kind == settingIngredients, l.textSwitchDropdown(i) < 0)
+			l.textSwitchLine(i), s.kind == settingIngredients, l.textCarriesLadderLine(i))
 	}
 	// Recipes then technologies, in declaration order, which is the order a
 	// dropdown's own description is built in when two declarations put a text
@@ -795,6 +795,60 @@ func (l *Lib) textSwitchDropdown(i int) int {
 		return -1
 	}
 	return -1
+}
+
+// textCarriesLadderLine answers whether the TEXT setting at i is the field this
+// plan discloses the ladder on, and it is the ONE SPELLING of that question:
+// settingDescriptions composes from it and guardedTextDescription guards what
+// was composed, so the emitted description and the guard cannot disagree about
+// which shape they are looking at.
+//
+// THE RULE IS "UNLESS SOMETHING BESIDE IT ALREADY SAYS SO", which is narrower
+// than "unless a dropdown sits beside it". An INGREDIENT dropdown carries
+// dropdownLadderLine over the presets a player is choosing between, so a second
+// copy on the text field would say one thing twice on one screen. A COST
+// dropdown carries no ladder line at all, because its presets render no list of
+// internal names, so a packs text beside one is the only field on that screen
+// where the ladder can be disclosed and it keeps the line. Under the earlier
+// rule, "no dropdown beside it", that pair said nothing about the ladder
+// anywhere a player looks, and the log is not a disclosure.
+func (l *Lib) textCarriesLadderLine(i int) bool {
+	d := l.textSwitchDropdown(i)
+	return d < 0 || !l.dropdownComposesLadderLine(d)
+}
+
+// dropdownComposesLadderLine answers whether settingDescriptions puts
+// dropdownLadderLine onto the dropdown setting at d.
+//
+// IT IS THE COMPOSING WALK'S OWN SHAPE, recipes then technologies with the last
+// writer winning, rather than "is this an ingredient dropdown". The two are the
+// same answer on every plan but one, and that one is written down in
+// settingDescriptions: a recipe and a technology may both name one dropdown,
+// nothing refuses it, and the technology's cost presets are what land there
+// because that walk runs second. Asking the shape rather than the kind is what
+// keeps the text setting beside such a dropdown carrying the ladder, which is
+// correct, because the dropdown it sits beside came out with no ladder line on
+// it.
+func (l *Lib) dropdownComposesLadderLine(d int) bool {
+	composes := false
+	for _, r := range l.recipes {
+		by := r.spec.IngredientsBy
+		// EXACTLY settingDescriptions' OWN CONDITION for composing onto this
+		// dropdown, and both of its arms: the bare arm and the arm with a text
+		// setting beside it push dropdownLadderLine alike.
+		if by == nil || len(r.spec.Ingredients) > 0 || !l.validDropdownSetting(by.Setting) {
+			continue
+		}
+		if by.Setting.index-1 == d {
+			composes = true
+		}
+	}
+	for _, t := range l.techs {
+		if l.costDropdownComposesPresetLines(&t.spec) && t.spec.CostBy.Setting.index-1 == d {
+			composes = false
+		}
+	}
+	return composes
 }
 
 // researchNumber is what a research count or time setting composes from: that
@@ -989,10 +1043,11 @@ func descriptionRef(kind, name string) (Value, bool) {
 //
 // LADDER SAYS WHETHER THIS FIELD IS THE PLACE TO DISCLOSE THE LADDER, and it is
 // the caller's answer rather than this function's because the walk that knows
-// is textSwitchDropdown: beside a dropdown the lists the ladder is about are
-// that dropdown's presets and dropdownLadderLine carries the sentence there.
-// The line stays directly under the default line where it is composed at all,
-// because that is the list it is about.
+// is textCarriesLadderLine: beside an INGREDIENT dropdown the lists the ladder
+// is about are that dropdown's presets and dropdownLadderLine carries the
+// sentence there, while a cost dropdown carries none and leaves the line to
+// this field. It stays directly under the default line where it is composed at
+// all, because that is the list it is about.
 //
 // INGREDIENTS SAYS WHICH OF THE TWO TEXT SETTINGS THIS IS, and it decides two
 // things: the ladder line's vocabulary, and whether the format line names the
@@ -1080,8 +1135,10 @@ const ingredientNoneClause = " The word none empties the list, so the recipe cos
 // locale entry, which a consumer is free to write differently or not at all,
 // so the library's reason for staying silent on the prototype rested on
 // somebody else's string (the consumer's third migration assessment, finding
-// 22). These three lines are that sentence, composed here, on every plan that
-// renders a list.
+// 22). These three lines are that sentence, composed here. Every plan that
+// renders a list composes one of them, onto the field that renders the lists it
+// is about, and onto exactly one field of any pair: see textCarriesLadderLine,
+// which is where the choice is made.
 //
 // THREE CLAUSES AND NOT ONE, BECAUSE THE LADDER DOES THREE THINGS. A rung that
 // exists is SUBSTITUTED, a ladder that runs out is DROPPED, and two entries
@@ -1108,15 +1165,17 @@ const ingredientNoneClause = " The word none empties the list, so the recipe cos
 // declared ladder would leave exactly the plans that can ONLY drop saying
 // nothing at all.
 //
-// IT IS COMPOSED ON A STANDALONE TEXT SETTING AND ON NO OTHER. Beside a
-// dropdown, the lists a player chooses between are that dropdown's presets and
-// the ladder is disclosed there, by dropdownLadderLine, on the field that
-// renders them; composing this line as well would say one thing twice on one
-// screen, in two vocabularies, about two different lists. Where there is no
-// dropdown the field's own DEFAULT LINE is the list that applies, this line
-// sits directly under it, and this is the only place the ladder can be
-// disclosed at all. settingDescriptions decides which shape it is looking at,
-// through textSwitchDropdown, which is the same walk the switch line uses.
+// IT IS LEFT OUT ONLY WHERE SOMETHING BESIDE THE FIELD ALREADY SAYS IT. Beside
+// an INGREDIENT dropdown the lists a player chooses between are that dropdown's
+// presets and the ladder is disclosed there, by dropdownLadderLine, on the
+// field that renders them; composing this line as well would say one thing
+// twice on one screen, in two vocabularies, about two different lists. Beside a
+// COST dropdown it is composed, because that dropdown renders no list and
+// carries no ladder line, so this field is the only one of the two where a
+// player can read the rule at all. With no dropdown the field's own DEFAULT
+// LINE is the list that applies and this line sits directly under it.
+// textCarriesLadderLine is where the choice is made, and it reads the same
+// textSwitchDropdown walk the switch line uses.
 func textLadderLine(ingredients bool) string {
 	if ingredients {
 		return ingredientLadderLine
@@ -1126,27 +1185,44 @@ func textLadderLine(ingredients bool) string {
 
 // ingredientLadderLine is textLadderLine's INGREDIENT arm: the entry goes, and
 // what the player crafts is shorter than what they read.
-const ingredientLadderLine = "\nWhere a list this mod chose names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."
+//
+// THE SUBJECT IS THE ENTRY AND NOT THE LIST, which is what let the sentence
+// lose a third of its bytes without losing a clause. "Where a list this mod
+// chose names something your mods do not have, the next name it offers is used
+// instead" spent eighteen words setting up a condition the shorter opening
+// states as a fact about the entry itself.
+const ingredientLadderLine = "\nAn entry your mods lack takes the mod's next name for it or is left out; two landing on one name are added, so what you craft can be shorter than shown."
 
 // packsLadderLine is textLadderLine's PACKS arm, in the packs vocabulary: a
-// science pack rather than a name, and a research that takes fewer of them
-// rather than a craft that costs less.
+// pack rather than a name, and a research that takes fewer of them rather than
+// a craft that costs less.
 //
 // THE CLOSING CLAUSE IS NOT THE INGREDIENT ONE WITH A WORD CHANGED. A research
 // unit is priced in packs and a recipe is crafted from a list, so "what you
 // craft" names nothing on a technology; and a research that loses every pack
-// it names is emitted with no pack at all, which "fewer packs than the list
-// shows" covers and "shorter than the list shown" reads past.
-const packsLadderLine = "\nWhere a list this mod chose names a science pack your mods do not have, the next name it offers is used instead; a pack it offers nothing for is left out, and two that land on one pack have their amounts added, so the research can take fewer packs than the list shows."
+// it names is emitted with no pack at all, which "fewer packs than shown"
+// covers and "shorter than shown" reads past.
+//
+// AND THE WORD IS "PACK" RATHER THAN "SCIENCE PACK" in the opening now. The
+// field takes nothing but packs, which its own default line shows and its
+// [mod-setting-name] entry says, so the longer name was spending eight bytes
+// on a distinction the screen had already made; the vocabulary that separates
+// this arm from the ingredient one is "pack" against "name" and "the research"
+// against "what you craft", which is what the two negative gate checks read.
+const packsLadderLine = "\nA pack your mods lack takes the mod's next name for it or is left out; two landing on one pack are added, so the research can take fewer packs than shown."
 
 // dropdownLadderLine is the same disclosure on an INGREDIENT DROPDOWN, where
 // the lists it is about are the author's PRESETS rather than one default list.
 //
-// IT SAYS "AN OPTION" BECAUSE THE LISTS IT IS ABOUT ARE OPTIONS, and the player
-// reading it is choosing between them: every preset on that dropdown renders a
-// list, and the ladder applies to whichever one they land on. The text
-// setting's arm says "a list this mod chose" instead, because there the list it
-// is about is the one the field falls back to, on the DEFAULT LINE.
+// ITS CLOSING CLAUSE SAYS "AN OPTION" BECAUSE THE LISTS IT IS ABOUT ARE
+// OPTIONS, and the player reading it is choosing between them: every preset on
+// that dropdown renders a list, and the ladder applies to whichever one they
+// land on, so what that option crafts can be shorter than what the option
+// itself shows. The text setting's arm says "what you craft" instead, because
+// there the list it is about is the one the field falls back to, on the DEFAULT
+// LINE, and there is only the one. That clause is the whole of the difference
+// between the two ingredient arms, which is why a gate that separates them
+// reads the ending rather than the opening.
 //
 // THE LINE DIRECTLY ABOVE IT IS THE LAST PRESET, in the composition that has
 // presets; in the BARE composition, where no text setting sits beside the
@@ -1164,7 +1240,7 @@ const packsLadderLine = "\nWhere a list this mod chose names a science pack your
 // disclosed where it happens, on the technology's tooltip, by packDroppedNote
 // and packlessSourceNote; a sentence on the dropdown would be about a list
 // that dropdown does not render.
-const dropdownLadderLine = "\nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."
+const dropdownLadderLine = "\nAn entry your mods lack takes the mod's next name for it or is left out; two landing on one name are added, so an option can craft a shorter list than it shows."
 
 // textFallbackLine is what happens to a text this library cannot use.
 //

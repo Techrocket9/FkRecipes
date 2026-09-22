@@ -22,6 +22,8 @@ FkRecipes ("Factorio: konfigurierbare Recipes") is a guest library for mods buil
 
 Run every gate that exists before a commit; a gate added by a commit is listed here in the same commit.
 
+The two gate scripts need `GOTOOLCHAIN=go1.26.6` on this machine, and it is a hard requirement rather than a preference for comparable figures: TinyGo 0.41.1 takes Go 1.19 through 1.26, the Go on PATH here is 1.27.1, and without the pin `run-mirror.sh` stops at `requires go version 1.19 through 1.26, got go1.27` followed by `run-mirror: the Go guest did not build` (measured 2026-09-22). `run-ingame.sh` builds the same guest and stops the same way. Everything else in this list runs under whichever Go is on PATH.
+
 ```sh
 cd go && gofmt -l . | tee /dev/stderr | (! read)   # formatting; any filename is a failure
 cd go && go vet ./...
@@ -147,11 +149,15 @@ scripts/run-ingame.sh         # the engine gate: both packaged examples under a 
                               # no element of any localised string in either DATA dump is over the
                               # engine's 200-byte ceiling. The SETTINGS dump is deliberately not
                               # walked for that: a setting prototype is exempt (measured to 5000
-                              # bytes), and the three ladder lines this library composes onto a
-                              # setting's description are 256, 268 and 269 bytes, re-measured
-                              # 2026-09-22 and unmoved by the round that shortened every other
-                              # composed line, so walking it would enforce a rule the engine does
-                              # not have.
+                              # bytes), so walking it would enforce a rule the engine does not
+                              # have. The three ladder lines this library composes onto a
+                              # setting's description used to be the concrete reason, at 256, 268
+                              # and 269 bytes; the round that shortened them puts them at 153, 155
+                              # and 161 (re-measured 2026-09-22), so they would survive such a
+                              # walk today. What would not is a text setting's DEFAULT LINE, which
+                              # renders the author's declared list into one unchunked element and
+                              # is bounded by the 2000 characters the parser takes rather than by
+                              # anything the engine enforces on a setting.
                               # A mod-set mismatch reports
                               # SKIPPED and exits 0 (an environmental difference, the FkLua
                               # convention); --strict or FKRECIPES_STRICT=1 makes it exit 1 for a CI

@@ -160,9 +160,10 @@ func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, compl
 		// A TEXT SETTING'S DESCRIPTION IS REQUIRED, and it is the one place a
 		// description is. Everywhere else a missing one costs a tooltip; here
 		// it costs the player the whole tooltip, because the library composes
-		// the declared list, the format, the length limit, the field that
-		// decides while this one says the reserved word, and the fallback onto
-		// that entry: an absent one loses all five along with whatever the
+		// the declared list, the format and its length limit, the field that
+		// decides while this one says the reserved word, the fallback, and on
+		// every field that is the one to disclose it the ladder, onto that
+		// entry: an absent one loses all of them along with whatever the
 		// consumer meant to say. What the consumer's own entry is FOR is
 		// therefore what the setting is, not how to fill it in, and the
 		// sentence says so.
@@ -382,11 +383,13 @@ func gameKeyAdvisory(full, key, raw string) string {
 //
 // ONCE PER REPORT, NOT ONCE PER SETTING, and the sentence names the library
 // rather than a setting. What it inspects does not vary with the setting in any
-// way the rule reads: two of the five lines are constants, the other three are
-// the switch line and the kind-dependent pair (the ladder line and the format
-// line) the guarded composition was built with and which are handed in beside
-// it, and the only per-setting part of the composition, the consumer's own key,
-// is not what it looks at. Run inside the per-setting loop it turned ONE library
+// way the rule reads: it asks for four lines at most, of which the fallback
+// line is a constant, the ladder line and the format line are constants the
+// KIND chooses between and the switch line is one of two sentences the
+// declaration chooses between; all four arrive from the caller that built the
+// composition, beside the flag saying whether the ladder line is one of them at
+// all, and the only per-setting part of the composition, the consumer's own
+// key, is not what it looks at. Run inside the per-setting loop it turned ONE library
 // defect into one finding per text setting, five of them on the example guest,
 // and at fifty text settings the sentences alone would fill localeFindingCap and
 // push every author finding out of the report.
@@ -432,27 +435,27 @@ func (l *Lib) checkComposedTextLines(prefix string) []string {
 // COMPOSITION because they are the three inputs the composition is not a
 // constant in. The switch line names the option above or below when a dropdown
 // is bound to the same declaration and the mod's own list when none is; the
-// kind decides TWO lines, the ladder line's whole vocabulary (a science pack
-// and a research that takes fewer packs, against a name and a shorter craft)
-// and whether the format line names the word none, which only an ingredient
-// list takes; and the ladder flag decides whether the ladder line is there to
-// look for at all, which is the same question textSwitchDropdown answers for
-// the composition. The rule cannot recompute any of them without the
+// kind decides TWO lines, the ladder line's whole vocabulary (a pack and a
+// research that takes fewer of them, against a name and a shorter craft) and
+// whether the format line names the word none, which only an ingredient list
+// takes; and the ladder flag decides whether the ladder line is there to look
+// for at all, which is the same question textCarriesLadderLine answers for the
+// composition. The rule cannot recompute any of them without the
 // declaration, so the caller that built the composition hands over what it
 // built it with, and what the guard then answers is whether textDescription put
 // those lines into the table it returned.
 //
 // THE FLAG IS WHAT KEEPS THE GUARD FROM ASKING FOR A LINE THAT IS NOT OWED.
-// Beside a dropdown the ladder is disclosed on the dropdown instead, so a guard
-// that always looked for it would report a defect on every plan the customizer
-// was designed for; one that never looked for it would stop watching the one
-// composition that still carries it.
+// Beside an ingredient dropdown the ladder is disclosed on that dropdown
+// instead, so a guard that always looked for it would report a defect on every
+// plan the customizer was designed for; one that never looked for it would stop
+// watching the compositions that do carry it, which is every other shape.
 func (l *Lib) guardedTextDescription(prefix string) (desc Value, switchLine string, ingredients, ladder, ok bool) {
 	for i, s := range l.settings {
 		if s.kind.isText() {
 			line := l.textSwitchLine(i)
 			ing := s.kind == settingIngredients
-			lad := l.textSwitchDropdown(i) < 0
+			lad := l.textCarriesLadderLine(i)
 			return textDescription(s.emittedName(prefix), "", line, ing, lad), line, ing, lad, true
 		}
 	}
@@ -469,8 +472,10 @@ func (l *Lib) guardedTextDescription(prefix string) (desc Value, switchLine stri
 // LADDER IS THE COMPOSITION'S OWN ANSWER AND NOT A SECOND RULE. It arrives
 // beside the description from the caller that built it, so the guard asks for
 // exactly the lines that composition put in; deriving it here from the switch
-// line's wording would be a second spelling of textSwitchDropdown, and the two
-// could then disagree about which shape they are looking at.
+// line's wording would be a second spelling of textCarriesLadderLine, and the
+// two could then disagree about which shape they are looking at. The switch
+// line cannot answer it in any case: it says a dropdown decides without saying
+// which kind of dropdown, and the kind is the whole of the rule.
 func composedTextLinesMissing(desc Value, switchLine string, ingredients, ladder bool) []string {
 	var out []string
 	// THE ORDER IS THE COMPOSITION'S OWN, so a description that lost more than
@@ -486,9 +491,9 @@ func composedTextLinesMissing(desc Value, switchLine string, ingredients, ladder
 		struct{ line, missing string }{switchLine, "no line about which field decides while the text says default"},
 		struct{ line, missing string }{textFallbackLine, "no line about what happens to a text this mod cannot use"},
 	)
-	for _, want := range want {
-		if !localisedCarries(desc, want.line) {
-			out = append(out, "the library composes "+want.missing+
+	for _, w := range want {
+		if !localisedCarries(desc, w.line) {
+			out = append(out, "the library composes "+w.missing+
 				" onto a text setting's description; a text setting's description carries one,"+
 				" so this is a defect in fkrecipes and not in this locale file")
 		}
@@ -501,7 +506,7 @@ func composedTextLinesMissing(desc Value, switchLine string, ingredients, ladder
 //
 // DEPTH BECAUSE THE QUESTION IS "DOES THE PLAYER READ IT", NOT "WHERE". The
 // composition it is handed is flat past the consumer's own key, which is itself
-// a nested table: textDescription is fixed at seven parameters and never reaches
+// a nested table: textDescription is at most six parameters and never reaches
 // localisedGroup's nesting rule, and a dropdown's composition is never handed
 // here at all. A top-level scan would therefore be a claim about the shape of
 // the composition rather than about the lines, and it would go quietly wrong

@@ -2207,7 +2207,11 @@ pub(crate) fn with_destruction(note: String, destroys_inputs: bool) -> String {
 /// WITH SOMETHING TO CRAFT is the library's advertised contract, and the
 /// SETTINGS SCREEN is where that contract is disclosed: `DROPDOWN_LADDER_LINE`
 /// on an ingredient dropdown's composed description and `text_ladder_line` on a
-/// text setting's, both composed by this library. A ladder that leaves it with
+/// text setting's, both composed by this library. Between them they reach every
+/// plan that renders a list and reach it exactly once, which is what the
+/// exclusion needs: `text_ladder_line` is composed on every text setting except
+/// one sitting beside an ingredient dropdown, and that dropdown carries the
+/// line itself. A ladder that leaves it with
 /// NOTHING is not that contract and carries [`ingredientless_note`], because "a
 /// shorter list than the one shown" reads straight past a recipe there is
 /// nothing left to craft. A clamped amount, a dropped science pack, an emptied

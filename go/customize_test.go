@@ -20,11 +20,13 @@ import (
 // standalone shape alone; what to write and how much of it; which field decides
 // while this one holds the reserved word; and what a text it cannot use costs.
 //
-// THE LADDER LINE IS NOT ON EVERY TEXT SETTING. Beside a dropdown the ladder is
-// disclosed on the dropdown's own description, over the presets a player is
-// choosing between, so wantTextTail and wantPacksTail carry it (they are the
-// standalone shape, which is what wantSwitchOwn says) and the tails built
-// around wantSwitchBy do not.
+// THE LADDER LINE IS NOT ON EVERY TEXT SETTING, and which ones it is on follows
+// the KIND of the dropdown beside the field rather than whether there is one.
+// An INGREDIENT dropdown discloses the ladder itself, over the presets a player
+// is choosing between, so an ingredient text beside one does not repeat it; a
+// COST dropdown renders no list and discloses nothing, so a packs text beside
+// one keeps the line. wantTextTail and wantPacksTail are the standalone shape,
+// which is what wantSwitchOwn says, and both carry it.
 //
 // THE FORMAT LINE IS TWO SENTENCES ON AN INGREDIENT SETTING AND ONE ON A PACKS
 // SETTING. The word none empties an ingredient list; a pack list refuses it
@@ -40,11 +42,11 @@ const (
 	// The ladder line, in each of its three vocabularies: an ingredient text
 	// setting's, a packs text setting's, and an ingredient dropdown's.
 	wantTextLadder = `, "` + "\n" +
-		`Where a list this mod chose names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."`
+		`An entry your mods lack takes the mod's next name for it or is left out; two landing on one name are added, so what you craft can be shorter than shown."`
 	wantPacksLadder = `, "` + "\n" +
-		`Where a list this mod chose names a science pack your mods do not have, the next name it offers is used instead; a pack it offers nothing for is left out, and two that land on one pack have their amounts added, so the research can take fewer packs than the list shows."`
+		`A pack your mods lack takes the mod's next name for it or is left out; two landing on one pack are added, so the research can take fewer packs than shown."`
 	wantDropdownLadder = `, "` + "\n" +
-		`Where an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."`
+		`An entry your mods lack takes the mod's next name for it or is left out; two landing on one name are added, so an option can craft a shorter list than it shows."`
 	wantPacksFormat = `, "` + "\n" +
 		`Internal names, as on the default line, up to 2000 characters."`
 	wantTextFormat = `, "` + "\n" +
@@ -1587,6 +1589,34 @@ func textBesideDropdownPlan() *Lib {
 	return lib
 }
 
+// packsBesideCostDropdownPlan is the OTHER pairing: a packs text setting whose
+// technology also names a COST dropdown, which is the shape the ladder rule
+// turns on. A cost dropdown's presets are a localised label and a localised
+// technology name, so it composes no ladder line of its own and the packs field
+// beside it is the only one of the two where the ladder can be disclosed.
+//
+// The settings come back in declaration order, so PlanSettings puts the
+// dropdown at 0 and the packs setting at 1.
+func packsBesideCostDropdownPlan() *Lib {
+	lib := New()
+	tier := lib.DropdownSettingNeedingLocale("tips-tier", "projectile", []string{"projectile", "none"})
+	packs := lib.PacksSetting("tips-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+	count := lib.IntSetting("tips-count", 0, Between(0, 100000))
+	seconds := lib.IntSetting("tips-seconds", 0, Between(0, 600))
+	lib.Technology("hardened-tips", TechSpec{
+		CostBy: &CostChoices{
+			Setting: tier,
+			Choices: []CostChoice{
+				{Value: "projectile", Sources: []string{"mining-productivity-4"}},
+				{Value: "none"},
+			},
+			Fallback: UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+		},
+		CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
+	})
+	return lib
+}
+
 // A TEXT LEFT ON THE RESERVED WORD LETS THE DROPDOWN DECIDE, which is exactly
 // where a player who never opened the settings screen lands.
 func TestTextOnTheWordLetsTheDropdownDecide(t *testing.T) {
@@ -2395,9 +2425,10 @@ func TestCustomResearchCostCarriesNoMaxLevel(t *testing.T) {
 // defect is therefore one finding.
 //
 // THE LADDER FLAG IS THE FOURTH INPUT AND BOTH OF ITS ARMS ARE WALKED HERE.
-// A standalone text setting carries the ladder line and the rule looks for it;
-// one beside a dropdown does not, and a rule that looked for it anyway would
-// report a defect on every plan the customizer was designed for.
+// A text setting that discloses the ladder carries the line and the rule looks
+// for it; one beside an ingredient dropdown does not, and a rule that looked
+// for it anyway would report a defect on every plan the customizer was designed
+// for.
 //
 // THE HEALTHY PATH FIRST, so a rule that fired on everything would be caught
 // here rather than in a golden somewhere: the real composition reports
@@ -2519,6 +2550,7 @@ func TestTheDriftGuardInspectsTheFirstTextSettingOnly(t *testing.T) {
 	}
 	// AND SO DOES THE LADDER FLAG. This plan's text setting has no dropdown
 	// beside it, so it carries the ladder line and the rule must look for it.
+	// The two other shapes are below.
 	if !ladder {
 		t.Error("the guard was told a standalone text setting carries no ladder line")
 	}
@@ -2543,6 +2575,31 @@ func TestTheDriftGuardInspectsTheFirstTextSettingOnly(t *testing.T) {
 	}
 	if got := renderValue(desc); got != renderValue(
 		textDescription("steelworks-quench-ingredients", "", switchLine, true, false)) {
+		t.Errorf("the guard was handed %s", got)
+	}
+
+	// AND THE THIRD SHAPE, which is the one that says the flag follows the
+	// dropdown's KIND rather than its presence: a packs text setting beside a
+	// COST dropdown is handed a composition that DOES carry the ladder line,
+	// and the flag that says to look for it. A guard keyed on "is there a
+	// dropdown" answers false here and would stop watching the line on every
+	// research-cost plan there is.
+	cost := packsBesideCostDropdownPlan()
+	desc, switchLine, ingredients, ladder, ok = cost.guardedTextDescription("steelworks-")
+	if !ok {
+		t.Fatal("a plan with a packs setting beside a cost dropdown handed the guard nothing")
+	}
+	if !ladder {
+		t.Error("the guard was told a packs setting beside a cost dropdown carries no ladder line")
+	}
+	if ingredients {
+		t.Error("the guard was told the packs setting beside the cost dropdown is an ingredient list")
+	}
+	if !localisedCarries(desc, textLadderLine(false)) {
+		t.Errorf("the composition handed to the guard carries no ladder line: %s", renderValue(desc))
+	}
+	if got := renderValue(desc); got != renderValue(
+		textDescription("steelworks-tips-packs", "", switchLine, false, true)) {
 		t.Errorf("the guard was handed %s", got)
 	}
 }
@@ -2688,25 +2745,41 @@ func TestTheComposedTextLinesAreTheStatedOnes(t *testing.T) {
 	// and one promising only those two says nothing about a merge, which is a
 	// number in no tooltip and in no declaration.
 	if got, want := textLadderLine(true),
-		"\nWhere a list this mod chose names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."; got != want {
+		"\nAn entry your mods lack takes the mod's next name for it or is left out; two landing on one name are added, so what you craft can be shorter than shown."; got != want {
 		t.Errorf("\n got: %q\nwant: %q", got, want)
 	}
 	if got, want := textLadderLine(false),
-		"\nWhere a list this mod chose names a science pack your mods do not have, the next name it offers is used instead; a pack it offers nothing for is left out, and two that land on one pack have their amounts added, so the research can take fewer packs than the list shows."; got != want {
+		"\nA pack your mods lack takes the mod's next name for it or is left out; two landing on one pack are added, so the research can take fewer packs than shown."; got != want {
 		t.Errorf("\n got: %q\nwant: %q", got, want)
 	}
 	if got, want := dropdownLadderLine,
-		"\nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."; got != want {
+		"\nAn entry your mods lack takes the mod's next name for it or is left out; two landing on one name are added, so an option can craft a shorter list than it shows."; got != want {
 		t.Errorf("\n got: %q\nwant: %q", got, want)
 	}
-	// AND THE PACKS ARM SAYS "SCIENCE PACK" WHERE THE INGREDIENT ARM SAYS
-	// "SOMETHING", because a packs field takes nothing else and a player
-	// reading "something" there would be told a wider rule than the field has.
-	if strings.Contains(textLadderLine(true), "science pack") {
-		t.Errorf("an ingredient setting's ladder line names a science pack: %q", textLadderLine(true))
+	// AND THE PACKS ARM IS IN THE PACKS VOCABULARY THROUGHOUT, which is what
+	// separates the two: a pack rather than an entry, and a research that takes
+	// fewer of them rather than a craft. A packs field takes nothing but packs,
+	// and a player reading the ingredient arm there would be told about a craft
+	// on a field that prices a research. BOTH DIRECTIONS, because a switch
+	// wired backwards passes whichever one is written alone.
+	if strings.Contains(textLadderLine(true), "pack") {
+		t.Errorf("an ingredient setting's ladder line names a pack: %q", textLadderLine(true))
 	}
-	if !strings.Contains(textLadderLine(false), "science pack") {
-		t.Errorf("a packs setting's ladder line names no science pack: %q", textLadderLine(false))
+	if !strings.Contains(textLadderLine(false), "the research can take fewer packs") {
+		t.Errorf("a packs setting's ladder line does not price a research in packs: %q", textLadderLine(false))
+	}
+	if strings.Contains(textLadderLine(false), "what you craft") {
+		t.Errorf("a packs setting's ladder line talks about a craft: %q", textLadderLine(false))
+	}
+	// AND THE DROPDOWN ARM DIFFERS FROM THE INGREDIENT TEXT ARM IN ITS CLOSING
+	// CLAUSE ALONE, which is the one thing about it a reader can check: the
+	// lists it is about are OPTIONS the player is choosing between, so it says
+	// what an option crafts rather than what you craft.
+	if !strings.Contains(dropdownLadderLine, "an option can craft") {
+		t.Errorf("an ingredient dropdown's ladder line does not name the option: %q", dropdownLadderLine)
+	}
+	if strings.Contains(dropdownLadderLine, "what you craft") {
+		t.Errorf("an ingredient dropdown's ladder line carries the text setting's closing clause: %q", dropdownLadderLine)
 	}
 	// A LINE, NOT A SEPARATOR, and the instruction a player acts on opens it.
 	// The dropdown label beside this is the consumer's prose and the client
@@ -2728,13 +2801,15 @@ func TestTheComposedTextLinesAreTheStatedOnes(t *testing.T) {
 // one line down and would stop being true if the ladder line were moved above
 // the default line instead.
 //
-// THE NEGATIVE ARM IS THE OTHER HALF OF THE SAME RULE. A text setting beside a
-// dropdown carries NO ladder line, because the lists a player chooses between
-// are that dropdown's presets and dropdownLadderLine discloses the ladder
-// there; a composition that carried both would say one thing twice on one
-// screen. Every other assertion in this file compares whole transcripts built
-// from the same constants and would move with the source, so a reordering or a
-// duplication that keeps every line is caught here and nowhere else.
+// THE NEGATIVE ARM IS THE OTHER HALF OF THE SAME RULE. A text setting beside an
+// INGREDIENT dropdown carries NO ladder line, because the lists a player
+// chooses between are that dropdown's presets and dropdownLadderLine discloses
+// the ladder there; a composition that carried both would say one thing twice
+// on one screen. Beside a COST dropdown it carries the line, because that
+// dropdown carries none, and the third block here is that arm. Every other
+// assertion in this file compares whole transcripts built from the same
+// constants and would move with the source, so a reordering or a duplication
+// that keeps every line is caught here and nowhere else.
 func TestTheLadderLineSitsUnderTheListItIsAbout(t *testing.T) {
 	// The STANDALONE TEXT composition: default line, ladder line, format line.
 	for _, ingredients := range []bool{true, false} {
@@ -2804,6 +2879,91 @@ func TestTheLadderLineSitsUnderTheListItIsAbout(t *testing.T) {
 	}
 	if localisedCarries(text, textLadderLine(true)) {
 		t.Errorf("the text setting beside the dropdown carries the ladder line: %s", renderValue(text))
+	}
+
+	// AND THE PACKS TEXT BESIDE A COST DROPDOWN KEEPS THE LINE, which is the
+	// other arm of the rule and the one "no dropdown beside it" got wrong: a
+	// cost dropdown renders no list of internal names and composes no ladder
+	// line, so this field is the only one of the pair where a player can read
+	// the rule at all, and under the earlier rule neither of them said it.
+	costOps, err := packsBesideCostDropdownPlan().PlanSettings(settingsWorld())
+	assertNoError(t, err)
+	tierDesc, ok := field(costOps[0].Proto, "localised_description")
+	if !ok {
+		t.Fatal("the cost dropdown carries no composed description")
+	}
+	packsDesc, ok := field(costOps[1].Proto, "localised_description")
+	if !ok {
+		t.Fatal("the packs setting carries no composed description")
+	}
+	// UNDER ITS OWN DEFAULT LINE, the same placement the standalone shape has,
+	// because that line is the list this one is about.
+	if got, w := packsDesc.Arr[3], textLadderLine(false); got.Kind != KindStr || got.Str != w {
+		t.Errorf("the line under the packs default line is %s, want the ladder line %q",
+			renderValue(got), w)
+	}
+	// AND THE COST DROPDOWN CARRIES NONE OF THE THREE, which is what says the
+	// line did not simply move to the other field.
+	for _, line := range []string{textLadderLine(true), textLadderLine(false), dropdownLadderLine} {
+		if localisedCarries(tierDesc, line) {
+			t.Errorf("the cost dropdown carries a ladder line: %s", renderValue(tierDesc))
+		}
+	}
+
+	// AND THE ONE PLAN WHERE "IS IT AN INGREDIENT DROPDOWN" AND "DOES IT
+	// COMPOSE THE LADDER" ARE DIFFERENT QUESTIONS. Nothing refuses a recipe and
+	// a technology that name ONE dropdown, and settingDescriptions walks
+	// recipes first, so what lands on that dropdown is the technology's cost
+	// presets and no ladder line at all. The ingredient text bound to the
+	// recipe must therefore keep the line: the dropdown beside it did not take
+	// it over. A predicate that asked the KIND would answer "an ingredient
+	// dropdown has it" and leave both fields of that pair silent, and it is
+	// the only plan in the estate that separates the two answers.
+	shared := New()
+	medium2 := shared.DropdownSettingNeedingLocale("shared-choice", "water", []string{"water", "oil"})
+	quench2 := shared.IngredientsSetting("shared-ingredients", []Ingredient{IngredientNamed(2, "steel-plate")})
+	packs2 := shared.PacksSetting("shared-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+	count2 := shared.IntSetting("shared-count", 0, Between(0, 100000))
+	seconds2 := shared.IntSetting("shared-seconds", 0, Between(0, 600))
+	plate2 := shared.Item("shared-plate", ItemSpec{})
+	shared.Recipe(plate2, RecipeSpec{
+		IngredientsBy: &IngredientChoices{
+			Setting: medium2,
+			Choices: []IngredientChoice{
+				{Value: "water", Ingredients: []Ingredient{IngredientNamed(2, "steel-plate")}},
+				{Value: "oil", Ingredients: []Ingredient{IngredientNamed(3, "steel-plate")}},
+			},
+		},
+		IngredientsFrom: quench2,
+	})
+	shared.Technology("shared-tech", TechSpec{
+		CostBy: &CostChoices{
+			Setting: medium2,
+			Choices: []CostChoice{
+				{Value: "water", Sources: []string{"mining-productivity-4"}},
+				{Value: "oil"},
+			},
+			Fallback: UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+		},
+		CostFrom: &CustomCost{Packs: packs2, Count: count2, Seconds: seconds2},
+	})
+	sharedOps, err := shared.PlanSettings(settingsWorld())
+	assertNoError(t, err)
+	sharedDrop, ok := field(sharedOps[0].Proto, "localised_description")
+	if !ok {
+		t.Fatal("the shared dropdown carries no composed description")
+	}
+	if localisedCarries(sharedDrop, dropdownLadderLine) {
+		t.Fatalf("the shared dropdown composes the ladder line after all, so this rig proves nothing: %s",
+			renderValue(sharedDrop))
+	}
+	sharedText, ok := field(sharedOps[1].Proto, "localised_description")
+	if !ok {
+		t.Fatal("the text setting beside the shared dropdown carries no composed description")
+	}
+	if !localisedCarries(sharedText, textLadderLine(true)) {
+		t.Errorf("the text setting beside a dropdown that composes no ladder line carries none either: %s",
+			renderValue(sharedText))
 	}
 }
 

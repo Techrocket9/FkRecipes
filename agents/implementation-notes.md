@@ -2579,6 +2579,58 @@ Every gate in CLAUDE.md's Gates block, exit codes read directly. `gofmt -l .` pr
 
 No 2.1.17 binary is on this machine and every composed setting description moved, so those two rows would otherwise carry a settings hash this library no longer produces. Their settings hash is set to the 2.0.77 capture's, on the golden's own documented property that all four rows share one (a setting prototype is this library's own and no engine has moved one), and `testdata/ingame/dump-sha256.txt` carries a dated paragraph saying the value is DERIVED and not captured, so a 2.1 machine confirms or refutes it by running the gate. Their DATA hashes stand as recorded, because nothing in this round touches the data stage.
 
+## The fix pass (2026-09-22): the ladder rule and the shortened sentences
+
+The refute review of the commits above sent back one design change and six documentation defects. The design change is the one that matters and it is recorded as decisions 6 and 7 in `agents/customizer-design.md`'s fix round 4: the ladder line goes onto a text setting UNLESS the dropdown beside it composes one itself, which restores the line to a science-pack field bound beside a `CostBy` tier, and the three ladder sentences are rewritten shorter.
+
+**THE PREDICATE IS SPELLED ONCE AND BOTH READERS ASK IT.** `textCarriesLadderLine` / `text_carries_ladder_line` is what `settingDescriptions` / `plan_settings` composes from and what `guardedTextDescription` / `guarded_text_description` hands the drift guard, so the emitted description and the guard cannot disagree. Under it, `dropdownComposesLadderLine` / `dropdown_composes_ladder_line` mirrors the composing walk's own shape, recipes then technologies with the last writer winning, rather than asking whether the dropdown is an ingredient one. The two differ on exactly one plan and it is one the library already documents rather than refuses: a recipe and a technology may both name one dropdown, and the technology's cost presets are what land there. Asking the kind would leave that text setting silent about a ladder its neighbour does not disclose either.
+
+**WHAT THE PLAYER READS, in characters, library part then whole**, `python3 scripts/tooltip-sizes.py testdata/mirror/transcript.golden`, at `master`, at `474ea9e` (the round's first pass) and at this commit:
+
+| setting | shape | master | first pass | now |
+|---|---|---|---|---|
+| `quench-ingredients` | ingredient text beside an ingredient dropdown | 850 of 886 | 411 of 447 | 411 of 447 |
+| `chain-ingredients` | ingredient text beside an ingredient dropdown | 812 of 847 | 373 of 408 | 373 of 408 |
+| `tips-packs` | pack text beside a cost dropdown | 762 of 790 | 322 of 350 | 477 of 505 |
+| `rivet-ingredients` | standalone ingredient text | 752 of 787 | 618 of 653 | 503 of 538 |
+| `chain-packs` | standalone pack text | 696 of 725 | 562 of 591 | 448 of 477 |
+| `quench-medium` | ingredient dropdown with a text beside it | 579 of 610 | 490 of 521 | 395 of 426 |
+| `chain-links` | ingredient dropdown with a text beside it | 522 of 551 | 433 of 462 | 338 of 367 |
+| `tips-research-tier` | cost dropdown | 133 of 169 | 133 of 169 | 133 of 169 |
+| `tips-count` | research number beside a dropdown | 80 of 108 | 104 of 132 | 104 of 132 |
+
+`tips-packs` is the only figure that goes UP against the first pass, by the 155 bytes of the packs ladder line, and it is the rule change paying its own price: that field is now the only one of its pair where a player can read what a ladder does. It is still 285 characters below where `master` had it.
+
+**THE THREE LADDER LINES MOVED, which corrects the subsection above that says they did not.** `ingredientLadderLine` 268 to **153**, `packsLadderLine` 269 to **155**, `dropdownLadderLine` 256 to **161**. CLAUDE.md's gate comment about the SETTINGS dump rested on those three numbers being over the 200-byte element ceiling, and they are not any more, so the comment is rewritten rather than re-dated: the settings dump is not walked because a setting prototype is EXEMPT from that ceiling (measured to 5000 bytes), and what would fail such a walk today is a text setting's DEFAULT LINE, which renders the author's declared list into one unchunked element bounded by the parser's 2000 characters. Measured on the gate's own artifact, the widest element in the settings dump is now 161 bytes and it is `dropdownLadderLine`.
+
+**THE PACKS ARM STOPPED SAYING `science pack`**, which is eight bytes on a field that takes nothing else. The host assertion that it contains that string is gone with the string; what both halves and both gates assert instead is the closing clause, in both directions: the packs arm says `so the research can take fewer packs` and must not say `so what you craft can be shorter than shown`, and the ingredient arm the reverse. The two ingredient arms now differ in their closing clause ALONE, so the gates read the ending rather than the opening.
+
+**WHAT THE PASS COSTS IN THE PACKAGED MODULE.** Both `notext` fixtures built and packaged with one `fklua` (built from FkLua at `16508c8`), TinyGo 0.41.1, cargo 1.97.1, `GOTOOLCHAIN=go1.26.6`, both trees staged at equal-length scratch paths; the BEFORE column is `474ea9e` re-measured here and it reproduces the figures `README.md` carried for that head exactly, which is what says the method is the same one.
+
+| `notext` guest | `fk_data_module.lua` | lines |
+|---|---|---|
+| go | 3,049,700 to 3,057,510 (+7,810) | 77,440 to 77,657 (+217) |
+| rust | 2,620,255 to 2,625,302 (+5,047) | 64,079 to 64,222 (+143) |
+
+The module got LONGER again while the prose got shorter, for the same reason the first pass did: two predicate functions are more code than 330 bytes of deleted sentence is data.
+
+**`README.md`'s STRING-DATA FIGURE GOES TO 1,140 BYTES OVER 24 LITERALS, and the enumeration is complete now rather than partial**, which is the second defect the review found in it: the 633 it replaces left out the three ladder lines, which are in both packaged `notext` modules, and it counted the range line's shared `.` twice while `README.md` called the same group four literals and this file called it six. Every literal in the new figure was checked present in BOTH packaged modules before it was summed, in the escaped form the packaged Lua spells a newline with (`\10`). The groups: the format line 47 and 12, the `none` clause 70, the fallback line 109, the preset head 12, the switch lines 45, 40, 86, 13, 47 and the two words 5 and 5, the range lines 39, 53, 21, 4 and the `.` at 1 counted once, the three ladder sentences 153, 155 and 161, a cost preset's 10 and 19, and the frame `\ndefault: ` at 10 and `mod-setting-description` at 23.
+
+### The fix pass's red proofs
+
+Six, each taken in a scratch copy of the tree, the failure text read, and the copy thrown away. The third is the one worth reading: it came back GREEN and a new rig was written for it.
+
+| What was broken | What went red |
+|---|---|
+| Go `textCarriesLadderLine` returns `d < 0`, the superseded rule | 2 Go tests. `TestTheLadderLineSitsUnderTheListItIsAbout`: `the line under the packs default line is "\nInternal names, as on the default line, up to 2000 characters.", want the ladder line "\nA pack your mods lack takes the mod's next name for it or is left out; ..."`. `TestTheDriftGuardInspectsTheFirstTextSettingOnly`: `the guard was told a packs setting beside a cost dropdown carries no ladder line`, and two lines with it |
+| Rust `text_carries_ladder_line` the same | 2 Rust tests. `the_ladder_line_sits_under_the_list_it_is_about`: `the line under the packs default line is not the ladder line`, `left: Str("\nInternal names, ...")`. `the_drift_guard_inspects_the_first_text_setting_only`: the returned tuple's fourth field `false` against `true` |
+| `dropdownComposesLadderLine` / `dropdown_composes_ladder_line` loses the technology loop, which is the predicate asking the KIND rather than the composing walk's shape | **NOTHING, on the estate as it stood**, and that is the finding: the only plan that separates the two answers is a recipe and a technology naming ONE dropdown, and no fixture built it. A rig for it is now in the placement test in both halves, and with it the break reddens `TestTheLadderLineSitsUnderTheListItIsAbout` with `the text setting beside a dropdown that composes no ladder line carries none either: ["", ["?", ["mod-setting-description.steelworks-shared-ingredients"], ...` and its Rust twin with the same sentence. The rig asserts its own premise first, so a plan that stopped separating them fails loudly instead of passing vacuously |
+| The ladder flag forced TRUE in both halves, against the GATES | the mirror, three named: `a text setting beside a dropdown does not say which option decides` (the positional pin, one line down), `the text setting fkrecipes-example-quench-ingredients carries the ladder line the dropdown beside it already carries` and the same for `chain-ingredients`. The engine gate: `a text setting beside an ingredient dropdown carries no ladder line (the dump says false)` |
+| The ladder flag back to the superseded rule in both halves, against the GATES | the mirror: `a packs text setting beside a cost dropdown carries no ladder line, and the cost dropdown carries none either`. The engine gate: `a packs setting beside a cost dropdown discloses the ladder (the dump says false)` |
+| The packs ladder line given the INGREDIENT closing clause | Go 4 sites, including `a packs setting's ladder line does not price a research in packs` and `a packs setting's ladder line talks about a craft`; Rust `the_composed_text_lines_are_the_stated_ones` and the transcript pin; the mirror, five named, including `the packs setting fkrecipes-example-chain-packs carries the ingredient vocabulary of the ladder line` and the same for `tips-packs`; the engine gate: `no packs setting carries the ingredient vocabulary of the ladder line (the dump says false)` |
+
+The two gate classes had to be reached through a re-record in the broken copy, because the committed golden fails first and the named checks run after it. That is the same procedure the first pass used, and the re-recorded golden never left the scratch copy.
+
 ### What is owed
 
 Phase B: `Describes`, a per-choice description on a cost preset, and `DescribeSetting` on any setting. None of it is in this round and nothing here anticipates it.

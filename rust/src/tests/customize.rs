@@ -307,28 +307,50 @@ fn the_composed_text_lines_are_the_stated_ones() {
     // number in no tooltip and in no declaration.
     assert_eq!(
         text_ladder_line(true),
-        "\nWhere a list this mod chose names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."
+        "\nAn entry your mods lack takes the mod's next name for it or is left out; two landing on one name are added, so what you craft can be shorter than shown."
     );
     assert_eq!(
         text_ladder_line(false),
-        "\nWhere a list this mod chose names a science pack your mods do not have, the next name it offers is used instead; a pack it offers nothing for is left out, and two that land on one pack have their amounts added, so the research can take fewer packs than the list shows."
+        "\nA pack your mods lack takes the mod's next name for it or is left out; two landing on one pack are added, so the research can take fewer packs than shown."
     );
     assert_eq!(
         DROPDOWN_LADDER_LINE,
-        "\nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."
+        "\nAn entry your mods lack takes the mod's next name for it or is left out; two landing on one name are added, so an option can craft a shorter list than it shows."
     );
-    // AND THE PACKS ARM SAYS "science pack" WHERE THE INGREDIENT ARM SAYS
-    // "something", because a packs field takes nothing else and a player
-    // reading "something" there would be told a wider rule than the field has.
+    // AND THE PACKS ARM IS IN THE PACKS VOCABULARY THROUGHOUT, which is what
+    // separates the two: a pack rather than an entry, and a research that takes
+    // fewer of them rather than a craft. A packs field takes nothing but packs,
+    // and a player reading the ingredient arm there would be told about a craft
+    // on a field that prices a research. BOTH DIRECTIONS, because a switch
+    // wired backwards passes whichever one is written alone.
     assert!(
-        !text_ladder_line(true).contains("science pack"),
-        "an ingredient setting's ladder line names a science pack: {}",
+        !text_ladder_line(true).contains("pack"),
+        "an ingredient setting's ladder line names a pack: {}",
         text_ladder_line(true)
     );
     assert!(
-        text_ladder_line(false).contains("science pack"),
-        "a packs setting's ladder line names no science pack: {}",
+        text_ladder_line(false).contains("the research can take fewer packs"),
+        "a packs setting's ladder line does not price a research in packs: {}",
         text_ladder_line(false)
+    );
+    assert!(
+        !text_ladder_line(false).contains("what you craft"),
+        "a packs setting's ladder line talks about a craft: {}",
+        text_ladder_line(false)
+    );
+    // AND THE DROPDOWN ARM DIFFERS FROM THE INGREDIENT TEXT ARM IN ITS CLOSING
+    // CLAUSE ALONE, which is the one thing about it a reader can check: the
+    // lists it is about are OPTIONS the player is choosing between, so it says
+    // what an option crafts rather than what you craft.
+    assert!(
+        DROPDOWN_LADDER_LINE.contains("an option can craft"),
+        "an ingredient dropdown's ladder line does not name the option: {}",
+        DROPDOWN_LADDER_LINE
+    );
+    assert!(
+        !DROPDOWN_LADDER_LINE.contains("what you craft"),
+        "an ingredient dropdown's ladder line carries the text setting's closing clause: {}",
+        DROPDOWN_LADDER_LINE
     );
     // A LINE, NOT A SEPARATOR, and the instruction a player acts on opens it.
     // The dropdown label beside this is the consumer's prose and the client
@@ -348,12 +370,14 @@ fn the_composed_text_lines_are_the_stated_ones() {
 /// true one line down and would stop being true if the ladder line were moved
 /// above the default line instead.
 ///
-/// THE NEGATIVE ARM IS THE OTHER HALF OF THE SAME RULE. A text setting beside a
-/// dropdown carries NO ladder line, because the lists a player chooses between
-/// are that dropdown's presets and `DROPDOWN_LADDER_LINE` discloses the ladder
-/// there; a composition that carried both would say one thing twice on one
-/// screen. Every other assertion in this file compares whole transcripts built
-/// from the same constants and would move with the source, so a reordering or a
+/// THE NEGATIVE ARM IS THE OTHER HALF OF THE SAME RULE. A text setting beside
+/// an INGREDIENT dropdown carries NO ladder line, because the lists a player
+/// chooses between are that dropdown's presets and `DROPDOWN_LADDER_LINE`
+/// discloses the ladder there; a composition that carried both would say one
+/// thing twice on one screen. Beside a COST dropdown it carries the line,
+/// because that dropdown carries none, and the third block here is that arm.
+/// Every other assertion in this file compares whole transcripts built from the
+/// same constants and would move with the source, so a reordering or a
 /// duplication that keeps every line is caught here and nowhere else. The Go
 /// half holds the same test.
 #[test]
@@ -481,6 +505,210 @@ fn the_ladder_line_sits_under_the_list_it_is_about() {
             .any(|v| matches!(v, Value::Str(s) if s == text_ladder_line(true))),
         "the text setting beside the dropdown carries the ladder line"
     );
+
+    // AND THE PACKS TEXT BESIDE A COST DROPDOWN KEEPS THE LINE, which is the
+    // other arm of the rule and the one "no dropdown beside it" got wrong: a
+    // cost dropdown renders no list of internal names and composes no ladder
+    // line, so this field is the only one of the pair where a player can read
+    // the rule at all, and under the earlier rule neither of them said it. The
+    // Go half builds the same plan through a helper both of its tests reach;
+    // here the guard's own arm lives in another module and builds its own.
+    let ops = packs_beside_cost_dropdown().expect("plan refused");
+    let crate::op::Op::Extend(proto) = &ops[0] else {
+        panic!("the first op is not the cost dropdown")
+    };
+    let Value::Arr(tier_desc) = field(proto, "localised_description").expect("no description")
+    else {
+        panic!("the description is not a localised string")
+    };
+    let crate::op::Op::Extend(proto) = &ops[1] else {
+        panic!("the second op is not the packs setting")
+    };
+    let Value::Arr(packs_desc) = field(proto, "localised_description").expect("no description")
+    else {
+        panic!("the description is not a localised string")
+    };
+    // UNDER ITS OWN DEFAULT LINE, the same placement the standalone shape has,
+    // because that line is the list this one is about.
+    assert_eq!(
+        packs_desc[3],
+        Value::string(text_ladder_line(false)),
+        "the line under the packs default line is not the ladder line"
+    );
+    // AND THE COST DROPDOWN CARRIES NONE OF THE THREE, which is what says the
+    // line did not simply move to the other field.
+    for line in [
+        text_ladder_line(true),
+        text_ladder_line(false),
+        DROPDOWN_LADDER_LINE,
+    ] {
+        assert!(
+            !tier_desc
+                .iter()
+                .any(|v| matches!(v, Value::Str(s) if s == line)),
+            "the cost dropdown carries a ladder line"
+        );
+    }
+
+    // AND THE ONE PLAN WHERE "IS IT AN INGREDIENT DROPDOWN" AND "DOES IT
+    // COMPOSE THE LADDER" ARE DIFFERENT QUESTIONS. Nothing refuses a recipe and
+    // a technology that name ONE dropdown, and `composed_dropdown_presets`
+    // walks recipes first, so what lands on that dropdown is the technology's
+    // cost presets and no ladder line at all. The ingredient text bound to the
+    // recipe must therefore keep the line: the dropdown beside it did not take
+    // it over. A predicate that asked the KIND would answer "an ingredient
+    // dropdown has it" and leave both fields of that pair silent, and it is the
+    // only plan in the estate that separates the two answers.
+    let ops = shared_dropdown().expect("plan refused");
+    let crate::op::Op::Extend(proto) = &ops[0] else {
+        panic!("the first op is not the shared dropdown")
+    };
+    let Value::Arr(shared_drop) = field(proto, "localised_description").expect("no description")
+    else {
+        panic!("the description is not a localised string")
+    };
+    assert!(
+        !shared_drop
+            .iter()
+            .any(|v| matches!(v, Value::Str(s) if s == DROPDOWN_LADDER_LINE)),
+        "the shared dropdown composes the ladder line after all, so this rig proves nothing"
+    );
+    let crate::op::Op::Extend(proto) = &ops[1] else {
+        panic!("the second op is not the text setting")
+    };
+    let Value::Arr(shared_text) = field(proto, "localised_description").expect("no description")
+    else {
+        panic!("the description is not a localised string")
+    };
+    assert!(
+        shared_text
+            .iter()
+            .any(|v| matches!(v, Value::Str(s) if s == text_ladder_line(true))),
+        "the text setting beside a dropdown that composes no ladder line carries none either"
+    );
+}
+
+/// One dropdown named by BOTH a recipe's `ingredients_by` and a technology's
+/// `cost_by`, planned. Nothing refuses it, and the technology's cost presets
+/// are what land on the dropdown because that walk runs second, so the dropdown
+/// comes out with no ladder line on it at all.
+fn shared_dropdown() -> Result<alloc::vec::Vec<crate::op::Op>, String> {
+    use crate::plan::{CostChoice, CostChoices, CustomCost, NumericSpec, Pack, TechSpec, UnitSpec};
+
+    let mut lib = Lib::new();
+    let medium = lib.dropdown_setting_needing_locale("shared-choice", "water", &["water", "oil"]);
+    let text = lib.ingredients_setting(
+        "shared-ingredients",
+        alloc::vec![Ingredient::named(2, "steel-plate", &[])],
+    );
+    let packs = lib.packs_setting(
+        "shared-packs",
+        alloc::vec![Pack::named(1, "automation-science-pack", &[])],
+    );
+    let count = lib.int_setting("shared-count", 0, NumericSpec::between(0.0, 100000.0));
+    let seconds = lib.int_setting("shared-seconds", 0, NumericSpec::between(0.0, 600.0));
+    let plate = lib.item("shared-plate", ItemSpec::default());
+    lib.recipe(
+        plate,
+        RecipeSpec {
+            ingredients_by: Some(IngredientChoices {
+                setting: medium,
+                choices: alloc::vec![
+                    IngredientChoice {
+                        value: "water".into(),
+                        ingredients: alloc::vec![Ingredient::named(2, "steel-plate", &[])],
+                    },
+                    IngredientChoice {
+                        value: "oil".into(),
+                        ingredients: alloc::vec![Ingredient::named(3, "steel-plate", &[])],
+                    },
+                ],
+            }),
+            ingredients_from: Some(text),
+            ..Default::default()
+        },
+    );
+    lib.technology(
+        "shared-tech",
+        TechSpec {
+            cost_by: Some(CostChoices {
+                setting: medium,
+                choices: alloc::vec![
+                    CostChoice {
+                        value: String::from("water"),
+                        sources: alloc::vec![String::from("mining-productivity-4")],
+                    },
+                    CostChoice {
+                        value: String::from("oil"),
+                        sources: alloc::vec![],
+                    },
+                ],
+                fallback: UnitSpec {
+                    count: 200,
+                    seconds: 30.0,
+                    packs: alloc::vec![Pack::named(1, "automation-science-pack", &[])],
+                },
+            }),
+            cost_from: Some(CustomCost {
+                packs,
+                count,
+                seconds,
+            }),
+            ..Default::default()
+        },
+    );
+    lib.plan_settings(&settings_world())
+}
+
+/// A packs text setting whose technology also names a COST dropdown, planned.
+///
+/// A cost dropdown's presets are a localised label and a localised technology
+/// name, so it composes no ladder line of its own and the packs field beside it
+/// is the only one of the two where the ladder can be disclosed. The settings
+/// come back in declaration order, so the dropdown is at 0 and the packs
+/// setting at 1.
+fn packs_beside_cost_dropdown() -> Result<alloc::vec::Vec<crate::op::Op>, String> {
+    use crate::plan::{CostChoice, CostChoices, CustomCost, NumericSpec, Pack, TechSpec, UnitSpec};
+
+    let mut lib = Lib::new();
+    let tier =
+        lib.dropdown_setting_needing_locale("tips-tier", "projectile", &["projectile", "none"]);
+    let packs = lib.packs_setting(
+        "tips-packs",
+        alloc::vec![Pack::named(1, "automation-science-pack", &[])],
+    );
+    let count = lib.int_setting("tips-count", 0, NumericSpec::between(0.0, 100000.0));
+    let seconds = lib.int_setting("tips-seconds", 0, NumericSpec::between(0.0, 600.0));
+    lib.technology(
+        "hardened-tips",
+        TechSpec {
+            cost_by: Some(CostChoices {
+                setting: tier,
+                choices: alloc::vec![
+                    CostChoice {
+                        value: String::from("projectile"),
+                        sources: alloc::vec![String::from("mining-productivity-4")],
+                    },
+                    CostChoice {
+                        value: String::from("none"),
+                        sources: alloc::vec![],
+                    },
+                ],
+                fallback: UnitSpec {
+                    count: 200,
+                    seconds: 30.0,
+                    packs: alloc::vec![Pack::named(1, "automation-science-pack", &[])],
+                },
+            }),
+            cost_from: Some(CustomCost {
+                packs,
+                count,
+                seconds,
+            }),
+            ..Default::default()
+        },
+    );
+    lib.plan_settings(&settings_world())
 }
 
 /// THE DROPDOWN'S DESCRIPTION IS COMPOSED, because the engine will not let the
@@ -529,7 +757,7 @@ fn plan_settings_composes_a_dropdown_with_a_custom_arm() {
     assert_composed(
         &transcript(&ops)[..1],
         &[
-            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="aa", allowed_values=["water", "oil"], localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "\n  to type: 2 steel-plate, 10 [fluid=water]"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "\n  to type: 3 steel-plate"], "\nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown.", "\nThe setting below applies instead while it does not say default."]}"#,
+            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="aa", allowed_values=["water", "oil"], localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "\n  to type: 2 steel-plate, 10 [fluid=water]"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "\n  to type: 3 steel-plate"], "\nAn entry your mods lack takes the mod's next name for it or is left out; two landing on one name are added, so an option can craft a shorter list than it shows.", "\nThe setting below applies instead while it does not say default."]}"#,
         ],
     );
 }
@@ -575,7 +803,7 @@ fn a_bare_ingredient_dropdown_composes_the_ladder_line_alone() {
         &transcript(&ops)[..1],
         &[
             r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="aa", allowed_values=["water", "oil"], localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"], "
-Where an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."]}"#,
+An entry your mods lack takes the mod's next name for it or is left out; two landing on one name are added, so an option can craft a shorter list than it shows."]}"#,
         ],
     );
 
@@ -645,7 +873,7 @@ fn the_switch_lines_follow_the_emitted_order() {
         &transcript(&ops),
         &[
             r#"extend {type="string-setting", name="steelworks-quench-ingredients", setting_type="startup", default_value="default", order="aa", auto_trim=true, localised_description=["", ["?", ["mod-setting-description.steelworks-quench-ingredients"], "steelworks-quench-ingredients"], "\ndefault: 2 steel-plate"<text tail below>]}"#,
-            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="z", allowed_values=["water", "oil"], localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "\n  to type: 2 steel-plate"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "\n  to type: 3 steel-plate"], "\nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown.", "\nThe setting above applies instead while it does not say default."]}"#,
+            r#"extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup", default_value="water", order="z", allowed_values=["water", "oil"], localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "\n  to type: 2 steel-plate"], ["", "\n", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "\n  to type: 3 steel-plate"], "\nAn entry your mods lack takes the mod's next name for it or is left out; two landing on one name are added, so an option can craft a shorter list than it shows.", "\nThe setting above applies instead while it does not say default."]}"#,
         ],
     );
 }
@@ -931,7 +1159,7 @@ fn an_ingredient_description_nests_past_seventeen_presets() {
     assert_eq!(
         &flat[flat.len() - 2..],
         &[
-            Value::string("\nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."),
+            Value::string("\nAn entry your mods lack takes the mod's next name for it or is left out; two landing on one name are added, so an option can craft a shorter list than it shows."),
             Value::string("\nThe setting below applies instead while it does not say default."),
         ],
         "the two trailing lines are not the ladder line and the switch line"
@@ -957,7 +1185,7 @@ fn an_ingredient_description_nests_past_seventeen_presets() {
     );
     assert_eq!(
         group[1],
-        Value::string("\nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."),
+        Value::string("\nAn entry your mods lack takes the mod's next name for it or is left out; two landing on one name are added, so an option can craft a shorter list than it shows."),
         "the nested group does not open with the ladder line"
     );
     assert_eq!(
