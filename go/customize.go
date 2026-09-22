@@ -1461,7 +1461,19 @@ const ingredientPresetHead = "\n  to type: "
 // survives whole. Before the wrapper a source no installed mod declared cost
 // the consumer the entire tooltip, silently, which is what the client probe
 // measured.
+//
+// AND Display REPLACES THE WHOLE TAIL, both arms of it. An author who writes
+// one is saying what this option costs in their own words, which is the one
+// thing this stage cannot work out for itself: it sees mods and never
+// data.raw, so what it would otherwise name is the ladder's FIRST rung, which
+// is the truth about the declaration and can be false about the game. It
+// replaces "the fallback cost" as readily as it replaces a technology's name,
+// because a choice with no source at all is exactly one an author may want to
+// describe. See CostChoice.Display.
 func costPresetTail(c CostChoice) []Value {
+	if c.Display != "" {
+		return []Value{Str(": " + c.Display)}
+	}
 	if len(c.Sources) == 0 {
 		return []Value{Str(": the fallback cost")}
 	}

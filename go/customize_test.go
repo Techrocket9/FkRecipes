@@ -4281,3 +4281,82 @@ func assertSameDescriptions(t *testing.T, want, got map[string]string, what stri
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// CostChoice.Display: what a cost preset says it costs, in the author's words.
+// ---------------------------------------------------------------------------
+
+// costDisplayPlan is one cost dropdown with two choices, the first naming a
+// source and the second naming none, so both arms of costPresetTail are on one
+// screen. display, where it is not empty, goes on the choice at withDisplay.
+func costDisplayPlan(withDisplay int, display string) *Lib {
+	lib := New()
+	tier := lib.DropdownSettingNeedingLocale("tips-tier", "projectile", []string{"projectile", "none"})
+	packs := lib.PacksSetting("tips-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+	count := lib.IntSetting("tips-count", 0, Between(0, 100000))
+	seconds := lib.IntSetting("tips-seconds", 0, Between(0, 600))
+	choices := []CostChoice{
+		{Value: "projectile", Sources: []string{"mining-productivity-4"}},
+		{Value: "none"},
+	}
+	if display != "" {
+		choices[withDisplay].Display = display
+	}
+	lib.Technology("hardened-tips", TechSpec{
+		CostBy: &CostChoices{
+			Setting:  tier,
+			Choices:  choices,
+			Fallback: UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+		},
+		CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
+	})
+	return lib
+}
+
+// A Display REPLACES THE COMPOSED TAIL, on the arm that names a technology and
+// on the arm that says "the fallback cost" alike, and a choice without one is
+// untouched beside it.
+func TestACostPresetSaysWhatItCostsInTheAuthorsWords(t *testing.T) {
+	plain := describedSettings(t, costDisplayPlan(0, ""))["steelworks-tips-tier"]
+	for _, want := range []string{": cost of ", "technology-name.mining-productivity-4", ": the fallback cost"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("the rig does not compose %q, so this test proves nothing: %s", want, plain)
+		}
+	}
+
+	// THE SOURCE ARM. The key goes with the tail it was part of.
+	sourced := describedSettings(t, costDisplayPlan(0, "after promethium science, or the rocket silo without Space Age"))["steelworks-tips-tier"]
+	if !strings.Contains(sourced, ": after promethium science, or the rocket silo without Space Age") {
+		t.Errorf("the override is not composed: %s", sourced)
+	}
+	for _, unwanted := range []string{": cost of ", "technology-name.mining-productivity-4"} {
+		if strings.Contains(sourced, unwanted) {
+			t.Errorf("the overridden choice still composes %q: %s", unwanted, sourced)
+		}
+	}
+	// AND THE CHOICE BESIDE IT IS UNTOUCHED, which is what says the override is
+	// per choice rather than per dropdown.
+	if !strings.Contains(sourced, ": the fallback cost") {
+		t.Errorf("the choice without an override moved: %s", sourced)
+	}
+
+	// THE FALLBACK ARM, because a choice with no source at all is exactly one
+	// an author may want to describe.
+	fallback := describedSettings(t, costDisplayPlan(1, "whatever this mod already asked you for"))["steelworks-tips-tier"]
+	if !strings.Contains(fallback, ": whatever this mod already asked you for") {
+		t.Errorf("the override is not composed on the sourceless choice: %s", fallback)
+	}
+	if strings.Contains(fallback, ": the fallback cost") {
+		t.Errorf("the overridden sourceless choice still composes the library's own tail: %s", fallback)
+	}
+}
+
+// AND THE OVERRIDE TAKES THE ADVISORY WITH IT, because the advisory is about a
+// key the composition names and an overridden choice names none.
+func TestACostPresetDisplayTakesItsAdvisoryAway(t *testing.T) {
+	want := "note: the dropdown setting steelworks-tips-tier composes the game's own key technology-name.mining-productivity-4," +
+		" which this plan does not own; where the game does not define it the tooltip shows mining-productivity-4 instead," +
+		" and defining it here would rename it for every mod"
+	assertFindings(t, costDisplayPlan(0, "").CheckLocaleAdvisories("steelworks"), []string{want})
+	assertFindings(t, costDisplayPlan(0, "the mid tier's own price").CheckLocaleAdvisories("steelworks"), nil)
+}

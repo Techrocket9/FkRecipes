@@ -726,6 +726,7 @@ fn tier_plan_priced(choices: Vec<CostChoice>, packs: Vec<Pack>) -> Lib {
 
 fn cost_choice(value: &str, sources: &[&str]) -> CostChoice {
     CostChoice {
+        display: String::new(),
         value: value.into(),
         sources: sources.iter().map(|s| String::from(*s)).collect(),
     }

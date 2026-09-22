@@ -1158,6 +1158,7 @@ fn a_unit_naming_one_pack_twice_is_refused() {
                 describes: false,
                 setting: tier,
                 choices: vec![crate::plan::CostChoice {
+                    display: String::new(),
                     value: "cheap".into(),
                     sources: strings(&["logistics-2"]),
                 }],

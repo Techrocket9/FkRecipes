@@ -350,7 +350,12 @@ func (l *Lib) composedGameKeyAdvisories(prefix string) []string {
 		}
 		full := s.emittedName(prefix)
 		for _, choice := range p.cost {
-			if len(choice.Sources) == 0 {
+			// A CHOICE CARRYING Display NAMES NO KEY AT ALL, so there is
+			// nothing to advise about: the composed tail is the author's own
+			// literal and the technology-name reference is not composed for
+			// that line. Taking the advisory away is the second thing the
+			// override is for.
+			if len(choice.Sources) == 0 || choice.Display != "" {
 				continue
 			}
 			line := gameKeyAdvisory(full, "technology-name."+choice.Sources[0], choice.Sources[0])

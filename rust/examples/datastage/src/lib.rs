@@ -329,6 +329,7 @@ mod guest {
                         // count_formula and level cap come across with the
                         // unit.
                         CostChoice {
+                            display: String::new(),
                             value: String::from("projectile"),
                             sources: vec![
                                 String::from("tungsten-hardening"),
@@ -336,6 +337,7 @@ mod guest {
                             ],
                         },
                         CostChoice {
+                            display: String::new(),
                             value: String::from("military"),
                             sources: vec![String::from("military-4")],
                         },

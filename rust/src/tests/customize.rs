@@ -37,6 +37,7 @@ fn cheap_tier(setting: crate::plan::DropdownSettingRef) -> crate::plan::CostChoi
         describes: false,
         setting,
         choices: vec![crate::plan::CostChoice {
+            display: String::new(),
             value: "a".into(),
             sources: strings(&["logistics-2"]),
         }],
@@ -639,10 +640,12 @@ fn shared_dropdown() -> Result<alloc::vec::Vec<crate::op::Op>, String> {
                 setting: medium,
                 choices: alloc::vec![
                     CostChoice {
+                        display: String::new(),
                         value: String::from("water"),
                         sources: alloc::vec![String::from("mining-productivity-4")],
                     },
                     CostChoice {
+                        display: String::new(),
                         value: String::from("oil"),
                         sources: alloc::vec![],
                     },
@@ -691,10 +694,12 @@ fn packs_beside_cost_dropdown() -> Result<alloc::vec::Vec<crate::op::Op>, String
                 setting: tier,
                 choices: alloc::vec![
                     CostChoice {
+                        display: String::new(),
                         value: String::from("projectile"),
                         sources: alloc::vec![String::from("mining-productivity-4")],
                     },
                     CostChoice {
+                        display: String::new(),
                         value: String::from("none"),
                         sources: alloc::vec![],
                     },
@@ -916,10 +921,12 @@ fn plan_settings_composes_a_cost_dropdown_with_a_custom_arm() {
                 setting: tier,
                 choices: vec![
                     crate::plan::CostChoice {
+                        display: String::new(),
                         value: "projectile".into(),
                         sources: strings(&["tungsten-hardening", "logistics-2"]),
                     },
                     crate::plan::CostChoice {
+                        display: String::new(),
                         value: "military".into(),
                         sources: strings(&["logistics-3"]),
                     },
@@ -966,6 +973,7 @@ fn a_cost_preset_with_no_source_reads_as_the_fallback() {
                 describes: false,
                 setting: tier,
                 choices: vec![crate::plan::CostChoice {
+                    display: String::new(),
                     value: "cheap".into(),
                     sources: Vec::new(),
                 }],
@@ -1028,14 +1036,17 @@ fn a_cost_preset_names_its_source_by_its_localised_name() {
                 setting: tier,
                 choices: vec![
                     crate::plan::CostChoice {
+                        display: String::new(),
                         value: "projectile".into(),
                         sources: strings(&["tungsten-hardening", "logistics-2"]),
                     },
                     crate::plan::CostChoice {
+                        display: String::new(),
                         value: "military".into(),
                         sources: strings(&["logistics-3"]),
                     },
                     crate::plan::CostChoice {
+                        display: String::new(),
                         value: "cheap".into(),
                         sources: Vec::new(),
                     },
@@ -1249,6 +1260,7 @@ fn a_cost_dropdown_description_nests_past_nineteen_presets() {
                     setting,
                     choices: (0..presets)
                         .map(|i| crate::plan::CostChoice {
+                            display: String::new(),
                             value: alloc::format!("t{}", i),
                             sources: vec![alloc::format!("source-{}", i)],
                         })
@@ -2371,10 +2383,12 @@ fn a_dropdown_whose_choices_cover_custom_needs_no_arm() {
                 setting: tier,
                 choices: vec![
                     crate::plan::CostChoice {
+                        display: String::new(),
                         value: "a".into(),
                         sources: strings(&["logistics-2"]),
                     },
                     crate::plan::CostChoice {
+                        display: String::new(),
                         value: "custom".into(),
                         sources: strings(&["logistics-3"]),
                     },
@@ -3063,10 +3077,12 @@ fn tips_plan() -> Lib {
                 setting: tier,
                 choices: vec![
                     crate::plan::CostChoice {
+                        display: String::new(),
                         value: "cheap".into(),
                         sources: strings(&["logistics-2"]),
                     },
                     crate::plan::CostChoice {
+                        display: String::new(),
                         value: "formula".into(),
                         sources: strings(&["mining-productivity-4"]),
                     },
@@ -4641,6 +4657,7 @@ fn every_composed_shape() -> Lib {
                 describes: false,
                 setting: tier,
                 choices: vec![crate::plan::CostChoice {
+                    display: String::new(),
                     value: "projectile".into(),
                     sources: strings(&["logistics-2"]),
                 }],
@@ -4900,10 +4917,12 @@ fn shared_dropdown_plan(marked: &str) -> Lib {
                 setting: tier,
                 choices: alloc::vec![
                     CostChoice {
+                        display: String::new(),
                         value: String::from("early"),
                         sources: alloc::vec![String::from("logistics")],
                     },
                     CostChoice {
+                        display: String::new(),
                         value: String::from("mid"),
                         sources: alloc::vec![String::from("mining-productivity-4")],
                     },
@@ -5003,6 +5022,7 @@ fn describes_refuses_a_marked_cost_by_with_no_cost_from() {
                 describes: true,
                 setting: tier,
                 choices: alloc::vec![CostChoice {
+                    display: String::new(),
                     value: String::from("early"),
                     sources: alloc::vec![String::from("logistics")],
                 }],
@@ -5242,4 +5262,148 @@ Leave this at 0 and the option chosen above supplies the number; otherwise a who
         ),
     ];
     assert_eq!(described_settings(&shared_dropdown_plan("")), want);
+}
+
+// ---------------------------------------------------------------------------
+// `CostChoice::display`: what a cost preset says it costs, in the author's
+// words.
+// ---------------------------------------------------------------------------
+
+/// One cost dropdown with two choices, the first naming a source and the second
+/// naming none, so both arms of `cost_preset_tail` are on one screen.
+/// `display`, where it is not empty, goes on the choice at `with_display`.
+fn cost_display_plan(with_display: usize, display: &str) -> Lib {
+    use crate::plan::{CostChoice, CostChoices, UnitSpec};
+
+    let mut lib = Lib::new();
+    let tier =
+        lib.dropdown_setting_needing_locale("tips-tier", "projectile", &["projectile", "none"]);
+    let packs = lib.packs_setting(
+        "tips-packs",
+        alloc::vec![Pack::named(1, "automation-science-pack", &[])],
+    );
+    let count = lib.int_setting("tips-count", 0, NumericSpec::between(0.0, 100000.0));
+    let seconds = lib.int_setting("tips-seconds", 0, NumericSpec::between(0.0, 600.0));
+    let mut choices = alloc::vec![
+        CostChoice {
+            display: String::new(),
+            value: String::from("projectile"),
+            sources: alloc::vec![String::from("mining-productivity-4")],
+        },
+        CostChoice {
+            display: String::new(),
+            value: String::from("none"),
+            sources: alloc::vec![],
+        },
+    ];
+    if !display.is_empty() {
+        choices[with_display].display = String::from(display);
+    }
+    lib.technology(
+        "hardened-tips",
+        TechSpec {
+            cost_by: Some(CostChoices {
+                describes: false,
+                setting: tier,
+                choices,
+                fallback: UnitSpec {
+                    count: 200,
+                    seconds: 30.0,
+                    packs: alloc::vec![Pack::named(1, "automation-science-pack", &[])],
+                },
+            }),
+            cost_from: Some(CustomCost {
+                packs,
+                count,
+                seconds,
+            }),
+            ..Default::default()
+        },
+    );
+    lib
+}
+
+/// A `display` REPLACES THE COMPOSED TAIL, on the arm that names a technology
+/// and on the arm that says "the fallback cost" alike, and a choice without one
+/// is untouched beside it.
+#[test]
+fn a_cost_preset_says_what_it_costs_in_the_authors_words() {
+    let tier = |lib: &Lib| -> String {
+        described_settings(lib)
+            .into_iter()
+            .find(|(n, _)| n == "steelworks-tips-tier")
+            .map(|(_, d)| d)
+            .expect("the cost dropdown carries no composed description")
+    };
+
+    let plain = tier(&cost_display_plan(0, ""));
+    for want in [
+        ": cost of ",
+        "technology-name.mining-productivity-4",
+        ": the fallback cost",
+    ] {
+        assert!(
+            plain.contains(want),
+            "the rig does not compose {:?}, so this test proves nothing: {}",
+            want,
+            plain
+        );
+    }
+
+    // THE SOURCE ARM. The key goes with the tail it was part of.
+    let sourced = tier(&cost_display_plan(
+        0,
+        "after promethium science, or the rocket silo without Space Age",
+    ));
+    assert!(
+        sourced.contains(": after promethium science, or the rocket silo without Space Age"),
+        "the override is not composed: {}",
+        sourced
+    );
+    for unwanted in [": cost of ", "technology-name.mining-productivity-4"] {
+        assert!(
+            !sourced.contains(unwanted),
+            "the overridden choice still composes {:?}: {}",
+            unwanted,
+            sourced
+        );
+    }
+    // AND THE CHOICE BESIDE IT IS UNTOUCHED, which is what says the override is
+    // per choice rather than per dropdown.
+    assert!(
+        sourced.contains(": the fallback cost"),
+        "the choice without an override moved: {}",
+        sourced
+    );
+
+    // THE FALLBACK ARM, because a choice with no source at all is exactly one
+    // an author may want to describe.
+    let fallback = tier(&cost_display_plan(
+        1,
+        "whatever this mod already asked you for",
+    ));
+    assert!(
+        fallback.contains(": whatever this mod already asked you for"),
+        "the override is not composed on the sourceless choice: {}",
+        fallback
+    );
+    assert!(
+        !fallback.contains(": the fallback cost"),
+        "the overridden sourceless choice still composes the library's own tail: {}",
+        fallback
+    );
+}
+
+/// AND THE OVERRIDE TAKES THE ADVISORY WITH IT, because the advisory is about a
+/// key the composition names and an overridden choice names none.
+#[test]
+fn a_cost_preset_display_takes_its_advisory_away() {
+    assert_eq!(
+        cost_display_plan(0, "").check_locale_advisories("steelworks"),
+        ["note: the dropdown setting steelworks-tips-tier composes the game's own key technology-name.mining-productivity-4, which this plan does not own; where the game does not define it the tooltip shows mining-productivity-4 instead, and defining it here would rename it for every mod"]
+    );
+    assert_eq!(
+        cost_display_plan(0, "the mid tier's own price").check_locale_advisories("steelworks"),
+        Vec::<alloc::string::String>::new()
+    );
 }

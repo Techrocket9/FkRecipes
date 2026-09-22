@@ -658,6 +658,32 @@ type IngredientChoices struct {
 type CostChoice struct {
 	Value   string
 	Sources []string
+
+	// Display is what the composed line says this option costs, in the
+	// author's own words. Empty means absent, and the library then names the
+	// ladder's FIRST source through that technology's own locale key.
+	//
+	// WHY IT EXISTS. The settings stage sees mods and never data.raw, so the
+	// composed tail names the first rung, which is the truth about the
+	// declaration and can be false about the game: a tier whose first rung is
+	// an expansion's technology tells a base-only player their research is
+	// priced like something that does not exist in their game. A plan already
+	// branches on a mod-set bit for its declared lists, so the author can
+	// write the true sentence per mod set, and this is where it goes.
+	//
+	// IT IS LITERAL TEXT AND NOT A LOCALE KEY, on RecipeSpec.Description's
+	// rule: this library cannot wrap a key it did not compose, and a bare key
+	// in a setting's composition costs the row its whole tooltip (measured on
+	// 2.0.77). Where a choice carries one, the technology-name key is not
+	// composed for it, so CheckLocaleAdvisories has nothing to say about that
+	// choice; the override is also the one way an author can take that
+	// advisory away.
+	//
+	// IngredientChoice GETS NO TWIN, deliberately. An ingredient preset's
+	// second line is the list in internal names, and it is the one line in the
+	// tooltip a player is invited to paste; an author's prose there would be a
+	// line that cannot be pasted, standing where the pasteable one was.
+	Display string
 }
 
 // CostChoices binds a technology's research cost to a dropdown setting.

@@ -479,6 +479,7 @@ fn worst_case_plan() -> (Lib, FixtureWorld) {
                     describes: false,
                     setting: tier,
                     choices: alloc::vec![CostChoice {
+                        display: String::new(),
                         value: String::from("early"),
                         sources: alloc::vec![packless_source.clone()],
                     }],
@@ -515,6 +516,7 @@ fn worst_case_plan() -> (Lib, FixtureWorld) {
                     describes: false,
                     setting: tier,
                     choices: alloc::vec![CostChoice {
+                        display: String::new(),
                         value: String::from("early"),
                         sources: alloc::vec![absent_source.clone()],
                     }],
@@ -579,6 +581,7 @@ fn worst_case_plan() -> (Lib, FixtureWorld) {
                     describes: false,
                     setting: tier,
                     choices: alloc::vec![CostChoice {
+                        display: String::new(),
                         value: String::from("early"),
                         sources: alloc::vec![unreadable_source.clone()],
                     }],

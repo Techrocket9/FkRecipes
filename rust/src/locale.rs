@@ -404,6 +404,14 @@ impl Lib {
             };
             let full = s.emitted_name(prefix);
             for choice in choices {
+                // A CHOICE CARRYING `display` NAMES NO KEY AT ALL, so there is
+                // nothing to advise about: the composed tail is the author's
+                // own literal and the `technology-name` reference is not
+                // composed for that line. Taking the advisory away is the
+                // second thing the override is for.
+                if !choice.display.is_empty() {
+                    continue;
+                }
                 let source = match choice.sources.first() {
                     Some(s) => s,
                     None => continue,
@@ -985,10 +993,12 @@ mod tests {
                     setting: tier,
                     choices: alloc::vec![
                         CostChoice {
+                            display: String::new(),
                             value: String::from("projectile"),
                             sources: alloc::vec![String::from("physical-projectile-damage-7")],
                         },
                         CostChoice {
+                            display: String::new(),
                             value: String::from("military"),
                             sources: alloc::vec![String::from("military-4")],
                         },
@@ -1178,6 +1188,7 @@ military-4=Military 4
                         .iter()
                         .enumerate()
                         .map(|(i, s)| CostChoice {
+                            display: String::new(),
                             value: values[i].clone(),
                             sources: alloc::vec![String::from(*s)],
                         })
@@ -1309,10 +1320,12 @@ military-4=Military 4
                         setting: tier,
                         choices: alloc::vec![
                             CostChoice {
+                                display: String::new(),
                                 value: String::from("a"),
                                 sources: alloc::vec![String::from("logistics")],
                             },
                             CostChoice {
+                                display: String::new(),
                                 value: String::from("b"),
                                 sources: alloc::vec![String::from("military-4")],
                             },
@@ -1842,10 +1855,12 @@ fkrecipes-example-quench-medium-water=Water
                     setting: tier,
                     choices: alloc::vec![
                         CostChoice {
+                            display: String::new(),
                             value: String::from("projectile"),
                             sources: alloc::vec![String::from("mining-productivity-4")],
                         },
                         CostChoice {
+                            display: String::new(),
                             value: String::from("none"),
                             sources: alloc::vec![],
                         },

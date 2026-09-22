@@ -132,14 +132,17 @@ mod guest {
                     setting: tech_cost,
                     choices: vec![
                         CostChoice {
+                            display: String::new(),
                             value: String::from("logistics"),
                             sources: vec![String::from("logistics")],
                         },
                         CostChoice {
+                            display: String::new(),
                             value: String::from("logistics-2"),
                             sources: vec![String::from("logistics-2"), String::from("logistics")],
                         },
                         CostChoice {
+                            display: String::new(),
                             value: String::from("logistics-3"),
                             sources: vec![
                                 String::from("logistics-3"),
