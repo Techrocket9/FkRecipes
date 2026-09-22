@@ -203,7 +203,14 @@ rust/examples/notext    dropdowns over IngredientsBy and CostBy, no text setting
 scripts/                gate scripts: run-mirror.sh is the cross-language mirror, run-ingame.sh the
                         engine gate, and lib-report.sh the one copy both source. lib-report.sh reads
                         the jumps row out of `fklua mod --report` and prints it per language, and it
-                        is where the remedy for an fklua too old to carry that row lives
+                        is where the remedy for an fklua too old to carry that row lives.
+                        tooltip-sizes.py is NOT a gate and nothing runs it: it renders the
+                        composed localised_description off the committed mirror transcript the
+                        way a client with no locale entries would, and prints the whole size
+                        and the library's own part per prototype, so a claim about how much
+                        text a player reads carries a command
+                        (`python3 scripts/tooltip-sizes.py testdata/mirror/transcript.golden`,
+                        `-v` for the text itself)
 testdata/mirror/        the strict engine-shaped stand-in and the committed transcript golden. The
                         stand-in polices the 200-byte-per-element localised-string ceiling on every
                         data-stage prototype and skips the four setting types, which is measured
