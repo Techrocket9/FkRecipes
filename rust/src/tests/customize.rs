@@ -5116,7 +5116,8 @@ fn describes_on_the_only_declaration_changes_nothing() {
     };
     assert_eq!(
         described_settings(&only_declaration(false)),
-        described_settings(&only_declaration(true))
+        described_settings(&only_declaration(true)),
+        "marking the only declaration moved what it composes"
     );
 }
 
@@ -5214,7 +5215,8 @@ fn describes_moves_a_shared_dropdown_to_the_marked_declaration() {
 fn describes_on_the_technology_composes_the_unmarked_answer() {
     assert_eq!(
         described_settings(&shared_dropdown_plan("")),
-        described_settings(&shared_dropdown_plan("tech"))
+        described_settings(&shared_dropdown_plan("tech")),
+        "Describes on the technology composes something other than the positional default"
     );
 }
 
@@ -5272,7 +5274,11 @@ Leave this at 0 and the option chosen above supplies the number; otherwise a who
             )
         ),
     ];
-    assert_eq!(described_settings(&shared_dropdown_plan("")), want);
+    assert_eq!(
+        described_settings(&shared_dropdown_plan("")),
+        want,
+        "the unmarked rig composes something other than what it composed before Describes existed"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -5640,5 +5646,36 @@ fn check_locale_reports_a_dead_description_entry() {
     assert_eq!(
         lib.check_locale("steelworks", &with_entry),
         ["the [mod-setting-description] entry steelworks-tips-packs is never shown; the plan describes that setting inline and the engine shows the plan's description instead"]
+    );
+}
+
+/// AN INLINE DESCRIPTION IS THE ROW'S OWN TEXT AND SAYS NOTHING ABOUT THE LIST
+/// INSIDE IT. A dropdown the plan describes still needs a
+/// `[string-mod-setting]` entry per value, because that is what a player reads
+/// when they open it; a skip that stepped past a described dropdown whole
+/// stopped reporting every missing value entry of every such row.
+#[test]
+fn check_locale_still_polices_a_described_dropdowns_values() {
+    let lib = described_plan(&|lib, _, tier, _, _| {
+        lib.describe_setting(tier, "Which tier prices the bonus line in this mod set.");
+    });
+    let cfg = "[mod-setting-name]\nsteelworks-bonus-research=Bonus research\nsteelworks-tips-tier=Tier\nsteelworks-tips-packs=Packs\nsteelworks-tips-count=Units\nsteelworks-tips-seconds=Seconds\n\n[mod-setting-description]\nsteelworks-tips-packs=Amount, then name.\nsteelworks-tips-count=How many.\nsteelworks-tips-seconds=How long.\n\n[string-mod-setting]\nsteelworks-tips-tier-projectile=Projectile\n";
+    // THE VALUE ENTRY IS REPORTED AND THE DESCRIPTION IS NOT, which is the
+    // whole of the rule in one report.
+    assert_eq!(
+        lib.check_locale("steelworks", cfg),
+        ["the dropdown setting steelworks-tips-tier has no [string-mod-setting] entry for its value none"]
+    );
+
+    // AND THE NAME ENTRY IS STILL REQUIRED TOO, for the same reason: a name is
+    // one line, nothing is composed onto it, and the plan describing the row
+    // does not write it.
+    let no_name = cfg.replace("steelworks-tips-tier=Tier\n", "");
+    assert_eq!(
+        lib.check_locale("steelworks", &no_name),
+        [
+            "the setting steelworks-tips-tier has no [mod-setting-name] entry",
+            "the dropdown setting steelworks-tips-tier has no [string-mod-setting] entry for its value none",
+        ]
     );
 }

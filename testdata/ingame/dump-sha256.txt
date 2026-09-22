@@ -55,15 +55,23 @@
 # one. A 2.1 machine confirms or refutes the derivation loudly, by running the
 # gate: a mismatch there is a failure and not a skip.
 #
-# AND THEIR DATA HASHES ARE STALE, which is new and is stated rather than
-# guessed. The surface half's fixture adds three prototypes to the example
-# guest, two recipes and a technology, so the data dump moved on every engine
-# and the values below are the ones a 2.1.17 run produced BEFORE it. They are
-# left as recorded rather than derived, because nothing here can compute a data
-# hash for an engine it cannot run: a 2.1 machine re-records both rows with
-# `scripts/run-ingame.sh --update`, and until it does the 2.1 arm of this gate
-# fails on those two rows by design. The 2.0.77 rows below are captured and
-# current.
+# AND THEIR DATA HASHES ARE STALE, which is stated to the GATE and not only
+# here. The surface half's fixture adds three prototypes to the example guest,
+# two recipes and a technology, so the data dump moved on every engine and the
+# values below are the ones a 2.1.17 run produced BEFORE it. They are left as
+# recorded rather than derived, because nothing here can compute a data hash
+# for an engine it cannot run.
+#
+# A STALE ROW IS MARKED BY A SIDECAR LINE, `stale <engine> <row> <reason>`,
+# which the gate reads. Such a row still FAILS on a machine that can run it,
+# which is the point: what the marker changes is the sentence, from a bare
+# mismatch that names no remedy to one that says the row was recorded stale and
+# names `scripts/run-ingame.sh --update` as the fix. A marked row that
+# REPRODUCES fails too, with its own sentence, so a marker nothing removes
+# cannot outlive the thing it was about; and --update drops an engine's markers
+# along with its rows, because recording them is what un-stales them.
+#
+# The 2.0.77 rows below are captured and current and carry no marker.
 #
 # AND --update WRITES THE ENGINE IT RAN ON LAST, so the 2.0.77 rows sit under
 # the 2.1.17 ones here. The order carries no meaning: the gate looks its own
@@ -71,7 +79,10 @@
 #
 # Capture both rows with: scripts/run-ingame.sh --update
 
-2.1.17 default 91652e2bba65b7c0d1a123ba91d9780f42b995c0b4e84408ff0f2dce3c7edc3b 501288857a1251460f5924506abd3dfcc40c676835ab57f4fc2fc388fda240a4 base@2.1.17 core@0.0.0 elevated-rails@2.1.17 fkrecipes-example@0.1.0 quality@2.1.17 recycler@2.1.17 space-age@2.1.17
-2.1.17 flipped 83c45b19038a8cc140dfc19b381ffabb94159084ec24812eadb04fbf662451db 501288857a1251460f5924506abd3dfcc40c676835ab57f4fc2fc388fda240a4 base@2.1.17 core@0.0.0 elevated-rails@2.1.17 fkrecipes-example@0.1.0 quality@2.1.17 recycler@2.1.17 space-age@2.1.17
-2.0.77 default 84bc940e912a8f830b0ca7c62a59fe76fadd3c9742f2f2e1f377d0f7ca86110b 501288857a1251460f5924506abd3dfcc40c676835ab57f4fc2fc388fda240a4 base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
-2.0.77 flipped 2d17c1f56a46b3f53ccf9bbc51dd160415635dcf27b5819fa5a9fc50bafc8086 501288857a1251460f5924506abd3dfcc40c676835ab57f4fc2fc388fda240a4 base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
+stale 2.1.17 default recorded before the surface half added three prototypes to the example guest
+stale 2.1.17 flipped recorded before the surface half added three prototypes to the example guest
+
+2.1.17 default 91652e2bba65b7c0d1a123ba91d9780f42b995c0b4e84408ff0f2dce3c7edc3b d499e5e540e118850b0d61b49df8edb7d45d2df79768ba5af3a421e5af0c9cfd base@2.1.17 core@0.0.0 elevated-rails@2.1.17 fkrecipes-example@0.1.0 quality@2.1.17 recycler@2.1.17 space-age@2.1.17
+2.1.17 flipped 83c45b19038a8cc140dfc19b381ffabb94159084ec24812eadb04fbf662451db d499e5e540e118850b0d61b49df8edb7d45d2df79768ba5af3a421e5af0c9cfd base@2.1.17 core@0.0.0 elevated-rails@2.1.17 fkrecipes-example@0.1.0 quality@2.1.17 recycler@2.1.17 space-age@2.1.17
+2.0.77 default 84bc940e912a8f830b0ca7c62a59fe76fadd3c9742f2f2e1f377d0f7ca86110b d499e5e540e118850b0d61b49df8edb7d45d2df79768ba5af3a421e5af0c9cfd base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
+2.0.77 flipped 2d17c1f56a46b3f53ccf9bbc51dd160415635dcf27b5819fa5a9fc50bafc8086 d499e5e540e118850b0d61b49df8edb7d45d2df79768ba5af3a421e5af0c9cfd base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77

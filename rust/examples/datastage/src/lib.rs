@@ -558,9 +558,21 @@ mod guest {
             hardened,
             "Adds the hardened steel line, its scaffolding and the research that unlocks them.",
         );
+        // TWO LINES IN ONE LITERAL, deliberately: a setting prototype is
+        // exempt from the engine's 200-byte localised-string element ceiling
+        // (measured), so the literal is emitted whole and a newline in it
+        // renders as a line break. Both gates read this one back as two lines.
         lib.describe_setting(
             scaffold_parts,
-            "What one scaffold bracket is made of while this is not on default.",
+            "What one scaffold bracket is made of while this is not on default.\nLight scaffolding is the cheap bill; heavy is the one that holds a roof up.",
+        );
+        // AND THE DROPDOWN ITSELF, which is what says an inline description
+        // changes nothing about the `[string-mod-setting]` entries its values
+        // still need: the description is the row's own text and the values are
+        // what the player reads inside the list.
+        lib.describe_setting(
+            scaffold_tier,
+            "Which bill the scaffolding line is built to, and which technology pays for raising it.",
         );
 
         lib

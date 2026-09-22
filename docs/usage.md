@@ -344,7 +344,7 @@ The stored value of steelworks-rivet-ingredients could not be used, so the game 
 
 A fallback on a recipe's **ingredient text** carries one sentence more, because fixing that setting costs the player something the engine will not give back: `Changing a recipe empties an assembling machine's input slots of anything the new list does not use.` The same sentence ends the `ERROR:` line of a recipe's ingredient text, and no other note and no other fallback line carries it. A crafting time, a pack text and the two research numbers do not: a repriced research destroys nothing, and a recipe whose crafting time fell back emits the same ingredient list it always did and moves only its `energy_required`. One line per prototype, naming the first setting the walk set aside, and a crafting-time setting two recipes read puts it on both of them. A prototype nothing fell back on carries exactly what it carried before, byte for byte.
 
-The line above is ONE SENTENCE TO A PLAYER AND MAY BE SEVERAL ELEMENTS in the prototype. A localised string element may hold 200 bytes and the engine refuses the whole load over it, naming the element, and the sentences here run past that as soon as a setting name is in them. So every literal this library writes into a `localised_name` or a `localised_description` is filled to at most 180 bytes and broken at a space, and the engine joins the pieces back together with nothing between them. Your own `Description` and `DisplayName` go the same way, so neither has a length you have to keep under. Nothing about the text a player reads changes; what changes is a test that compares a whole `localised_description` value rather than the sentence it renders.
+The line above is ONE SENTENCE TO A PLAYER AND MAY BE SEVERAL ELEMENTS in the prototype. A localised string element may hold 200 bytes and the engine refuses the whole load over it, naming the element, and the sentences here run past that as soon as a setting name is in them. So every literal this library writes into an ITEM's, a RECIPE's or a TECHNOLOGY's `localised_name` or `localised_description` is filled to at most 180 bytes and broken at a space, and the engine joins the pieces back together with nothing between them. Your own `Description` and `DisplayName` go the same way, so neither has a length you have to keep under. A SETTING prototype is exempt from that ceiling and nothing composed onto one is split: measured on Factorio 2.0.77, a `string-setting` whose `localised_description` held a single 5000-byte element loaded with exit 0 and no message of any kind. Nothing about the text a player reads changes; what changes is a test that compares a whole `localised_description` value rather than the sentence it renders.
 
 A degradation the player's mod set caused writes its own trailing line in the same place and in the same voice, and it names no setting, because nothing was stored and there is nothing for anybody to go and fix. There are eleven of them, and this is all of them:
 
@@ -656,6 +656,12 @@ fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips
 
 The tier's unit is taken whole and written over field by field, so a `count_formula`, a `max_level` and any field this library has never heard of come through untouched. One exception: the engine refuses outright a unit carrying both a count and a `count_formula` (`Ambiguous definition: count and count_formula are both defined.`, measured on Factorio 2.0.77), so leaving the formula beside a count the player typed is not an option that exists. The formula is dropped in that case and one line says which setting took it:
 
+```
+fkrecipes: hardened-tips: steelworks-tips-count replaces the count_formula the projectile cost carries
+```
+
+**What dropping the formula costs, stated because nothing else states it.** An infinite technology priced by a flat count still levels, and every level then costs the same: measured on Factorio 2.0.77, a unit with `count = 500` and no formula under `max_level = "infinite"` reads `research_unit_count = 500` at level 1, level 2 and level 5. The scaling is gone from the prototype and the engine says nothing about it. The library does not refuse, because the trigger is a number a player typed and a value a player types never stops a load; the line above and the trailing line on the technology's own description are where it is disclosed.
+
 **What a cost option says it costs, in your own words.** The composed line under a cost dropdown's label names the ladder's FIRST source, through that technology's own locale key. That is the truth about your declaration and it can be false about the game: the settings stage sees `mods` and never `data.raw`, so a tier whose first rung is an expansion's technology tells a base-only player their research is priced like something their game does not have. `CostChoice.Display` (`display`) replaces the whole composed tail with a literal of yours:
 
 ```go
@@ -671,15 +677,9 @@ CostChoice {
 },
 ```
 
-It is literal text and not a locale key, on `RecipeSpec.Description`'s rule: the library cannot wrap a key it did not compose, and a bare key in a setting's composition costs that row its whole tooltip. Empty means absent. It replaces the `: the fallback cost` tail as readily as it replaces a technology's name, because a choice with no source at all is exactly one worth describing. Where a choice carries one, no `technology-name` key is composed for it, so `CheckLocaleAdvisories` has nothing to say about that choice; the override is also the one way to take that advisory away.
+It is literal text and not a locale key, on `RecipeSpec.Description`'s rule: the library cannot wrap a key it did not compose, and a bare key in a setting's composition costs that row its whole tooltip. Empty means absent. It is emitted whole, newlines and all, and is not split at a word boundary: a setting prototype is exempt from the engine's 200-byte element ceiling (measured), so a `\n` in it renders as a line break and no length is enforced. It replaces the `: the fallback cost` tail as readily as it replaces a technology's name, because a choice with no source at all is exactly one worth describing. Where a choice carries one, no `technology-name` key is composed for it, so `CheckLocaleAdvisories` has nothing to say about that choice; the override is also the one way to take that advisory away.
 
 `IngredientChoice` has no twin, deliberately. An ingredient preset's second line is the list in internal names, and it is the one line in the tooltip a player is invited to paste; prose there would be a line that cannot be pasted, standing where the pasteable one was. The same first-rung fact is disclosed for an ingredient preset by the ladder line on the same dropdown.
-
-```
-fkrecipes: hardened-tips: steelworks-tips-count replaces the count_formula the projectile cost carries
-```
-
-**What dropping the formula costs, stated because nothing else states it.** An infinite technology priced by a flat count still levels, and every level then costs the same: measured on Factorio 2.0.77, a unit with `count = 500` and no formula under `max_level = "infinite"` reads `research_unit_count = 500` at level 1, level 2 and level 5. The scaling is gone from the prototype and the engine says nothing about it. The library does not refuse, because the trigger is a number a player typed and a value a player types never stops a load; the line above and the trailing line on the technology's own description are where it is disclosed.
 
 When the count setting is left at 0 beside a formula-priced tier nothing is dropped, and the log line says `count by formula` rather than a number, because there is no number in that price:
 
@@ -784,6 +784,8 @@ Wherever the library composes onto a setting's description, the composition open
 **What it is for.** A locale entry is one string for every mod set. A plan that already branches on what is installed, which is how a mod declares one list for a base game and another for an expansion, can write the description for the mod set actually running, and no `.cfg` can do that.
 
 It is literal text and not a locale key, on the same rule `Display` and `RecipeSpec.Description` follow. The name entry stays a locale key: a name is one line and nothing is composed onto it, so `[mod-setting-name]` is required exactly as before.
+
+**The literal is emitted whole, newlines and all.** A setting prototype is exempt from the engine's 200-byte localised-string element ceiling (measured on Factorio 2.0.77: a 5000-byte element loaded with exit 0), so nothing this library composes onto a setting is split at a word boundary the way a recipe's or a technology's description is, and a `\n` in the text renders as a line break. There is no length the library enforces here; what bounds it is the tooltip's own width and how much a player will read.
 
 Three refusals, raised when a planner runs rather than at the call, because a declaration method has no error to return:
 

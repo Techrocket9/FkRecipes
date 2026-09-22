@@ -110,7 +110,7 @@ pub trait World: Named {
     /// base's science packs are `data.raw.item` entries with subgroup
     /// "science-pack", and `technology.logistics.unit.ingredients` names one
     /// of those items. So the 2.0 sentence is a 2.0 rule. The emit layer
-    /// answers this on both engines; see [`research_unit_takes_items`] for the
+    /// answers this on both engines; see `research_unit_takes_items` for the
     /// key and for what the 2.1 engine really gates on.
     ///
     /// A pack list resolves through this and never through `item_exists`,

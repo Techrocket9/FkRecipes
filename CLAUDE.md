@@ -95,10 +95,13 @@ scripts/run-ingame.sh         # the engine gate: both packaged examples under a 
                               # rows, <version> default|flipped <data> <settings> <mod set>; the
                               # settings hash is the same on both rows because the settings dump
                               # holds prototypes, not values. THE 2.1.17 ROWS' DATA HASHES ARE
-                              # STALE SINCE PHASE B and the file says so: its fixture adds three
-                              # prototypes to the example guest, nothing here can compute a data
-                              # hash for an engine it cannot run, and the 2.1 arm of this gate
-                              # fails on those two rows until a 2.1 machine re-records them.
+                              # STALE SINCE PHASE B and the GATE knows: a sidecar line
+                              # `stale <engine> <row> <reason>` marks such a row, and a marked row
+                              # still FAILS on a machine that can run it while saying WHY and
+                              # naming --update as the remedy, which is this file's own
+                              # loud-with-the-remedy rule rather than a bare mismatch. A marked
+                              # row that REPRODUCES fails too, so the marker cannot rot, and
+                              # --update drops an engine's markers with its rows.
                               # The flipped row also keeps the
                               # mod-settings.dat the ENGINE rewrote and reads it back with
                               # `fklua modsettings read`, so what the engine kept is asserted

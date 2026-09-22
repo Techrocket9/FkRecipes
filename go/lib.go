@@ -235,6 +235,16 @@ func (r PacksSettingRef) settingRef() (uint64, int)       { return r.lib, r.inde
 // described twice and a handle from another plan are each refused by name when
 // a planner runs.
 func (l *Lib) DescribeSetting(r SettingRef, text string) {
+	// A NIL INTERFACE TAKES THE FOREIGN-HANDLE ROAD rather than panicking.
+	// The Rust mirror cannot be handed one, because its parameter is a value
+	// of a concrete handle type; Go's interface can be nil, and a nil there is
+	// the same mistake as a handle from another plan, so it is refused by the
+	// same sentence at the same place instead of aborting the data stage with
+	// a Lua-side stack trace naming nothing.
+	if r == nil {
+		l.describeForeign = true
+		return
+	}
 	lib, index := r.settingRef()
 	if lib != l.id || index < 1 || index > len(l.settings) {
 		l.describeForeign = true

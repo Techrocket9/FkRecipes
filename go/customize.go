@@ -251,47 +251,6 @@ func namedCostSources(spec *TechSpec) int {
 // the walk SKIPS that declaration and leaves the sentence to the data
 // planner's own loop: a plan with two problems should be answered by the one
 // its author is likelier to recognise, and "pick one" is that sentence.
-// validateDescriptions is every rule about DescribeSetting, and both planners
-// run it because validateBindings does.
-//
-// IT LIVES BESIDE THE BINDING RULES RATHER THAN IN validateSettings, and the
-// reason is which planners run each: validateSettings is the settings stage's
-// alone, and a description the plan wrote is a declaration the DATA stage must
-// refuse too, because a plan that refuses at one stage and loads at the other
-// is a mod whose two halves disagree about what it declares.
-//
-// THE ORDER IS THE CALL'S AND THEN THE DECLARATION'S. A handle from another
-// plan is answered first, because nothing about it names a setting of this
-// plan at all; the described-twice sentences follow in CALL order, which is
-// the order an author reads their own file in; and the empty-description
-// sentences last, in declaration order.
-func (l *Lib) validateDescriptions(prefix string) error {
-	at := "fkrecipes: "
-	if l.describeForeign {
-		return errors.New(at + "DescribeSetting names a setting that this plan never declared")
-	}
-	// THE FIRST SUCH CALL IN CALL ORDER, which is the same every run and the
-	// same in both halves, and is the one an author reaches first reading
-	// their own file.
-	if len(l.describedTwice) > 0 {
-		return errors.New(at + "the setting " + l.settings[l.describedTwice[0]-1].emittedName(prefix) +
-			" is described twice; DescribeSetting takes one description")
-	}
-	for _, s := range l.settings {
-		// AN EMPTY DESCRIPTION IS NOT THE SAME AS NO DESCRIPTION, which is
-		// why the call is recorded separately from what it carried. A setting
-		// emitted with an empty localised_description is a row whose info icon
-		// says nothing, and the author who wrote the call meant to say
-		// something.
-		if s.described && s.description == "" {
-			return errors.New(at + "DescribeSetting was given an empty description for the setting " +
-				s.emittedName(prefix))
-		}
-
-	}
-	return nil
-}
-
 func (l *Lib) validateBindings(prefix string) error {
 	at := "fkrecipes: "
 	if err := l.validateDescriptions(prefix); err != nil {
@@ -305,10 +264,6 @@ func (l *Lib) validateBindings(prefix string) error {
 	// first.
 	armedByRecipe := make([]int, len(l.settings))
 	armedByTech := make([]int, len(l.settings))
-	// AND ONE DROPDOWN SHOWS ONE DECLARATION'S PRESETS, which is what
-	// Describes says out loud. Counted in the same two walks and refused after
-	// both of them, for the reason the two above are.
-	described := make([]int, len(l.settings))
 
 	for _, r := range l.recipes {
 		who := "the recipe " + r.name
@@ -331,9 +286,6 @@ func (l *Lib) validateBindings(prefix string) error {
 		}
 		if r.spec.IngredientsFrom.index != 0 {
 			armedByRecipe[by.Setting.index-1]++
-		}
-		if by.Describes {
-			described[by.Setting.index-1]++
 		}
 		// The presets are RENDERED into the dropdown's description at the
 		// settings stage, so they have to be renderable there. The data
@@ -392,7 +344,6 @@ func (l *Lib) validateBindings(prefix string) error {
 				l.settings[by.Setting.index-1].emittedName(prefix) +
 				", but a CostBy with no CostFrom composes nothing onto a dropdown")
 		}
-		described[by.Setting.index-1]++
 	}
 
 	// The composed description is ONE declaration's presets, so two of them
@@ -415,7 +366,24 @@ func (l *Lib) validateBindings(prefix string) error {
 			return errors.New(at + "the setting " + full +
 				" takes a text setting from more than one technology; one dropdown composes one description")
 		}
-		if described[i] > 1 {
+		// AND ONE DROPDOWN SHOWS ONE DECLARATION'S PRESETS, which is what
+		// Describes says out loud. IT IS COUNTED OVER THE COMPOSING WALK'S OWN
+		// CANDIDATE LIST rather than over a second walk of this function's,
+		// so the refusal and the composition cannot disagree about which
+		// declarations are in the running for a dropdown at all.
+		//
+		// IT RUNS AFTER BOTH WALKS ABOVE, so a marked CostBy with no CostFrom
+		// is answered by its own sentence first: such a technology is not a
+		// candidate here, and the reader would otherwise be told to unmark one
+		// of two declarations when what they have is one that composes
+		// nothing.
+		marked := 0
+		for _, c := range l.dropdownCandidates(i + 1) {
+			if c.marked {
+				marked++
+			}
+		}
+		if marked > 1 {
 			return errors.New(at + "the setting " + full +
 				" is described by more than one declaration; a dropdown shows one declaration's presets, so mark exactly one of them with Describes")
 		}
@@ -459,6 +427,47 @@ func (l *Lib) validateBindings(prefix string) error {
 			return errors.New(at + "the setting " + s.name +
 				" is read as a research count or time by more than one declaration; a custom cost's number serves exactly one")
 		}
+	}
+	return nil
+}
+
+// validateDescriptions is every rule about DescribeSetting, and both planners
+// run it because validateBindings does.
+//
+// IT LIVES BESIDE THE BINDING RULES RATHER THAN IN validateSettings, and the
+// reason is which planners run each: validateSettings is the settings stage's
+// alone, and a description the plan wrote is a declaration the DATA stage must
+// refuse too, because a plan that refuses at one stage and loads at the other
+// is a mod whose two halves disagree about what it declares.
+//
+// THE ORDER IS THE CALL'S AND THEN THE DECLARATION'S. A handle from another
+// plan is answered first, because nothing about it names a setting of this
+// plan at all; the described-twice sentences follow in CALL order, which is
+// the order an author reads their own file in; and the empty-description
+// sentences last, in declaration order.
+func (l *Lib) validateDescriptions(prefix string) error {
+	at := "fkrecipes: "
+	if l.describeForeign {
+		return errors.New(at + "DescribeSetting names a setting that this plan never declared")
+	}
+	// THE FIRST SUCH CALL IN CALL ORDER, which is the same every run and the
+	// same in both halves, and is the one an author reaches first reading
+	// their own file.
+	if len(l.describedTwice) > 0 {
+		return errors.New(at + "the setting " + l.settings[l.describedTwice[0]-1].emittedName(prefix) +
+			" is described twice; DescribeSetting takes one description")
+	}
+	for _, s := range l.settings {
+		// AN EMPTY DESCRIPTION IS NOT THE SAME AS NO DESCRIPTION, which is
+		// why the call is recorded separately from what it carried. A setting
+		// emitted with an empty localised_description is a row whose info icon
+		// says nothing, and the author who wrote the call meant to say
+		// something.
+		if s.described && s.description == "" {
+			return errors.New(at + "DescribeSetting was given an empty description for the setting " +
+				s.emittedName(prefix))
+		}
+
 	}
 	return nil
 }
@@ -678,21 +687,6 @@ func validateDeclaredPacks(at, who string, packs []Pack) error {
 // control stage. The settings screen has no conditional visibility either
 // (measured), so no field can be hidden while the other one decides, and
 // saying which is which in the description is what the library can do instead.
-// settingDescriptionHead is what every composed description opens with: the
-// consumer's own [mod-setting-description] key, wrapped in the alternatives
-// form, or the literal the plan wrote through DescribeSetting.
-//
-// ONE FUNCTION FOR ALL THREE COMPOSITIONS, because the choice is the same
-// choice on a text setting, a research number and a composed dropdown alike,
-// and a second spelling is how one of the three could keep composing a key the
-// plan replaced.
-func (l *Lib) settingDescriptionHead(i int, full string) Value {
-	if s := l.settings[i]; s.described {
-		return Str(s.description)
-	}
-	return localeRef("mod-setting-description", full, full)
-}
-
 func (l *Lib) settingDescriptions(prefix string) []Value {
 	out := make([]Value, len(l.settings))
 	for i := range out {
@@ -750,6 +744,21 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 	return out
 }
 
+// settingDescriptionHead is what every composed description opens with: the
+// consumer's own [mod-setting-description] key, wrapped in the alternatives
+// form, or the literal the plan wrote through DescribeSetting.
+//
+// ONE FUNCTION FOR ALL THREE COMPOSITIONS, because the choice is the same
+// choice on a text setting, a research number and a composed dropdown alike,
+// and a second spelling is how one of the three could keep composing a key the
+// plan replaced.
+func (l *Lib) settingDescriptionHead(i int, full string) Value {
+	if s := l.settings[i]; s.described {
+		return Str(s.description)
+	}
+	return localeRef("mod-setting-description", full, full)
+}
+
 // presetsKind says which of the two shapes a dropdown's composed description
 // is built from.
 type presetsKind uint8
@@ -801,33 +810,77 @@ type composedPresets struct {
 func (l *Lib) composedDropdownPresets(index int) *composedPresets {
 	var found *composedPresets
 	marked := false
+	for _, c := range l.dropdownCandidates(index) {
+		// A MARKED CANDIDATE WINS, and among unmarked ones the LAST does,
+		// which is the positional rule every plan written before Describes
+		// keeps. Among marked ones the last still wins, which is what makes
+		// this total: two marked declarations are refused by
+		// validateBindings, and the locale checker, which validates nothing,
+		// still gets an answer rather than a panic.
+		if marked && !c.marked {
+			continue
+		}
+		presets := c.presets
+		found = &presets
+		marked = marked || c.marked
+	}
+	return found
+}
+
+// dropdownCandidate is one declaration the composing walk CONSIDERS for a
+// dropdown: what it would compose onto it, and whether Describes marks it.
+type dropdownCandidate struct {
+	presets composedPresets
+	marked  bool
+}
+
+// dropdownCandidates is every declaration that reaches the dropdown setting at
+// index (1-BASED) under the composition's own conditions, recipes then
+// technologies in declaration order.
+//
+// IT IS SPLIT OUT SO THE REFUSAL CAN ASK IT. validateBindings refuses two
+// marked declarations over one dropdown, and counting that for itself would be
+// a SECOND SPELLING of which declarations reach a dropdown at all: the refusal
+// and the composition could then disagree about whether a declaration is even
+// in the running. With this walk shared, "marked" is counted over exactly the
+// set the winner is chosen from.
+func (l *Lib) dropdownCandidates(index int) []dropdownCandidate {
+	var out []dropdownCandidate
 	for _, r := range l.recipes {
 		by := r.spec.IngredientsBy
+		// EXACTLY THE CONDITION validateBindings STEPPED PAST, len(Ingredients)
+		// and all: a recipe it stepped past is one whose choices it never
+		// validated, and rendering an unvalidated choice would dereference an
+		// item handle nothing proved.
 		if by == nil || len(r.spec.Ingredients) > 0 || !l.validDropdownSetting(by.Setting) {
 			continue
 		}
-		if by.Setting.index != index || (marked && !by.Describes) {
+		if by.Setting.index != index {
 			continue
 		}
 		text := 0
 		if l.validIngredientsSetting(r.spec.IngredientsFrom) {
 			text = r.spec.IngredientsFrom.index
 		}
-		found = &composedPresets{kind: presetsIngredients, ingredients: by.Choices, text: text}
-		marked = marked || by.Describes
+		out = append(out, dropdownCandidate{
+			presets: composedPresets{kind: presetsIngredients, ingredients: by.Choices, text: text},
+			marked:  by.Describes,
+		})
 	}
 	for _, t := range l.techs {
 		if !l.costDropdownComposesPresetLines(&t.spec) {
 			continue
 		}
 		by := t.spec.CostBy
-		if by.Setting.index != index || (marked && !by.Describes) {
+		if by.Setting.index != index {
 			continue
 		}
-		found = &composedPresets{kind: presetsCost, cost: by.Choices, text: t.spec.CostFrom.Packs.index}
-		marked = marked || by.Describes
+		out = append(out, dropdownCandidate{
+			presets: composedPresets{kind: presetsCost, cost: by.Choices, text: t.spec.CostFrom.Packs.index},
+			marked:  by.Describes,
+		})
 	}
-	return found
+	return out
 }
 
 // dropdownDescription is the whole localised_description a composed dropdown is

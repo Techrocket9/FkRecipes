@@ -427,56 +427,6 @@ impl Lib {
     /// sentence to the data planner's own loop: a plan with two problems
     /// should be answered by the one its author is likelier to recognise, and
     /// "pick one" is that sentence.
-    /// Every rule about `describe_setting`, and both planners run it because
-    /// `validate_bindings` does.
-    ///
-    /// IT LIVES BESIDE THE BINDING RULES RATHER THAN IN `validate_settings`,
-    /// and the reason is which planners run each: `validate_settings` is the
-    /// settings stage's alone, and a description the plan wrote is a
-    /// declaration the DATA stage must refuse too, because a plan that refuses
-    /// at one stage and loads at the other is a mod whose two halves disagree
-    /// about what it declares.
-    ///
-    /// THE ORDER IS THE CALL'S AND THEN THE DECLARATION'S. A handle from
-    /// another plan is answered first, because nothing about it names a
-    /// setting of this plan at all; the described-twice sentences follow in
-    /// CALL order, which is the order an author reads their own file in; and
-    /// the empty-description sentences last, in declaration order.
-    pub(crate) fn validate_descriptions(&self, prefix: &str) -> Result<(), String> {
-        let at = "fkrecipes: ";
-        if self.describe_foreign {
-            return Err(format!(
-                "{}DescribeSetting names a setting that this plan never declared",
-                at
-            ));
-        }
-        // THE FIRST SUCH CALL IN CALL ORDER, which is the same every run and
-        // the same in both halves, and is the one an author reaches first
-        // reading their own file.
-        if let Some(index) = self.described_twice.first() {
-            return Err(format!(
-                "{}the setting {} is described twice; DescribeSetting takes one description",
-                at,
-                self.settings[index - 1].emitted_name(prefix)
-            ));
-        }
-        for s in &self.settings {
-            // AN EMPTY DESCRIPTION IS NOT THE SAME AS NO DESCRIPTION, which is
-            // why the call is recorded separately from what it carried. A
-            // setting emitted with an empty localised_description is a row
-            // whose info icon says nothing, and the author who wrote the call
-            // meant to say something.
-            if s.described && s.description.is_empty() {
-                return Err(format!(
-                    "{}DescribeSetting was given an empty description for the setting {}",
-                    at,
-                    s.emitted_name(prefix)
-                ));
-            }
-        }
-        Ok(())
-    }
-
     pub(crate) fn validate_bindings(&self, prefix: &str) -> Result<(), String> {
         let at = "fkrecipes: ";
         self.validate_descriptions(prefix)?;
@@ -490,10 +440,6 @@ impl Lib {
         // order rather than whichever walk noticed first.
         let mut armed_by_recipe = alloc::vec![0usize; self.settings.len()];
         let mut armed_by_tech = alloc::vec![0usize; self.settings.len()];
-        // AND ONE DROPDOWN SHOWS ONE DECLARATION'S PRESETS, which is what
-        // `describes` says out loud. Counted in the same two walks and refused
-        // after both of them, for the reason the two above are.
-        let mut described = alloc::vec![0usize; self.settings.len()];
 
         for r in &self.recipes {
             let who = format!("the recipe {}", r.name);
@@ -528,9 +474,6 @@ impl Lib {
             }
             if r.spec.ingredients_from.is_some() {
                 armed_by_recipe[by.setting.index - 1] += 1;
-            }
-            if by.describes {
-                described[by.setting.index - 1] += 1;
             }
             // The presets are RENDERED into the dropdown's description at the
             // settings stage, so they have to be renderable there. The data
@@ -598,7 +541,6 @@ impl Lib {
                     self.settings[by.setting.index - 1].emitted_name(prefix)
                 ));
             }
-            described[by.setting.index - 1] += 1;
         }
 
         // The composed description is ONE declaration's presets, so two of
@@ -631,7 +573,25 @@ impl Lib {
                     s.emitted_name(prefix)
                 ));
             }
-            if described[i] > 1 {
+            // AND ONE DROPDOWN SHOWS ONE DECLARATION'S PRESETS, which is what
+            // `describes` says out loud. IT IS COUNTED OVER THE COMPOSING
+            // WALK'S OWN CANDIDATE LIST rather than over a second walk of this
+            // function's, so the refusal and the composition cannot disagree
+            // about which declarations are in the running for a dropdown at
+            // all.
+            //
+            // IT RUNS AFTER BOTH WALKS ABOVE, so a marked `cost_by` with no
+            // `cost_from` is answered by its own sentence first: such a
+            // technology is not a candidate here, and the reader would
+            // otherwise be told to unmark one of two declarations when what
+            // they have is one that composes nothing.
+            if self
+                .dropdown_candidates(i + 1)
+                .iter()
+                .filter(|c| c.marked)
+                .count()
+                > 1
+            {
                 return Err(format!(
                     "{}the setting {} is described by more than one declaration; a dropdown shows one declaration's presets, so mark exactly one of them with Describes",
                     at,
@@ -722,6 +682,56 @@ impl Lib {
                 return Err(format!(
                     "{}the setting {} is read as a research count or time by more than one declaration; a custom cost's number serves exactly one",
                     at, s.name
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Every rule about `describe_setting`, and both planners run it because
+    /// `validate_bindings` does.
+    ///
+    /// IT LIVES BESIDE THE BINDING RULES RATHER THAN IN `validate_settings`,
+    /// and the reason is which planners run each: `validate_settings` is the
+    /// settings stage's alone, and a description the plan wrote is a
+    /// declaration the DATA stage must refuse too, because a plan that refuses
+    /// at one stage and loads at the other is a mod whose two halves disagree
+    /// about what it declares.
+    ///
+    /// THE ORDER IS THE CALL'S AND THEN THE DECLARATION'S. A handle from
+    /// another plan is answered first, because nothing about it names a
+    /// setting of this plan at all; the described-twice sentences follow in
+    /// CALL order, which is the order an author reads their own file in; and
+    /// the empty-description sentences last, in declaration order.
+    pub(crate) fn validate_descriptions(&self, prefix: &str) -> Result<(), String> {
+        let at = "fkrecipes: ";
+        if self.describe_foreign {
+            return Err(format!(
+                "{}DescribeSetting names a setting that this plan never declared",
+                at
+            ));
+        }
+        // THE FIRST SUCH CALL IN CALL ORDER, which is the same every run and
+        // the same in both halves, and is the one an author reaches first
+        // reading their own file.
+        if let Some(index) = self.described_twice.first() {
+            return Err(format!(
+                "{}the setting {} is described twice; DescribeSetting takes one description",
+                at,
+                self.settings[index - 1].emitted_name(prefix)
+            ));
+        }
+        for s in &self.settings {
+            // AN EMPTY DESCRIPTION IS NOT THE SAME AS NO DESCRIPTION, which is
+            // why the call is recorded separately from what it carried. A
+            // setting emitted with an empty localised_description is a row
+            // whose info icon says nothing, and the author who wrote the call
+            // meant to say something.
+            if s.described && s.description.is_empty() {
+                return Err(format!(
+                    "{}DescribeSetting was given an empty description for the setting {}",
+                    at,
+                    s.emitted_name(prefix)
                 ));
             }
         }
@@ -896,23 +906,57 @@ impl Lib {
     pub(crate) fn composed_dropdown_presets(&self, index: usize) -> Option<Presets<'_>> {
         let mut found = None;
         let mut marked = false;
+        for c in self.dropdown_candidates(index) {
+            // A MARKED CANDIDATE WINS, and among unmarked ones the LAST does,
+            // which is the positional rule every plan written before
+            // `describes` keeps. Among marked ones the last still wins, which
+            // is what makes this total: two marked declarations are refused by
+            // `validate_bindings`, and the locale checker, which validates
+            // nothing, still gets an answer rather than a panic.
+            if marked && !c.marked {
+                continue;
+            }
+            found = Some(c.presets);
+            marked = marked || c.marked;
+        }
+        found
+    }
+
+    /// Every declaration that reaches the dropdown setting at `index`
+    /// (1-BASED) under the composition's own conditions, recipes then
+    /// technologies in declaration order.
+    ///
+    /// IT IS SPLIT OUT SO THE REFUSAL CAN ASK IT. `validate_bindings` refuses
+    /// two marked declarations over one dropdown, and counting that for itself
+    /// would be a SECOND SPELLING of which declarations reach a dropdown at
+    /// all: the refusal and the composition could then disagree about whether
+    /// a declaration is even in the running. With this walk shared, "marked"
+    /// is counted over exactly the set the winner is chosen from.
+    pub(crate) fn dropdown_candidates(&self, index: usize) -> Vec<DropdownCandidate<'_>> {
+        let mut out = Vec::new();
         for r in &self.recipes {
             let by = match &r.spec.ingredients_by {
                 Some(by) => by,
                 None => continue,
             };
+            // EXACTLY THE CONDITION `validate_bindings` STEPPED PAST,
+            // `ingredients` and all: a recipe it stepped past is one whose
+            // choices it never validated, and rendering an unvalidated choice
+            // would dereference an item handle nothing proved.
             if !r.spec.ingredients.is_empty() || !self.valid_dropdown_setting(by.setting) {
                 continue;
             }
-            if by.setting.index != index || (marked && !by.describes) {
+            if by.setting.index != index {
                 continue;
             }
             let text = match r.spec.ingredients_from {
                 Some(h) if self.valid_ingredients_setting(h) => Some(h.index),
                 _ => None,
             };
-            found = Some(Presets::Ingredients(&by.choices, text));
-            marked = marked || by.describes;
+            out.push(DropdownCandidate {
+                presets: Presets::Ingredients(&by.choices, text),
+                marked: by.describes,
+            });
         }
         for t in &self.techs {
             if !self.cost_dropdown_composes_preset_lines(&t.spec) {
@@ -924,13 +968,15 @@ impl Lib {
                 .as_ref()
                 .expect("the predicate saw a dropdown");
             let cc = t.spec.cost_from.as_ref().expect("the predicate saw a cost");
-            if by.setting.index != index || (marked && !by.describes) {
+            if by.setting.index != index {
                 continue;
             }
-            found = Some(Presets::Cost(&by.choices, cc.packs.index));
-            marked = marked || by.describes;
+            out.push(DropdownCandidate {
+                presets: Presets::Cost(&by.choices, cc.packs.index),
+                marked: by.describes,
+            });
         }
-        found
+        out
     }
 
     /// The ONE SPELLING of "this technology's cost dropdown has a preset list
@@ -1254,6 +1300,13 @@ impl Lib {
 pub(crate) enum Presets<'a> {
     Ingredients(&'a [IngredientChoice], Option<usize>),
     Cost(&'a [CostChoice], usize),
+}
+
+/// One declaration the composing walk CONSIDERS for a dropdown: what it would
+/// compose onto it, and whether `describes` marks it.
+pub(crate) struct DropdownCandidate<'a> {
+    pub(crate) presets: Presets<'a>,
+    pub(crate) marked: bool,
 }
 
 /// What a research count or time setting composes from: that it backs one at

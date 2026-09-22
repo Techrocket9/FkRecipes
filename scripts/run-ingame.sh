@@ -1030,7 +1030,7 @@ jqassert "the inline-described bool carries the plan's own description whole" "$
    | length > 0 and all(. == "Adds the hardened steel line, its scaffolding and the research that unlocks them.")'
 jqassert "the inline-described ingredient text opens with the plan's own description" "$DSDUMP" \
   '[.. | objects | select(.name? == "steelworks-scaffold-parts") | .localised_description | .. | strings]
-   | length > 0 and any(. == "What one scaffold bracket is made of while this is not on default.")'
+   | length > 0 and any(startswith("What one scaffold bracket is made of while this is not on default."))'
 jqassert "no inline-described setting composes its own [mod-setting-description] key" "$DSDUMP" \
   '[.. | objects
     | select(.name? == "fkrecipes-example-hardened-tools" or .name? == "steelworks-scaffold-parts")
@@ -1041,6 +1041,25 @@ jqassert "no inline-described setting composes its own [mod-setting-description]
 jqassert "the inline-described ingredient text keeps every line composed under it" "$DSDUMP" \
   '[.. | objects | select(.name? == "steelworks-scaffold-parts") | .localised_description | .. | strings]
    | length > 0 and any(contains("Text this mod cannot use is set aside as though it said default"))'
+# AND THE LITERAL IS EMITTED WHOLE, NEWLINE AND ALL, in ONE element. A setting
+# prototype is exempt from the engine's 200-byte localised-string element
+# ceiling (measured to 5000), so nothing composed onto one is split at a word
+# boundary the way a recipe's description is, and a newline in the text is a
+# line break the player reads. Only the engine's own dump can say the newline
+# survived the property tree.
+jqassert "the inline-described ingredient text is one element with a newline in it" "$DSDUMP" \
+  '[.. | objects | select(.name? == "steelworks-scaffold-parts") | .localised_description | .. | strings]
+   | length > 0 and any(. == "What one scaffold bracket is made of while this is not on default.\nLight scaffolding is the cheap bill; heavy is the one that holds a roof up.")'
+# AND THE DESCRIBED DROPDOWN STILL CARRIES ITS VALUE LABELS, which an inline
+# description says nothing about: the description is the row's own text and the
+# [string-mod-setting] entries are what a player reads inside the list. The
+# locale checker reports a missing one, and this is the emitted half of that
+# rule.
+jqassert "the described dropdown composes a label for every value it offers" "$DSDUMP" \
+  '[.. | objects | select(.name? == "steelworks-scaffold-tier") | .localised_description | .. | strings]
+   | length > 0
+     and any(contains("string-mod-setting.steelworks-scaffold-tier-light"))
+     and any(contains("string-mod-setting.steelworks-scaffold-tier-heavy"))'
 
 jqassert "the text setting's composed description states what an unusable text costs" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-rivet-ingredients") | .localised_description]
@@ -1332,7 +1351,10 @@ if [ "$UPDATE" = 1 ]; then
     echo "  refusing to record the hash rows from a failing run" >&2
   else
     if [ -f "$GOLDEN" ]; then
-      grep -v "^$ENGINE " "$GOLDEN" > "$GOLDEN.tmp" || true
+      # THE STALE MARKERS GO WITH THE ROWS THEY MARK. Recording an engine's
+      # rows is exactly the act that un-stales them, so a marker that survived
+      # would fail every later run of a row that had just been captured.
+      grep -vE "^(stale )?$ENGINE " "$GOLDEN" > "$GOLDEN.tmp" || true
       mv "$GOLDEN.tmp" "$GOLDEN"
     else
       cat > "$GOLDEN" <<'EOF'
@@ -1390,6 +1412,19 @@ else
     fi
     want_mods="$(printf '%s' "$want" | cut -d' ' -f5-)"
     want_hashes="$(printf '%s' "$want" | cut -d' ' -f3,4)"
+    # A STALE MARKER IS A SIDECAR LINE, `stale <engine> <row> <reason>`, and it
+    # is a sidecar rather than a sixth field because the mod set is the tail of
+    # the row and has no fixed width: a marker inside the row would have to be
+    # parsed around it.
+    #
+    # IT CHANGES THE SENTENCE AND NOT THE VERDICT. CLAUDE.md's rule is that
+    # anything a gate cannot confirm fails or says NOT RUN naming the remedy,
+    # and a row recorded on an engine this machine cannot run is exactly that:
+    # it still FAILS, and what it adds is why and what to do. A marked row that
+    # REPRODUCES fails too, with its own sentence, because a marker nothing
+    # removes is one that outlives the thing it was about.
+    local stale
+    stale="$(grep "^stale $ENGINE $row " "$GOLDEN" || true)"
     if [ "$want_mods" != "$MODSET" ]; then
       echo "  SKIPPED: the $row row's mod set differs from the golden's, so the hashes are not comparable" >&2
       echo "    golden: $want_mods" >&2
@@ -1398,10 +1433,23 @@ else
       return
     fi
     if [ "$want_hashes" != "$hashes" ]; then
+      if [ -n "$stale" ]; then
+        fail "the $row row for Factorio $ENGINE is recorded STALE and this run confirms it"
+        echo "    $(printf '%s' "$stale" | cut -d' ' -f4-)" >&2
+        echo "    re-record both rows on this machine with: scripts/run-ingame.sh --update" >&2
+        echo "    golden: $want_hashes" >&2
+        echo "    here:   $hashes" >&2
+        echo "    the dumps are at $kept" >&2
+        return
+      fi
       fail "the $row dumps do not match the golden for Factorio $ENGINE"
       echo "    golden: $want_hashes" >&2
       echo "    here:   $hashes" >&2
       echo "    the dumps are at $kept" >&2
+      return
+    fi
+    if [ -n "$stale" ]; then
+      fail "the $row row for Factorio $ENGINE is marked stale and yet reproduces here; take the stale line out of $GOLDEN"
       return
     fi
     echo "  ok: the $row dumps match the golden for Factorio $ENGINE"

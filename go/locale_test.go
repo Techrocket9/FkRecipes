@@ -137,7 +137,8 @@ func steelworksSettings() *Lib {
 		Unlocks:  []RecipeRef{bracket, tie},
 	})
 	lib.DescribeSetting(hardened, "Adds the hardened steel line, its scaffolding and the research that unlocks them.")
-	lib.DescribeSetting(scaffoldParts, "What one scaffold bracket is made of while this is not on default.")
+	lib.DescribeSetting(scaffoldParts, "What one scaffold bracket is made of while this is not on default.\nLight scaffolding is the cheap bill; heavy is the one that holds a roof up.")
+	lib.DescribeSetting(scaffoldTier, "Which bill the scaffolding line is built to, and which technology pays for raising it.")
 	return lib
 }
 
@@ -207,7 +208,6 @@ fkrecipes-example-tips-seconds=Seconds per unit of research.
 fkrecipes-example-chain-packs=Amount, then pack name, commas between.
 fkrecipes-example-chain-count=How many units of research chain forging takes.
 fkrecipes-example-chain-seconds=Seconds per unit of chain forging research.
-steelworks-scaffold-tier=How heavy the scaffolding is.
 steelworks-scaffold-packs=The science packs scaffold raising takes.
 steelworks-scaffold-count=How many units of scaffold raising research.
 steelworks-scaffold-seconds=Seconds per unit of scaffold raising research.
@@ -451,7 +451,10 @@ var everyNameMissing = []string{
 	// ingredient text needs a NAME entry and no description entry, because
 	// the plan describes that one inline.
 	"the setting steelworks-scaffold-tier has no [mod-setting-name] entry",
-	"the dropdown setting steelworks-scaffold-tier has no [mod-setting-description] entry, and the library composes its preset list onto that entry",
+	// AND NO DESCRIPTION FINDING FOR IT, because the plan describes that
+	// dropdown inline. Its VALUE entries are still required, which is the
+	// narrow half of that rule: an inline description is the row's own text
+	// and says nothing about what a player reads inside the list.
 	"the dropdown setting steelworks-scaffold-tier has no [string-mod-setting] entry for its value light",
 	"the dropdown setting steelworks-scaffold-tier has no [string-mod-setting] entry for its value heavy",
 	"the setting steelworks-scaffold-parts has no [mod-setting-name] entry",
@@ -747,7 +750,7 @@ func TestCheckLocaleCapsItsFindings(t *testing.T) {
 	if len(got) != localeFindingCap+1 {
 		t.Fatalf("got %d findings, want the cap plus one closing line", len(got))
 	}
-	if got[len(got)-1] != "(and 96 more findings)" {
+	if got[len(got)-1] != "(and 95 more findings)" {
 		t.Errorf("the closing line is %q", got[len(got)-1])
 	}
 

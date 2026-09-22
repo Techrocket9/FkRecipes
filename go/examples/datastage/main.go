@@ -402,7 +402,16 @@ func plan() *fkrecipes.Lib {
 	// literal is its whole tooltip; the ingredient text has the library's own
 	// lines under it exactly as it would under a locale key.
 	lib.DescribeSetting(hardened, "Adds the hardened steel line, its scaffolding and the research that unlocks them.")
-	lib.DescribeSetting(scaffoldParts, "What one scaffold bracket is made of while this is not on default.")
+	// TWO LINES IN ONE LITERAL, deliberately: a setting prototype is exempt
+	// from the engine's 200-byte localised-string element ceiling (measured),
+	// so the literal is emitted whole and a newline in it renders as a line
+	// break. Both gates read this one back as two lines.
+	lib.DescribeSetting(scaffoldParts, "What one scaffold bracket is made of while this is not on default.\nLight scaffolding is the cheap bill; heavy is the one that holds a roof up.")
+	// AND THE DROPDOWN ITSELF, which is what says an inline description
+	// changes nothing about the [string-mod-setting] entries its values still
+	// need: the description is the row's own text and the values are what the
+	// player reads inside the list.
+	lib.DescribeSetting(scaffoldTier, "Which bill the scaffolding line is built to, and which technology pays for raising it.")
 
 	return lib
 }

@@ -482,6 +482,20 @@ if setting_carries steelworks-scaffold-parts 'mod-setting-description.steelworks
 fi
 setting_carries steelworks-scaffold-parts 'Text this mod cannot use is set aside as though it said default' ||
   fail "the inline-described ingredient text lost a composed line under the plan's own description"
+# AND THE LITERAL IS EMITTED WHOLE, NEWLINE AND ALL. A setting prototype is
+# exempt from the engine's 200-byte localised-string element ceiling (measured),
+# so nothing composed onto one is split at a word boundary the way a recipe's
+# description is, and a newline in the text is a line break the player reads.
+# The transcript spells one \n, so this is the two-line literal in ONE element.
+setting_carries steelworks-scaffold-parts 'default.\nLight scaffolding is the cheap bill' ||
+  fail "the inline-described ingredient text's two-line literal did not survive as one element"
+# AND THE DESCRIBED DROPDOWN STILL CARRIES ITS VALUE LABELS, which an inline
+# description says nothing about: the description is the row's own text and the
+# [string-mod-setting] entries are what a player reads inside the list.
+for value in light heavy; do
+  setting_carries steelworks-scaffold-tier "string-mod-setting.steelworks-scaffold-tier-$value" ||
+    fail "the described dropdown composes no label for its value $value"
+done
 
 # AND THE LINE ABOUT A WRAPPED LIST IS GONE FROM EVERY COMPOSITION. It said the
 # one thing about a rendered line a player cannot see, and it said it on every

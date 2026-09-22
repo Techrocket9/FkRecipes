@@ -4068,24 +4068,44 @@ func sharedDropdownPlan(marked string) *Lib {
 	return lib
 }
 
-// describedSettings renders every composed description in a plan, keyed by the
-// emitted setting name, so two plans can be compared whole rather than line by
+// describedSetting is one composed description, rendered, beside the emitted
+// name of the setting it belongs to.
+//
+// A SLICE IN DECLARATION ORDER AND NOT A MAP. Go's map iteration is
+// randomised, and a comparison that walked one would report the same two
+// plans' differences in a different order every run; the repository's
+// determinism rule carves out no exception for a test, and a report nobody can
+// diff twice is worth less than one they can.
+type describedSetting struct{ name, desc string }
+
+// describedSettings renders every composed description in a plan, in
+// declaration order, so two plans can be compared whole rather than line by
 // line.
-func describedSettings(t *testing.T, lib *Lib) map[string]string {
+func describedSettings(t *testing.T, lib *Lib) []describedSetting {
 	t.Helper()
 	ops, err := lib.PlanSettings(settingsWorld())
 	assertNoError(t, err)
-	out := map[string]string{}
+	var out []describedSetting
 	for _, op := range ops {
 		name, ok := field(op.Proto, "name")
 		if !ok {
 			continue
 		}
 		if desc, ok := field(op.Proto, "localised_description"); ok {
-			out[name.Str] = renderValue(desc)
+			out = append(out, describedSetting{name.Str, renderValue(desc)})
 		}
 	}
 	return out
+}
+
+// at is the composed description of one setting, or "" where it carries none.
+func at(got []describedSetting, name string) string {
+	for _, d := range got {
+		if d.name == name {
+			return d.desc
+		}
+	}
+	return ""
 }
 
 // TWO MARKED DECLARATIONS OVER ONE DROPDOWN ARE REFUSED, because a setting
@@ -4175,8 +4195,8 @@ func TestDescribesMovesASharedDropdownToTheMarkedDeclaration(t *testing.T) {
 	lib := sharedDropdownPlan("recipe")
 	desc := describedSettings(t, lib)
 
-	drop, ok := desc["wb-tier"]
-	if !ok {
+	drop := at(desc, "wb-tier")
+	if drop == "" {
 		t.Fatal("the shared dropdown carries no composed description")
 	}
 	// THE RECIPE'S PRESETS, as to-type lines, and the recipe's is the one that
@@ -4203,15 +4223,15 @@ func TestDescribesMovesASharedDropdownToTheMarkedDeclaration(t *testing.T) {
 
 	// THE INGREDIENT TEXT DROPS ITS OWN LADDER LINE, because the dropdown
 	// beside it now says the same thing in the same vocabulary.
-	if strings.Contains(desc["wb-parts"], ingredientLadderLine) {
-		t.Errorf("the ingredient text beside a dropdown that composes the ladder line carries it too: %s", desc["wb-parts"])
+	if strings.Contains(at(desc, "wb-parts"), ingredientLadderLine) {
+		t.Errorf("the ingredient text beside a dropdown that composes the ladder line carries it too: %s", at(desc, "wb-parts"))
 	}
 	// AND THE PACKS TEXT BESIDE THE SAME DROPDOWN KEEPS ITS OWN, because the
 	// sentence on the dropdown is about a list of ingredients it shows and
 	// says nothing about a research taking fewer packs. That is decision 10's
 	// pair and the whole reason the exclusion is by vocabulary.
-	if !strings.Contains(desc["wb-packs"], packsLadderLine) {
-		t.Errorf("the packs text beside the described dropdown lost its ladder line: %s", desc["wb-packs"])
+	if !strings.Contains(at(desc, "wb-packs"), packsLadderLine) {
+		t.Errorf("the packs text beside the described dropdown lost its ladder line: %s", at(desc, "wb-packs"))
 	}
 
 	// THE LOCALE OBLIGATION MOVES WITH THE COMPOSITION: the dropdown shows a
@@ -4260,24 +4280,25 @@ func TestDescribesOnTheTechnologyComposesTheUnmarkedAnswer(t *testing.T) {
 // promise of the field is that a plan which does not use it does not move. The
 // literals were taken from that commit in a worktree and not from this one.
 func TestTheUnmarkedSharedDropdownComposesWhatItAlwaysDid(t *testing.T) {
-	want := map[string]string{
-		"wb-tier":    `["", ["?", ["mod-setting-description.wb-tier"], "wb-tier"], ["", "` + "\n" + `", ["?", ["string-mod-setting.wb-tier-early"], "early"], ": cost of ", ["?", ["technology-name.logistics"], "logistics"]], ["", "` + "\n" + `", ["?", ["string-mod-setting.wb-tier-mid"], "mid"], ": cost of ", ["?", ["technology-name.mining-productivity-4"], "mining-productivity-4"]], "` + "\n" + `The setting below applies instead while it does not say default."]`,
-		"wb-parts":   `["", ["?", ["mod-setting-description.wb-parts"], "wb-parts"], "` + "\n" + `default: 2 steel-plate", "` + "\n" + `An entry your mods lack takes the mod's next name for it or is left out; two landing on one name are added, so what you craft can be shorter than shown.", "` + "\n" + `Internal names, as on the default line, up to 2000 characters. The word none empties the list, so the recipe costs nothing to craft.", "` + "\n" + `Leave this as default and the option chosen above decides; anything else applies instead.", "` + "\n" + `Text this mod cannot use is set aside as though it said default; the reason is in the log or the load error."]`,
-		"wb-packs":   `["", ["?", ["mod-setting-description.wb-packs"], "wb-packs"], "` + "\n" + `default: 1 automation-science-pack", "` + "\n" + `A pack your mods lack takes the mod's next name for it or is left out; two landing on one pack are added, so the research can take fewer packs than shown.", "` + "\n" + `Internal names, as on the default line, up to 2000 characters.", "` + "\n" + `Leave this as default and the option chosen above decides; anything else applies instead.", "` + "\n" + `Text this mod cannot use is set aside as though it said default; the reason is in the log or the load error."]`,
-		"wb-count":   `["", ["?", ["mod-setting-description.wb-count"], "wb-count"], "` + "\n" + `Leave this at 0 and the option chosen above supplies the number; otherwise a whole number up to 100000."]`,
-		"wb-seconds": `["", ["?", ["mod-setting-description.wb-seconds"], "wb-seconds"], "` + "\n" + `Leave this at 0 and the option chosen above supplies the number; otherwise a whole number up to 600."]`,
+	want := []describedSetting{
+		{"wb-tier", `["", ["?", ["mod-setting-description.wb-tier"], "wb-tier"], ["", "` + "\n" + `", ["?", ["string-mod-setting.wb-tier-early"], "early"], ": cost of ", ["?", ["technology-name.logistics"], "logistics"]], ["", "` + "\n" + `", ["?", ["string-mod-setting.wb-tier-mid"], "mid"], ": cost of ", ["?", ["technology-name.mining-productivity-4"], "mining-productivity-4"]], "` + "\n" + `The setting below applies instead while it does not say default."]`},
+		{"wb-parts", `["", ["?", ["mod-setting-description.wb-parts"], "wb-parts"], "` + "\n" + `default: 2 steel-plate", "` + "\n" + `An entry your mods lack takes the mod's next name for it or is left out; two landing on one name are added, so what you craft can be shorter than shown.", "` + "\n" + `Internal names, as on the default line, up to 2000 characters. The word none empties the list, so the recipe costs nothing to craft.", "` + "\n" + `Leave this as default and the option chosen above decides; anything else applies instead.", "` + "\n" + `Text this mod cannot use is set aside as though it said default; the reason is in the log or the load error."]`},
+		{"wb-packs", `["", ["?", ["mod-setting-description.wb-packs"], "wb-packs"], "` + "\n" + `default: 1 automation-science-pack", "` + "\n" + `A pack your mods lack takes the mod's next name for it or is left out; two landing on one pack are added, so the research can take fewer packs than shown.", "` + "\n" + `Internal names, as on the default line, up to 2000 characters.", "` + "\n" + `Leave this as default and the option chosen above decides; anything else applies instead.", "` + "\n" + `Text this mod cannot use is set aside as though it said default; the reason is in the log or the load error."]`},
+		{"wb-count", `["", ["?", ["mod-setting-description.wb-count"], "wb-count"], "` + "\n" + `Leave this at 0 and the option chosen above supplies the number; otherwise a whole number up to 100000."]`},
+		{"wb-seconds", `["", ["?", ["mod-setting-description.wb-seconds"], "wb-seconds"], "` + "\n" + `Leave this at 0 and the option chosen above supplies the number; otherwise a whole number up to 600."]`},
 	}
 	assertSameDescriptions(t, want, describedSettings(t, sharedDropdownPlan("")), "the unmarked rig")
 }
 
-func assertSameDescriptions(t *testing.T, want, got map[string]string, what string) {
+func assertSameDescriptions(t *testing.T, want, got []describedSetting, what string) {
 	t.Helper()
 	if len(want) != len(got) {
 		t.Fatalf("%s: %d composed descriptions, want %d", what, len(got), len(want))
 	}
-	for name, w := range want {
-		if got[name] != w {
-			t.Errorf("%s: %s composes\n got %s\nwant %s", what, name, got[name], w)
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("%s: parameter %d is %s composing\n got %s\nwant %s composing\n%s",
+				what, i, got[i].name, got[i].desc, want[i].name, want[i].desc)
 		}
 	}
 }
@@ -4317,7 +4338,7 @@ func costDisplayPlan(withDisplay int, display string) *Lib {
 // on the arm that says "the fallback cost" alike, and a choice without one is
 // untouched beside it.
 func TestACostPresetSaysWhatItCostsInTheAuthorsWords(t *testing.T) {
-	plain := describedSettings(t, costDisplayPlan(0, ""))["steelworks-tips-tier"]
+	plain := at(describedSettings(t, costDisplayPlan(0, "")), "steelworks-tips-tier")
 	for _, want := range []string{": cost of ", "technology-name.mining-productivity-4", ": the fallback cost"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("the rig does not compose %q, so this test proves nothing: %s", want, plain)
@@ -4325,7 +4346,7 @@ func TestACostPresetSaysWhatItCostsInTheAuthorsWords(t *testing.T) {
 	}
 
 	// THE SOURCE ARM. The key goes with the tail it was part of.
-	sourced := describedSettings(t, costDisplayPlan(0, "after promethium science, or the rocket silo without Space Age"))["steelworks-tips-tier"]
+	sourced := at(describedSettings(t, costDisplayPlan(0, "after promethium science, or the rocket silo without Space Age")), "steelworks-tips-tier")
 	if !strings.Contains(sourced, ": after promethium science, or the rocket silo without Space Age") {
 		t.Errorf("the override is not composed: %s", sourced)
 	}
@@ -4342,7 +4363,7 @@ func TestACostPresetSaysWhatItCostsInTheAuthorsWords(t *testing.T) {
 
 	// THE FALLBACK ARM, because a choice with no source at all is exactly one
 	// an author may want to describe.
-	fallback := describedSettings(t, costDisplayPlan(1, "whatever this mod already asked you for"))["steelworks-tips-tier"]
+	fallback := at(describedSettings(t, costDisplayPlan(1, "whatever this mod already asked you for")), "steelworks-tips-tier")
 	if !strings.Contains(fallback, ": whatever this mod already asked you for") {
 		t.Errorf("the override is not composed on the sourceless choice: %s", fallback)
 	}
@@ -4398,12 +4419,12 @@ func describedPlan(describe func(*Lib, BoolSettingRef, DropdownSettingRef, Packs
 // whole description.
 func TestDescribeSettingReplacesTheDescriptionEntry(t *testing.T) {
 	plain := describedSettings(t, describedPlan(nil))
-	if _, ok := plain["steelworks-bonus-research"]; ok {
+	if at(plain, "steelworks-bonus-research") != "" {
 		t.Fatal("the bool carries a description already, so this test proves nothing")
 	}
 	for _, name := range []string{"steelworks-tips-tier", "steelworks-tips-packs", "steelworks-tips-count"} {
-		if !strings.Contains(plain[name], "mod-setting-description."+name) {
-			t.Fatalf("%s does not open with its own key, so this test proves nothing: %s", name, plain[name])
+		if !strings.Contains(at(plain, name), "mod-setting-description."+name) {
+			t.Fatalf("%s does not open with its own key, so this test proves nothing: %s", name, at(plain, name))
 		}
 	}
 
@@ -4413,33 +4434,33 @@ func TestDescribeSettingReplacesTheDescriptionEntry(t *testing.T) {
 		lib.DescribeSetting(packs, "What the bonus line is priced in.")
 		lib.DescribeSetting(count, "How many units the bonus line takes.")
 	}))
-	for name, want := range map[string]string{
-		"steelworks-bonus-research": "Whether the bonus line is researchable at all.",
-		"steelworks-tips-tier":      "Which tier prices the bonus line in this mod set.",
-		"steelworks-tips-packs":     "What the bonus line is priced in.",
-		"steelworks-tips-count":     "How many units the bonus line takes.",
+	for _, c := range []describedSetting{
+		{"steelworks-bonus-research", "Whether the bonus line is researchable at all."},
+		{"steelworks-tips-tier", "Which tier prices the bonus line in this mod set."},
+		{"steelworks-tips-packs", "What the bonus line is priced in."},
+		{"steelworks-tips-count", "How many units the bonus line takes."},
 	} {
-		if !strings.Contains(desc[name], want) {
-			t.Errorf("%s does not carry the literal: %s", name, desc[name])
+		if !strings.Contains(at(desc, c.name), c.desc) {
+			t.Errorf("%s does not carry the literal: %s", c.name, at(desc, c.name))
 		}
-		if strings.Contains(desc[name], "mod-setting-description."+name) {
-			t.Errorf("%s still composes its own [mod-setting-description] key: %s", name, desc[name])
+		if strings.Contains(at(desc, c.name), "mod-setting-description."+c.name) {
+			t.Errorf("%s still composes its own [mod-setting-description] key: %s", c.name, at(desc, c.name))
 		}
 	}
 	// THE BOOL CARRIES THE LITERAL ALONE, because nothing is composed onto it
 	// for the head to open.
-	if got, want := desc["steelworks-bonus-research"], `"Whether the bonus line is researchable at all."`; got != want {
+	if got, want := at(desc, "steelworks-bonus-research"), `"Whether the bonus line is researchable at all."`; got != want {
 		t.Errorf("the bool's whole description is %s, want %s", got, want)
 	}
 	// AND EVERYTHING COMPOSED UNDER THE HEAD IS UNCHANGED, which is what says
 	// the literal replaced the head and nothing else.
-	for name, line := range map[string]string{
-		"steelworks-tips-packs": textFallbackLine,
-		"steelworks-tips-count": "\nLeave this at 0 and the option chosen above supplies the number; otherwise a whole number up to 100000.",
-		"steelworks-tips-tier":  "\nThe setting below applies instead while it does not say default.",
+	for _, c := range []describedSetting{
+		{"steelworks-tips-packs", textFallbackLine},
+		{"steelworks-tips-count", "\nLeave this at 0 and the option chosen above supplies the number; otherwise a whole number up to 100000."},
+		{"steelworks-tips-tier", "\nThe setting below applies instead while it does not say default."},
 	} {
-		if !strings.Contains(desc[name], line) {
-			t.Errorf("%s lost a composed line under the literal head: %s", name, desc[name])
+		if !strings.Contains(at(desc, c.name), c.desc) {
+			t.Errorf("%s lost a composed line under the literal head: %s", c.name, at(desc, c.name))
 		}
 	}
 
@@ -4467,6 +4488,12 @@ func TestDescribeSettingRefusals(t *testing.T) {
 	})
 	foreign := describedPlan(nil)
 	foreign.DescribeSetting(New().BoolSetting("somebody-elses", true), "Not this plan's.")
+	// A NIL INTERFACE IS THE SAME MISTAKE AND TAKES THE SAME ROAD. Go's
+	// interface can be nil where the Rust mirror's parameter cannot, so this
+	// arm exists in one half only; without it the call dereferences nil and
+	// the data stage aborts with a Lua-side trace naming nothing.
+	nilHandle := describedPlan(nil)
+	nilHandle.DescribeSetting(nil, "Nobody's setting.")
 
 	for _, c := range []struct {
 		lib  *Lib
@@ -4475,6 +4502,7 @@ func TestDescribeSettingRefusals(t *testing.T) {
 		{empty, "fkrecipes: DescribeSetting was given an empty description for the setting steelworks-bonus-research"},
 		{twice, "fkrecipes: the setting steelworks-bonus-research is described twice; DescribeSetting takes one description"},
 		{foreign, "fkrecipes: DescribeSetting names a setting that this plan never declared"},
+		{nilHandle, "fkrecipes: DescribeSetting names a setting that this plan never declared"},
 	} {
 		if _, err := c.lib.PlanSettings(settingsWorld()); err == nil || err.Error() != c.want {
 			t.Errorf("PlanSettings: got %v, want %q", err, c.want)
@@ -4516,5 +4544,45 @@ steelworks-tips-tier-none=None
 		"steelworks-tips-packs=Amount, then name.\nsteelworks-tips-tier=Which tier.", 1)
 	assertFindings(t, lib.CheckLocale("steelworks", withEntry), []string{
 		"the [mod-setting-description] entry steelworks-tips-packs is never shown; the plan describes that setting inline and the engine shows the plan's description instead",
+	})
+}
+
+// AN INLINE DESCRIPTION IS THE ROW'S OWN TEXT AND SAYS NOTHING ABOUT THE LIST
+// INSIDE IT. A dropdown the plan describes still needs a [string-mod-setting]
+// entry per value, because that is what a player reads when they open it; a
+// skip that stepped past a described dropdown whole stopped reporting every
+// missing value entry of every such row.
+func TestCheckLocaleStillPolicesADescribedDropdownsValues(t *testing.T) {
+	lib := describedPlan(func(lib *Lib, _ BoolSettingRef, tier DropdownSettingRef, _ PacksSettingRef, _ IntSettingRef) {
+		lib.DescribeSetting(tier, "Which tier prices the bonus line in this mod set.")
+	})
+	cfg := `[mod-setting-name]
+steelworks-bonus-research=Bonus research
+steelworks-tips-tier=Tier
+steelworks-tips-packs=Packs
+steelworks-tips-count=Units
+steelworks-tips-seconds=Seconds
+
+[mod-setting-description]
+steelworks-tips-packs=Amount, then name.
+steelworks-tips-count=How many.
+steelworks-tips-seconds=How long.
+
+[string-mod-setting]
+steelworks-tips-tier-projectile=Projectile
+`
+	// THE VALUE ENTRY IS REPORTED AND THE DESCRIPTION IS NOT, which is the
+	// whole of the rule in one report.
+	assertFindings(t, lib.CheckLocale("steelworks", cfg), []string{
+		"the dropdown setting steelworks-tips-tier has no [string-mod-setting] entry for its value none",
+	})
+
+	// AND THE NAME ENTRY IS STILL REQUIRED TOO, for the same reason: a name is
+	// one line, nothing is composed onto it, and the plan describing the row
+	// does not write it.
+	noName := strings.Replace(cfg, "steelworks-tips-tier=Tier\n", "", 1)
+	assertFindings(t, lib.CheckLocale("steelworks", noName), []string{
+		"the setting steelworks-tips-tier has no [mod-setting-name] entry",
+		"the dropdown setting steelworks-tips-tier has no [string-mod-setting] entry for its value none",
 	})
 }

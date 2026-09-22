@@ -174,16 +174,21 @@ func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, compl
 		// under [mod-setting-name]" every single time. The hint earns its keep
 		// where the key appears in ONE settings section and the reader cannot
 		// see why it is missing; here it would fire on nearly every finding.
-		// A SETTING THE PLAN DESCRIBES INLINE NEEDS NO ENTRY AT ALL, of any
-		// of the three kinds whose entry is otherwise required: the engine
+		// A SETTING THE PLAN DESCRIBES INLINE NEEDS NO DESCRIPTION ENTRY, of
+		// any of the three kinds whose entry is otherwise required: the engine
 		// shows the prototype's own field and the entry is never read. It is
 		// reported in the orphan walk below instead, as dead text, which is
 		// what it is.
-		if s.described {
-			continue
-		}
+		//
+		// THE SKIP IS ON THE DESCRIPTION AND ON NOTHING ELSE, which is
+		// narrower than it first shipped. A dropdown's own
+		// [string-mod-setting] entries are what the player READS IN THE LIST,
+		// and the plan describing the row says nothing about them; a skip
+		// above the whole dropdown block silently stopped reporting every
+		// missing value entry of every described dropdown. The name entry is
+		// unaffected for the same reason and is checked above this.
 		if s.kind.isText() {
-			if !localeHas(sections, "mod-setting-description", full) {
+			if !s.described && !localeHas(sections, "mod-setting-description", full) {
 				findings = append(findings, "the setting "+full+
 					" has no [mod-setting-description] entry, and a text setting needs one to say what the setting is for;"+
 					" the library composes the format, the limits and the fallback onto it")
@@ -195,7 +200,7 @@ func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, compl
 		// onto that entry, and an absent one loses both along with whatever the
 		// consumer meant to say about what the number is for.
 		if numbers[i].bound {
-			if !localeHas(sections, "mod-setting-description", full) {
+			if !s.described && !localeHas(sections, "mod-setting-description", full) {
 				findings = append(findings, "the setting "+full+
 					" has no [mod-setting-description] entry, and a research number needs one to say what the number is for;"+
 					" the library composes the range onto it")
@@ -211,7 +216,7 @@ func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, compl
 		// bare ingredient dropdown loses the one line about the ladder. Saying
 		// "its preset list" of the second would name a list that dropdown
 		// composes nothing of.
-		if composed[i] != composesNothing && !localeHas(sections, "mod-setting-description", full) {
+		if !s.described && composed[i] != composesNothing && !localeHas(sections, "mod-setting-description", full) {
 			lost := "the library composes its preset list onto that entry"
 			if composed[i] == composesLadderOnly {
 				lost = "the library composes onto that entry the line saying what a name this game does not have costs the list"

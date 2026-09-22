@@ -83,7 +83,7 @@ impl Lib {
     /// and these are the consumer's own. This function walks SETTINGS and
     /// never recipes or technologies, so the silence is structural: there is
     /// no exclusion to forget. See
-    /// [`description_ref`](crate::settings::description_ref).
+    /// `description_ref`.
     ///
     /// A DESCRIPTION IS OPTIONAL HERE, AND THAT IS A DELIBERATE DIVERGENCE
     /// from BetterBeltBalancer, which requires one. The engine's failure mode
@@ -193,15 +193,22 @@ impl Lib {
             // what 0 means are written; and a dropdown with a text setting
             // beside it has its presets composed onto its own description, so a
             // missing entry there is a key rendered raw in the tooltip.
-            let missing_description = !locale_has(&sections, "mod-setting-description", &full);
-            // A SETTING THE PLAN DESCRIBES INLINE NEEDS NO ENTRY AT ALL, of
-            // any of the three kinds whose entry is otherwise required: the
-            // engine shows the prototype's own field and the entry is never
-            // read. It is reported in the orphan walk below instead, as dead
-            // text, which is what it is.
-            if s.described {
-                continue;
-            }
+            // A SETTING THE PLAN DESCRIBES INLINE NEEDS NO DESCRIPTION
+            // ENTRY, of any of the three kinds whose entry is otherwise
+            // required: the engine shows the prototype's own field and the
+            // entry is never read. It is reported in the orphan walk below
+            // instead, as dead text, which is what it is.
+            //
+            // THE SKIP IS ON THE DESCRIPTION AND ON NOTHING ELSE, which is
+            // narrower than it first shipped. A dropdown's own
+            // `[string-mod-setting]` entries are what the player READS IN THE
+            // LIST, and the plan describing the row says nothing about them; a
+            // skip above the whole dropdown block silently stopped reporting
+            // every missing value entry of every described dropdown. The name
+            // entry is unaffected for the same reason and is checked above
+            // this.
+            let missing_description =
+                !s.described && !locale_has(&sections, "mod-setting-description", &full);
             if matches!(s.kind, SettingKind::Ingredients | SettingKind::Packs) {
                 if missing_description {
                     findings.push(format!(
@@ -377,13 +384,13 @@ impl Lib {
     /// does not tell the consumer to define it.
     ///
     /// A MISSING KEY IS NOT A DEFECT.
-    /// [`locale_ref`](crate::settings::locale_ref) wraps every composed
+    /// `locale_ref` wraps every composed
     /// reference in the engine's alternatives form, so an undefined
     /// `technology-name` key degrades to the raw internal name and the tooltip
     /// survives whole; before that wrapper it cost the consumer the entire
     /// tooltip, silently.
     ///
-    /// IT HAS A CAP OF ITS OWN, [`LOCALE_ADVISORY_CAP`], with the same closing
+    /// IT HAS A CAP OF ITS OWN, `LOCALE_ADVISORY_CAP`, with the same closing
     /// line the findings cap uses. Two reports, two budgets, and neither can
     /// crowd out the other.
     pub fn check_locale_advisories(&self, mod_name: &str) -> Vec<String> {
@@ -1183,7 +1190,11 @@ mod tests {
         );
         lib.describe_setting(
             scaffold_parts,
-            "What one scaffold bracket is made of while this is not on default.",
+            "What one scaffold bracket is made of while this is not on default.\nLight scaffolding is the cheap bill; heavy is the one that holds a roof up.",
+        );
+        lib.describe_setting(
+            scaffold_tier,
+            "Which bill the scaffolding line is built to, and which technology pays for raising it.",
         );
         lib
     }
