@@ -2694,7 +2694,7 @@ Every other row is unmoved. The cost dropdown GROWS, by 58 characters, and that 
 | go | 3,057,510 to 3,107,518 (+50,008) | 77,657 to 78,849 (+1,192) |
 | rust | 2,625,302 to 2,675,831 (+50,529) | 64,222 to 65,451 (+1,229) |
 
-The BEFORE column reproduces the fix pass's own table exactly, which is what says the method is the same one.
+The BEFORE column reproduces the fix pass's own table exactly, which is what says the method is the same one. **THE AFTER COLUMN IS `8d04823` AND NOT THE ROUND'S LAST HEAD**, which is stated rather than left to be inferred: the fix pass below changed code that ships in every guest, so the round's own figure is in its table and `README.md` carries that one.
 
 **AND THE SEAM HOLDS, re-taken as decision 14 asks.** `invisible character`, `is longer than`, `stands alone` and `no item or fluid is named` are 0 occurrences in both packaged `notext` modules and 1 each in the packaged `datastage` control. `Describes` is a bool read by the composing walk, `Display` a string the cost preset line reads and `DescribeSetting` a string the composition head reads; none reaches the parser, the renderer, the amount formatter or the custom-cost resolver. **`README.md`'s STRING-DATA FIGURE GOES TO 1,142 BYTES OVER 25 LITERALS, and the correction is worth stating rather than waving through.** The first draft of this section said the round adds no composed literal at all, and that is false by two bytes: `costPresetTail` / `cost_preset_tail`'s `Display` arm composes `": "`, a literal of its own beside the `": cost of "` and `": the fallback cost"` the enumeration already counts. Two bytes is not a size story and that is not why it is corrected; the figure's whole value is that it is a COMPLETE enumeration somebody can re-add, and a complete list with a known omission in it is not one. It is the ONE member of that enumeration not verified by searching the packaged module for it, and the reason is its length: two bytes of punctuation cannot be told apart from the rest of a three-megabyte file by a search, so it is counted from the source and `README.md` says which one it is. Every other member was found in both modules. The five new REFUSAL sentences also ship in a `notext` module, which is true of every refusal sentence in the library and is not what that figure counts: it counts what a player reads.
 
@@ -2769,3 +2769,28 @@ It is covered three ways, because the first two do not overlap: a test per half 
 `--update` was run in that same copy afterwards and dropped both 2.0.77 markers while leaving the two 2.1.17 ones, which is the other half of the marker's contract.
 
 **GOLDENS.** `testdata/mirror/transcript.golden` re-recorded. `testdata/locale/findings.golden` gains the described dropdown's value finding, in declaration order as its third line. `testdata/ingame/dump-sha256.txt`: the two 2.0.77 DATA hashes DID NOT MOVE (`84bc940e` and `2d17c1f5`), which is the claim a pass that touches only composed settings prose has to be able to make, while the settings hash moved `50128885` to `d499e5e5` on all four rows.
+
+**WHAT THE FIX PASS COSTS IN THE PACKAGED MODULE, and it had to be re-taken.** The pass changed code that ships in every guest, `dropdownCandidates` / `dropdown_candidates` and its caller, the nil guard, and the locale walk, so the figure the section above records for `8d04823` is not the round's. Re-measured at `81e8da2` by the recorded method: one `fklua` built from FkLua at `16508c8`, TinyGo 0.41.1 and cargo 1.97.1 under `GOTOOLCHAIN=go1.26.6`, both heads in DETACHED WORKTREES at equal-length paths (`wt-before` and `wt-afterx`), each guest built and packaged with that one binary.
+
+```sh
+git worktree add --detach "$W/wt-before" 8d04823
+git worktree add --detach "$W/wt-afterx" 81e8da2
+(cd ../FkLua && GOTOOLCHAIN=go1.26.6 go build -o "$W/fklua" ./cmd/fklua)
+cd "$W/<head>/go/examples/notext" && GOTOOLCHAIN=go1.26.6 tinygo build -target=wasm-unknown \
+    -scheduler=none -gc=leaking -opt=2 -o "$W/<head>.wasm" .
+cd "$W/<head>/rust" && cargo build --release --target wasm32-unknown-unknown -p notext
+"$W/fklua" mod --data-module "$W/<wasm>" --name better-belt-balancer --version 0.3.2 \
+    --author Techrocket9 --factorio-version 2.0 -o "$W/mods-<head>-<lang>"
+wc -c -l "$W/mods-<head>-<lang>/better-belt-balancer_0.3.2/fk_data_module.lua"
+```
+
+| `notext` guest | `fk_data_module.lua` | lines |
+|---|---|---|
+| go | 3,107,518 to 3,127,928 (+20,410) | 78,849 to 79,396 (+547) |
+| rust | 2,675,831 to 2,683,608 (+7,777) | 65,451 to 65,624 (+173) |
+
+**SO THE ROUND'S OWN FIGURES, `7a4720b` to `81e8da2`, ARE 3,057,510 to 3,127,928 BYTES FOR GO (+70,418) AND 2,625,302 TO 2,683,608 FOR RUST (+58,306)**, and those are what `README.md` carries. They are the figures the release ships with, because the release commit moves only the version. The seam was re-checked at the same head and holds: the four language needles are 0 in both `notext` modules and 1 each in the packaged `datastage` control.
+
+**AND THE THIRD `DescribeSetting` ARM IS ENGINE-PROVEN BY NAME NOW.** The gate's negative over inline-described settings named the bool and the text setting and was not extended when the fixture's DROPDOWN became inline-described, so the arm with a whole preset list under a literal head was asserted by the mirror and by no engine check of its own. `scripts/run-ingame.sh` names all three now and reads the dropdown's head back whole beside them. Red-proven by cutting the `DescribeSetting` call on the tier in both example guests in a scratch copy: `FAIL: the inline-described dropdown opens with the plan's own description (the dump says false)` and `FAIL: no inline-described setting composes its own [mod-setting-description] key (the dump says false)`.
+
+**TWO THINGS ARE RECORDED AND NOT ACTED ON.** The decision-8 refusal now walks the candidate list once per setting, so it costs O(settings x declarations) at load time where it used to cost one pass; it is bounded by nothing in the library, and no plan anybody is likely to write makes it measurable, so it is written down rather than optimised. And the stale-marker lookup interpolates the engine version into a `grep` pattern, which it inherits from the pre-existing `grep -v "^$ENGINE "` beside it and which is harmless for any string Factorio uses as a version; a marker with no reason field is also read as a marker with an empty reason rather than refused, which prints one blank line and nothing worse.

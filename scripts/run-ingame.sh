@@ -1031,13 +1031,23 @@ jqassert "the inline-described bool carries the plan's own description whole" "$
 jqassert "the inline-described ingredient text opens with the plan's own description" "$DSDUMP" \
   '[.. | objects | select(.name? == "steelworks-scaffold-parts") | .localised_description | .. | strings]
    | length > 0 and any(startswith("What one scaffold bracket is made of while this is not on default."))'
+# AND THE THIRD ARM, A COMPOSED DROPDOWN. DescribeSetting has three shapes on
+# the engine and this is the one a setting with a whole preset list under the
+# head: the literal stands where the key stood and every preset line, the
+# ladder line and the switch line are composed beneath it unchanged.
+jqassert "the inline-described dropdown opens with the plan's own description" "$DSDUMP" \
+  '[.. | objects | select(.name? == "steelworks-scaffold-tier") | .localised_description | .. | strings]
+   | length > 0 and any(. == "Which bill the scaffolding line is built to, and which technology pays for raising it.")'
 jqassert "no inline-described setting composes its own [mod-setting-description] key" "$DSDUMP" \
   '[.. | objects
-    | select(.name? == "fkrecipes-example-hardened-tools" or .name? == "steelworks-scaffold-parts")
+    | select(.name? == "fkrecipes-example-hardened-tools"
+             or .name? == "steelworks-scaffold-parts"
+             or .name? == "steelworks-scaffold-tier")
     | .localised_description | .. | strings]
    | length > 0
      and all(contains("mod-setting-description.fkrecipes-example-hardened-tools") | not)
-     and all(contains("mod-setting-description.steelworks-scaffold-parts") | not)'
+     and all(contains("mod-setting-description.steelworks-scaffold-parts") | not)
+     and all(contains("mod-setting-description.steelworks-scaffold-tier") | not)'
 jqassert "the inline-described ingredient text keeps every line composed under it" "$DSDUMP" \
   '[.. | objects | select(.name? == "steelworks-scaffold-parts") | .localised_description | .. | strings]
    | length > 0 and any(contains("Text this mod cannot use is set aside as though it said default"))'
