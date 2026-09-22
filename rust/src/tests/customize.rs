@@ -8,10 +8,11 @@
 //! player wrote.
 
 use crate::plan::{
-    CustomCost, Ingredient, IngredientChoice, IngredientChoices, IngredientsSettingRef, ItemSpec,
-    Lib, NumericSpec, Pack, PacksSettingRef, RecipeSpec, SettingDecl, SettingKind, TechSpec,
-    UnitSpec,
+    BoolSettingRef, CustomCost, DropdownSettingRef, Ingredient, IngredientChoice,
+    IngredientChoices, IngredientsSettingRef, IntSettingRef, ItemSpec, Lib, NumericSpec, Pack,
+    PacksSettingRef, RecipeSpec, SettingDecl, SettingKind, TechSpec, UnitSpec,
 };
+use crate::settings::locale_ref;
 use crate::tests::*;
 use crate::value::Value;
 
@@ -391,7 +392,11 @@ fn the_ladder_line_sits_under_the_list_it_is_about() {
     // The STANDALONE TEXT composition: default line, ladder line, format line.
     for ingredients in [true, false] {
         let Value::Arr(desc) = text_description(
-            "steelworks-axe-parts",
+            locale_ref(
+                "mod-setting-description",
+                "steelworks-axe-parts",
+                "steelworks-axe-parts",
+            ),
             "1 iron-plate",
             "\nswitch",
             ingredients,
@@ -412,7 +417,11 @@ fn the_ladder_line_sits_under_the_list_it_is_about() {
         // BESIDE A DROPDOWN: the format line follows the default line with
         // nothing between them, and the ladder line is nowhere in the table.
         let Value::Arr(beside) = text_description(
-            "steelworks-axe-parts",
+            locale_ref(
+                "mod-setting-description",
+                "steelworks-axe-parts",
+                "steelworks-axe-parts",
+            ),
             "1 iron-plate",
             "\nswitch",
             ingredients,
@@ -2475,6 +2484,8 @@ fn a_stepped_past_recipe_composes_no_description() {
 /// so the witness reaches it from inside the crate.
 fn forge_text_setting(lib: &mut Lib, kind: SettingKind, name: &str) -> usize {
     lib.settings.push(SettingDecl {
+        description: String::new(),
+        described: false,
         kind,
         name: String::from(name),
         legacy: false,
@@ -5405,5 +5416,229 @@ fn a_cost_preset_display_takes_its_advisory_away() {
     assert_eq!(
         cost_display_plan(0, "the mid tier's own price").check_locale_advisories("steelworks"),
         Vec::<alloc::string::String>::new()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// `describe_setting`: a description the plan writes.
+// ---------------------------------------------------------------------------
+
+/// One plan holding all four shapes at once: a text setting, a research
+/// number, a composed dropdown and a bool nothing is composed onto. `describe`
+/// picks which of them the plan describes inline, the way a consumer's own
+/// mod-set bit would.
+fn described_plan(
+    describe: &dyn Fn(&mut Lib, BoolSettingRef, DropdownSettingRef, PacksSettingRef, IntSettingRef),
+) -> Lib {
+    use crate::plan::{CostChoice, CostChoices, UnitSpec};
+
+    let mut lib = Lib::new();
+    let on = lib.bool_setting("bonus-research", true);
+    let tier =
+        lib.dropdown_setting_needing_locale("tips-tier", "projectile", &["projectile", "none"]);
+    let packs = lib.packs_setting(
+        "tips-packs",
+        alloc::vec![Pack::named(1, "automation-science-pack", &[])],
+    );
+    let count = lib.int_setting("tips-count", 0, NumericSpec::between(0.0, 100000.0));
+    let seconds = lib.int_setting("tips-seconds", 0, NumericSpec::between(0.0, 600.0));
+    lib.technology(
+        "hardened-tips",
+        TechSpec {
+            cost_by: Some(CostChoices {
+                describes: false,
+                setting: tier,
+                choices: alloc::vec![
+                    CostChoice {
+                        display: String::new(),
+                        value: String::from("projectile"),
+                        sources: alloc::vec![String::from("mining-productivity-4")],
+                    },
+                    CostChoice {
+                        display: String::new(),
+                        value: String::from("none"),
+                        sources: alloc::vec![],
+                    },
+                ],
+                fallback: UnitSpec {
+                    count: 200,
+                    seconds: 30.0,
+                    packs: alloc::vec![Pack::named(1, "automation-science-pack", &[])],
+                },
+            }),
+            cost_from: Some(CustomCost {
+                packs,
+                count,
+                seconds,
+            }),
+            enabled_by: on,
+            ..Default::default()
+        },
+    );
+    describe(&mut lib, on, tier, packs, count);
+    lib
+}
+
+/// THE LITERAL STANDS WHERE THE KEY STOOD, in all four shapes: the three the
+/// library composes onto and the one it does not, where the literal is the
+/// whole description.
+#[test]
+fn describe_setting_replaces_the_description_entry() {
+    use crate::settings::TEXT_FALLBACK_LINE;
+
+    let at = |lib: &Lib, name: &str| -> Option<String> {
+        described_settings(lib)
+            .into_iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, d)| d)
+    };
+
+    let plain = described_plan(&|_, _, _, _, _| {});
+    assert!(
+        at(&plain, "steelworks-bonus-research").is_none(),
+        "the bool carries a description already, so this test proves nothing"
+    );
+    for name in [
+        "steelworks-tips-tier",
+        "steelworks-tips-packs",
+        "steelworks-tips-count",
+    ] {
+        let d = at(&plain, name).expect("no composed description");
+        assert!(
+            d.contains(&alloc::format!("mod-setting-description.{}", name)),
+            "{} does not open with its own key, so this test proves nothing: {}",
+            name,
+            d
+        );
+    }
+
+    let lib = described_plan(&|lib, on, tier, packs, count| {
+        lib.describe_setting(on, "Whether the bonus line is researchable at all.");
+        lib.describe_setting(tier, "Which tier prices the bonus line in this mod set.");
+        lib.describe_setting(packs, "What the bonus line is priced in.");
+        lib.describe_setting(count, "How many units the bonus line takes.");
+    });
+    for (name, want) in [
+        (
+            "steelworks-bonus-research",
+            "Whether the bonus line is researchable at all.",
+        ),
+        (
+            "steelworks-tips-tier",
+            "Which tier prices the bonus line in this mod set.",
+        ),
+        ("steelworks-tips-packs", "What the bonus line is priced in."),
+        (
+            "steelworks-tips-count",
+            "How many units the bonus line takes.",
+        ),
+    ] {
+        let d = at(&lib, name).expect("no composed description");
+        assert!(
+            d.contains(want),
+            "{} does not carry the literal: {}",
+            name,
+            d
+        );
+        assert!(
+            !d.contains(&alloc::format!("mod-setting-description.{}", name)),
+            "{} still composes its own [mod-setting-description] key: {}",
+            name,
+            d
+        );
+    }
+    // THE BOOL CARRIES THE LITERAL ALONE, because nothing is composed onto it
+    // for the head to open.
+    assert_eq!(
+        at(&lib, "steelworks-bonus-research").expect("no composed description"),
+        "\"Whether the bonus line is researchable at all.\""
+    );
+    // AND EVERYTHING COMPOSED UNDER THE HEAD IS UNCHANGED, which is what says
+    // the literal replaced the head and nothing else.
+    for (name, line) in [
+        ("steelworks-tips-packs", TEXT_FALLBACK_LINE),
+        (
+            "steelworks-tips-count",
+            "\nLeave this at 0 and the option chosen above supplies the number; otherwise a whole number up to 100000.",
+        ),
+        (
+            "steelworks-tips-tier",
+            "\nThe setting below applies instead while it does not say default.",
+        ),
+    ] {
+        let d = at(&lib, name).expect("no composed description");
+        assert!(
+            d.contains(line),
+            "{} lost a composed line under the literal head: {}",
+            name,
+            d
+        );
+    }
+
+    // AND THE DRIFT GUARD STILL FINDS THE LINES UNDER A LITERAL HEAD, which is
+    // the one thing an inline description could have broken quietly: the guard
+    // builds the composition itself and would otherwise report the library
+    // missing every line it owes.
+    let guarded = described_plan(&|lib, _, _, packs, _| {
+        lib.describe_setting(packs, "What the bonus line is priced in.");
+    });
+    assert_eq!(
+        guarded.check_composed_text_lines("steelworks-"),
+        Vec::<alloc::string::String>::new(),
+        "the drift guard reports a defect under a literal head"
+    );
+}
+
+/// THE THREE REFUSALS, each named, and both planners carry them because
+/// `validate_bindings` runs on both.
+#[test]
+fn describe_setting_refusals() {
+    let empty = described_plan(&|lib, on, _, _, _| lib.describe_setting(on, ""));
+    let twice = described_plan(&|lib, on, _, _, _| {
+        lib.describe_setting(on, "Once.");
+        lib.describe_setting(on, "Twice.");
+    });
+    let mut foreign = described_plan(&|_, _, _, _, _| {});
+    let mut other = Lib::new();
+    let elsewhere = other.bool_setting("somebody-elses", true);
+    foreign.describe_setting(elsewhere, "Not this plan's.");
+
+    for (lib, want) in [
+        (&empty, "fkrecipes: DescribeSetting was given an empty description for the setting steelworks-bonus-research"),
+        (&twice, "fkrecipes: the setting steelworks-bonus-research is described twice; DescribeSetting takes one description"),
+        (&foreign, "fkrecipes: DescribeSetting names a setting that this plan never declared"),
+    ] {
+        assert_eq!(
+            lib.plan_settings(&settings_world()).unwrap_err(),
+            want,
+            "plan_settings"
+        );
+        assert_eq!(lib.plan_data(&base_world()).unwrap_err(), want, "plan_data");
+    }
+}
+
+/// AN INLINE DESCRIPTION MAKES THE ENTRY DEAD TEXT, so the checker stops
+/// requiring it and reports one that is there.
+#[test]
+fn check_locale_reports_a_dead_description_entry() {
+    let lib = described_plan(&|lib, _, _, packs, _| {
+        lib.describe_setting(packs, "What the bonus line is priced in.");
+    });
+    let cfg = "[mod-setting-name]\nsteelworks-bonus-research=Bonus research\nsteelworks-tips-tier=Tier\nsteelworks-tips-packs=Packs\nsteelworks-tips-count=Units\nsteelworks-tips-seconds=Seconds\n\n[mod-setting-description]\nsteelworks-tips-tier=Which tier.\nsteelworks-tips-count=How many.\nsteelworks-tips-seconds=How long.\n\n[string-mod-setting]\nsteelworks-tips-tier-projectile=Projectile\nsteelworks-tips-tier-none=None\n";
+    // THE ENTRY IS NOT REQUIRED, which is what an empty report says.
+    assert_eq!(
+        lib.check_locale("steelworks", cfg),
+        Vec::<alloc::string::String>::new()
+    );
+
+    // AND ONE THAT IS THERE IS DEAD TEXT, reported in FILE order with the
+    // orphan findings, because that is what it is.
+    let with_entry = cfg.replace(
+        "steelworks-tips-tier=Which tier.",
+        "steelworks-tips-packs=Amount, then name.\nsteelworks-tips-tier=Which tier.",
+    );
+    assert_eq!(
+        lib.check_locale("steelworks", &with_entry),
+        ["the [mod-setting-description] entry steelworks-tips-packs is never shown; the plan describes that setting inline and the engine shows the plan's description instead"]
     );
 }

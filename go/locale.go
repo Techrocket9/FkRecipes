@@ -174,6 +174,14 @@ func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, compl
 		// under [mod-setting-name]" every single time. The hint earns its keep
 		// where the key appears in ONE settings section and the reader cannot
 		// see why it is missing; here it would fire on nearly every finding.
+		// A SETTING THE PLAN DESCRIBES INLINE NEEDS NO ENTRY AT ALL, of any
+		// of the three kinds whose entry is otherwise required: the engine
+		// shows the prototype's own field and the entry is never read. It is
+		// reported in the orphan walk below instead, as dead text, which is
+		// what it is.
+		if s.described {
+			continue
+		}
 		if s.kind.isText() {
 			if !localeHas(sections, "mod-setting-description", full) {
 				findings = append(findings, "the setting "+full+
@@ -236,6 +244,17 @@ func (l *Lib) checkLocale(modName string, cfg string, handRolled []string, compl
 				if scanned && !owned {
 					findings = append(findings, "the ["+localeShow(sec.name)+"] entry "+
 						localeShow(e.key)+" matches no setting this plan declares")
+					continue
+				}
+				// DEAD TEXT, AND A FINDING RATHER THAN AN ADVISORY. The entry
+				// is inside the mod's own prefix, somebody will edit it
+				// expecting it to render, and the engine renders the
+				// prototype's own localised_description over it. An advisory
+				// is for a key OUTSIDE the prefix that must not be defined;
+				// this is one inside it that is defined and does nothing.
+				if sec.name == "mod-setting-description" && l.describesInline(prefix, e.key) {
+					findings = append(findings, "the [mod-setting-description] entry "+localeShow(e.key)+
+						" is never shown; the plan describes that setting inline and the engine shows the plan's description instead")
 				}
 			case "string-mod-setting":
 				if l.policesValueKey(prefix, e.key) && !l.declaresValue(prefix, e.key) {
@@ -466,7 +485,7 @@ func (l *Lib) guardedTextDescription(prefix string) (desc Value, switchLine stri
 			line := l.textSwitchLine(i)
 			ing := s.kind == settingIngredients
 			lad := l.textCarriesLadderLine(i)
-			return textDescription(s.emittedName(prefix), "", line, ing, lad), line, ing, lad, true
+			return textDescription(l.settingDescriptionHead(i, s.emittedName(prefix)), "", line, ing, lad), line, ing, lad, true
 		}
 	}
 	return Value{}, "", false, false, false
@@ -634,6 +653,18 @@ func (l *Lib) dropdownsWithComposedDescription() []dropdownComposition {
 		}
 	}
 	return marks
+}
+
+// describesInline reports whether this plan wrote the description of the
+// setting emitted under this key, which is what makes a [mod-setting-description]
+// entry for it dead text.
+func (l *Lib) describesInline(prefix, key string) bool {
+	for _, s := range l.settings {
+		if s.emittedName(prefix) == key {
+			return s.described
+		}
+	}
+	return false
 }
 
 func (l *Lib) declaresSetting(prefix, key string) bool {

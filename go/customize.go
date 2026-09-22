@@ -251,8 +251,52 @@ func namedCostSources(spec *TechSpec) int {
 // the walk SKIPS that declaration and leaves the sentence to the data
 // planner's own loop: a plan with two problems should be answered by the one
 // its author is likelier to recognise, and "pick one" is that sentence.
+// validateDescriptions is every rule about DescribeSetting, and both planners
+// run it because validateBindings does.
+//
+// IT LIVES BESIDE THE BINDING RULES RATHER THAN IN validateSettings, and the
+// reason is which planners run each: validateSettings is the settings stage's
+// alone, and a description the plan wrote is a declaration the DATA stage must
+// refuse too, because a plan that refuses at one stage and loads at the other
+// is a mod whose two halves disagree about what it declares.
+//
+// THE ORDER IS THE CALL'S AND THEN THE DECLARATION'S. A handle from another
+// plan is answered first, because nothing about it names a setting of this
+// plan at all; the described-twice sentences follow in CALL order, which is
+// the order an author reads their own file in; and the empty-description
+// sentences last, in declaration order.
+func (l *Lib) validateDescriptions(prefix string) error {
+	at := "fkrecipes: "
+	if l.describeForeign {
+		return errors.New(at + "DescribeSetting names a setting that this plan never declared")
+	}
+	// THE FIRST SUCH CALL IN CALL ORDER, which is the same every run and the
+	// same in both halves, and is the one an author reaches first reading
+	// their own file.
+	if len(l.describedTwice) > 0 {
+		return errors.New(at + "the setting " + l.settings[l.describedTwice[0]-1].emittedName(prefix) +
+			" is described twice; DescribeSetting takes one description")
+	}
+	for _, s := range l.settings {
+		// AN EMPTY DESCRIPTION IS NOT THE SAME AS NO DESCRIPTION, which is
+		// why the call is recorded separately from what it carried. A setting
+		// emitted with an empty localised_description is a row whose info icon
+		// says nothing, and the author who wrote the call meant to say
+		// something.
+		if s.described && s.description == "" {
+			return errors.New(at + "DescribeSetting was given an empty description for the setting " +
+				s.emittedName(prefix))
+		}
+
+	}
+	return nil
+}
+
 func (l *Lib) validateBindings(prefix string) error {
 	at := "fkrecipes: "
+	if err := l.validateDescriptions(prefix); err != nil {
+		return err
+	}
 
 	// ONE DROPDOWN COMPOSES ONE DESCRIPTION, so one declaration may put a text
 	// setting beside it. Counted in the two walks below, where the pairing is
@@ -634,6 +678,21 @@ func validateDeclaredPacks(at, who string, packs []Pack) error {
 // control stage. The settings screen has no conditional visibility either
 // (measured), so no field can be hidden while the other one decides, and
 // saying which is which in the description is what the library can do instead.
+// settingDescriptionHead is what every composed description opens with: the
+// consumer's own [mod-setting-description] key, wrapped in the alternatives
+// form, or the literal the plan wrote through DescribeSetting.
+//
+// ONE FUNCTION FOR ALL THREE COMPOSITIONS, because the choice is the same
+// choice on a text setting, a research number and a composed dropdown alike,
+// and a second spelling is how one of the three could keep composing a key the
+// plan replaced.
+func (l *Lib) settingDescriptionHead(i int, full string) Value {
+	if s := l.settings[i]; s.described {
+		return Str(s.description)
+	}
+	return localeRef("mod-setting-description", full, full)
+}
+
 func (l *Lib) settingDescriptions(prefix string) []Value {
 	out := make([]Value, len(l.settings))
 	for i := range out {
@@ -642,7 +701,7 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 	numbers := l.researchNumberSettings()
 	for i, s := range l.settings {
 		if numbers[i].bound {
-			out[i] = numberDescription(s.emittedName(prefix),
+			out[i] = numberDescription(l.settingDescriptionHead(i, s.emittedName(prefix)),
 				l.researchRangeLine(i, s, numbers[i].dropdown))
 			continue
 		}
@@ -667,7 +726,7 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		// and carries no such line, so a packs text beside one keeps it. With
 		// no dropdown at all this field's own default line is the list that
 		// applies. See textCarriesLadderLine and textLadderLine.
-		out[i] = textDescription(s.emittedName(prefix), l.lang.render(entries),
+		out[i] = textDescription(l.settingDescriptionHead(i, s.emittedName(prefix)), l.lang.render(entries),
 			l.textSwitchLine(i), s.kind == settingIngredients, l.textCarriesLadderLine(i))
 	}
 	// WHICH DECLARATION DESCRIBES A DROPDOWN IS composedDropdownPresets' OWN
@@ -677,6 +736,15 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 	for i := range l.settings {
 		if p := l.composedDropdownPresets(i + 1); p != nil {
 			out[i] = l.dropdownDescription(prefix, i, p)
+		}
+	}
+	// AND A SETTING NOTHING IS COMPOSED ONTO CARRIES THE LITERAL ALONE, which
+	// is the whole of what DescribeSetting does for a bool, a plain number or
+	// a dropdown nothing binds: there is no composition for the head to open,
+	// so the description IS the head.
+	for i, s := range l.settings {
+		if s.described && out[i].Kind == KindNil {
+			out[i] = Str(s.description)
 		}
 	}
 	return out
@@ -776,7 +844,7 @@ func (l *Lib) composedDropdownPresets(index int) *composedPresets {
 func (l *Lib) dropdownDescription(prefix string, i int, p *composedPresets) Value {
 	full := l.settings[i].emittedName(prefix)
 	params := make([]Value, 0, len(p.ingredients)+len(p.cost)+3)
-	params = append(params, localeRef("mod-setting-description", full, full))
+	params = append(params, l.settingDescriptionHead(i, full))
 	switch p.kind {
 	case presetsIngredients:
 		// A DROPDOWN WITH NO TEXT SETTING BESIDE IT COMPOSES THE LADDER LINE
@@ -1154,11 +1222,11 @@ func descriptionRef(kind, name string) (Value, bool) {
 // INGREDIENTS SAYS WHICH OF THE TWO TEXT SETTINGS THIS IS, and it decides two
 // things: the ladder line's vocabulary, and whether the format line names the
 // word none. See textLadderLine and textFormatLine.
-func textDescription(full, rendered, switchLine string, ingredients, ladder bool) Value {
+func textDescription(head Value, rendered, switchLine string, ingredients, ladder bool) Value {
 	params := make([]Value, 0, 6)
 	params = append(params,
 		Str(""),
-		localeRef("mod-setting-description", full, full),
+		head,
 		Str("\ndefault: "+rendered))
 	if ladder {
 		params = append(params, Str(textLadderLine(ingredients)))
@@ -1176,10 +1244,10 @@ func textDescription(full, rendered, switchLine string, ingredients, ladder bool
 // field with no visible bounds, and 0 there means something the player cannot
 // guess: the dropdown beside it decides. Both sentences live in
 // researchRangeLine, and this is the shape they are emitted in.
-func numberDescription(full, rangeLine string) Value {
+func numberDescription(head Value, rangeLine string) Value {
 	return Arr(
 		Str(""),
-		localeRef("mod-setting-description", full, full),
+		head,
 		Str(rangeLine),
 	)
 }

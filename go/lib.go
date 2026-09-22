@@ -93,6 +93,13 @@ type Lib struct {
 	// no error to return, and the call is a mistake whether or not a setting
 	// follows it.
 	orderAfterEmpty bool
+	// describeForeign records that DescribeSetting was handed a handle this
+	// plan never issued, and describedTwice the settings it was called on
+	// more than once, in call order. Both are recorded rather than refused on
+	// the spot for OrderAfter's reason: a declaration method has nowhere to
+	// put a refusal.
+	describeForeign bool
+	describedTwice  []int
 }
 
 // New starts an empty plan. It is the ONLY way to get a usable one: a zero
@@ -181,6 +188,67 @@ type (
 	packsSettingRefTag       struct{}
 )
 
+// SettingRef is any of the six setting handles, and it is what DescribeSetting
+// takes.
+//
+// A CONSUMER MAY NAME THE TYPE AND MAY NOT IMPLEMENT IT. The one method is
+// unexported, so nothing outside this package can satisfy the interface, which
+// keeps DescribeSetting's parameter a handle this library issued rather than
+// anything a consumer can build; the Rust mirror gets the same property from a
+// sealed trait. Its answer is the pair every handle carries, the issuing plan's
+// id and a 1-BASED index, so the validity check is the one every other walk
+// makes.
+type SettingRef interface {
+	settingRef() (lib uint64, index int)
+}
+
+func (r BoolSettingRef) settingRef() (uint64, int)        { return r.lib, r.index }
+func (r IntSettingRef) settingRef() (uint64, int)         { return r.lib, r.index }
+func (r DoubleSettingRef) settingRef() (uint64, int)      { return r.lib, r.index }
+func (r DropdownSettingRef) settingRef() (uint64, int)    { return r.lib, r.index }
+func (r IngredientsSettingRef) settingRef() (uint64, int) { return r.lib, r.index }
+func (r PacksSettingRef) settingRef() (uint64, int)       { return r.lib, r.index }
+
+// DescribeSetting gives a setting a description the PLAN writes, in place of
+// its [mod-setting-description] locale entry.
+//
+// WHAT IT REPLACES. Wherever this library composes onto a setting's
+// description, the composition opens with the consumer's own
+// [mod-setting-description] key; with a description written here it opens with
+// this literal instead, and everything the library composes under it is
+// unchanged. A setting nothing is composed onto is emitted carrying the
+// literal alone. Legacy and generated settings alike.
+//
+// WHAT IT IS FOR. A locale entry is one string for every mod set. A plan that
+// branches on what is installed, which is what Env-style mod-set bits are
+// already used for, can write the description for the mod set actually
+// running, which no .cfg can do.
+//
+// IT IS LITERAL TEXT AND NOT A LOCALE KEY, on RecipeSpec.Description's rule:
+// this library cannot wrap a key it did not compose, and a bare key in a
+// setting's composition costs the row its whole tooltip (measured on 2.0.77).
+// The NAME entry stays a locale key, because a name is one line and nothing is
+// composed onto it, so [mod-setting-name] is required exactly as before.
+//
+// IT REFUSES AT VALIDATION RATHER THAN HERE, on OrderAfter's shape: a
+// declaration method has no error to return. An empty description, a setting
+// described twice and a handle from another plan are each refused by name when
+// a planner runs.
+func (l *Lib) DescribeSetting(r SettingRef, text string) {
+	lib, index := r.settingRef()
+	if lib != l.id || index < 1 || index > len(l.settings) {
+		l.describeForeign = true
+		return
+	}
+	s := &l.settings[index-1]
+	if s.described {
+		l.describedTwice = append(l.describedTwice, index)
+		return
+	}
+	s.described = true
+	s.description = text
+}
+
 // NumericSpec bounds an int or double setting. Both bounds are optional and
 // the has-flag carries that: a zero NumericSpec is an unbounded setting, not
 // one pinned to zero.
@@ -253,6 +321,13 @@ type settingDecl struct {
 	// prefix, which only a planner has.
 	defIngredients []Ingredient
 	defPacks       []Pack
+
+	// The description DescribeSetting wrote, and whether it wrote one at all.
+	// The two are separate because an EMPTY description is its own refusal:
+	// with one field a call passing "" would be indistinguishable from no
+	// call, and the sentence that names it could never fire.
+	description string
+	described   bool
 }
 
 // emittedName is the name a setting prototype actually carries: prefixed for a

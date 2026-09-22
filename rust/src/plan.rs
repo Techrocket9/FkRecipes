@@ -45,6 +45,13 @@ pub struct Lib {
     /// validator raises it, before it looks at any setting, so a plan that
     /// declares nothing after the call is refused too.
     pub(crate) empty_order_after: bool,
+    /// Whether [`Lib::describe_setting`] was handed a handle this plan never
+    /// issued, and the settings it was called on more than once, in call
+    /// order. Both are recorded rather than refused on the spot for
+    /// `order_after`'s reason: a declaration method has nowhere to put a
+    /// refusal.
+    pub(crate) describe_foreign: bool,
+    pub(crate) described_twice: Vec<usize>,
 }
 
 // The handles. Each carries the id of the plan that issued it and a 1-BASED
@@ -106,6 +113,43 @@ handle!(
     /// A technology this plan declares.
     TechRef
 );
+
+mod sealed {
+    /// The seal. It is implemented for the six handle types and for nothing
+    /// else, and it is what stops a consumer satisfying [`SettingHandle`]
+    /// with a type of their own.
+    pub trait Sealed {}
+}
+
+/// Any of the six setting handles, and it is what
+/// [`Lib::describe_setting`](crate::Lib::describe_setting) takes.
+///
+/// A CONSUMER MAY NAME THE BOUND AND MAY NOT SATISFY IT: the supertrait is
+/// private, so nothing outside this crate can implement either. Its answer is
+/// the pair every handle carries, the issuing plan's id and a 1-BASED index, so
+/// the validity check is the one every other walk makes.
+pub trait SettingHandle: sealed::Sealed {
+    #[doc(hidden)]
+    fn parts(&self) -> (u64, usize);
+}
+
+macro_rules! setting_handle {
+    ($name:ident) => {
+        impl sealed::Sealed for $name {}
+        impl SettingHandle for $name {
+            fn parts(&self) -> (u64, usize) {
+                (self.lib, self.index)
+            }
+        }
+    };
+}
+
+setting_handle!(BoolSettingRef);
+setting_handle!(IntSettingRef);
+setting_handle!(DoubleSettingRef);
+setting_handle!(DropdownSettingRef);
+setting_handle!(IngredientsSettingRef);
+setting_handle!(PacksSettingRef);
 
 /// Bounds for an int or double setting. Both are optional: a defaulted
 /// `NumericSpec` is an unbounded setting, not one pinned to zero.
@@ -176,6 +220,14 @@ pub(crate) struct SettingDecl {
     pub(crate) def_packs: Vec<Pack>,
     pub(crate) spec: NumericSpec,
     pub(crate) values: Vec<String>,
+
+    /// The description `describe_setting` wrote, and whether it wrote one at
+    /// all. The two are separate because an EMPTY description is its own
+    /// refusal: with one field a call passing `""` would be
+    /// indistinguishable from no call, and the sentence that names it could
+    /// never fire.
+    pub(crate) description: String,
+    pub(crate) described: bool,
 }
 
 /// A generated item prototype.
@@ -722,6 +774,8 @@ impl Lib {
             custom_cost: None,
             order_prefix: String::new(),
             empty_order_after: false,
+            describe_foreign: false,
+            described_twice: Vec::new(),
         }
     }
 
@@ -764,10 +818,58 @@ impl Lib {
         }
     }
 
+    /// Gives a setting a description the PLAN writes, in place of its
+    /// `[mod-setting-description]` locale entry.
+    ///
+    /// WHAT IT REPLACES. Wherever this library composes onto a setting's
+    /// description, the composition opens with the consumer's own
+    /// `[mod-setting-description]` key; with a description written here it
+    /// opens with this literal instead, and everything the library composes
+    /// under it is unchanged. A setting nothing is composed onto is emitted
+    /// carrying the literal alone. Legacy and generated settings alike.
+    ///
+    /// WHAT IT IS FOR. A locale entry is one string for every mod set. A plan
+    /// that branches on what is installed, which is what mod-set bits are
+    /// already used for, can write the description for the mod set actually
+    /// running, which no .cfg can do.
+    ///
+    /// IT IS LITERAL TEXT AND NOT A LOCALE KEY, on [`ItemSpec::description`]'s
+    /// rule: this library cannot wrap a key it did not compose, and a bare key
+    /// in a setting's composition costs the row its whole tooltip (measured on
+    /// 2.0.77). The NAME entry stays a locale key, because a name is one line
+    /// and nothing is composed onto it, so `[mod-setting-name]` is required
+    /// exactly as before.
+    ///
+    /// IT REFUSES AT VALIDATION RATHER THAN HERE, on `order_after`'s shape: a
+    /// declaration method has no error to return. An empty description, a
+    /// setting described twice and a handle from another plan are each refused
+    /// by name when a planner runs.
+    ///
+    /// THE TRAIT IS SEALED, so a consumer may name the bound and may not
+    /// satisfy it: the parameter is a handle this library issued rather than
+    /// anything a consumer can build. The Go mirror gets the same property
+    /// from an interface with an unexported method.
+    pub fn describe_setting<H: SettingHandle>(&mut self, h: H, text: &str) {
+        let (lib, index) = h.parts();
+        if lib != self.id || index < 1 || index > self.settings.len() {
+            self.describe_foreign = true;
+            return;
+        }
+        let s = &mut self.settings[index - 1];
+        if s.described {
+            self.described_twice.push(index);
+            return;
+        }
+        s.described = true;
+        s.description = String::from(text);
+    }
+
     /// Declares a startup bool setting. The name is prefixed on the way out;
     /// what is passed here is the bare name.
     pub fn bool_setting(&mut self, name: &str, def: bool) -> BoolSettingRef {
         self.settings.push(SettingDecl {
+            description: String::new(),
+            described: false,
             kind: SettingKind::Bool,
             name: String::from(name),
             legacy: false,
@@ -791,6 +893,8 @@ impl Lib {
     /// Declares a startup int setting.
     pub fn int_setting(&mut self, name: &str, def: i64, spec: NumericSpec) -> IntSettingRef {
         self.settings.push(SettingDecl {
+            description: String::new(),
+            described: false,
             kind: SettingKind::Int,
             name: String::from(name),
             legacy: false,
@@ -814,6 +918,8 @@ impl Lib {
     /// Declares a startup double setting.
     pub fn double_setting(&mut self, name: &str, def: f64, spec: NumericSpec) -> DoubleSettingRef {
         self.settings.push(SettingDecl {
+            description: String::new(),
+            described: false,
             kind: SettingKind::Double,
             name: String::from(name),
             legacy: false,
@@ -854,6 +960,8 @@ impl Lib {
             allowed.push(String::from(*v));
         }
         self.settings.push(SettingDecl {
+            description: String::new(),
+            described: false,
             kind: SettingKind::Dropdown,
             name: String::from(name),
             legacy: false,
@@ -941,6 +1049,8 @@ impl Lib {
     ) -> IngredientsSettingRef {
         self.language = Some(&LANGUAGE);
         self.settings.push(SettingDecl {
+            description: String::new(),
+            described: false,
             kind: SettingKind::Ingredients,
             name: String::from(name),
             legacy,
@@ -975,6 +1085,8 @@ impl Lib {
         self.language = Some(&LANGUAGE);
         self.custom_cost = Some(crate::data::CUSTOM_COST);
         self.settings.push(SettingDecl {
+            description: String::new(),
+            described: false,
             kind: SettingKind::Packs,
             name: String::from(name),
             legacy,
@@ -1182,6 +1294,8 @@ impl Lib {
         order: &str,
     ) -> BoolSettingRef {
         self.settings.push(SettingDecl {
+            description: String::new(),
+            described: false,
             kind: SettingKind::Bool,
             name: String::from(full_name),
             legacy: true,
@@ -1211,6 +1325,8 @@ impl Lib {
         order: &str,
     ) -> IntSettingRef {
         self.settings.push(SettingDecl {
+            description: String::new(),
+            described: false,
             kind: SettingKind::Int,
             name: String::from(full_name),
             legacy: true,
@@ -1240,6 +1356,8 @@ impl Lib {
         order: &str,
     ) -> DoubleSettingRef {
         self.settings.push(SettingDecl {
+            description: String::new(),
+            described: false,
             kind: SettingKind::Double,
             name: String::from(full_name),
             legacy: true,
@@ -1275,6 +1393,8 @@ impl Lib {
             allowed.push(String::from(*v));
         }
         self.settings.push(SettingDecl {
+            description: String::new(),
+            described: false,
             kind: SettingKind::Dropdown,
             name: String::from(full_name),
             legacy: true,

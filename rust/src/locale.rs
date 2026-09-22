@@ -194,6 +194,14 @@ impl Lib {
             // beside it has its presets composed onto its own description, so a
             // missing entry there is a key rendered raw in the tooltip.
             let missing_description = !locale_has(&sections, "mod-setting-description", &full);
+            // A SETTING THE PLAN DESCRIBES INLINE NEEDS NO ENTRY AT ALL, of
+            // any of the three kinds whose entry is otherwise required: the
+            // engine shows the prototype's own field and the entry is never
+            // read. It is reported in the orphan walk below instead, as dead
+            // text, which is what it is.
+            if s.described {
+                continue;
+            }
             if matches!(s.kind, SettingKind::Ingredients | SettingKind::Packs) {
                 if missing_description {
                     findings.push(format!(
@@ -267,6 +275,22 @@ impl Lib {
                             findings.push(format!(
                                 "the [{}] entry {} matches no setting this plan declares",
                                 locale_show(&sec.name),
+                                locale_show(&e.key)
+                            ));
+                            continue;
+                        }
+                        // DEAD TEXT, AND A FINDING RATHER THAN AN ADVISORY.
+                        // The entry is inside the mod's own prefix, somebody
+                        // will edit it expecting it to render, and the engine
+                        // renders the prototype's own localised_description
+                        // over it. An advisory is for a key OUTSIDE the prefix
+                        // that must not be defined; this is one inside it that
+                        // is defined and does nothing.
+                        if sec.name == "mod-setting-description"
+                            && self.describes_inline(&prefix, &e.key)
+                        {
+                            findings.push(format!(
+                                "the [mod-setting-description] entry {} is never shown; the plan describes that setting inline and the engine shows the plan's description instead",
                                 locale_show(&e.key)
                             ));
                         }
@@ -426,6 +450,17 @@ impl Lib {
         out
     }
 
+    /// Whether this plan wrote the description of the setting emitted under
+    /// this key, which is what makes a `[mod-setting-description]` entry for
+    /// it dead text.
+    fn describes_inline(&self, prefix: &str, key: &str) -> bool {
+        self.settings
+            .iter()
+            .find(|s| s.emitted_name(prefix) == key)
+            .map(|s| s.described)
+            .unwrap_or(false)
+    }
+
     fn declares_setting(&self, prefix: &str, key: &str) -> bool {
         self.settings.iter().any(|s| s.emitted_name(prefix) == key)
     }
@@ -555,7 +590,13 @@ impl Lib {
                 let ingredients = s.kind == SettingKind::Ingredients;
                 let ladder = self.text_carries_ladder_line(i);
                 (
-                    text_description(&s.emitted_name(prefix), "", &line, ingredients, ladder),
+                    text_description(
+                        self.setting_description_head(i, &s.emitted_name(prefix)),
+                        "",
+                        &line,
+                        ingredients,
+                        ladder,
+                    ),
                     line,
                     ingredients,
                     ladder,
@@ -856,6 +897,7 @@ mod tests {
         CostChoice, CostChoices, CustomCost, Ingredient, IngredientChoice, IngredientChoices,
         ItemSpec, Lib, NumericSpec, Pack, RecipeSpec, TechSpec, UnitSpec,
     };
+    use crate::settings::locale_ref;
     use alloc::string::String;
     use alloc::vec::Vec;
 
@@ -1637,7 +1679,13 @@ fkrecipes-example-quench-medium-water=Water
         const FULL: &str = "steelworks-axe-ingredients";
         const SWITCH: &str =
             "\nLeave this as default and this mod's own list applies; anything else applies instead.";
-        let whole = text_description(FULL, "1 steel-plate", SWITCH, true, true);
+        let whole = text_description(
+            locale_ref("mod-setting-description", FULL, FULL),
+            "1 steel-plate",
+            SWITCH,
+            true,
+            true,
+        );
         assert_eq!(
             composed_text_lines_missing(&whole, SWITCH, true, true),
             Vec::<String>::new()
@@ -1647,7 +1695,11 @@ fkrecipes-example-quench-medium-water=Water
         // kind, so a rule asked about the wrong kind reports a healthy
         // description as broken.
         let packs = text_description(
-            "steelworks-axe-packs",
+            locale_ref(
+                "mod-setting-description",
+                "steelworks-axe-packs",
+                "steelworks-axe-packs",
+            ),
             "1 automation-science-pack",
             SWITCH,
             false,
@@ -1663,7 +1715,13 @@ fkrecipes-example-quench-medium-water=Water
         // commonest plan there is.
         const BESIDE: &str =
             "\nLeave this as default and the option chosen above decides; anything else applies instead.";
-        let beside = text_description(FULL, "1 steel-plate", BESIDE, true, false);
+        let beside = text_description(
+            locale_ref("mod-setting-description", FULL, FULL),
+            "1 steel-plate",
+            BESIDE,
+            true,
+            false,
+        );
         assert_eq!(
             composed_text_lines_missing(&beside, BESIDE, true, false),
             Vec::<String>::new()
@@ -1778,7 +1836,17 @@ fkrecipes-example-quench-medium-water=Water
         assert_eq!(
             lib.guarded_text_description("steelworks-"),
             Some((
-                text_description("steelworks-axe-ingredients", "", OWN, true, true),
+                text_description(
+                    locale_ref(
+                        "mod-setting-description",
+                        "steelworks-axe-ingredients",
+                        "steelworks-axe-ingredients"
+                    ),
+                    "",
+                    OWN,
+                    true,
+                    true
+                ),
                 String::from(OWN),
                 true,
                 true
@@ -1795,7 +1863,11 @@ fkrecipes-example-quench-medium-water=Water
             customizer_plan().guarded_text_description("fkrecipes-example-"),
             Some((
                 text_description(
-                    "fkrecipes-example-quench-ingredients",
+                    locale_ref(
+                        "mod-setting-description",
+                        "fkrecipes-example-quench-ingredients",
+                        "fkrecipes-example-quench-ingredients"
+                    ),
                     "",
                     BESIDE,
                     true,
@@ -1818,7 +1890,17 @@ fkrecipes-example-quench-medium-water=Water
         assert_eq!(
             packs_beside_cost_dropdown_plan().guarded_text_description("steelworks-"),
             Some((
-                text_description("steelworks-tips-packs", "", COST, false, true),
+                text_description(
+                    locale_ref(
+                        "mod-setting-description",
+                        "steelworks-tips-packs",
+                        "steelworks-tips-packs"
+                    ),
+                    "",
+                    COST,
+                    false,
+                    true
+                ),
                 String::from(COST),
                 false,
                 true

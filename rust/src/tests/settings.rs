@@ -251,6 +251,8 @@ fn plan_settings_refuses_an_empty_mod_name() {
 #[test]
 fn planning_refuses_a_lib_built_without_new() {
     let settings_plan = Lib {
+        describe_foreign: false,
+        described_twice: Vec::new(),
         id: 0,
         settings: Vec::new(),
         items: Vec::new(),
@@ -271,6 +273,8 @@ fn planning_refuses_a_lib_built_without_new() {
     }
 
     let data_plan = Lib {
+        describe_foreign: false,
+        described_twice: Vec::new(),
         id: 0,
         settings: Vec::new(),
         items: Vec::new(),

@@ -74,6 +74,10 @@ impl Lib {
                     pairs.push(kv("maximum_value", Value::Num(max)));
                 }
             }
+            // WHETHER ANY COMPOSITION FIRED, so a setting nothing is
+            // composed onto can still carry the literal the plan wrote. See
+            // `describe_setting`.
+            let mut composed = false;
             if s.kind == SettingKind::Dropdown {
                 pairs.push(kv("allowed_values", str_arr(&s.values)));
                 // THE PRESETS, WRITTEN OUT, on the dropdown that has a text
@@ -86,6 +90,7 @@ impl Lib {
                         "localised_description",
                         self.dropdown_description(&prefix, &full, &presets),
                     ));
+                    composed = true;
                 }
             }
             // A RESEARCH NUMBER STATES ITS RANGE, and beside a research
@@ -94,8 +99,12 @@ impl Lib {
             if numbers[i].bound {
                 pairs.push(kv(
                     "localised_description",
-                    number_description(&full, &self.research_range_line(i, s, numbers[i].dropdown)),
+                    number_description(
+                        self.setting_description_head(i, &full),
+                        &self.research_range_line(i, s, numbers[i].dropdown),
+                    ),
                 ));
+                composed = true;
             }
             if is_text(s.kind) {
                 // MEASURED: auto_trim is a GUI behaviour and does not touch
@@ -117,17 +126,45 @@ impl Lib {
                     // is the list that applies. See `text_carries_ladder_line`
                     // and `text_ladder_line`.
                     text_description(
-                        &full,
+                        self.setting_description_head(i, &full),
                         &self.rendered_default(&prefix, s),
                         &self.text_switch_line(i),
                         s.kind == SettingKind::Ingredients,
                         self.text_carries_ladder_line(i),
                     ),
                 ));
+                composed = true;
+            }
+            // AND A SETTING NOTHING IS COMPOSED ONTO CARRIES THE LITERAL
+            // ALONE, which is the whole of what `describe_setting` does for a
+            // bool, a plain number or a dropdown nothing binds: there is no
+            // composition for the head to open, so the description IS the
+            // head.
+            if s.described && !composed {
+                pairs.push(kv(
+                    "localised_description",
+                    Value::Str(s.description.clone()),
+                ));
             }
             ops.push(Op::Extend(Value::Map(pairs)));
         }
         Ok(ops)
+    }
+
+    /// What every composed description opens with: the consumer's own
+    /// `[mod-setting-description]` key, wrapped in the alternatives form, or
+    /// the literal the plan wrote through `describe_setting`.
+    ///
+    /// ONE FUNCTION FOR ALL THREE COMPOSITIONS, because the choice is the same
+    /// choice on a text setting, a research number and a composed dropdown
+    /// alike, and a second spelling is how one of the three could keep
+    /// composing a key the plan replaced.
+    pub(crate) fn setting_description_head(&self, i: usize, full: &str) -> Value {
+        let s = &self.settings[i];
+        if s.described {
+            return Value::Str(s.description.clone());
+        }
+        locale_ref("mod-setting-description", full, full)
     }
 
     /// The order string a setting is emitted with, which is also the string
@@ -390,8 +427,59 @@ impl Lib {
     /// sentence to the data planner's own loop: a plan with two problems
     /// should be answered by the one its author is likelier to recognise, and
     /// "pick one" is that sentence.
+    /// Every rule about `describe_setting`, and both planners run it because
+    /// `validate_bindings` does.
+    ///
+    /// IT LIVES BESIDE THE BINDING RULES RATHER THAN IN `validate_settings`,
+    /// and the reason is which planners run each: `validate_settings` is the
+    /// settings stage's alone, and a description the plan wrote is a
+    /// declaration the DATA stage must refuse too, because a plan that refuses
+    /// at one stage and loads at the other is a mod whose two halves disagree
+    /// about what it declares.
+    ///
+    /// THE ORDER IS THE CALL'S AND THEN THE DECLARATION'S. A handle from
+    /// another plan is answered first, because nothing about it names a
+    /// setting of this plan at all; the described-twice sentences follow in
+    /// CALL order, which is the order an author reads their own file in; and
+    /// the empty-description sentences last, in declaration order.
+    pub(crate) fn validate_descriptions(&self, prefix: &str) -> Result<(), String> {
+        let at = "fkrecipes: ";
+        if self.describe_foreign {
+            return Err(format!(
+                "{}DescribeSetting names a setting that this plan never declared",
+                at
+            ));
+        }
+        // THE FIRST SUCH CALL IN CALL ORDER, which is the same every run and
+        // the same in both halves, and is the one an author reaches first
+        // reading their own file.
+        if let Some(index) = self.described_twice.first() {
+            return Err(format!(
+                "{}the setting {} is described twice; DescribeSetting takes one description",
+                at,
+                self.settings[index - 1].emitted_name(prefix)
+            ));
+        }
+        for s in &self.settings {
+            // AN EMPTY DESCRIPTION IS NOT THE SAME AS NO DESCRIPTION, which is
+            // why the call is recorded separately from what it carried. A
+            // setting emitted with an empty localised_description is a row
+            // whose info icon says nothing, and the author who wrote the call
+            // meant to say something.
+            if s.described && s.description.is_empty() {
+                return Err(format!(
+                    "{}DescribeSetting was given an empty description for the setting {}",
+                    at,
+                    s.emitted_name(prefix)
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn validate_bindings(&self, prefix: &str) -> Result<(), String> {
         let at = "fkrecipes: ";
+        self.validate_descriptions(prefix)?;
 
         // ONE DROPDOWN COMPOSES ONE DESCRIPTION. A setting carries a single
         // localised_description, so a second declaration's presets would
@@ -1089,7 +1177,12 @@ impl Lib {
     /// line and no ladder, because its presets render no list of internal
     /// names.
     fn dropdown_description(&self, prefix: &str, full: &str, presets: &Presets<'_>) -> Value {
-        let mut params = alloc::vec![locale_ref("mod-setting-description", full, full)];
+        let i = self
+            .settings
+            .iter()
+            .position(|d| d.emitted_name(prefix) == full)
+            .expect("a composed dropdown is one of this plan's settings");
+        let mut params = alloc::vec![self.setting_description_head(i, full)];
         let text = match *presets {
             // A DROPDOWN WITH NO TEXT SETTING BESIDE IT COMPOSES THE LADDER
             // LINE AND NOTHING ELSE. There is no preset to read out, because
@@ -1286,7 +1379,7 @@ fn validate_declared_packs(at: &str, who: &str, packs: &[Pack]) -> Result<(), St
 /// two things: the ladder line's vocabulary, and whether the format line names
 /// the word `none`. See [`text_ladder_line`] and [`text_format_line`].
 pub(crate) fn text_description(
-    full: &str,
+    head: Value,
     rendered: &str,
     switch_line: &str,
     ingredients: bool,
@@ -1294,7 +1387,7 @@ pub(crate) fn text_description(
 ) -> Value {
     let mut params = alloc::vec![
         Value::string(""),
-        locale_ref("mod-setting-description", full, full),
+        head,
         Value::Str(format!("\ndefault: {}", rendered)),
     ];
     if ladder {
@@ -1313,10 +1406,10 @@ pub(crate) fn text_description(
 /// numeric field with no visible bounds, and 0 there means something the player
 /// cannot guess: the dropdown beside it decides. Both sentences live in
 /// `research_range_line`, and this is the shape they are emitted in.
-pub(crate) fn number_description(full: &str, range_line: &str) -> Value {
+pub(crate) fn number_description(head: Value, range_line: &str) -> Value {
     Value::Arr(alloc::vec![
         Value::string(""),
-        locale_ref("mod-setting-description", full, full),
+        head,
         Value::string(range_line),
     ])
 }

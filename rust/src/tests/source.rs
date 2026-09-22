@@ -1463,6 +1463,15 @@ const REFUSAL_CLASSES: &[RefusalClass] = &[
     },
     RefusalClass {
         module: "settings.rs",
+        func: "fn validate_descriptions(",
+        class: CLASS_DECLARATION,
+        except: "",
+        sites: &[],
+        n: 3,
+        why: "the descriptions DescribeSetting wrote, which are declarations like any other",
+    },
+    RefusalClass {
+        module: "settings.rs",
         func: "fn validate_text_settings(",
         class: CLASS_DECLARATION,
         except: "",
@@ -1532,6 +1541,7 @@ const REFUSAL_POLICY: &[PolicyRow] = &[
     PolicyRow { module: "settings.rs", func: "fn plan_settings(", class: CLASS_DECLARATION, except: "", sites: "" },
     PolicyRow { module: "settings.rs", func: "fn validate_settings(", class: CLASS_DECLARATION, except: "", sites: "" },
     PolicyRow { module: "settings.rs", func: "fn validate_bindings(", class: CLASS_DECLARATION, except: "", sites: "" },
+    PolicyRow { module: "settings.rs", func: "fn validate_descriptions(", class: CLASS_DECLARATION, except: "", sites: "" },
     PolicyRow { module: "settings.rs", func: "fn validate_text_settings(", class: CLASS_DECLARATION, except: "", sites: "" },
     PolicyRow { module: "settings.rs", func: "fn validate_declared_packs(", class: CLASS_DECLARATION, except: "", sites: "" },
     // Names a World and still reads only the declaration, which is enforced

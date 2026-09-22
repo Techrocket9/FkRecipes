@@ -74,8 +74,8 @@ pub use op::{Op, PathEl};
 pub use plan::{
     BoolSettingRef, CostChoice, CostChoices, CustomCost, DoubleSettingRef, DropdownSettingRef,
     Ingredient, IngredientChoice, IngredientChoices, IngredientsSettingRef, IntSettingRef, ItemRef,
-    ItemSpec, Lib, NumericSpec, Pack, PacksSettingRef, RecipeRef, RecipeSpec, TechRef, TechSpec,
-    UnitSpec,
+    ItemSpec, Lib, NumericSpec, Pack, PacksSettingRef, RecipeRef, RecipeSpec, SettingHandle,
+    TechRef, TechSpec, UnitSpec,
 };
 pub use value::{kv, Value};
 // `Named` IS PART OF THE SURFACE, not an implementation detail of `World`.

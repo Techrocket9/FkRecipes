@@ -738,6 +738,7 @@ var refusalClasses = []refusalClass{
 	{file: "customize.go", fn: "validateBindings", class: classDeclaration},
 	{file: "customize.go", fn: "validateCustomCost", class: classDeclaration},
 	{file: "customize.go", fn: "validateDeclaredPacks", class: classDeclaration},
+	{file: "customize.go", fn: "validateDescriptions", class: classDeclaration},
 	{file: "customize.go", fn: "validateTextSettings", class: classDeclaration},
 	{
 		file: "cycle.go", fn: "checkCycles", class: classEnvironmental, n: 1,
@@ -835,6 +836,7 @@ var refusalPolicy = []policyRow{
 	{file: "customize.go", fn: "validateBindings", class: classDeclaration},
 	{file: "customize.go", fn: "validateCustomCost", class: classDeclaration},
 	{file: "customize.go", fn: "validateDeclaredPacks", class: classDeclaration},
+	{file: "customize.go", fn: "validateDescriptions", class: classDeclaration},
 	{file: "customize.go", fn: "validateTextSettings", class: classDeclaration},
 	{file: "data.go", fn: "checkExtra", class: classDeclaration},
 	{file: "data.go", fn: "checkResolvedCraftTimes", class: classDeclaration},

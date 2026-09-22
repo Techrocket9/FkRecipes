@@ -2436,7 +2436,7 @@ func TestCustomResearchCostCarriesNoMaxLevel(t *testing.T) {
 func TestComposedTextLinesMissingGuardsTheComposedLines(t *testing.T) {
 	const full = "steelworks-axe-ingredients"
 	const switchLine = "\nLeave this as default and this mod's own list applies; anything else applies instead."
-	whole := textDescription(full, "1 steel-plate", switchLine, true, true)
+	whole := textDescription(localeRef("mod-setting-description", full, full), "1 steel-plate", switchLine, true, true)
 	if got := composedTextLinesMissing(whole, switchLine, true, true); len(got) != 0 {
 		t.Fatalf("the real composition reported %v", got)
 	}
@@ -2444,7 +2444,7 @@ func TestComposedTextLinesMissingGuardsTheComposedLines(t *testing.T) {
 	// and the format line are the two lines whose bytes depend on the kind, so
 	// a rule asked about the wrong kind reports a healthy description as
 	// broken.
-	packs := textDescription("steelworks-axe-packs", "1 automation-science-pack", switchLine, false, true)
+	packs := textDescription(localeRef("mod-setting-description", "steelworks-axe-packs", "steelworks-axe-packs"), "1 automation-science-pack", switchLine, false, true)
 	if got := composedTextLinesMissing(packs, switchLine, false, true); len(got) != 0 {
 		t.Fatalf("the real packs composition reported %v", got)
 	}
@@ -2452,7 +2452,7 @@ func TestComposedTextLinesMissingGuardsTheComposedLines(t *testing.T) {
 	// IT HAS NO LADDER LINE. This is the shape the customizer was designed for,
 	// so a guard that got this wrong would fire on the commonest plan there is.
 	const besideLine = "\nLeave this as default and the option chosen above decides; anything else applies instead."
-	beside := textDescription(full, "1 steel-plate", besideLine, true, false)
+	beside := textDescription(localeRef("mod-setting-description", full, full), "1 steel-plate", besideLine, true, false)
 	if got := composedTextLinesMissing(beside, besideLine, true, false); len(got) != 0 {
 		t.Fatalf("the real composition beside a dropdown reported %v", got)
 	}
@@ -2534,7 +2534,7 @@ func TestTheDriftGuardInspectsTheFirstTextSettingOnly(t *testing.T) {
 	// The FIRST one's, and with the list left out: the packs setting declared
 	// after it is not what the guard reads, and neither is any rendering.
 	const own = "\nLeave this as default and this mod's own list applies; anything else applies instead."
-	want := renderValue(textDescription("steelworks-axe-ingredients", "", own, true, true))
+	want := renderValue(textDescription(localeRef("mod-setting-description", "steelworks-axe-ingredients", "steelworks-axe-ingredients"), "", own, true, true))
 	if got := renderValue(desc); got != want {
 		t.Errorf("\n got: %s\nwant: %s", got, want)
 	}
@@ -2574,7 +2574,7 @@ func TestTheDriftGuardInspectsTheFirstTextSettingOnly(t *testing.T) {
 		t.Errorf("the composition handed to the guard carries the ladder line: %s", renderValue(desc))
 	}
 	if got := renderValue(desc); got != renderValue(
-		textDescription("steelworks-quench-ingredients", "", switchLine, true, false)) {
+		textDescription(localeRef("mod-setting-description", "steelworks-quench-ingredients", "steelworks-quench-ingredients"), "", switchLine, true, false)) {
 		t.Errorf("the guard was handed %s", got)
 	}
 
@@ -2599,7 +2599,7 @@ func TestTheDriftGuardInspectsTheFirstTextSettingOnly(t *testing.T) {
 		t.Errorf("the composition handed to the guard carries no ladder line: %s", renderValue(desc))
 	}
 	if got := renderValue(desc); got != renderValue(
-		textDescription("steelworks-tips-packs", "", switchLine, false, true)) {
+		textDescription(localeRef("mod-setting-description", "steelworks-tips-packs", "steelworks-tips-packs"), "", switchLine, false, true)) {
 		t.Errorf("the guard was handed %s", got)
 	}
 }
@@ -2813,7 +2813,7 @@ func TestTheComposedTextLinesAreTheStatedOnes(t *testing.T) {
 func TestTheLadderLineSitsUnderTheListItIsAbout(t *testing.T) {
 	// The STANDALONE TEXT composition: default line, ladder line, format line.
 	for _, ingredients := range []bool{true, false} {
-		desc := textDescription("steelworks-axe-parts", "1 iron-plate", "\nswitch", ingredients, true)
+		desc := textDescription(localeRef("mod-setting-description", "steelworks-axe-parts", "steelworks-axe-parts"), "1 iron-plate", "\nswitch", ingredients, true)
 		want := []string{
 			"\ndefault: 1 iron-plate",
 			textLadderLine(ingredients),
@@ -2827,7 +2827,7 @@ func TestTheLadderLineSitsUnderTheListItIsAbout(t *testing.T) {
 		}
 		// BESIDE A DROPDOWN: the format line follows the default line with
 		// nothing between them, and the ladder line is nowhere in the table.
-		beside := textDescription("steelworks-axe-parts", "1 iron-plate", "\nswitch", ingredients, false)
+		beside := textDescription(localeRef("mod-setting-description", "steelworks-axe-parts", "steelworks-axe-parts"), "1 iron-plate", "\nswitch", ingredients, false)
 		if got, w := beside.Arr[3], textFormatLine(ingredients); got.Kind != KindStr || got.Str != w {
 			t.Errorf("ingredients=%v: the line under the default line is %s, want the format line %q",
 				ingredients, renderValue(got), w)
@@ -4359,4 +4359,162 @@ func TestACostPresetDisplayTakesItsAdvisoryAway(t *testing.T) {
 		" and defining it here would rename it for every mod"
 	assertFindings(t, costDisplayPlan(0, "").CheckLocaleAdvisories("steelworks"), []string{want})
 	assertFindings(t, costDisplayPlan(0, "the mid tier's own price").CheckLocaleAdvisories("steelworks"), nil)
+}
+
+// ---------------------------------------------------------------------------
+// DescribeSetting: a description the plan writes.
+// ---------------------------------------------------------------------------
+
+// describedPlan is one plan holding all four shapes at once: a text setting, a
+// research number, a composed dropdown and a bool nothing is composed onto. A
+// consumer's own bit picks which of them the plan describes inline.
+func describedPlan(describe func(*Lib, BoolSettingRef, DropdownSettingRef, PacksSettingRef, IntSettingRef)) *Lib {
+	lib := New()
+	on := lib.BoolSetting("bonus-research", true)
+	tier := lib.DropdownSettingNeedingLocale("tips-tier", "projectile", []string{"projectile", "none"})
+	packs := lib.PacksSetting("tips-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+	count := lib.IntSetting("tips-count", 0, Between(0, 100000))
+	seconds := lib.IntSetting("tips-seconds", 0, Between(0, 600))
+	lib.Technology("hardened-tips", TechSpec{
+		CostBy: &CostChoices{
+			Setting: tier,
+			Choices: []CostChoice{
+				{Value: "projectile", Sources: []string{"mining-productivity-4"}},
+				{Value: "none"},
+			},
+			Fallback: UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+		},
+		CostFrom:  &CustomCost{Packs: packs, Count: count, Seconds: seconds},
+		EnabledBy: on,
+	})
+	if describe != nil {
+		describe(lib, on, tier, packs, count)
+	}
+	return lib
+}
+
+// THE LITERAL STANDS WHERE THE KEY STOOD, in all four shapes: the three the
+// library composes onto and the one it does not, where the literal is the
+// whole description.
+func TestDescribeSettingReplacesTheDescriptionEntry(t *testing.T) {
+	plain := describedSettings(t, describedPlan(nil))
+	if _, ok := plain["steelworks-bonus-research"]; ok {
+		t.Fatal("the bool carries a description already, so this test proves nothing")
+	}
+	for _, name := range []string{"steelworks-tips-tier", "steelworks-tips-packs", "steelworks-tips-count"} {
+		if !strings.Contains(plain[name], "mod-setting-description."+name) {
+			t.Fatalf("%s does not open with its own key, so this test proves nothing: %s", name, plain[name])
+		}
+	}
+
+	desc := describedSettings(t, describedPlan(func(lib *Lib, on BoolSettingRef, tier DropdownSettingRef, packs PacksSettingRef, count IntSettingRef) {
+		lib.DescribeSetting(on, "Whether the bonus line is researchable at all.")
+		lib.DescribeSetting(tier, "Which tier prices the bonus line in this mod set.")
+		lib.DescribeSetting(packs, "What the bonus line is priced in.")
+		lib.DescribeSetting(count, "How many units the bonus line takes.")
+	}))
+	for name, want := range map[string]string{
+		"steelworks-bonus-research": "Whether the bonus line is researchable at all.",
+		"steelworks-tips-tier":      "Which tier prices the bonus line in this mod set.",
+		"steelworks-tips-packs":     "What the bonus line is priced in.",
+		"steelworks-tips-count":     "How many units the bonus line takes.",
+	} {
+		if !strings.Contains(desc[name], want) {
+			t.Errorf("%s does not carry the literal: %s", name, desc[name])
+		}
+		if strings.Contains(desc[name], "mod-setting-description."+name) {
+			t.Errorf("%s still composes its own [mod-setting-description] key: %s", name, desc[name])
+		}
+	}
+	// THE BOOL CARRIES THE LITERAL ALONE, because nothing is composed onto it
+	// for the head to open.
+	if got, want := desc["steelworks-bonus-research"], `"Whether the bonus line is researchable at all."`; got != want {
+		t.Errorf("the bool's whole description is %s, want %s", got, want)
+	}
+	// AND EVERYTHING COMPOSED UNDER THE HEAD IS UNCHANGED, which is what says
+	// the literal replaced the head and nothing else.
+	for name, line := range map[string]string{
+		"steelworks-tips-packs": textFallbackLine,
+		"steelworks-tips-count": "\nLeave this at 0 and the option chosen above supplies the number; otherwise a whole number up to 100000.",
+		"steelworks-tips-tier":  "\nThe setting below applies instead while it does not say default.",
+	} {
+		if !strings.Contains(desc[name], line) {
+			t.Errorf("%s lost a composed line under the literal head: %s", name, desc[name])
+		}
+	}
+
+	// AND THE DRIFT GUARD STILL FINDS THE LINES UNDER A LITERAL HEAD, which is
+	// the one thing an inline description could have broken quietly: the guard
+	// builds the composition itself and would otherwise report the library
+	// missing every line it owes.
+	guarded := describedPlan(func(lib *Lib, _ BoolSettingRef, _ DropdownSettingRef, packs PacksSettingRef, _ IntSettingRef) {
+		lib.DescribeSetting(packs, "What the bonus line is priced in.")
+	})
+	if got := guarded.checkComposedTextLines("steelworks-"); len(got) != 0 {
+		t.Errorf("the drift guard reports a defect under a literal head: %v", got)
+	}
+}
+
+// THE THREE REFUSALS, each named, and both planners carry them because
+// validateBindings runs on both.
+func TestDescribeSettingRefusals(t *testing.T) {
+	empty := describedPlan(func(lib *Lib, on BoolSettingRef, _ DropdownSettingRef, _ PacksSettingRef, _ IntSettingRef) {
+		lib.DescribeSetting(on, "")
+	})
+	twice := describedPlan(func(lib *Lib, on BoolSettingRef, _ DropdownSettingRef, _ PacksSettingRef, _ IntSettingRef) {
+		lib.DescribeSetting(on, "Once.")
+		lib.DescribeSetting(on, "Twice.")
+	})
+	foreign := describedPlan(nil)
+	foreign.DescribeSetting(New().BoolSetting("somebody-elses", true), "Not this plan's.")
+
+	for _, c := range []struct {
+		lib  *Lib
+		want string
+	}{
+		{empty, "fkrecipes: DescribeSetting was given an empty description for the setting steelworks-bonus-research"},
+		{twice, "fkrecipes: the setting steelworks-bonus-research is described twice; DescribeSetting takes one description"},
+		{foreign, "fkrecipes: DescribeSetting names a setting that this plan never declared"},
+	} {
+		if _, err := c.lib.PlanSettings(settingsWorld()); err == nil || err.Error() != c.want {
+			t.Errorf("PlanSettings: got %v, want %q", err, c.want)
+		}
+		if _, err := c.lib.PlanData(customWorld()); err == nil || err.Error() != c.want {
+			t.Errorf("PlanData: got %v, want %q", err, c.want)
+		}
+	}
+}
+
+// AN INLINE DESCRIPTION MAKES THE ENTRY DEAD TEXT, so the checker stops
+// requiring it and reports one that is there.
+func TestCheckLocaleReportsADeadDescriptionEntry(t *testing.T) {
+	lib := describedPlan(func(lib *Lib, _ BoolSettingRef, _ DropdownSettingRef, packs PacksSettingRef, _ IntSettingRef) {
+		lib.DescribeSetting(packs, "What the bonus line is priced in.")
+	})
+	cfg := `[mod-setting-name]
+steelworks-bonus-research=Bonus research
+steelworks-tips-tier=Tier
+steelworks-tips-packs=Packs
+steelworks-tips-count=Units
+steelworks-tips-seconds=Seconds
+
+[mod-setting-description]
+steelworks-tips-tier=Which tier.
+steelworks-tips-count=How many.
+steelworks-tips-seconds=How long.
+
+[string-mod-setting]
+steelworks-tips-tier-projectile=Projectile
+steelworks-tips-tier-none=None
+`
+	// THE ENTRY IS NOT REQUIRED, which is what an empty report says.
+	assertFindings(t, lib.CheckLocale("steelworks", cfg), nil)
+
+	// AND ONE THAT IS THERE IS DEAD TEXT, reported in FILE order with the
+	// orphan findings, because that is what it is.
+	withEntry := strings.Replace(cfg, "steelworks-tips-tier=Which tier.",
+		"steelworks-tips-packs=Amount, then name.\nsteelworks-tips-tier=Which tier.", 1)
+	assertFindings(t, lib.CheckLocale("steelworks", withEntry), []string{
+		"the [mod-setting-description] entry steelworks-tips-packs is never shown; the plan describes that setting inline and the engine shows the plan's description instead",
+	})
 }
