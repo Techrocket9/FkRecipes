@@ -46,15 +46,24 @@
 # A mismatch here is ENVIRONMENTAL and reports SKIPPED, not FAILED.
 #
 # THE 2.1.17 ROWS' SETTINGS HASH IS DERIVED AND NOT CAPTURED (2026-09-22, and
-# written by hand a second time that day when the ladder line moved). No 2.1.17
-# binary is on this machine, and this round moved every composed setting
-# description, so those two rows would otherwise carry a hash this library no
-# longer produces. What is written there is the 2.0.77 capture's settings hash,
-# on the golden's own documented property that all four rows share one: a
-# setting prototype is this library's own and no engine has moved one. Their
-# DATA hashes stand as recorded, because nothing in this round touches the data
-# stage. A 2.1 machine confirms or refutes the derivation loudly, by running
-# the gate: a mismatch there is a failure and not a skip.
+# written by hand a third time that day when the surface half landed). No
+# 2.1.17 binary is on this machine, and every round since has moved composed
+# setting descriptions, so those two rows would otherwise carry a hash this
+# library no longer produces. What is written there is the 2.0.77 capture's
+# settings hash, on the golden's own documented property that all four rows
+# share one: a setting prototype is this library's own and no engine has moved
+# one. A 2.1 machine confirms or refutes the derivation loudly, by running the
+# gate: a mismatch there is a failure and not a skip.
+#
+# AND THEIR DATA HASHES ARE STALE, which is new and is stated rather than
+# guessed. The surface half's fixture adds three prototypes to the example
+# guest, two recipes and a technology, so the data dump moved on every engine
+# and the values below are the ones a 2.1.17 run produced BEFORE it. They are
+# left as recorded rather than derived, because nothing here can compute a data
+# hash for an engine it cannot run: a 2.1 machine re-records both rows with
+# `scripts/run-ingame.sh --update`, and until it does the 2.1 arm of this gate
+# fails on those two rows by design. The 2.0.77 rows below are captured and
+# current.
 #
 # AND --update WRITES THE ENGINE IT RAN ON LAST, so the 2.0.77 rows sit under
 # the 2.1.17 ones here. The order carries no meaning: the gate looks its own
@@ -62,7 +71,7 @@
 #
 # Capture both rows with: scripts/run-ingame.sh --update
 
-2.1.17 default 91652e2bba65b7c0d1a123ba91d9780f42b995c0b4e84408ff0f2dce3c7edc3b a3bfa92bce2b3dd3bca9332c6e97ad6a0afbca6c49e5429af42dc6d1abb7432d base@2.1.17 core@0.0.0 elevated-rails@2.1.17 fkrecipes-example@0.1.0 quality@2.1.17 recycler@2.1.17 space-age@2.1.17
-2.1.17 flipped 83c45b19038a8cc140dfc19b381ffabb94159084ec24812eadb04fbf662451db a3bfa92bce2b3dd3bca9332c6e97ad6a0afbca6c49e5429af42dc6d1abb7432d base@2.1.17 core@0.0.0 elevated-rails@2.1.17 fkrecipes-example@0.1.0 quality@2.1.17 recycler@2.1.17 space-age@2.1.17
-2.0.77 default e824cd8302c00fd07c3c3416ad8d9a5eea5612bce5ee455f1cf9669eee1685cd a3bfa92bce2b3dd3bca9332c6e97ad6a0afbca6c49e5429af42dc6d1abb7432d base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
-2.0.77 flipped 1cd61e0bdf9de34e2e76c9d74103a33636a82d95d6b4fb6584ca78b810aa1644 a3bfa92bce2b3dd3bca9332c6e97ad6a0afbca6c49e5429af42dc6d1abb7432d base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
+2.1.17 default 91652e2bba65b7c0d1a123ba91d9780f42b995c0b4e84408ff0f2dce3c7edc3b 501288857a1251460f5924506abd3dfcc40c676835ab57f4fc2fc388fda240a4 base@2.1.17 core@0.0.0 elevated-rails@2.1.17 fkrecipes-example@0.1.0 quality@2.1.17 recycler@2.1.17 space-age@2.1.17
+2.1.17 flipped 83c45b19038a8cc140dfc19b381ffabb94159084ec24812eadb04fbf662451db 501288857a1251460f5924506abd3dfcc40c676835ab57f4fc2fc388fda240a4 base@2.1.17 core@0.0.0 elevated-rails@2.1.17 fkrecipes-example@0.1.0 quality@2.1.17 recycler@2.1.17 space-age@2.1.17
+2.0.77 default 84bc940e912a8f830b0ca7c62a59fe76fadd3c9742f2f2e1f377d0f7ca86110b 501288857a1251460f5924506abd3dfcc40c676835ab57f4fc2fc388fda240a4 base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
+2.0.77 flipped 2d17c1f56a46b3f53ccf9bbc51dd160415635dcf27b5819fa5a9fc50bafc8086 501288857a1251460f5924506abd3dfcc40c676835ab57f4fc2fc388fda240a4 base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77

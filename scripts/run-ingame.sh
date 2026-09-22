@@ -950,6 +950,98 @@ jqassert "no ingredient setting carries the packs vocabulary of the ladder line"
 jqassert "a cost dropdown carries no ladder line" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-tips-research-tier") | .localised_description | .. | strings]
    | length > 0 and all(contains("next name for it or is left out") | not)'
+# ---------------------------------------------------------------------------
+# THE SHARED DROPDOWN: which declaration describes it, and what falls out.
+# ---------------------------------------------------------------------------
+#
+# The example's scaffolding line is one LEGACY dropdown named by TWO recipes and
+# one technology, which is the shape a migrating consumer has. Without Describes
+# the technology would win, because that walk runs second; the first recipe
+# carries it, so what a player reads over that row is the bill they can paste
+# into the field above it. Only the engine can say what the row really holds.
+#
+# EVERY FILTER FLATTENS THE DESCRIPTION TO ITS STRINGS, because a preset line is
+# a nested table and a top-level scan would be a claim about the composition's
+# shape rather than about what a player reads.
+jqassert "the shared dropdown carries the describing recipe's presets as to-type lines" "$DSDUMP" \
+  '[.. | objects | select(.name? == "steelworks-scaffold-tier") | .localised_description | .. | strings]
+   | length > 0 and any(contains("\n  to type: 2 iron-plate")) and any(contains("\n  to type: 4 steel-plate"))'
+jqassert "the shared dropdown carries no preset of the recipe that does not describe it" "$DSDUMP" \
+  '[.. | objects | select(.name? == "steelworks-scaffold-tier") | .localised_description | .. | strings]
+   | length > 0 and all(contains("to type: 2 fkrecipes-example-steel-rivet") | not)'
+jqassert "the shared dropdown discloses the ingredient ladder" "$DSDUMP" \
+  '[.. | objects | select(.name? == "steelworks-scaffold-tier") | .localised_description | .. | strings]
+   | length > 0 and any(contains("so an option can craft a shorter list than it shows"))'
+# ITS SWITCH LINE NAMES THE DESCRIBING DECLARATION'S TEXT. The word is a
+# DIRECTION, so the fixture puts the ingredient text ABOVE the dropdown and the
+# pack text below it: "above" is the ingredient text and nothing else.
+jqassert "the shared dropdown's switch line names the describing declaration's text" "$DSDUMP" \
+  '[.. | objects | select(.name? == "steelworks-scaffold-tier") | .localised_description | .. | strings]
+   | length > 0 and any(contains("\nThe setting above applies instead while it does not say default."))'
+jqassert "the shared dropdown's switch line does not name the pack text" "$DSDUMP" \
+  '[.. | objects | select(.name? == "steelworks-scaffold-tier") | .localised_description | .. | strings]
+   | length > 0 and all(contains("\nThe setting below applies instead while it does not say default.") | not)'
+# AND NO COST PRESET LINE IS ON IT, which is the same fact from the other side
+# and is also what says CheckLocaleAdvisories has no key to name for this row: a
+# cost preset line is the only thing that composes a technology-name key.
+jqassert "the shared dropdown carries no cost preset line" "$DSDUMP" \
+  '[.. | objects | select(.name? == "steelworks-scaffold-tier") | .localised_description | .. | strings]
+   | length > 0
+     and all(contains(": cost of ") | not)
+     and all(contains("technology-name.") | not)
+     and all(contains(": the fallback cost") | not)'
+# THE DESCRIBING RECIPE'S INGREDIENT TEXT CARRIES NO LADDER LINE, because the
+# dropdown beside it now says the same thing in the same vocabulary.
+jqassert "the ingredient text beside the described dropdown carries no ladder line" "$DSDUMP" \
+  '[.. | objects | select(.name? == "steelworks-scaffold-parts") | .localised_description | .. | strings]
+   | length > 0 and all(contains("next name for it or is left out") | not)'
+# AND THE PACK TEXT BESIDE THE SAME DROPDOWN KEEPS ITS OWN, which is the pair
+# decision 10 is about: the sentence on the dropdown is about a list of
+# ingredients it shows and says nothing about a research taking fewer packs.
+jqassert "the pack text beside the described dropdown discloses the ladder in packs" "$DSDUMP" \
+  '[.. | objects | select(.name? == "steelworks-scaffold-packs") | .localised_description | .. | strings]
+   | length > 0 and any(contains("so the research can take fewer packs than shown"))'
+jqassert "the pack text beside the described dropdown carries no ingredient vocabulary" "$DSDUMP" \
+  '[.. | objects | select(.name? == "steelworks-scaffold-packs") | .localised_description | .. | strings]
+   | length > 0 and all(contains("so what you craft can be shorter than shown") | not)'
+
+# ---------------------------------------------------------------------------
+# A COST PRESET IN THE AUTHOR'S OWN WORDS, and a description the plan writes.
+# ---------------------------------------------------------------------------
+#
+# The settings stage sees mods and never data.raw, so the composed tail names
+# the ladder's FIRST rung. On the tips tier that rung is tungsten-hardening, an
+# overhaul pack's technology this very run asserts the game does not have, which
+# is the case Display exists for.
+jqassert "the overridden cost preset carries the author's own words" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-tips-research-tier") | .localised_description | .. | strings]
+   | length > 0 and any(contains(": as much as the seventh projectile damage level"))'
+jqassert "the overridden cost preset composes no technology-name key of its own" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-tips-research-tier") | .localised_description | .. | strings]
+   | length > 0 and all(contains("technology-name.tungsten-hardening") | not)'
+jqassert "the cost preset with no override keeps its technology-name key" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-tips-research-tier") | .localised_description | .. | strings]
+   | length > 0 and any(contains("technology-name.military-4"))'
+# A DESCRIPTION THE PLAN WROTE stands where the consumer's own
+# [mod-setting-description] key stood, and on a setting nothing is composed onto
+# it is the WHOLE description rather than the head of one.
+jqassert "the inline-described bool carries the plan's own description whole" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-hardened-tools") | .localised_description]
+   | length > 0 and all(. == "Adds the hardened steel line, its scaffolding and the research that unlocks them.")'
+jqassert "the inline-described ingredient text opens with the plan's own description" "$DSDUMP" \
+  '[.. | objects | select(.name? == "steelworks-scaffold-parts") | .localised_description | .. | strings]
+   | length > 0 and any(. == "What one scaffold bracket is made of while this is not on default.")'
+jqassert "no inline-described setting composes its own [mod-setting-description] key" "$DSDUMP" \
+  '[.. | objects
+    | select(.name? == "fkrecipes-example-hardened-tools" or .name? == "steelworks-scaffold-parts")
+    | .localised_description | .. | strings]
+   | length > 0
+     and all(contains("mod-setting-description.fkrecipes-example-hardened-tools") | not)
+     and all(contains("mod-setting-description.steelworks-scaffold-parts") | not)'
+jqassert "the inline-described ingredient text keeps every line composed under it" "$DSDUMP" \
+  '[.. | objects | select(.name? == "steelworks-scaffold-parts") | .localised_description | .. | strings]
+   | length > 0 and any(contains("Text this mod cannot use is set aside as though it said default"))'
+
 jqassert "the text setting's composed description states what an unusable text costs" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-rivet-ingredients") | .localised_description]
    | length > 0 and all(any(.[]; . == "\nText this mod cannot use is set aside as though it said default; the reason is in the log or the load error."))'

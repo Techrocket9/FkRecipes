@@ -388,6 +388,101 @@ done
 # all. tips-packs is that shape in the example guest.
 grep '^TRANSCRIPT extend' "$T" | grep -F '"name"="fkrecipes-example-tips-packs"' | grep -qF 'so the research can take fewer packs than shown' ||
   fail "a packs text setting beside a cost dropdown carries no ladder line, and the cost dropdown carries none either"
+# ---------------------------------------------------------------------------
+# THE SHARED DROPDOWN: which declaration describes it, and what falls out.
+# ---------------------------------------------------------------------------
+#
+# The example's scaffolding line is one legacy dropdown named by TWO recipes and
+# one technology. Without Describes the technology would win, because that walk
+# runs second; the first recipe carries it, so what a player reads over that row
+# is the bill they can paste into the field above it.
+#
+# ONE HELPER, SCOPED TO ONE SETTING'S OWN extend LINE. The stand-in's FINAL dump
+# is one line holding every prototype at once, so a grep over the file would
+# pass on a string landing anywhere at all.
+setting_carries() {
+  grep '^TRANSCRIPT extend' "$T" | grep -F "\"name\"=\"$1\"" | grep -qF "$2"
+}
+# (a) THE DESCRIBING RECIPE'S PRESETS, as to-type lines.
+setting_carries steelworks-scaffold-tier '\n  to type: 2 iron-plate' ||
+  fail "the shared dropdown does not carry the describing recipe's light preset"
+setting_carries steelworks-scaffold-tier '\n  to type: 4 steel-plate' ||
+  fail "the shared dropdown does not carry the describing recipe's heavy preset"
+# AND NOT THE OTHER RECIPE'S, which is the negative that says one declaration
+# describes rather than all of them: scaffold-tie's presets are rivets.
+if setting_carries steelworks-scaffold-tier 'to type: 2 fkrecipes-example-steel-rivet'; then
+  fail "the shared dropdown carries the presets of a recipe that does not describe it"
+fi
+# (b) THE INGREDIENT LADDER LINE, because what it shows is a list of internal
+# names and the ladder is what the game does to one.
+setting_carries steelworks-scaffold-tier 'so an option can craft a shorter list than it shows' ||
+  fail "the shared dropdown carries no ingredient ladder line"
+# (c) AND ITS SWITCH LINE NAMES THE DESCRIBING DECLARATION'S TEXT. The word is a
+# DIRECTION, so the fixture puts the ingredient text ABOVE the dropdown and the
+# pack text below it: "above" is the ingredient text and nothing else.
+setting_carries steelworks-scaffold-tier 'The setting above applies instead while it does not say default.' ||
+  fail "the shared dropdown's switch line does not name the describing declaration's text setting"
+if setting_carries steelworks-scaffold-tier 'The setting below applies instead while it does not say default.'; then
+  fail "the shared dropdown's switch line names the pack text, which belongs to the declaration that does not describe it"
+fi
+# (d) AND NO COST PRESET LINE IS ON IT, which is the same fact from the other
+# side and is also what says CheckLocaleAdvisories has no key to name for this
+# row: a cost preset is the only thing that composes a technology-name key.
+for unwanted in ': cost of ' 'technology-name.' ': the fallback cost'; do
+  if setting_carries steelworks-scaffold-tier "$unwanted"; then
+    fail "the shared dropdown carries $unwanted, which belongs to the technology that does not describe it"
+  fi
+done
+# (e) THE DESCRIBING RECIPE'S INGREDIENT TEXT CARRIES NO LADDER LINE, because
+# the dropdown beside it now says the same thing in the same vocabulary.
+if setting_carries steelworks-scaffold-parts 'next name for it or is left out'; then
+  fail "the ingredient text beside the described dropdown carries a ladder line as well"
+fi
+# (f) AND THE PACK TEXT BESIDE THE SAME DROPDOWN KEEPS ITS OWN. That is the pair
+# decision 10 is about: the sentence on the dropdown is about a list of
+# ingredients it shows and says nothing about a research taking fewer packs.
+setting_carries steelworks-scaffold-packs 'so the research can take fewer packs than shown' ||
+  fail "the pack text beside the described dropdown lost its packs ladder line"
+if setting_carries steelworks-scaffold-packs 'so what you craft can be shorter than shown'; then
+  fail "the pack text beside the described dropdown carries the ingredient vocabulary of the ladder line"
+fi
+
+# ---------------------------------------------------------------------------
+# A COST PRESET IN THE AUTHOR'S OWN WORDS, and a description the plan writes.
+# ---------------------------------------------------------------------------
+#
+# The settings stage sees mods and never data.raw, so the composed tail names
+# the ladder's FIRST rung. On the tips tier that rung is tungsten-hardening, an
+# overhaul pack's technology in no game most players run, which is the case
+# Display exists for.
+setting_carries fkrecipes-example-tips-research-tier ': as much as the seventh projectile damage level, or the overhaul pack'"'"'s own hardening' ||
+  fail "the overridden cost preset does not carry the author's own words"
+if setting_carries fkrecipes-example-tips-research-tier 'technology-name.tungsten-hardening'; then
+  fail "the overridden cost preset still composes the technology-name key it replaced"
+fi
+# AND THE CHOICE BESIDE IT IS UNTOUCHED, which is what says the override is per
+# choice rather than per dropdown.
+setting_carries fkrecipes-example-tips-research-tier 'technology-name.military-4' ||
+  fail "the choice with no override lost its technology-name key"
+
+# A DESCRIPTION THE PLAN WROTE stands where the consumer's own
+# [mod-setting-description] key stood, and on a setting nothing is composed onto
+# it is the whole description.
+setting_carries fkrecipes-example-hardened-tools '"localised_description"="Adds the hardened steel line, its scaffolding and the research that unlocks them."' ||
+  fail "the inline-described bool does not carry the plan's own description as its whole tooltip"
+if setting_carries fkrecipes-example-hardened-tools 'mod-setting-description.fkrecipes-example-hardened-tools'; then
+  fail "the inline-described bool still composes its own [mod-setting-description] key"
+fi
+# AND UNDER A COMPOSITION IT IS THE HEAD AND NOTHING ELSE: the library's own
+# lines are where they were.
+setting_carries steelworks-scaffold-parts 'What one scaffold bracket is made of while this is not on default.' ||
+  fail "the inline-described ingredient text does not open with the plan's own description"
+if setting_carries steelworks-scaffold-parts 'mod-setting-description.steelworks-scaffold-parts'; then
+  fail "the inline-described ingredient text still composes its own [mod-setting-description] key"
+fi
+setting_carries steelworks-scaffold-parts 'Text this mod cannot use is set aside as though it said default' ||
+  fail "the inline-described ingredient text lost a composed line under the plan's own description"
+
 # AND THE LINE ABOUT A WRAPPED LIST IS GONE FROM EVERY COMPOSITION. It said the
 # one thing about a rendered line a player cannot see, and it said it on every
 # text setting and every ingredient dropdown of every consumer; what it

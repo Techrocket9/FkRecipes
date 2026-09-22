@@ -913,7 +913,7 @@ mod tests {
     /// checker reads no ingredient and no cost, only who reads which setting.
     fn steelworks_settings() -> Lib {
         let mut lib = Lib::new();
-        lib.bool_setting("hardened-tools", true);
+        let hardened = lib.bool_setting("hardened-tools", true);
         lib.int_setting("rivet-batch", 4, NumericSpec::between(1.0, 20.0));
         lib.double_setting(
             "forging-time",
@@ -973,6 +973,37 @@ mod tests {
         );
         let chain_count = lib.int_setting("chain-count", 20, NumericSpec::between(1.0, 100000.0));
         let chain_seconds = lib.int_setting("chain-seconds", 10, NumericSpec::between(1.0, 600.0));
+        // The scaffolding line, under the legacy names the example declares:
+        // one dropdown, two recipes and a technology, with `describes` on the
+        // first recipe.
+        let scaffold_tier = lib.legacy_dropdown_setting_needing_locale(
+            "steelworks-scaffold-tier",
+            "light",
+            &["light", "heavy"],
+            "za",
+        );
+        let scaffold_parts = lib.legacy_ingredients_setting(
+            "steelworks-scaffold-parts",
+            alloc::vec![Ingredient::named(2, "iron-plate", &[])],
+            "ya",
+        );
+        let scaffold_packs = lib.legacy_packs_setting(
+            "steelworks-scaffold-packs",
+            alloc::vec![Pack::new("automation-science-pack", 1)],
+            "zc",
+        );
+        let scaffold_count = lib.legacy_int_setting(
+            "steelworks-scaffold-count",
+            0,
+            NumericSpec::between(0.0, 100000.0),
+            "zd",
+        );
+        let scaffold_seconds = lib.legacy_int_setting(
+            "steelworks-scaffold-seconds",
+            0,
+            NumericSpec::between(0.0, 600.0),
+            "ze",
+        );
 
         lib.recipe(
             rivet,
@@ -1035,7 +1066,7 @@ mod tests {
                     setting: tier,
                     choices: alloc::vec![
                         CostChoice {
-                            display: String::new(),
+                            display: String::from("as much as the seventh projectile damage level, or the overhaul pack's own hardening"),
                             value: String::from("projectile"),
                             sources: alloc::vec![String::from("physical-projectile-damage-7")],
                         },
@@ -1069,6 +1100,90 @@ mod tests {
                 }),
                 ..Default::default()
             },
+        );
+        let bracket = lib.recipe(
+            rivet,
+            RecipeSpec {
+                name: String::from("scaffold-bracket"),
+                ingredients_by: Some(IngredientChoices {
+                    describes: true,
+                    setting: scaffold_tier,
+                    choices: alloc::vec![
+                        IngredientChoice {
+                            value: String::from("light"),
+                            ingredients: alloc::vec![Ingredient::named(2, "iron-plate", &[])],
+                        },
+                        IngredientChoice {
+                            value: String::from("heavy"),
+                            ingredients: alloc::vec![Ingredient::named(4, "steel-plate", &[])],
+                        },
+                    ],
+                }),
+                ingredients_from: Some(scaffold_parts),
+                ..Default::default()
+            },
+        );
+        let tie = lib.recipe(
+            rivet,
+            RecipeSpec {
+                name: String::from("scaffold-tie"),
+                ingredients_by: Some(IngredientChoices {
+                    describes: false,
+                    setting: scaffold_tier,
+                    choices: alloc::vec![
+                        IngredientChoice {
+                            value: String::from("light"),
+                            ingredients: alloc::vec![Ingredient::of(rivet, 2)],
+                        },
+                        IngredientChoice {
+                            value: String::from("heavy"),
+                            ingredients: alloc::vec![Ingredient::of(rivet, 4)],
+                        },
+                    ],
+                }),
+                ..Default::default()
+            },
+        );
+        lib.technology(
+            "scaffold-raising",
+            TechSpec {
+                cost_by: Some(CostChoices {
+                    describes: false,
+                    setting: scaffold_tier,
+                    choices: alloc::vec![
+                        CostChoice {
+                            display: String::new(),
+                            value: String::from("light"),
+                            sources: alloc::vec![String::from("logistics-2")],
+                        },
+                        CostChoice {
+                            display: String::new(),
+                            value: String::from("heavy"),
+                            sources: alloc::vec![String::from("logistics-3")],
+                        },
+                    ],
+                    fallback: UnitSpec {
+                        count: 100,
+                        seconds: 15.0,
+                        packs: alloc::vec![Pack::new("automation-science-pack", 1)],
+                    },
+                }),
+                cost_from: Some(CustomCost {
+                    packs: scaffold_packs,
+                    count: scaffold_count,
+                    seconds: scaffold_seconds,
+                }),
+                unlocks: alloc::vec![bracket, tie],
+                ..Default::default()
+            },
+        );
+        lib.describe_setting(
+            hardened,
+            "Adds the hardened steel line, its scaffolding and the research that unlocks them.",
+        );
+        lib.describe_setting(
+            scaffold_parts,
+            "What one scaffold bracket is made of while this is not on default.",
         );
         lib
     }
@@ -1123,7 +1238,9 @@ mod tests {
     /// two literal sentences and a third copy on disk would be a third place to
     /// forget.
     const ADVISORY_NOTES: &[&str] = &[
-        "note: the dropdown setting fkrecipes-example-tips-research-tier composes the game's own key technology-name.physical-projectile-damage-7, which this plan does not own; where the game does not define it the tooltip shows physical-projectile-damage-7 instead, and defining it here would rename it for every mod",
+        // ONE NOTE AND NOT TWO: the projectile choice carries a `display`, so
+        // its line names no technology-name key and there is nothing to advise
+        // about.
         "note: the dropdown setting fkrecipes-example-tips-research-tier composes the game's own key technology-name.military-4, which this plan does not own; where the game does not define it the tooltip shows military-4 instead, and defining it here would rename it for every mod",
     ];
 

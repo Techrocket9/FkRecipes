@@ -1,4 +1,5 @@
 the dropdown setting fkrecipes-example-quench-medium has no [string-mod-setting] entry for its value oil
 the setting fkrecipes-example-bonus-research has no [mod-setting-name] entry
 the [mod-setting-name] entry fkrecipes-example-scrap-recovery matches no setting this plan declares
+the [mod-setting-description] entry fkrecipes-example-hardened-tools is never shown; the plan describes that setting inline and the engine shows the plan's description instead
 the [string-mod-setting] entry fkrecipes-example-quench-medium-brine matches no dropdown value this plan declares

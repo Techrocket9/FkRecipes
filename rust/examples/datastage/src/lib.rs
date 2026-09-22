@@ -166,6 +166,47 @@ mod guest {
         let chain_count = lib.int_setting("chain-count", 20, NumericSpec::between(1.0, 100000.0));
         let chain_seconds = lib.int_setting("chain-seconds", 10, NumericSpec::between(1.0, 600.0));
 
+        // THE SCAFFOLDING LINE, AND IT IS THE SHAPE A MIGRATING MOD HAS: one
+        // dropdown that moves a whole tier at once, named by TWO recipes and
+        // one technology, under names and orders this mod shipped before it
+        // adopted the library. A dropdown composes ONE declaration's presets,
+        // so the first recipe carries `describes` and the tooltip a player
+        // reads is the bill they can paste into the text field beside it.
+        let scaffold_tier = lib.legacy_dropdown_setting_needing_locale(
+            "steelworks-scaffold-tier",
+            "light",
+            &["light", "heavy"],
+            "za",
+        );
+        // ITS ORDER PUTS IT ABOVE THE DROPDOWN AND THE PACK TEXT BELOW IT,
+        // which is what lets the dropdown's own switch line say WHICH of the
+        // two texts it defers to: the word is above or below, so two texts on
+        // one side of it would be one sentence about either.
+        let scaffold_parts = lib.legacy_ingredients_setting(
+            "steelworks-scaffold-parts",
+            vec![Ingredient::named(2, "iron-plate", &[])],
+            "ya",
+        );
+        let scaffold_packs = lib.legacy_packs_setting(
+            "steelworks-scaffold-packs",
+            vec![Pack::new("automation-science-pack", 1)],
+            "zc",
+        );
+        // BOTH FLOOR AT 0 AND DEFAULT TO 0, because the tier dropdown decides
+        // while they do: the same rule the tips numbers follow.
+        let scaffold_count = lib.legacy_int_setting(
+            "steelworks-scaffold-count",
+            0,
+            NumericSpec::between(0.0, 100000.0),
+            "zd",
+        );
+        let scaffold_seconds = lib.legacy_int_setting(
+            "steelworks-scaffold-seconds",
+            0,
+            NumericSpec::between(0.0, 600.0),
+            "ze",
+        );
+
         let rivets = lib.recipe(
             rivet,
             RecipeSpec {
@@ -328,8 +369,16 @@ mod guest {
                         // ladder steps past it to the multi-level one, whose
                         // count_formula and level cap come across with the
                         // unit.
+                        //
+                        // WHAT THIS TIER COSTS, IN THIS MOD'S OWN WORDS. The
+                        // settings stage sees `mods` and never `data.raw`, so
+                        // without this the line would name the ladder's FIRST
+                        // rung, tungsten-hardening, which is an overhaul
+                        // pack's technology and is in no game most players
+                        // run. `display` is where an author says the true
+                        // thing per mod set.
                         CostChoice {
-                            display: String::new(),
+                            display: String::from("as much as the seventh projectile damage level, or the overhaul pack's own hardening"),
                             value: String::from("projectile"),
                             sources: vec![
                                 String::from("tungsten-hardening"),
@@ -383,6 +432,135 @@ mod guest {
                 unlocks: vec![chains],
                 ..Default::default()
             },
+        );
+
+        // THE TWO RECIPES THE TIER MOVES. Both produce an item this plan
+        // already declares, under explicit names of their own, and only the
+        // FIRST carries a text setting: a dropdown composes one declaration's
+        // presets and `describes` says which.
+        let bracket = lib.recipe(
+            rivet,
+            RecipeSpec {
+                name: String::from("scaffold-bracket"),
+                craft_time: 0.5,
+                result_count: 2,
+                ingredients_by: Some(IngredientChoices {
+                    setting: scaffold_tier,
+                    choices: vec![
+                        IngredientChoice {
+                            value: String::from("light"),
+                            ingredients: vec![Ingredient::named(2, "iron-plate", &[])],
+                        },
+                        IngredientChoice {
+                            value: String::from("heavy"),
+                            ingredients: vec![Ingredient::named(4, "steel-plate", &[])],
+                        },
+                    ],
+                    // THIS IS THE DECLARATION THE DROPDOWN SHOWS. Without it
+                    // the technology below would describe it, because that
+                    // walk runs second, and the tooltip would carry research
+                    // costs over a field a player fills in with an ingredient
+                    // list.
+                    describes: true,
+                }),
+                ingredients_from: Some(scaffold_parts),
+                display_name: String::from("Scaffold bracket"),
+                // A SECOND RECIPE FOR AN ITEM THAT ALREADY HAS ONE, and the
+                // field that keeps the RECYCLER off it. Measured in quality's
+                // own prototypes/recycling.lua: it builds one recycling recipe
+                // per item out of the LAST recipe that produces it, and the
+                // only opt-out is `auto_recycle = false` on the recipe.
+                // Without it an alternative recipe added beside the primary
+                // one silently moves that generated prototype. Nothing in this
+                // library owns the field; it is passed through, which is what
+                // `extra` is for.
+                extra: vec![kv("auto_recycle", Value::Bool(false))],
+                ..Default::default()
+            },
+        );
+        let tie = lib.recipe(
+            chain,
+            RecipeSpec {
+                name: String::from("scaffold-tie"),
+                craft_time: 1.0,
+                ingredients_by: Some(IngredientChoices {
+                    setting: scaffold_tier,
+                    choices: vec![
+                        IngredientChoice {
+                            value: String::from("light"),
+                            ingredients: vec![Ingredient::of(rivet, 2)],
+                        },
+                        IngredientChoice {
+                            value: String::from("heavy"),
+                            ingredients: vec![
+                                Ingredient::of(rivet, 4),
+                                Ingredient::named(1, "steel-plate", &[]),
+                            ],
+                        },
+                    ],
+                    ..Default::default()
+                }),
+                display_name: String::from("Scaffold tie"),
+                extra: vec![kv("auto_recycle", Value::Bool(false))],
+                ..Default::default()
+            },
+        );
+        // THE THIRD DECLARATION ON THE SAME DROPDOWN, and the one that makes
+        // the pair worth having in the fixture: its pack text sits beside a
+        // dropdown that composes the INGREDIENT ladder sentence, so it keeps
+        // its own packs sentence. Two vocabularies, one dropdown.
+        lib.technology(
+            "scaffold-raising",
+            TechSpec {
+                icon: String::from(
+                    "__fkrecipes-example__/graphics/technology/scaffold-raising.png",
+                ),
+                icon_size: 128,
+                cost_by: Some(CostChoices {
+                    setting: scaffold_tier,
+                    choices: vec![
+                        CostChoice {
+                            display: String::new(),
+                            value: String::from("light"),
+                            sources: vec![String::from("logistics-2")],
+                        },
+                        CostChoice {
+                            display: String::new(),
+                            value: String::from("heavy"),
+                            sources: vec![String::from("logistics-3")],
+                        },
+                    ],
+                    fallback: UnitSpec {
+                        count: 100,
+                        seconds: 15.0,
+                        packs: vec![Pack::new("automation-science-pack", 1)],
+                    },
+                    ..Default::default()
+                }),
+                cost_from: Some(CustomCost {
+                    packs: scaffold_packs,
+                    count: scaffold_count,
+                    seconds: scaffold_seconds,
+                }),
+                unlocks: vec![bracket, tie],
+                display_name: String::from("Scaffold raising"),
+                ..Default::default()
+            },
+        );
+
+        // TWO DESCRIPTIONS THE PLAN WRITES rather than the locale file. A .cfg
+        // entry is one string for every mod set; a plan that branches on what
+        // is installed can say the true thing for the game actually running,
+        // and this is where that goes. The bool has nothing composed onto it,
+        // so the literal is its whole tooltip; the ingredient text has the
+        // library's own lines under it exactly as it would under a locale key.
+        lib.describe_setting(
+            hardened,
+            "Adds the hardened steel line, its scaffolding and the research that unlocks them.",
+        );
+        lib.describe_setting(
+            scaffold_parts,
+            "What one scaffold bracket is made of while this is not on default.",
         );
 
         lib

@@ -16,9 +16,11 @@ worst case a consumer can ship, and it is also the case the library's own
 sentences are the whole of.
 
 Two numbers per row. `whole` is what the player reads; `library` is the same
-text with parameters 1 and 2 left out, which are the leading "" and the
-consumer's own [mod-setting-description] reference, so it is the part this
-library composed rather than the part the consumer wrote. `-v` prints the
+text with parameters 1 and 2 left out, which are the leading "" and the head of
+the composition, either the consumer's own [mod-setting-description] reference
+or the literal DescribeSetting wrote, so it is the part this library composed
+rather than the part the consumer wrote. A description that is a plain string
+is one the plan wrote and nothing was composed onto, so its library part is 0. `-v` prints the
 rendered text under each row.
 
 It is a measurement tool and not a gate: nothing runs it, it asserts nothing,
@@ -80,7 +82,16 @@ def main(argv):
             continue
         desc = proto["localised_description"]
         whole = render(desc)
-        library = "".join(render(x) for k, x in desc if k not in ("1", "2"))
+        # A PLAIN STRING IS A DESCRIPTION THE PLAN WROTE AND THE LIBRARY
+        # COMPOSED NOTHING ONTO: DescribeSetting on a setting with no
+        # composition of its own emits the literal alone, so there is no
+        # parameter list to drop the first two of and the library's part is
+        # empty. Where a composition DOES open with such a literal the shape is
+        # unchanged, because the literal stands in parameter 2's place.
+        if isinstance(desc, str):
+            library = ""
+        else:
+            library = "".join(render(x) for k, x in desc if k not in ("1", "2"))
         print(
             f"{proto['name']:52s} {proto['type']:15s}"
             f" whole={len(whole):4d} library={len(library):4d}"

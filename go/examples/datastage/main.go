@@ -119,6 +119,29 @@ func plan() *fkrecipes.Lib {
 	chainCount := lib.IntSetting("chain-count", 20, fkrecipes.Between(1, 100000))
 	chainSeconds := lib.IntSetting("chain-seconds", 10, fkrecipes.Between(1, 600))
 
+	// THE SCAFFOLDING LINE, AND IT IS THE SHAPE A MIGRATING MOD HAS: one
+	// dropdown that moves a whole tier at once, named by TWO recipes and one
+	// technology, under names and orders this mod shipped before it adopted
+	// the library. A dropdown composes ONE declaration's presets, so the
+	// first recipe carries Describes and the tooltip a player reads is the
+	// bill they can paste into the text field beside it.
+	scaffoldTier := lib.LegacyDropdownSettingNeedingLocale("steelworks-scaffold-tier",
+		"light", []string{"light", "heavy"}, "za")
+	// ITS ORDER PUTS IT ABOVE THE DROPDOWN AND THE PACK TEXT BELOW IT, which
+	// is what lets the dropdown's own switch line say WHICH of the two texts
+	// it defers to: the word is above or below, so two texts on one side of it
+	// would be one sentence about either.
+	scaffoldParts := lib.LegacyIngredientsSetting("steelworks-scaffold-parts",
+		[]fkrecipes.Ingredient{fkrecipes.IngredientNamed(2, "iron-plate")}, "ya")
+	scaffoldPacks := lib.LegacyPacksSetting("steelworks-scaffold-packs",
+		[]fkrecipes.Pack{{Name: "automation-science-pack", Amount: 1}}, "zc")
+	// BOTH FLOOR AT 0 AND DEFAULT TO 0, because the tier dropdown decides
+	// while they do: the same rule the tips numbers follow.
+	scaffoldCount := lib.LegacyIntSetting("steelworks-scaffold-count", 0,
+		fkrecipes.Between(0, 100000), "zd")
+	scaffoldSeconds := lib.LegacyIntSetting("steelworks-scaffold-seconds", 0,
+		fkrecipes.Between(0, 600), "ze")
+
 	rivets := lib.Recipe(rivet, fkrecipes.RecipeSpec{
 		CraftTime:   0.5,
 		ResultCount: 4,
@@ -247,7 +270,13 @@ func plan() *fkrecipes.Lib {
 				// neither the stand-in nor the game, so the ladder steps past
 				// it to the multi-level one, whose count_formula and level cap
 				// come across with the unit.
-				{Value: "projectile", Sources: []string{
+				// WHAT THIS TIER COSTS, IN THIS MOD'S OWN WORDS. The
+				// settings stage sees mods and never data.raw, so without
+				// this the line would name the ladder's FIRST rung,
+				// tungsten-hardening, which is an overhaul pack's technology
+				// and is in no game most players run. Display is where an
+				// author says the true thing per mod set.
+				{Value: "projectile", Display: "as much as the seventh projectile damage level, or the overhaul pack's own hardening", Sources: []string{
 					"tungsten-hardening", "physical-projectile-damage-7",
 				}},
 				{Value: "military", Sources: []string{"military-4"}},
@@ -283,6 +312,97 @@ func plan() *fkrecipes.Lib {
 		After:   "steel-processing",
 		Unlocks: []fkrecipes.RecipeRef{chains},
 	})
+
+	// THE TWO RECIPES THE TIER MOVES. Both produce an item this plan already
+	// declares, under explicit names of their own, and only the FIRST carries
+	// a text setting: a dropdown composes one declaration's presets and
+	// Describes says which.
+	bracket := lib.Recipe(rivet, fkrecipes.RecipeSpec{
+		Name:        "scaffold-bracket",
+		CraftTime:   0.5,
+		ResultCount: 2,
+		IngredientsBy: &fkrecipes.IngredientChoices{
+			Setting: scaffoldTier,
+			Choices: []fkrecipes.IngredientChoice{
+				{Value: "light", Ingredients: []fkrecipes.Ingredient{
+					fkrecipes.IngredientNamed(2, "iron-plate"),
+				}},
+				{Value: "heavy", Ingredients: []fkrecipes.Ingredient{
+					fkrecipes.IngredientNamed(4, "steel-plate"),
+				}},
+			},
+			// THIS IS THE DECLARATION THE DROPDOWN SHOWS. Without it the
+			// technology below would describe it, because that walk runs
+			// second, and the tooltip would carry research costs over a field
+			// a player fills in with an ingredient list.
+			Describes: true,
+		},
+		IngredientsFrom: scaffoldParts,
+		DisplayName:     "Scaffold bracket",
+		// A SECOND RECIPE FOR AN ITEM THAT ALREADY HAS ONE, and the field
+		// that keeps the RECYCLER off it. Measured in quality's own
+		// prototypes/recycling.lua: it builds one recycling recipe per item
+		// out of the LAST recipe that produces it, and the only opt-out is
+		// auto_recycle = false on the recipe. Without it an alternative
+		// recipe added beside the primary one silently moves that generated
+		// prototype. Nothing in this library owns the field; it is passed
+		// through, which is what Extra is for.
+		Extra: []fkrecipes.KV{fkrecipes.Pair("auto_recycle", fkrecipes.Bool(false))},
+	})
+	tie := lib.Recipe(chain, fkrecipes.RecipeSpec{
+		Name:      "scaffold-tie",
+		CraftTime: 1,
+		IngredientsBy: &fkrecipes.IngredientChoices{
+			Setting: scaffoldTier,
+			Choices: []fkrecipes.IngredientChoice{
+				{Value: "light", Ingredients: []fkrecipes.Ingredient{
+					fkrecipes.IngredientOf(rivet, 2),
+				}},
+				{Value: "heavy", Ingredients: []fkrecipes.Ingredient{
+					fkrecipes.IngredientOf(rivet, 4),
+					fkrecipes.IngredientNamed(1, "steel-plate"),
+				}},
+			},
+		},
+		DisplayName: "Scaffold tie",
+		Extra:       []fkrecipes.KV{fkrecipes.Pair("auto_recycle", fkrecipes.Bool(false))},
+	})
+	// THE THIRD DECLARATION ON THE SAME DROPDOWN, and the one that makes the
+	// pair worth having in the fixture: its pack text sits beside a dropdown
+	// that composes the INGREDIENT ladder sentence, so it keeps its own packs
+	// sentence. Two vocabularies, one dropdown.
+	lib.Technology("scaffold-raising", fkrecipes.TechSpec{
+		Icon:     "__fkrecipes-example__/graphics/technology/scaffold-raising.png",
+		IconSize: 128,
+		CostBy: &fkrecipes.CostChoices{
+			Setting: scaffoldTier,
+			Choices: []fkrecipes.CostChoice{
+				{Value: "light", Sources: []string{"logistics-2"}},
+				{Value: "heavy", Sources: []string{"logistics-3"}},
+			},
+			Fallback: fkrecipes.UnitSpec{
+				Count:   100,
+				Seconds: 15,
+				Packs:   []fkrecipes.Pack{{Name: "automation-science-pack", Amount: 1}},
+			},
+		},
+		CostFrom: &fkrecipes.CustomCost{
+			Packs:   scaffoldPacks,
+			Count:   scaffoldCount,
+			Seconds: scaffoldSeconds,
+		},
+		Unlocks:     []fkrecipes.RecipeRef{bracket, tie},
+		DisplayName: "Scaffold raising",
+	})
+
+	// TWO DESCRIPTIONS THE PLAN WRITES rather than the locale file. A .cfg
+	// entry is one string for every mod set; a plan that branches on what is
+	// installed can say the true thing for the game actually running, and
+	// this is where that goes. The bool has nothing composed onto it, so the
+	// literal is its whole tooltip; the ingredient text has the library's own
+	// lines under it exactly as it would under a locale key.
+	lib.DescribeSetting(hardened, "Adds the hardened steel line, its scaffolding and the research that unlocks them.")
+	lib.DescribeSetting(scaffoldParts, "What one scaffold bracket is made of while this is not on default.")
 
 	return lib
 }

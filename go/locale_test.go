@@ -25,7 +25,7 @@ func steelworksSettings() *Lib {
 	rivet := lib.Item("steel-rivet", ItemSpec{})
 	chain := lib.Item("steel-chain", ItemSpec{})
 
-	lib.BoolSetting("hardened-tools", true)
+	hardened := lib.BoolSetting("hardened-tools", true)
 	lib.IntSetting("rivet-batch", 4, Between(1, 20))
 	lib.DoubleSetting("forging-time", 3, NumericSpec{HasMax: true, Max: 120})
 	medium := lib.DropdownSettingNeedingLocale("quench-medium", "water",
@@ -48,6 +48,17 @@ func steelworksSettings() *Lib {
 	chainPacks := lib.PacksSetting("chain-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
 	chainCount := lib.IntSetting("chain-count", 20, Between(1, 100000))
 	chainSeconds := lib.IntSetting("chain-seconds", 10, Between(1, 600))
+	// The scaffolding line, under the legacy names the example declares: one
+	// dropdown, two recipes and a technology, with Describes on the first
+	// recipe.
+	scaffoldTier := lib.LegacyDropdownSettingNeedingLocale("steelworks-scaffold-tier",
+		"light", []string{"light", "heavy"}, "za")
+	scaffoldParts := lib.LegacyIngredientsSetting("steelworks-scaffold-parts",
+		[]Ingredient{IngredientNamed(2, "iron-plate")}, "ya")
+	scaffoldPacks := lib.LegacyPacksSetting("steelworks-scaffold-packs",
+		[]Pack{{Name: "automation-science-pack", Amount: 1}}, "zc")
+	scaffoldCount := lib.LegacyIntSetting("steelworks-scaffold-count", 0, Between(0, 100000), "zd")
+	scaffoldSeconds := lib.LegacyIntSetting("steelworks-scaffold-seconds", 0, Between(0, 600), "ze")
 
 	lib.Recipe(rivet, RecipeSpec{Name: "steel-rivet", IngredientsFrom: rivetIngredients})
 	lib.Recipe(rivet, RecipeSpec{
@@ -77,7 +88,7 @@ func steelworksSettings() *Lib {
 		CostBy: &CostChoices{
 			Setting: tier,
 			Choices: []CostChoice{
-				{Value: "projectile", Sources: []string{"physical-projectile-damage-7"}},
+				{Value: "projectile", Display: "as much as the seventh projectile damage level, or the overhaul pack's own hardening", Sources: []string{"physical-projectile-damage-7"}},
 				{Value: "military", Sources: []string{"military-4"}},
 			},
 			Fallback: UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
@@ -91,6 +102,42 @@ func steelworksSettings() *Lib {
 		CostFrom: &CustomCost{Packs: chainPacks, Count: chainCount, Seconds: chainSeconds},
 		After:    "steel-processing",
 	})
+	bracket := lib.Recipe(rivet, RecipeSpec{
+		Name: "scaffold-bracket",
+		IngredientsBy: &IngredientChoices{
+			Setting: scaffoldTier,
+			Choices: []IngredientChoice{
+				{Value: "light", Ingredients: []Ingredient{IngredientNamed(2, "iron-plate")}},
+				{Value: "heavy", Ingredients: []Ingredient{IngredientNamed(4, "steel-plate")}},
+			},
+			Describes: true,
+		},
+		IngredientsFrom: scaffoldParts,
+	})
+	tie := lib.Recipe(chain, RecipeSpec{
+		Name: "scaffold-tie",
+		IngredientsBy: &IngredientChoices{
+			Setting: scaffoldTier,
+			Choices: []IngredientChoice{
+				{Value: "light", Ingredients: []Ingredient{IngredientOf(rivet, 2)}},
+				{Value: "heavy", Ingredients: []Ingredient{IngredientOf(rivet, 4)}},
+			},
+		},
+	})
+	lib.Technology("scaffold-raising", TechSpec{
+		CostBy: &CostChoices{
+			Setting: scaffoldTier,
+			Choices: []CostChoice{
+				{Value: "light", Sources: []string{"logistics-2"}},
+				{Value: "heavy", Sources: []string{"logistics-3"}},
+			},
+			Fallback: UnitSpec{Count: 100, Seconds: 15, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+		},
+		CostFrom: &CustomCost{Packs: scaffoldPacks, Count: scaffoldCount, Seconds: scaffoldSeconds},
+		Unlocks:  []RecipeRef{bracket, tie},
+	})
+	lib.DescribeSetting(hardened, "Adds the hardened steel line, its scaffolding and the research that unlocks them.")
+	lib.DescribeSetting(scaffoldParts, "What one scaffold bracket is made of while this is not on default.")
 	return lib
 }
 
@@ -141,6 +188,11 @@ fkrecipes-example-tips-seconds=Tool tip research seconds
 fkrecipes-example-chain-packs=Chain forging science packs
 fkrecipes-example-chain-count=Chain forging research count
 fkrecipes-example-chain-seconds=Chain forging research seconds
+steelworks-scaffold-tier=Scaffolding tier
+steelworks-scaffold-parts=Custom scaffold bracket parts
+steelworks-scaffold-packs=Scaffold raising science packs
+steelworks-scaffold-count=Scaffold raising research count
+steelworks-scaffold-seconds=Scaffold raising research seconds
 
 [mod-setting-description]
 fkrecipes-example-quench-medium=What the hot plate is dropped into.
@@ -155,6 +207,10 @@ fkrecipes-example-tips-seconds=Seconds per unit of research.
 fkrecipes-example-chain-packs=Amount, then pack name, commas between.
 fkrecipes-example-chain-count=How many units of research chain forging takes.
 fkrecipes-example-chain-seconds=Seconds per unit of chain forging research.
+steelworks-scaffold-tier=How heavy the scaffolding is.
+steelworks-scaffold-packs=The science packs scaffold raising takes.
+steelworks-scaffold-count=How many units of scaffold raising research.
+steelworks-scaffold-seconds=Seconds per unit of scaffold raising research.
 
 [string-mod-setting]
 fkrecipes-example-quench-medium-water=Water
@@ -163,6 +219,8 @@ fkrecipes-example-tips-research-tier-projectile=As projectile damage
 fkrecipes-example-tips-research-tier-military=As military research
 fkrecipes-example-chain-links-short=Short links
 fkrecipes-example-chain-links-long=Long links
+steelworks-scaffold-tier-light=Light scaffolding
+steelworks-scaffold-tier-heavy=Heavy scaffolding
 `
 	// A COMPLETE FILE PRODUCES NOTHING, which is the contract CheckLocale
 	// keeps and the one a consumer's own suite is told to assert. The
@@ -389,6 +447,20 @@ var everyNameMissing = []string{
 	"the setting fkrecipes-example-chain-count has no [mod-setting-description] entry, and a research number needs one to say what the number is for; the library composes the range onto it",
 	"the setting fkrecipes-example-chain-seconds has no [mod-setting-name] entry",
 	"the setting fkrecipes-example-chain-seconds has no [mod-setting-description] entry, and a research number needs one to say what the number is for; the library composes the range onto it",
+	// The scaffolding line, in declaration order behind the rest. Its
+	// ingredient text needs a NAME entry and no description entry, because
+	// the plan describes that one inline.
+	"the setting steelworks-scaffold-tier has no [mod-setting-name] entry",
+	"the dropdown setting steelworks-scaffold-tier has no [mod-setting-description] entry, and the library composes its preset list onto that entry",
+	"the dropdown setting steelworks-scaffold-tier has no [string-mod-setting] entry for its value light",
+	"the dropdown setting steelworks-scaffold-tier has no [string-mod-setting] entry for its value heavy",
+	"the setting steelworks-scaffold-parts has no [mod-setting-name] entry",
+	"the setting steelworks-scaffold-packs has no [mod-setting-name] entry",
+	"the setting steelworks-scaffold-packs has no [mod-setting-description] entry, and a text setting needs one to say what the setting is for; the library composes the format, the limits and the fallback onto it",
+	"the setting steelworks-scaffold-count has no [mod-setting-name] entry",
+	"the setting steelworks-scaffold-count has no [mod-setting-description] entry, and a research number needs one to say what the number is for; the library composes the range onto it",
+	"the setting steelworks-scaffold-seconds has no [mod-setting-name] entry",
+	"the setting steelworks-scaffold-seconds has no [mod-setting-description] entry, and a research number needs one to say what the number is for; the library composes the range onto it",
 }
 
 // advisoryNotes is what this plan's cost dropdown composes out of the GAME's
@@ -399,7 +471,8 @@ var everyNameMissing = []string{
 // carry the same two literal sentences and a third copy on disk would be a
 // third place to forget.
 var advisoryNotes = []string{
-	"note: the dropdown setting fkrecipes-example-tips-research-tier composes the game's own key technology-name.physical-projectile-damage-7, which this plan does not own; where the game does not define it the tooltip shows physical-projectile-damage-7 instead, and defining it here would rename it for every mod",
+	// ONE NOTE AND NOT TWO: the projectile choice carries a Display, so its
+	// line names no technology-name key and there is nothing to advise about.
 	"note: the dropdown setting fkrecipes-example-tips-research-tier composes the game's own key technology-name.military-4, which this plan does not own; where the game does not define it the tooltip shows military-4 instead, and defining it here would rename it for every mod",
 }
 
@@ -674,7 +747,7 @@ func TestCheckLocaleCapsItsFindings(t *testing.T) {
 	if len(got) != localeFindingCap+1 {
 		t.Fatalf("got %d findings, want the cap plus one closing line", len(got))
 	}
-	if got[len(got)-1] != "(and 85 more findings)" {
+	if got[len(got)-1] != "(and 96 more findings)" {
 		t.Errorf("the closing line is %q", got[len(got)-1])
 	}
 
