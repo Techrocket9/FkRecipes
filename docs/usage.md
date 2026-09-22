@@ -58,7 +58,7 @@ lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "oil"])
 
 If your mod already ships settings under names of its own, there are `Legacy` constructors that take a full name and an explicit order and emit both verbatim. See [Migrating a mod that already ships settings](migration.md).
 
-Two more constructors declare a text setting the player edits: an ingredient list, or a list of science packs. The setting's default text is the word `default`, which means the list you give here. The library composes four or five lines onto the setting's description, under whatever your own `[mod-setting-description]` entry says: a default line, which is your list written out in the form documented in [The ingredient list](ingredient-list.md), and then its own sentences. The ladder sentence says that an entry the player's mods lack takes the mod's next name for it or is left out, and that two entries landing on one name have their amounts added, so what they craft can be shorter than shown; on a science-pack setting it says the same in the packs vocabulary, about a pack and a research that can take fewer packs than shown. It goes onto a text setting unless the field beside it already says the same thing: an ingredient text with an `IngredientsBy` dropdown beside it does not carry it, because the lists the player is choosing between are that dropdown's presets and the same disclosure is composed onto the dropdown's own description instead, while a text setting that stands alone and a science-pack text beside a `CostBy` tier both do carry it, a cost dropdown composing no such sentence of its own. The format sentence says the field takes internal names, as on the default line, up to 2000 characters. The switch sentence says which field decides while this one holds the word `default`: the dropdown above or below it when you declared one beside it, otherwise your own list. The fallback sentence says that text the library cannot use is set aside as though it said `default`, with the reason in the log or the load error. On an ingredient setting the format sentence also names the word `none`, which empties the list and makes the recipe free to craft; on a science-pack setting it does not, because a pack list turns that word down. Your entry says what the setting is for; the library says how to fill it in and what it costs to get it wrong. That last line states the narrow claim rather than promising a load, because the narrow claim is the one that holds: a fallback lands where the field's reserved word would have landed, which is the preset the dropdown beside it is currently on where you declared one and your declared list where you did not, and whatever it lands on is held to the rules it always was, so a modpack in which that cannot produce a legal result still stops the load, and on a failed load no log line reaches the game at all. See [Ingredients the player writes](#ingredients-the-player-writes) below for the whole rule.
+Two more constructors declare a text setting the player edits: an ingredient list, or a list of science packs. The setting's default text is the word `default`, which means the list you give here. The library composes four or five lines onto the setting's description, under whatever your own `[mod-setting-description]` entry says: a default line, which is your list written out in the form documented in [The ingredient list](ingredient-list.md), and then its own sentences. The ladder sentence says that an entry the player's mods lack takes the mod's next name for it or is left out, and that two entries landing on one name have their amounts added, so what they craft can be shorter than shown; on a science-pack setting it says the same in the packs vocabulary, about a pack and a research that can take fewer packs than shown. It goes onto a text setting unless the field beside it already says the same thing: an ingredient text with an `IngredientsBy` dropdown beside it does not carry it, because the lists the player is choosing between are that dropdown's presets and the same disclosure is composed onto the dropdown's own description instead, while a text setting that stands alone and a science-pack text beside a `CostBy` tier both do carry it, a cost dropdown composing no such sentence of its own. The format sentence says the field takes internal names, as on the default line, up to 2000 characters. The switch sentence says which field decides while this one holds the word `default`: the dropdown above or below it when you declared one beside it, otherwise your own list. The fallback sentence says that text the library cannot use is set aside as though it said `default`, with the reason in the log or the load error. On an ingredient setting the format sentence also names the word `none`, which empties the list and makes the recipe free to craft; on a science-pack setting it does not, because a pack list turns that word down. Your entry says what the setting is for; the library says how to fill it in and what it costs to get it wrong. Where you would rather the plan wrote that entry than the `.cfg`, `DescribeSetting` is below under [A description the plan writes](#a-description-the-plan-writes). That last line states the narrow claim rather than promising a load, because the narrow claim is the one that holds: a fallback lands where the field's reserved word would have landed, which is the preset the dropdown beside it is currently on where you declared one and your declared list where you did not, and whatever it lands on is held to the rules it always was, so a modpack in which that cannot produce a legal result still stops the load, and on a failed load no log line reaches the game at all. See [Ingredients the player writes](#ingredients-the-player-writes) below for the whole rule.
 
 ```go
 rivets := lib.IngredientsSetting("rivet-ingredients", []fkrecipes.Ingredient{
@@ -264,6 +264,50 @@ The check sits where every resolved list is handed over, so all four ways of nam
 
 `IngredientsBy` binds the whole ingredient list to a dropdown setting: one plan per value, resolved by the ordinary ladder rules. It is mutually exclusive with `Ingredients`, and the values it offers must equal the setting's allowed values in the same order. A chosen plan that resolves to nothing falls back to the default option's plan, with a line saying so. See [Migrating a mod that already ships settings](migration.md) for the full shape and the refusals.
 
+### Which declaration describes a shared dropdown
+
+A dropdown may be named by any number of declarations: two recipes with `IngredientsBy`, a recipe and a technology with `CostBy`, or more. A setting carries one `localised_description`, so exactly one of them is the declaration the dropdown shows.
+
+By default that is decided by declaration order: recipes are walked first, then technologies, and the last one wins. `Describes`, on `IngredientChoices` and on `CostChoices`, says which one instead:
+
+```go
+lib.Recipe(bracket, fkrecipes.RecipeSpec{
+	IngredientsBy: &fkrecipes.IngredientChoices{
+		Setting:   tier,
+		Choices:   choices,
+		Describes: true,
+	},
+	IngredientsFrom: parts,
+})
+```
+
+```rust
+lib.recipe(bracket, RecipeSpec {
+    ingredients_by: Some(IngredientChoices {
+        setting: tier,
+        choices,
+        describes: true,
+    }),
+    ingredients_from: Some(parts),
+    ..Default::default()
+});
+```
+
+Everything that reads which declaration describes the dropdown moves together: the preset lines, the ladder line, the switch line naming the text setting beside it, whether that dropdown's own `[mod-setting-description]` entry is required, and which `technology-name` keys `CheckLocaleAdvisories` mentions.
+
+Two refusals, both about your declaration alone:
+
+```
+fkrecipes: the setting steelworks-scaffold-tier is described by more than one declaration; a dropdown shows one declaration's presets, so mark exactly one of them with Describes
+fkrecipes: the technology scaffold-raising is marked with Describes on the setting steelworks-scaffold-tier, but a CostBy with no CostFrom composes nothing onto a dropdown
+```
+
+The second is about the one shape that would leave the row empty: a `CostBy` with no `CostFrom` beside it composes nothing at all, so marking it would hand the dropdown a blank description while another declaration could have filled it. A recipe's `IngredientsBy` always composes the ladder line, so it may describe whether or not a text setting sits beside it. Marking the only declaration that names a dropdown is accepted and changes nothing, which is how a plan says which one describes before it grows a second.
+
+**The switch line names one text setting, and that is a narrowing rather than an oversight.** A shared dropdown can have two texts overriding it, an ingredient text on the recipe and a pack text on the technology, and the line the library composes onto the dropdown names the described declaration's. The pairing is still stated from the other side, because every text setting's own switch line names the dropdown it defers to whether or not its declaration describes. The word that line uses is `above` or `below`, taken from the emitted order strings, so a plan that wants the dropdown's line to point at one of two texts unambiguously puts them on opposite sides of it.
+
+**The ladder line is excluded by vocabulary.** An ingredient text drops its own ladder line when the dropdown beside it composes the same sentence, which is the ingredient one and the only one a dropdown composes. A pack text never drops it, whatever the dropdown beside it shows, because that sentence is about a list of ingredients and says nothing about a research taking fewer packs.
+
 ### Ingredients the player writes
 
 `IngredientsFrom` binds the ingredient list to a text setting declared with `IngredientsSetting`. The player edits the text in the settings screen, in the form documented in [The ingredient list](ingredient-list.md), and the recipe is made of what they wrote. It is mutually exclusive with `Ingredients` and `IngredientsBy`.
@@ -390,7 +434,7 @@ A stored dropdown value that is none of the values you offer cannot come through
 
 The engine will not load a recipe whose `energy_required` is at or below 0.001 (measured on Factorio 2.0.77, build 84539). The library holds that floor in three places: a declared `CraftTime` at or below it is refused, a double setting bound as a crafting time is given a `minimum_value` of 0.002 unless you declared a minimum of your own, so the settings screen cannot produce a value that kills the load, and a declared minimum at or below the floor is refused too. Should the setting answer below the floor anyway, which takes another mod declaring a startup setting of the same name and type, the declared default applies and the log carries the fallback line described above under the text settings, ending `fix the number`.
 
-A double setting is the only setting type that can hold a value that is not a number. Measured on Factorio 2.0.77, build 84539: the engine's own range check turns a stored NaN down for an `int-setting` and accepts it for a `double-setting`, so a NaN reaches the mod. This library declares no double setting for anything it prices: a research count and its seconds per unit are int settings, and the only double setting in the library's own vocabulary is the one you bind to a crafting time. A double setting you declare is yours, and a value that is not a number stored under it is a value this library cannot make safe on your behalf. Prefer an int setting wherever the quantity is whole.
+A double setting is the only setting type that can hold a value that is not a number. Measured on Factorio 2.0.77, build 84539: the engine's own range check turns a stored NaN down for an `int-setting` and accepts it for a `double-setting`. It is kept rather than reset, and the engine then fails its own save-and-reload consistency check and stops before any stage runs (`GlobalModSettings.cpp:217: Saving and loading changed data`, exit 1), so no mod sees one on that engine and a branch written for it is unreachable. Whether a later engine still stops there is worth leaving open, since what stops it is a consistency check rather than a declared rule. This library declares no double setting for anything it prices: a research count and its seconds per unit are int settings, and the only double setting in the library's own vocabulary is the one you bind to a crafting time. A double setting you declare is yours, and a value that is not a number stored under it is a value this library cannot make safe on your behalf. Prefer an int setting wherever the quantity is whole.
 
 If the bound setting cannot be read, the declared default applies and a line goes to the log:
 
@@ -612,6 +656,25 @@ fkrecipes: steelworks-hardened-tips takes its research cost from steelworks-tips
 
 The tier's unit is taken whole and written over field by field, so a `count_formula`, a `max_level` and any field this library has never heard of come through untouched. One exception: the engine refuses outright a unit carrying both a count and a `count_formula` (`Ambiguous definition: count and count_formula are both defined.`, measured on Factorio 2.0.77), so leaving the formula beside a count the player typed is not an option that exists. The formula is dropped in that case and one line says which setting took it:
 
+**What a cost option says it costs, in your own words.** The composed line under a cost dropdown's label names the ladder's FIRST source, through that technology's own locale key. That is the truth about your declaration and it can be false about the game: the settings stage sees `mods` and never `data.raw`, so a tier whose first rung is an expansion's technology tells a base-only player their research is priced like something their game does not have. `CostChoice.Display` (`display`) replaces the whole composed tail with a literal of yours:
+
+```go
+{Value: "projectile", Sources: []string{"tungsten-hardening", "physical-projectile-damage-7"},
+	Display: "as much as the seventh projectile damage level, or the overhaul pack's own hardening"},
+```
+
+```rust
+CostChoice {
+    value: String::from("projectile"),
+    sources: vec![String::from("tungsten-hardening"), String::from("physical-projectile-damage-7")],
+    display: String::from("as much as the seventh projectile damage level, or the overhaul pack's own hardening"),
+},
+```
+
+It is literal text and not a locale key, on `RecipeSpec.Description`'s rule: the library cannot wrap a key it did not compose, and a bare key in a setting's composition costs that row its whole tooltip. Empty means absent. It replaces the `: the fallback cost` tail as readily as it replaces a technology's name, because a choice with no source at all is exactly one worth describing. Where a choice carries one, no `technology-name` key is composed for it, so `CheckLocaleAdvisories` has nothing to say about that choice; the override is also the one way to take that advisory away.
+
+`IngredientChoice` has no twin, deliberately. An ingredient preset's second line is the list in internal names, and it is the one line in the tooltip a player is invited to paste; prose there would be a line that cannot be pasted, standing where the pasteable one was. The same first-rung fact is disclosed for an ingredient preset by the ladder line on the same dropdown.
+
 ```
 fkrecipes: hardened-tips: steelworks-tips-count replaces the count_formula the projectile cost carries
 ```
@@ -702,6 +765,42 @@ A fixture World of your own should embed `fkrecipes.UnimplementedWorld` in Go. I
 fkrecipes: World.FluidExists is not implemented by this fixture
 ```
 
+## A description the plan writes
+
+`DescribeSetting` (`describe_setting`) takes any of the six setting handles and a literal, and stands in for that setting's `[mod-setting-description]` entry:
+
+```go
+lib.DescribeSetting(hardened, "Adds the hardened steel line, its scaffolding and the research that unlocks them.")
+lib.DescribeSetting(parts, "What one scaffold bracket is made of while this is not on default.")
+```
+
+```rust
+lib.describe_setting(hardened, "Adds the hardened steel line, its scaffolding and the research that unlocks them.");
+lib.describe_setting(parts, "What one scaffold bracket is made of while this is not on default.");
+```
+
+Wherever the library composes onto a setting's description, the composition opens with your `[mod-setting-description]` key; with a description written here it opens with the literal instead, and everything composed under it is unchanged. A setting nothing is composed onto, a bool or a plain number, is emitted carrying the literal alone. Legacy and generated settings alike.
+
+**What it is for.** A locale entry is one string for every mod set. A plan that already branches on what is installed, which is how a mod declares one list for a base game and another for an expansion, can write the description for the mod set actually running, and no `.cfg` can do that.
+
+It is literal text and not a locale key, on the same rule `Display` and `RecipeSpec.Description` follow. The name entry stays a locale key: a name is one line and nothing is composed onto it, so `[mod-setting-name]` is required exactly as before.
+
+Three refusals, raised when a planner runs rather than at the call, because a declaration method has no error to return:
+
+```
+fkrecipes: DescribeSetting was given an empty description for the setting steelworks-bonus-research
+fkrecipes: the setting steelworks-bonus-research is described twice; DescribeSetting takes one description
+fkrecipes: DescribeSetting names a setting that this plan never declared
+```
+
+**`CheckLocale` treats the old entry as dead text.** For a setting described inline the `[mod-setting-description]` entry stops being required, and one that is present is reported:
+
+```
+the [mod-setting-description] entry steelworks-bonus-research is never shown; the plan describes that setting inline and the engine shows the plan's description instead
+```
+
+It is a finding rather than an advisory because the key is inside your own prefix, somebody will edit it expecting it to render, and the engine renders the prototype's own field over it. An advisory is for a key outside the prefix that must not be defined; this is one inside it that is defined and does nothing.
+
 ## Checking your locale file
 
 `CheckLocale` reads your `.cfg` and returns one sentence per problem, empty for a clean file. It is pure and host-testable: run it from your own test suite, because nothing headless opens a settings menu and a data dump does not read locale.
@@ -721,6 +820,7 @@ It checks both directions across `[mod-setting-name]`, `[mod-setting-description
 - an entry matching no setting or value of yours is reported as an orphan, because that is what a rename that was only half applied looks like;
 - two dropdown values that would produce one locale key are reported, since `<setting>-<value>` is a flat namespace and the engine keeps whichever came last;
 - a description is optional for a bool, int, double or plain dropdown setting nothing is composed onto, and is never reported missing there, but a description matching nothing is still an orphan;
+- a setting the plan describes inline with `DescribeSetting` needs no `[mod-setting-description]` entry of any kind, and one that is there is reported as dead text;
 - a text setting (an ingredient list or a pack list) needs both a `[mod-setting-name]` entry and a `[mod-setting-description]` entry, because the library composes the declared list, the format, the length limit, the switch line, the fallback and, unless an ingredient dropdown beside it already carries one, the ladder line under that entry, and an absent one loses all of them; a research count or seconds setting needs a description for the same reason, since the range and what 0 means are composed onto it; a dropdown with a text setting beside it needs one too, since the library composes the preset texts onto it; and an INGREDIENT dropdown with no text setting beside it needs one as well, since the library composes the ladder line onto it, and the finding names that line rather than a preset list.
 
 Sample output over a file missing one name and one dropdown value, and carrying two leftovers:

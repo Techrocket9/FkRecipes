@@ -94,7 +94,12 @@ scripts/run-ingame.sh         # the engine gate: both packaged examples under a 
                               # testdata/ingame/dump-sha256.txt as two tagged
                               # rows, <version> default|flipped <data> <settings> <mod set>; the
                               # settings hash is the same on both rows because the settings dump
-                              # holds prototypes, not values. The flipped row also keeps the
+                              # holds prototypes, not values. THE 2.1.17 ROWS' DATA HASHES ARE
+                              # STALE SINCE PHASE B and the file says so: its fixture adds three
+                              # prototypes to the example guest, nothing here can compute a data
+                              # hash for an engine it cannot run, and the 2.1 arm of this gate
+                              # fails on those two rows until a 2.1 machine re-records them.
+                              # The flipped row also keeps the
                               # mod-settings.dat the ENGINE rewrote and reads it back with
                               # `fklua modsettings read`, so what the engine kept is asserted
                               # rather than assumed; a dump says what the data stage did, only
@@ -158,6 +163,17 @@ scripts/run-ingame.sh         # the engine gate: both packaged examples under a 
                               # renders the author's declared list into one unchunked element and
                               # is bounded by the 2000 characters the parser takes rather than by
                               # anything the engine enforces on a setting.
+                              # IT IS ALSO WHERE THE SURFACE HALF'S FIXTURE IS ASSERTED, per
+                              # setting NAME and in both directions: one LEGACY dropdown named by
+                              # two recipes and a technology, with Describes on the first recipe,
+                              # so the row shows that recipe's presets, the ingredient ladder
+                              # line and a switch line naming the text ABOVE it, and no cost
+                              # preset line at all; the ingredient text beside it carries no
+                              # ladder line and the pack text beside the same dropdown does. The
+                              # two texts sit on OPPOSITE SIDES of the dropdown deliberately,
+                              # because the switch line names a direction and two on one side
+                              # would be one sentence about either. The same block asserts a cost
+                              # preset's Display override and the two DescribeSetting literals.
                               # A mod-set mismatch reports
                               # SKIPPED and exits 0 (an environmental difference, the FkLua
                               # convention); --strict or FKRECIPES_STRICT=1 makes it exit 1 for a CI
@@ -228,6 +244,10 @@ testdata/mirror/        the strict engine-shaped stand-in and the committed tran
                         is the 2.0 arm's and there is none for 2.1
 testdata/locale/        the locale checker's committed fixture cfg and findings golden, the
                         cross-language pin that needs no toolchain (both suites reproduce it). The
+                        cfg is DELIBERATELY WRONG IN FIVE WAYS, one per class the checker catches,
+                        and the fifth is the surface half's: a [mod-setting-description] entry for
+                        a setting the plan describes inline, which is dead text the engine never
+                        shows. The
                         golden holds the required findings and NOTHING ELSE: a key inside the mod's
                         prefix is required, and the one key composed outside it
                         (technology-name.<source>) is never required, because the locale namespace

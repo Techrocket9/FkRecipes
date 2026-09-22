@@ -2634,3 +2634,105 @@ The two gate classes had to be reached through a re-record in the broken copy, b
 ### What is owed
 
 Phase B: `Describes`, a per-choice description on a cost preset, and `DescribeSetting` on any setting. None of it is in this round and nothing here anticipates it.
+
+## The settings-tooltip round, phase B (v0.1.2, 2026-09-22)
+
+The decisions are `agents/customizer-design.md`'s fix round 4, numbers 8 to 15, written by the lead under "PHASE B: THE SURFACE HALF". Phase A was the wording half and changed no surface at all; this is the surface half, and its central claim is the opposite shape: **a plan that uses none of the three additions is emitted byte for byte as it was**, which is a measurement rather than an argument, and it is in the restricted-dump table below.
+
+The second refute review of phase A's last commit is folded in here, as the lead asked: its six documentation findings are the first commit of this round and its SHOULD-FIX, one function for the composing walk, is decision 9.
+
+### What was built, per decision
+
+| decision | what shipped |
+|---|---|
+| 8 | `IngredientChoices.Describes` and `CostChoices.Describes` (Go), `describes: bool` on both (Rust), with two declaration-only refusals |
+| 9 | Go grows `composedDropdownPresets` in the Rust function's shape; every reader asks it, and `dropdown_composes_ladder_line` becomes a one-line match on the returned kind |
+| 10 | the ladder line's exclusion keys on VOCABULARY: a packs text always carries it, an ingredient text drops it beside a dropdown that composes the ingredient sentence |
+| 11 | the dropdown's switch line names the described declaration's text setting, and only that one |
+| 12 | `CostChoice.Display` / `display: String`, which replaces the composed tail and takes that choice's advisory with it |
+| 13 | `DescribeSetting(SettingRef, string)` / `describe_setting<H: SettingHandle>`, three refusals, and a `CheckLocale` finding for the entry it makes dead |
+| 14 | nothing new links: the three additions are a bool, a string a preset line reads and a string the composition head reads |
+| 15 | the fixture, in both example guests and in both gates |
+
+**THE WINNER IS CHOSEN IN ONE PLACE.** `composedDropdownPresets` / `composed_dropdown_presets` answers which declaration composes onto a dropdown and what kind of presets it composes, and `Describes` lives inside it. Five readers ask it and none spells the walk again: the settings composition, the ladder predicate, the locale obligation, the advisory walk and the refusal in decision 8. The Go half had spelled that walk three times before; with a rule that has just grown a branch, three spellings are three rules.
+
+**THE GO AND RUST REFUSAL TEXTS ARE BYTE-IDENTICAL AND NAME GO IDENTIFIERS IN BOTH HALVES**, which is the existing convention: `Describes` and `DescribeSetting` appear in Rust sentences exactly as `CostBy` and `OrderAfter` already do.
+
+**ONE THING WAS NARROWED RATHER THAN BUILT AS SPECIFIED.** Decision 15 asks the two gates to assert that `CheckLocaleAdvisories` names no key for the described dropdown. Neither gate can see that report: it is a host-side function and the mirror and the dump hold emitted prototypes. What the gates assert instead is the emitted consequence, which is exact rather than approximate: a cost preset line is the only thing that composes a `technology-name` key, so `the shared dropdown carries no cost preset line` (in-game) and its three mirror twins say the same fact from the prototype's side. The report itself is asserted in both host suites, on the rig and on the example plan's own pinned advisory list, which lost an entry this round for the other reason (decision 12's override).
+
+### The measurements
+
+**THE RESTRICTED DUMP DIFF, which is what decision 15 asks for.** The fixture adds prototypes, so the DATA hash had to move; what had to be shown is that nothing else did. The normalised data dump from a run of this tree, diffed against one from a run of a `7a4720b` worktree, restricted to the prototype names that existed at `7a4720b`:
+
+| 2.0.77 row | prototypes changed | removed | added |
+|---|---|---|---|
+| default | 0 | 0 | 3 |
+| flipped | 0 | 0 | 3 |
+
+Taken over the gate's own `tmp/ingame/normalised-data-rust-1.json` and `-flipped.json` from both trees, compared by a per-(kind, name) `json.dumps(sort_keys=True)` walk. The three added are `fkrecipes-example-scaffold-bracket`, `-scaffold-tie` and `fkrecipes-example-scaffold-raising`.
+
+**AND IT COST ONE FIELD TO MAKE THAT TRUE.** The first cut of the fixture moved two prototypes: `fkrecipes-example-steel-rivet-recycling` and `-steel-chain-recycling`. Reading `quality/prototypes/recycling.lua` in the install says why: it builds one recycling recipe per item out of the LAST recipe that produces it, and its only opt-out is `auto_recycle = false` on the recipe. `allow_decomposition` was tried first, on a guess, and changed nothing. Both new recipes carry `auto_recycle = false` through `Extra` now, which is also the right thing to say about them: they are alternative recipes beside a primary one.
+
+**WHAT A PLAYER READS**, `python3 scripts/tooltip-sizes.py testdata/mirror/transcript.golden`, library part in characters, at `7a4720b` and at this head:
+
+| setting | shape | before | after |
+|---|---|---|---|
+| `tips-research-tier` | cost dropdown, one choice overridden | 133 | 191 |
+| `hardened-tools` | bool, described inline | none | 0 |
+| `steelworks-scaffold-tier` | shared dropdown, described by a recipe | new | 287 |
+| `steelworks-scaffold-parts` | ingredient text, described inline | new | 354 |
+| `steelworks-scaffold-packs` | pack text beside the same dropdown | new | 452 |
+| `steelworks-scaffold-count` | research number | new | 104 |
+| `steelworks-scaffold-seconds` | research number | new | 101 |
+
+Every other row is unmoved. The cost dropdown GROWS, by 58 characters, and that is decision 12 paying for itself: `: cost of tungsten-hardening` is shorter than the override and is a lie in every game that has no overhaul pack. `hardened-tools` reads 0 because the literal IS the whole description and the library composed none of it; the tool grew one branch to say so rather than crashing on a description that is a plain string.
+
+**WHAT THE ROUND COSTS IN THE PACKAGED MODULE.** Both `notext` fixtures built and packaged with one `fklua` (built from a local FkLua checkout), TinyGo 0.41.1, cargo 1.97.1, `GOTOOLCHAIN=go1.26.6`, both trees staged at equal-length scratch paths, the BEFORE tree being `7a4720b`:
+
+| `notext` guest | `fk_data_module.lua` | lines |
+|---|---|---|
+| go | 3,057,510 to 3,107,518 (+50,008) | 77,657 to 78,849 (+1,192) |
+| rust | 2,625,302 to 2,675,831 (+50,529) | 64,222 to 65,451 (+1,229) |
+
+The BEFORE column reproduces the fix pass's own table exactly, which is what says the method is the same one.
+
+**AND THE SEAM HOLDS, re-taken as decision 14 asks.** `invisible character`, `is longer than`, `stands alone` and `no item or fluid is named` are 0 occurrences in both packaged `notext` modules and 1 each in the packaged `datastage` control. `Describes` is a bool read by the composing walk, `Display` a string the cost preset line reads and `DescribeSetting` a string the composition head reads; none reaches the parser, the renderer, the amount formatter or the custom-cost resolver. `README.md`'s 1,140-byte string-data figure does NOT move, because this round adds no composed PROSE literal: the two new strings are the consumer's own. The five new refusal sentences do ship in a `notext` module, which is true of every refusal sentence in the library and is not what that figure counts.
+
+### The red proofs
+
+Twenty-two, each taken with the guarded code broken on purpose, the failure text read, and the break reverted. The unit proofs run in a scratch copy of `go/` and `rust/`; the four gate proofs run in a scratch copy of the whole tree.
+
+| What was broken | What went red |
+|---|---|
+| `Describes` ignored inside the composing walk, both halves | 6 assertions in `TestDescribesMovesASharedDropdownToTheMarkedDeclaration` / its Rust twin: `the shared dropdown does not carry "\n  to type: 2 steel-plate"`, `the shared dropdown carries ": cost of ", which belongs to a declaration that does not describe it`, `the ingredient text beside a dropdown that composes the ladder line carries it too`, `CheckLocaleAdvisories names a key for a dropdown that shows no cost preset` |
+| the packs arm of `textCarriesLadderLine` removed, both halves | `the packs text beside the described dropdown lost its ladder line` |
+| the two decision-8 refusals deleted, both halves | Go `PlanSettings: got <nil>, want "fkrecipes: the setting wb-tier is described by more than one declaration; ..."` and the `PlanData` twin; Rust `called Result::unwrap_err() on an Ok value` on both tests, and with them `every_refusal_site_is_classified`: `fn validate_bindings( in settings.rs builds 9 refusals and the row pins 11` |
+| first writer wins instead of last, both halves | the pin, `TestTheUnmarkedSharedDropdownComposesWhatItAlwaysDid` / `the_unmarked_shared_dropdown_composes_what_it_always_did`, whose literals were captured from a `7a4720b` worktree and not from this tree |
+| `Describes` made non-inert on the only declaration, both halves | `marking the only declaration: steelworks-quench-medium composes` |
+| a marked technology skipped in the cost walk, both halves | `Describes on the technology: wb-tier composes` |
+| the `Display` arm deleted from the preset tail, both halves | 5 assertions: `the override is not composed`, `the overridden choice still composes ": cost of "`, `the override is not composed on the sourceless choice`, `the overridden sourceless choice still composes the library's own tail` |
+| the advisory walk's `Display` skip deleted, both halves | `left: ["note: the dropdown setting steelworks-tips-tier composes the game's own key technology-name.mining-productivity-4, ..."] right: []` |
+| the composition head ignores an inline description, both halves | `steelworks-tips-tier does not carry the literal`, `steelworks-tips-tier still composes its own [mod-setting-description] key` |
+| the literal-alone arm made unreachable, both halves | Go `the bool's whole description is , want "Whether the bonus line is researchable at all."`; Rust `no composed description` |
+| each of `DescribeSetting`'s three refusals removed, both halves | the `PlanSettings` and `PlanData` pair on each sentence in Go; `called Result::unwrap_err() on an Ok value` in Rust |
+| the locale requirement skip removed, both halves | `got: the setting steelworks-tips-packs has no [mod-setting-description] entry, and a text setting needs one ... want: <nothing>` |
+| the dead-entry finding removed, both halves | `left: [] right: ["the [mod-setting-description] entry steelworks-tips-packs is never shown; ..."]` |
+| `textDescription` dropping its trailing lines under a literal head, both halves | `steelworks-tips-packs lost a composed line under the literal head`, plus in Go `the drift guard reports a defect under a literal head` naming three lines |
+| GATE A: the packs arm of the vocabulary rule, both halves | MIRROR `the pack text beside the described dropdown lost its packs ladder line`; IN-GAME `the pack text beside the described dropdown discloses the ladder in packs (the dump says false)` |
+| GATE B: `Describes` cut out of the composing walk, both halves | MIRROR eight named, including `the shared dropdown's switch line names the pack text, which belongs to the declaration that does not describe it` and `the shared dropdown carries : cost of , which belongs to the technology that does not describe it`; IN-GAME six named, including `the shared dropdown carries no cost preset line (the dump says false)` |
+| GATE C: the `Display` arm and the inline head both deleted | MIRROR and IN-GAME four named each, including `the overridden cost preset still composes the technology-name key it replaced` |
+| GATE D: the literal-alone arm made unreachable | MIRROR `the inline-described bool does not carry the plan's own description as its whole tooltip`; IN-GAME `the inline-described bool carries the plan's own description whole (the dump says false)` |
+
+**TWO OF THEM ARE FINDINGS RATHER THAN FORMALITIES.** Deleting the Go literal-alone arm outright does not COMPILE, because `i` and `s` become unused, so the break that scores is the condition made unreachable rather than the body removed; an INCONCLUSIVE break is not a red proof and is recorded as one that had to be re-aimed. And gate proof A leaves the OLD `tips-packs` assertions green, which is exactly why decision 15's fixture was worth building: that pair sits beside a COST dropdown, where the vocabulary rule and the composes-a-ladder rule agree, and only a dropdown an ingredient recipe describes separates the two answers.
+
+### Gates
+
+Every gate in CLAUDE.md's Gates block, before every commit, exit codes read directly. `gofmt -l .` prints nothing; `go vet ./...`, `go test ./...`, `go test -race ./...`, `go/examples/notext` `go vet .` all 0; `cargo fmt --check`, `cargo test` (269 lib tests and 2 integration), `RUSTFLAGS=-Dwarnings cargo clippy --workspace --all-targets`, `cargo build --target wasm32-unknown-unknown --workspace` all 0; `scripts/run-mirror.sh` prints `run-mirror: OK`; `scripts/run-ingame.sh` prints `run-ingame: OK` on `Version: 2.0.77 (build 84539, mac-arm64, steam)`, re-asked, both 2.0.77 rows matching the re-recorded golden. The repository dash grep prints only `agents/docs-style.md`, which quotes the characters it bans.
+
+**THE GOLDENS THAT MOVED.** `testdata/mirror/transcript.golden`, re-recorded with `--update`. `testdata/ingame/dump-sha256.txt`'s 2.0.77 rows, re-recorded the same way: data `e824cd83` to `84bc940e` (default) and `1cd61e0b` to `2d17c1f5` (flipped), settings `a3bfa92b` to `50128885` on all four rows. `testdata/locale/findings.golden` gained the dead-entry finding, in file order between the two orphans. `testdata/ingame/flipped.golden.dat` did not move.
+
+### What is owed
+
+**THE 2.1.17 DATA HASHES ARE STALE AND SAY SO.** Phase A could leave them standing because it touched no prototype; this round adds three, so both rows carry values a 2.1 engine no longer produces. Nothing here can compute a data hash for an engine it cannot run, so they are left as recorded with a dated paragraph naming `scripts/run-ingame.sh --update` as the fix, and the 2.1 arm of that gate fails on those two rows until a 2.1 machine runs it. Their settings hash is derived from the 2.0.77 capture, on the golden's own documented property that all four rows share one.
+
+**AND TWO THINGS ARE NAMED RATHER THAN CLOSED.** The `notext` module grew 50 KB per half, which is 1.6 per cent, for three fields and one function; nobody has asked where it went, and the figure is recorded rather than explained. And `steelworksSettings` / `steelworks_settings`, the locale fixture's plan, is a hand-written mirror of the example guests' settings in declaration order: it grew with this round, and nothing but a reader holds the two together.
