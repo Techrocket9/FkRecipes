@@ -1434,7 +1434,9 @@ else
     # REPRODUCES fails too, with its own sentence, because a marker nothing
     # removes is one that outlives the thing it was about.
     local stale
-    stale="$(grep "^stale $ENGINE $row " "$GOLDEN" || true)"
+    # THE ROW NAME MAY END THE LINE: a marker written with no reason field is
+    # a marker, read with an empty reason, and not a line the lookup steps past.
+    stale="$(grep -E "^stale $ENGINE $row( |$)" "$GOLDEN" || true)"
     if [ "$want_mods" != "$MODSET" ]; then
       echo "  SKIPPED: the $row row's mod set differs from the golden's, so the hashes are not comparable" >&2
       echo "    golden: $want_mods" >&2
