@@ -863,7 +863,7 @@ jqassert "every composed locale key in the settings dump rides in the alternativ
 # drop. One row per sentence, so a failure names which one went.
 jqassert "the text setting's composed description states the length limit" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-rivet-ingredients") | .localised_description]
-   | length > 0 and all(any(.[]; . == "\nWrite internal names, as the default line above does, in at most 2000 characters. The word none empties the list, so the recipe costs nothing to craft."))'
+   | length > 0 and all(any(.[]; . == "\nInternal names, as on the default line, up to 2000 characters. The word none empties the list, so the recipe costs nothing to craft."))'
 # THE WORD none IS A FEATURE AND IT IS DISCLOSED ON THE ONE KIND THAT TAKES IT.
 # It empties the ingredient list, the recipe reaches the game with no
 # ingredients at all and the engine's derived recycling recipe goes with it, and
@@ -877,29 +877,18 @@ jqassert "no packs setting names a word the library refuses there" "$DSDUMP" \
     | .localised_description // []
     | .. | strings]
    | length > 0 and all(contains("The word none") | not)'
-# THE WRAP, DISCLOSED WHERE THE WRAPPED TEXT IS. A line too long for the tooltip
-# breaks and the continuation starts at the LEFT MARGIN (measured on the
-# client), so it reads as a line of its own and a player who copies what looks
-# like a whole line loses the last ingredient. The wrap is the engine's and no
-# composition can change it; saying that the continuation belongs to the line
-# above it is what a composition can do. It says "the continuation" and not
-# "both lines" because two is not a bound: the rendered list is the author's own
-# and runs to the language's 2000-character ceiling, so three and more visual
-# lines are reachable, and on a dropdown the line above the list is the
-# consumer's label, which is not a list at all. Both places a typeable list is
-# rendered carry it: the text setting's own default line and an ingredient
-# dropdown's preset lines.
-jqassert "the text setting's composed description discloses the wrap" "$DSDUMP" \
-  '[.. | objects | select(.name? == "fkrecipes-example-rivet-ingredients") | .localised_description]
-   | length > 0 and all(any(.[]; . == "\nA list too long for one line continues on the next; the continuation is part of the same list."))'
-jqassert "an ingredient dropdown discloses the wrap beside its preset lines" "$DSDUMP" \
-  '[.. | objects | select(.name? == "fkrecipes-example-quench-medium") | .localised_description]
-   | length > 0 and all(any(.[]; . == "\nA list too long for one line continues on the next; the continuation is part of the same list."))'
-# AND NOT ON A COST DROPDOWN, whose preset is a localised label followed by a
-# localised technology name: one vocabulary, prose throughout, nothing in it to
-# copy. A sentence there would be about a hazard that preset does not carry.
-jqassert "a cost dropdown carries no line about a list it does not render" "$DSDUMP" \
-  '[.. | objects | select(.name? == "fkrecipes-example-tips-research-tier") | .localised_description | .. | strings]
+# AND THE LINE ABOUT A WRAPPED LIST IS GONE FROM EVERY COMPOSITION. It said the
+# one thing about a rendered line a player cannot see, that the engine's own
+# break leaves the continuation at the left margin and a player who copies what
+# looks like a whole line loses the last ingredient, and it said it on every
+# text setting and every ingredient dropdown of every consumer. What it
+# disclosed is documented for AUTHORS in docs/usage.md instead, beside the
+# advice to keep a preset's option name short.
+jqassert "no composed description carries the list-wrap line" "$DSDUMP" \
+  '[.. | objects
+    | select((.name? // "") | startswith("fkrecipes-example-"))
+    | .localised_description // []
+    | .. | strings]
    | length > 0 and all(contains("A list too long") | not)'
 # THE LADDER, DISCLOSED BY THIS LIBRARY RATHER THAN BY THE CONSUMER. A
 # resolve-or-drop ladder gets no note on the emitted recipe or technology,
@@ -920,6 +909,14 @@ jqassert "a packs setting's composed description discloses the ladder in packs" 
 jqassert "an ingredient dropdown discloses the ladder beside its preset lines" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-quench-medium") | .localised_description]
    | length > 0 and all(any(.[]; . == "\nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."))'
+# AND THE TEXT SETTING BESIDE THAT DROPDOWN CARRIES NO LADDER LINE, which is
+# where the line moved FROM: the lists a player there is choosing between are
+# the dropdown's presets, so the dropdown's own row is where the ladder is
+# disclosed and a second copy on the text field would say one thing twice on one
+# screen. The standalone text setting above is the shape that still carries it.
+jqassert "a text setting beside a dropdown carries no ladder line" "$DSDUMP" \
+  '[.. | objects | select(.name? == "fkrecipes-example-quench-ingredients") | .localised_description | .. | strings]
+   | length > 0 and all(contains("the next name it offers") | not)'
 # AND THE PACKS VOCABULARY IS THE PACKS ONE, on every packs setting: an
 # ingredient arm composed onto a packs field would tell a player about a craft
 # on a field that prices a research.
@@ -940,25 +937,24 @@ jqassert "no ingredient setting carries the packs vocabulary of the ladder line"
     | .localised_description // []
     | .. | strings]
    | length > 0 and all(contains("names a science pack your mods do not have") | not)'
-# AND NOT ON A COST DROPDOWN, for the wrap line's own reason: its presets render
-# no typeable list of internal names, so there is no list for a ladder to
-# shorten.
-jqassert "a cost dropdown carries no ladder line either" "$DSDUMP" \
+# AND NOT ON A COST DROPDOWN: its presets render no typeable list of internal
+# names, so there is no list for a ladder to shorten.
+jqassert "a cost dropdown carries no ladder line" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-tips-research-tier") | .localised_description | .. | strings]
    | length > 0 and all(contains("the next name it offers") | not)'
 jqassert "the text setting's composed description states what an unusable text costs" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-rivet-ingredients") | .localised_description]
-   | length > 0 and all(any(.[]; . == "\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway."))'
+   | length > 0 and all(any(.[]; . == "\nText this mod cannot use is set aside as though it said default; the reason is in the log or the load error."))'
 # WHICH OF THE TWO FIELDS IS DECIDING, which the settings screen cannot show at
 # all: it has no conditional visibility (measured), so a player looking at a
 # text field beside a dropdown has nowhere else to learn that one of them wins.
 # Both sides of the pairing, because the player may be looking at either.
 jqassert "a text setting with no dropdown beside it names its own list" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-rivet-ingredients") | .localised_description]
-   | length > 0 and all(any(.[]; . == "\nWhile this says default this mod'"'"'s own list applies."))'
+   | length > 0 and all(any(.[]; . == "\nLeave this as default and this mod'"'"'s own list applies; anything else applies instead."))'
 jqassert "a text setting beside a dropdown names the option that decides" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-quench-ingredients") | .localised_description]
-   | length > 0 and all(any(.[]; . == "\nWhile this says default the option chosen above applies; anything else applies instead of it."))'
+   | length > 0 and all(any(.[]; . == "\nLeave this as default and the option chosen above decides; anything else applies instead."))'
 jqassert "the dropdown says the text setting beside it overrides it" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-quench-medium") | .localised_description]
    | length > 0 and all(any(.[]; . == "\nThe setting below applies instead while it does not say default."))'
@@ -967,7 +963,7 @@ jqassert "the dropdown says the text setting beside it overrides it" "$DSDUMP" \
 # that silently defers to a dropdown is not something anyone can guess.
 jqassert "a research number beside a dropdown says what 0 means" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-tips-count") | .localised_description]
-   | length > 0 and all(any(.[]; . == "\nA whole number from 0 to 100000. While it is 0 the option chosen above decides."))'
+   | length > 0 and all(any(.[]; . == "\nLeave this at 0 and the option chosen above supplies the number; otherwise a whole number up to 100000."))'
 jqassert "a research number with no dropdown states its range" "$DSDUMP" \
   '[.. | objects | select(.name? == "fkrecipes-example-chain-seconds") | .localised_description]
    | length > 0 and all(any(.[]; . == "\nA whole number from 1 to 600."))'
@@ -982,7 +978,7 @@ jqassert "an ingredient preset puts the internal names on their own line" "$DSDU
     | select(.[2][1]? | type == "array")
     | select(.[2][1][0]? | startswith("string-mod-setting."))
     | .[3]]
-   | length > 0 and all(startswith("\n  type: "))'
+   | length > 0 and all(startswith("\n  to type: "))'
 
 # ---------------------------------------------------------------------------
 # THE FLIPPED ROW. Everything above reads the default dump, where no player has

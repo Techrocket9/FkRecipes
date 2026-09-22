@@ -367,9 +367,9 @@ func gameKeyAdvisory(full, key, raw string) string {
 }
 
 // checkComposedTextLines is the DRIFT GUARD over what this library composes
-// onto a text setting's description: the wrap line, the format line, the switch
-// line and the fallback line, each reported by name when the composition stops
-// carrying it.
+// onto a text setting's description: the ladder line where that field carries
+// one, the format line, the switch line and the fallback line, each reported by
+// name when the composition stops carrying it.
 //
 // IT IS NOT AN AUTHOR FINDING, and that is why it is worded and placed the way
 // it is. The consumer writes the [mod-setting-description] entry and this
@@ -412,15 +412,15 @@ func gameKeyAdvisory(full, key, raw string) string {
 // dereferences an item handle. The checker validates nothing, exactly as the
 // rest of it validates nothing, so a plan the planners would refuse must not
 // panic here: with the list left out neither the language nor l.items is
-// touched, and the five lines under test are the five this function can see.
+// touched, and the lines under test are the ones this function can see.
 // What the rendered list itself says is the settings stage's business and the
 // corpus's.
 func (l *Lib) checkComposedTextLines(prefix string) []string {
-	desc, switchLine, ingredients, ok := l.guardedTextDescription(prefix)
+	desc, switchLine, ingredients, ladder, ok := l.guardedTextDescription(prefix)
 	if !ok {
 		return nil
 	}
-	return composedTextLinesMissing(desc, switchLine, ingredients)
+	return composedTextLinesMissing(desc, switchLine, ingredients, ladder)
 }
 
 // guardedTextDescription is WHICH composition the guard inspects, split out
@@ -428,26 +428,35 @@ func (l *Lib) checkComposedTextLines(prefix string) []string {
 // text setting's in declaration order, with the declared list left out, and no
 // composition at all when the plan declares no text setting.
 //
-// THE SWITCH LINE AND THE KIND COME BACK BESIDE THE COMPOSITION because they
-// are the two inputs of the three lines of the five that are not constants. The
-// switch line names the option above or below when a dropdown is bound to the
-// same declaration and the mod's own list when none is; the kind decides TWO
-// lines, the ladder line's whole vocabulary (a science pack and a research that
-// takes fewer packs, against a name and a shorter craft) and whether the format
-// line names the word none, which only an ingredient list takes. The
-// rule cannot recompute either without the declaration, so the caller that
-// built the composition hands over what it built it with, and what the guard
-// then answers is whether textDescription put those lines into the table it
-// returned.
-func (l *Lib) guardedTextDescription(prefix string) (Value, string, bool, bool) {
+// THE SWITCH LINE, THE KIND AND THE LADDER FLAG COME BACK BESIDE THE
+// COMPOSITION because they are the three inputs the composition is not a
+// constant in. The switch line names the option above or below when a dropdown
+// is bound to the same declaration and the mod's own list when none is; the
+// kind decides TWO lines, the ladder line's whole vocabulary (a science pack
+// and a research that takes fewer packs, against a name and a shorter craft)
+// and whether the format line names the word none, which only an ingredient
+// list takes; and the ladder flag decides whether the ladder line is there to
+// look for at all, which is the same question textSwitchDropdown answers for
+// the composition. The rule cannot recompute any of them without the
+// declaration, so the caller that built the composition hands over what it
+// built it with, and what the guard then answers is whether textDescription put
+// those lines into the table it returned.
+//
+// THE FLAG IS WHAT KEEPS THE GUARD FROM ASKING FOR A LINE THAT IS NOT OWED.
+// Beside a dropdown the ladder is disclosed on the dropdown instead, so a guard
+// that always looked for it would report a defect on every plan the customizer
+// was designed for; one that never looked for it would stop watching the one
+// composition that still carries it.
+func (l *Lib) guardedTextDescription(prefix string) (desc Value, switchLine string, ingredients, ladder, ok bool) {
 	for i, s := range l.settings {
 		if s.kind.isText() {
 			line := l.textSwitchLine(i)
-			ingredients := s.kind == settingIngredients
-			return textDescription(s.emittedName(prefix), "", line, ingredients), line, ingredients, true
+			ing := s.kind == settingIngredients
+			lad := l.textSwitchDropdown(i) < 0
+			return textDescription(s.emittedName(prefix), "", line, ing, lad), line, ing, lad, true
 		}
 	}
-	return Value{}, "", false, false
+	return Value{}, "", false, false, false
 }
 
 // composedTextLinesMissing is the guard's rule over one composition.
@@ -456,17 +465,28 @@ func (l *Lib) guardedTextDescription(prefix string) (Value, string, bool, bool) 
 // with one line taken out of it, which is the only way to see the finding
 // without editing the source: nothing a consumer can declare produces a
 // composition missing a line.
-func composedTextLinesMissing(desc Value, switchLine string, ingredients bool) []string {
+//
+// LADDER IS THE COMPOSITION'S OWN ANSWER AND NOT A SECOND RULE. It arrives
+// beside the description from the caller that built it, so the guard asks for
+// exactly the lines that composition put in; deriving it here from the switch
+// line's wording would be a second spelling of textSwitchDropdown, and the two
+// could then disagree about which shape they are looking at.
+func composedTextLinesMissing(desc Value, switchLine string, ingredients, ladder bool) []string {
 	var out []string
 	// THE ORDER IS THE COMPOSITION'S OWN, so a description that lost more than
-	// one of the five reports them in the order a reader would have met them.
-	for _, want := range []struct{ line, missing string }{
-		{listWrapLine, "no line about a list that continues on the next line"},
-		{textLadderLine(ingredients), "no line about a name in the list this game does not have"},
-		{textFormatLine(ingredients), "no line about the format and the length limit"},
-		{switchLine, "no line about which field decides while the text says default"},
-		{textFallbackLine, "no line about what happens to a text this mod cannot use"},
-	} {
+	// one of them reports them in the order a reader would have met them, and
+	// the ladder line is asked for FIRST or not at all, which is where it sits.
+	want := make([]struct{ line, missing string }, 0, 4)
+	if ladder {
+		want = append(want, struct{ line, missing string }{
+			textLadderLine(ingredients), "no line about a name in the list this game does not have"})
+	}
+	want = append(want,
+		struct{ line, missing string }{textFormatLine(ingredients), "no line about the format and the length limit"},
+		struct{ line, missing string }{switchLine, "no line about which field decides while the text says default"},
+		struct{ line, missing string }{textFallbackLine, "no line about what happens to a text this mod cannot use"},
+	)
+	for _, want := range want {
 		if !localisedCarries(desc, want.line) {
 			out = append(out, "the library composes "+want.missing+
 				" onto a text setting's description; a text setting's description carries one,"+
@@ -564,8 +584,8 @@ const (
 	// all: a plain dropdown nothing binds, or one a validator stepped past.
 	composesNothing dropdownComposition = iota
 	// composesLadderOnly is a bare INGREDIENT dropdown: no text setting beside
-	// it, so no language to render a preset in, no wrap line and no switch
-	// line, and the ladder line alone. See settingDescriptions.
+	// it, so no language to render a preset in and no switch line, and the
+	// ladder line alone. See settingDescriptions.
 	composesLadderOnly
 	// composesPresetLines is a dropdown with a text setting beside it, whose
 	// description carries its presets written out.
@@ -576,8 +596,8 @@ const (
 // onto that dropdown's description.
 //
 // AN INGREDIENT DROPDOWN IS ON THE LIST WHETHER OR NOT A TEXT SETTING SITS
-// BESIDE IT. With one beside it the composition is the preset lines, the wrap
-// line, the ladder line and the switch line; with none it is the ladder line
+// BESIDE IT. With one beside it the composition is the preset lines, the ladder
+// line and the switch line; with none it is the ladder line
 // alone, which is still a composition and still loses the consumer's own
 // sentence when the entry is absent. That is a NEW OBLIGATION on a consumer
 // shipping a bare ingredient dropdown and docs/migration.md names it.

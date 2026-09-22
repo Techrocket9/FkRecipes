@@ -619,8 +619,17 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		// THE LANGUAGE IS THERE BECAUSE THIS SETTING IS. Both planners run
 		// validateTextSettings in front of this walk, and it refuses a text
 		// setting whose language is missing before anything renders.
+		//
+		// THE LADDER LINE IS THE STANDALONE TEXT'S ALONE, which is the one
+		// condition this call carries beyond the kind. Where a dropdown sits
+		// beside the field, the lists the ladder is about are that dropdown's
+		// presets and dropdownLadderLine says so on the field that renders
+		// them; composing it here as well would say one thing twice on one
+		// screen. Where there is none, this field's own default line is the
+		// list that applies and this is the only place its ladder can be
+		// disclosed. See textLadderLine.
 		out[i] = textDescription(s.emittedName(prefix), l.lang.render(entries),
-			l.textSwitchLine(i), s.kind == settingIngredients)
+			l.textSwitchLine(i), s.kind == settingIngredients, l.textSwitchDropdown(i) < 0)
 	}
 	// Recipes then technologies, in declaration order, which is the order a
 	// dropdown's own description is built in when two declarations put a text
@@ -644,9 +653,8 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		full := l.settings[i].emittedName(prefix)
 		// A DROPDOWN WITH NO TEXT SETTING BESIDE IT COMPOSES THE LADDER LINE
 		// AND NOTHING ELSE. There is no preset to read out, because rendering
-		// one needs a language and only IngredientsSetting installs one; no
-		// wrap line, because nothing typeable is rendered for it to be about;
-		// and no switch line, because there is no second field to name. The
+		// one needs a language and only IngredientsSetting installs one, and
+		// no switch line, because there is no second field to name. The
 		// LADDER is the one thing that is still true of this shape, and it is
 		// true of every plan: a preset whose entry this mod set does not have
 		// resolves onto the next name the entry offers or is left out. See
@@ -664,7 +672,7 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 			})
 			continue
 		}
-		params := make([]Value, 0, len(by.Choices)+3)
+		params := make([]Value, 0, len(by.Choices)+2)
 		params = append(params, localeRef("mod-setting-description", full, full))
 		// THE TEXT SETTING IS WHAT GUARANTEES THE LANGUAGE. It is an
 		// IngredientsSettingRef, which only IngredientsSetting issues, and that
@@ -673,14 +681,9 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 			params = append(params, presetLine(full, c.Value,
 				Str(ingredientPresetHead+l.lang.render(l.declaredIngredientEntries(prefix, c.Ingredients)))))
 		}
-		// THE WRAP, DISCLOSED WHERE THE WRAPPED TEXT IS. Every line above this
-		// one is a typeable list, and a list is the only thing in a tooltip a
-		// player copies. See listWrapLine.
-		params = append(params, Str(listWrapLine))
-		// THEN THE LADDER, WHICH IS THE OTHER THING THE LINES ABOVE DO NOT
-		// SAY: a preset is what the author wrote, and what the game builds
-		// from it is what this mod set could resolve. See dropdownLadderLine
-		// for why it sits UNDER the wrap line rather than over it.
+		// THEN THE LADDER, WHICH IS THE ONE THING THE PRESET LINES ABOVE DO
+		// NOT SAY: a preset is what the author wrote, and what the game builds
+		// from it is what this mod set could resolve. See dropdownLadderLine.
 		params = append(params, Str(dropdownLadderLine))
 		params = append(params, Str(dropdownSwitchLine(l.relativeOrder(i, r.spec.IngredientsFrom.index-1))))
 		out[i] = localisedGroup(params)
@@ -742,11 +745,19 @@ func (l *Lib) relativeOrder(self, other int) string {
 
 // textSwitchLine is the sentence on a TEXT setting that says what decides while
 // it holds the reserved word.
+//
+// IT OPENS WITH THE INSTRUCTION AND NOT WITH THE CONDITION, and the research
+// number's own sentence opens the same way (see researchRangeLine): both
+// fields carry a value that means "not customised", one of them a word and the
+// other a zero, and a player who meets the two on one screen meets one sentence
+// shape rather than two. The verb differs with what is on the other side, a
+// dropdown that DECIDES against a list that APPLIES, and that is the whole of
+// what the two arms differ by.
 func (l *Lib) textSwitchLine(i int) string {
 	if d := l.textSwitchDropdown(i); d >= 0 {
-		return "\nWhile this says default the option chosen " + l.relativeOrder(i, d) + " applies; anything else applies instead of it."
+		return "\nLeave this as default and the option chosen " + l.relativeOrder(i, d) + " decides; anything else applies instead."
 	}
-	return "\nWhile this says default this mod's own list applies."
+	return "\nLeave this as default and this mod's own list applies; anything else applies instead."
 }
 
 // dropdownSwitchLine is the sentence appended to a DROPDOWN's composed
@@ -827,6 +838,14 @@ func (l *Lib) researchNumberSettings() []researchNumber {
 // researchRangeLine is what a research number's description says about the
 // range it takes, and about what 0 means where a dropdown decides.
 //
+// BESIDE A DROPDOWN IT LEADS WITH THE SENTINEL, in textSwitchLine's own shape.
+// 0 there is not a number in a range, it is the way this field says "not
+// customised", and the range is the secondary fact: a sentence that opened with
+// "a whole number from 0 to N" made the sentinel read as the bottom of a range
+// a player might pick deliberately. The verb is "supplies the number", which is
+// the verb the informational log line already uses for the same relationship.
+// Without a dropdown there is no sentinel and the sentence is the range alone.
+//
 // THE NUMBERS COME OUT OF THE AMOUNT FORMATTER the language already pins byte
 // for byte across the two halves, rather than out of either language's own
 // float formatting: this sentence is compared in the mirror transcript, and two
@@ -838,8 +857,8 @@ func (l *Lib) researchNumberSettings() []researchNumber {
 // too.
 func (l *Lib) researchRangeLine(i int, s settingDecl, dropdown int) string {
 	if dropdown >= 0 {
-		return "\nA whole number from 0 to " + l.lang.amount(s.spec.Max) +
-			". While it is 0 the option chosen " + l.relativeOrder(i, dropdown) + " decides."
+		return "\nLeave this at 0 and the option chosen " + l.relativeOrder(i, dropdown) +
+			" supplies the number; otherwise a whole number up to " + l.lang.amount(s.spec.Max) + "."
 	}
 	return "\nA whole number from " + l.lang.amount(s.spec.Min) + " to " + l.lang.amount(s.spec.Max) + "."
 }
@@ -878,10 +897,9 @@ func (l *Lib) researchRangeLine(i int, s settingDecl, dropdown int) string {
 // library's realistic worst composition loses nothing it can reach: the
 // theoretical preset ceiling drops from 342 to 323 on a COST dropdown, and a
 // 323-preset description carrying 647 wrappers both loads and resolves in
-// full. An INGREDIENT dropdown's is 321 rather than 323, by arithmetic and not
-// by a second measurement: listWrapLine and dropdownLadderLine spend two
-// parameter slots two presets would otherwise have, and nothing else about the
-// shape differs.
+// full. An INGREDIENT dropdown's is 322 rather than 323, by arithmetic and not
+// by a second measurement: dropdownLadderLine spends one parameter slot a
+// preset would otherwise have, and nothing else about the shape differs.
 func localeRef(section, key, raw string) Value {
 	return Arr(Str("?"), Arr(Str(section+"."+key)), Str(raw))
 }
@@ -940,15 +958,15 @@ func descriptionRef(kind, name string) (Value, bool) {
 }
 
 // textDescription is the whole localised_description a TEXT setting is emitted
-// with: the consumer's own entry, then the five things this library owes the
-// player about the field beside it.
+// with: the consumer's own entry, then the four or five things this library
+// owes the player about the field beside it.
 //
-// SEVEN PARAMETERS, and none of them a table beyond the consumer's key and the
-// localeRef wrapper around it, so the twenty-parameter ceiling
+// SIX PARAMETERS AT MOST, and none of them a table beyond the consumer's key
+// and the localeRef wrapper around it, so the twenty-parameter ceiling
 // maxLocalisedParams records is nowhere near reached and the shape needs no
 // nesting rule of its own.
 //
-// THE FIVE LINES ARE THE ANSWER TO WHAT A CLIENT MEASUREMENT FOUND. A player
+// THE LINES ARE THE ANSWER TO WHAT A CLIENT MEASUREMENT FOUND. A player
 // standing in the Mod Settings screen reads the tooltip whole (measured on
 // 2.0.77 on a DROPDOWN's composed description, one line per preset: seven
 // lines rendered readable and unclipped; the ceilings on a composed
@@ -958,40 +976,40 @@ func descriptionRef(kind, name string) (Value, bool) {
 // dropdown's LABEL beside it is truncated at about 37 characters, which is why
 // nothing a player needs may live in a label. The default line shows the list
 // the word default stands for, in the internal names the field actually takes;
-// the wrap line says that a list too long for the tooltip is still one list,
-// which is the one thing about that line a player cannot see; the ladder line
-// says that the list the game builds from it can be shorter than the list
-// shown, which is the other; the format line says so in words and states the
-// ceiling; the switch line says which of the two fields is deciding, which the
-// screen cannot show because it has no conditional visibility at all
-// (measured); and the fallback line says what a text this library cannot use
-// costs, which before it was stated nowhere a player looks.
+// the ladder line, where this field has one, says that the list the game builds
+// from it can be shorter than the list shown; the format line says what to
+// write and states the ceiling; the switch line says which of the two fields is
+// deciding, which the screen cannot show because it has no conditional
+// visibility at all (measured); and the fallback line says what a text this
+// library cannot use costs, which before it was stated nowhere a player looks.
 //
 // ONE COMPOSITION, TWO READERS. The settings planner emits this; CheckLocale
 // asks the same function for the same shape with the list left out, so a line
 // deleted here is a finding rather than a silent loss. See guardedTextDescription.
 //
-// THE WRAP LINE AND THE LADDER LINE SIT DIRECTLY UNDER THE DEFAULT LINE, in
-// that order, because both are about that line and the default line is the one
-// a player copies: the wrap line says a continuation belongs to what it
-// continues, and the ladder line says the list the game builds from it can be
-// shorter than the list shown. The format line under them still says "as the
-// default line above does", which three lines up is as true as one.
+// LADDER SAYS WHETHER THIS FIELD IS THE PLACE TO DISCLOSE THE LADDER, and it is
+// the caller's answer rather than this function's because the walk that knows
+// is textSwitchDropdown: beside a dropdown the lists the ladder is about are
+// that dropdown's presets and dropdownLadderLine carries the sentence there.
+// The line stays directly under the default line where it is composed at all,
+// because that is the list it is about.
 //
-// INGREDIENTS SAYS WHICH OF THE TWO TEXT SETTINGS THIS IS, and the only thing
-// it decides is whether the format line names the word none: see
-// textFormatLine.
-func textDescription(full, rendered, switchLine string, ingredients bool) Value {
-	return Arr(
+// INGREDIENTS SAYS WHICH OF THE TWO TEXT SETTINGS THIS IS, and it decides two
+// things: the ladder line's vocabulary, and whether the format line names the
+// word none. See textLadderLine and textFormatLine.
+func textDescription(full, rendered, switchLine string, ingredients, ladder bool) Value {
+	params := make([]Value, 0, 6)
+	params = append(params,
 		Str(""),
 		localeRef("mod-setting-description", full, full),
-		Str("\ndefault: "+rendered),
-		Str(listWrapLine),
-		Str(textLadderLine(ingredients)),
+		Str("\ndefault: "+rendered))
+	if ladder {
+		params = append(params, Str(textLadderLine(ingredients)))
+	}
+	return Arr(append(params,
 		Str(textFormatLine(ingredients)),
 		Str(switchLine),
-		Str(textFallbackLine),
-	)
+		Str(textFallbackLine))...)
 }
 
 // numberDescription is the whole localised_description a RESEARCH NUMBER is
@@ -1021,11 +1039,14 @@ func numberDescription(full, rangeLine string) Value {
 // of. It is a constant, so naming it here links no part of the language: a
 // plan with no text setting still links no parser and no renderer.
 //
-// IT NAMES THE DEFAULT LINE ABOVE IT rather than describing internal names in
-// the abstract, because that line is the copyable example, and copying it is
-// exactly what the composition is for.
+// IT NAMES THE DEFAULT LINE rather than describing internal names in the
+// abstract, because that line is the copyable example, and copying it is
+// exactly what the composition is for. "AS ON THE DEFAULT LINE" IS TRUE OF
+// EVERY COMPOSITION THIS LIBRARY EMITS, which is why the words are not a row
+// count: the default line is directly above this one beside a dropdown, and one
+// line above it where the ladder line is composed. It used to be three lines up.
 func textFormatLine(ingredients bool) string {
-	line := "\nWrite internal names, as the default line above does, in at most " +
+	line := "\nInternal names, as on the default line, up to " +
 		strconv.Itoa(maxListChars) + " characters."
 	if ingredients {
 		line += ingredientNoneClause
@@ -1046,36 +1067,6 @@ func textFormatLine(ingredients bool) string {
 // with "research takes at least one science pack": telling a player to type a
 // word the library turns down would be worse than saying nothing at all.
 const ingredientNoneClause = " The word none empties the list, so the recipe costs nothing to craft."
-
-// listWrapLine is what the engine's own wrapping costs a player who copies a
-// line, said where the wrapped line is.
-//
-// THE CONTINUATION STARTS AT THE LEFT MARGIN (measured on the client): a list
-// too long for the tooltip breaks, and the second half is not indented under
-// the first, so it reads as a line of its own and a player who copies what
-// looks like a whole line loses the last ingredient. The wrap is the engine's
-// and no composition can change it; what a composition can do is say that the
-// continuation belongs to the line above it.
-//
-// IT SAYS "THE CONTINUATION" AND NOT "BOTH LINES", AND THAT IS ARITHMETIC AND
-// NOT STYLE. Two is not a bound on anything here. The wrap threshold is near
-// 57 to 60 characters (measured on the client), and the list this line renders
-// is the AUTHOR'S OWN DECLARED LIST, which has no bound short of the
-// language's 2000-character parse ceiling, so three and more visual lines are
-// reachable. On an ingredient dropdown the line above the list is the
-// consumer's LOCALISED LABEL, which can wrap on its own and is not a list at
-// all. A player who trusted "both lines are one list" over a list that wrapped
-// twice would copy two of three lines and drop the tail, which is the exact
-// failure this sentence exists to prevent, so the sentence names the
-// RELATIONSHIP (a continuation belongs to what it continues) instead of
-// counting lines it cannot count.
-//
-// IT GOES WHEREVER A TYPEABLE LIST IS RENDERED AND NOWHERE ELSE: a text
-// setting's default line, and an ingredient dropdown's preset lines. A cost
-// dropdown's preset is a localised label followed by a localised technology
-// name, prose in one vocabulary with nothing in it to copy, so the sentence
-// there would be about a hazard that preset does not carry.
-const listWrapLine = "\nA list too long for one line continues on the next; the continuation is part of the same list."
 
 // textLadderLine is what a RESOLVE-OR-DROP ladder costs the list a text
 // setting renders, said on the field that renders it, and packs and
@@ -1117,12 +1108,15 @@ const listWrapLine = "\nA list too long for one line continues on the next; the 
 // declared ladder would leave exactly the plans that can ONLY drop saying
 // nothing at all.
 //
-// IT SITS UNDER THE WRAP LINE AND NOT OVER IT. listWrapLine names a
-// RELATIONSHIP between a rendered list and the line under it, so the lines
-// directly above it have to be the lists it is about; a sentence wedged
-// between the last list and the wrap line would leave "the continuation is
-// part of the same list" pointing at prose. The order is list, wrap, ladder in
-// both compositions that carry it.
+// IT IS COMPOSED ON A STANDALONE TEXT SETTING AND ON NO OTHER. Beside a
+// dropdown, the lists a player chooses between are that dropdown's presets and
+// the ladder is disclosed there, by dropdownLadderLine, on the field that
+// renders them; composing this line as well would say one thing twice on one
+// screen, in two vocabularies, about two different lists. Where there is no
+// dropdown the field's own DEFAULT LINE is the list that applies, this line
+// sits directly under it, and this is the only place the ladder can be
+// disclosed at all. settingDescriptions decides which shape it is looking at,
+// through textSwitchDropdown, which is the same walk the switch line uses.
 func textLadderLine(ingredients bool) string {
 	if ingredients {
 		return ingredientLadderLine
@@ -1154,16 +1148,19 @@ const packsLadderLine = "\nWhere a list this mod chose names a science pack your
 // setting's arm says "a list this mod chose" instead, because there the list it
 // is about is the one the field falls back to, on the DEFAULT LINE.
 //
-// THE LINE DIRECTLY ABOVE IT IS listWrapLine, in the composition that has
+// THE LINE DIRECTLY ABOVE IT IS THE LAST PRESET, in the composition that has
 // presets; in the BARE composition, where no text setting sits beside the
 // dropdown, this line is the whole of what the library composes and the line
-// above it is the consumer's own entry. Naming the neighbour by name rather
-// than by a row count is deliberate: the count has moved twice.
+// above it is the consumer's own entry. Naming the neighbour by what it is
+// rather than by a row count is deliberate: the count has moved twice.
 //
-// AND A COST DROPDOWN CARRIES NEITHER THIS NOR THE WRAP LINE, for listWrapLine's
-// own reason: its preset is a localised label followed by a localised
-// technology name, so there is no rendered list of internal names for a ladder
-// to shorten. What a copied cost's own packs do when this game lacks them is
+// AND IT IS THE ONLY PLACE THE LADDER IS DISCLOSED FOR THE PAIR. The text
+// setting beside this dropdown does not carry textLadderLine, because the lists
+// a player is choosing between are the presets on this row.
+//
+// A COST DROPDOWN CARRIES IT NOT AT ALL: its preset is a localised label
+// followed by a localised technology name, so there is no rendered list of
+// internal names for a ladder to shorten. What a copied cost's own packs do when this game lacks them is
 // disclosed where it happens, on the technology's tooltip, by packDroppedNote
 // and packlessSourceNote; a sentence on the dropdown would be about a list
 // that dropdown does not render.
@@ -1177,7 +1174,7 @@ const dropdownLadderLine = "\nWhere an option names something your mods do not h
 // still holds it and a game that ignores it. Saying so in the description is
 // the only warning available before the fact.
 //
-// "BEHAVES AS THOUGH IT SAID DEFAULT" POINTS AT THE SWITCH LINE, and the
+// "AS THOUGH IT SAID DEFAULT" POINTS AT THE SWITCH LINE, and the
 // wording is chosen for where it lands on the screen. The line used to read
 // "that default applies instead", which is deictic, and its nearest antecedent
 // is the DEFAULT LINE at the head of the composition, which renders the
@@ -1198,7 +1195,7 @@ const dropdownLadderLine = "\nWhere an option names something your mods do not h
 // reason can be: resolution.fallbackFact is what puts it there, which is what
 // keeps this line's second clause true. Naming both places, the log or the load
 // error, is therefore the whole claim this line is allowed to make.
-const textFallbackLine = "\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway."
+const textFallbackLine = "\nText this mod cannot use is set aside as though it said default; the reason is in the log or the load error."
 
 // presetLine is one preset's line in a composed dropdown description.
 //
@@ -1235,13 +1232,19 @@ func presetLine(setting, value string, tail ...Value) Value {
 // by ": " they read as one sentence in two languages, and only the second half
 // can be copied into the field: measured on 2.0.77, the first half pasted into
 // the text setting is refused and nothing in the tooltip said which half was
-// which. The break and the word type put the copyable half on its own line,
-// under the word a player acts on, so the two vocabularies are two lines.
+// which. The break and the words to type put the copyable half on its own line,
+// under the words a player acts on, so the two vocabularies are two lines.
+//
+// "TO TYPE" AND NOT "TYPE", WHICH IS WHAT THE WORD ALWAYS MEANT. Alone, type
+// reads first as the NOUN, and a label reading "type:" over a list of internal
+// names says that the list is a kind of something rather than that it is what
+// to put in the field. The instruction was the whole point of the line and the
+// second word is what makes it one.
 //
 // A COST PRESET KEEPS ITS ": cost of " (see costPresetTail) because it has only
 // one vocabulary: a localised label followed by a localised technology name is
 // prose throughout, and there is nothing in it to copy.
-const ingredientPresetHead = "\n  type: "
+const ingredientPresetHead = "\n  to type: "
 
 // costPresetTail is what a research preset says it costs: the ladder's FIRST
 // source, which is the technology whose unit would be copied. A ladder with no
@@ -1294,7 +1297,7 @@ func costPresetTail(c CostChoice) []Value {
 //
 // THE FILL POINT IS PER DROPDOWN KIND, because the presets are not the only
 // thing at the top level. Beside them sit the consumer's own description key
-// first and the switch line last, and on an INGREDIENT dropdown the wrap line
+// first and the switch line last, and on an INGREDIENT dropdown the ladder line
 // between them, so an ingredient dropdown stays flat up to SEVENTEEN presets
 // and a cost dropdown up to EIGHTEEN. Both are far above every dropdown anyone
 // has written; the nesting exists so that the one past the fill point is a line

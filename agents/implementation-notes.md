@@ -2499,3 +2499,86 @@ The operator halted the chain after three cycles and asked for a triage rather t
 - *Declined, with the reason.* The reviewer would have had the engine gate grow a 2.1 demote fixture (clear the pack's subgroup rather than move it out of a table) so the degradation stays engine-verified on the only engine installed. It is the right shape and it is owed, but the brief for this round asked the arm to SKIP on such an engine and the mirror's 2.1 arm covers the same degradation end to end through packaged Lua; a second fixture with its own branch in every assertion is a round of its own. Recorded here as owed rather than done.
 - *One divergence recorded rather than fixed.* `fkdata::mod_version` runs the value through `text()`, which raises on bytes that are not UTF-8, while the Go side carries them. Nothing reaches it but base's own version, which the engine constrains to ASCII, so it is unreachable today; it is a refusal surface the Rust half has and the Go half does not, and it is here so the next person does not find it by hitting it.
 - *No size figure was taken this round*, where earlier rounds record one. The two allocation fixes above move the Rust guest's arena use rather than its code size, and nothing measured it. Owed.
+
+## The settings-tooltip round, phase A (v0.1.2, 2026-09-22)
+
+The trigger and the decisions are `agents/customizer-design.md`'s fix round 4. This is the report: what was measured, what the gates said, and what each red proof produced. The round changes COMPOSED SETTINGS PROSE and nothing else, so its central claim is one a measurement has to make rather than an argument: **both DATA dump hashes in `testdata/ingame/dump-sha256.txt` are unmoved on both rows**, `e824cd83...` and `1cd61e0b...`, while the SETTINGS hash moved `21b4a68c...` to `867cb11f...`.
+
+### The measurement, before and after
+
+`scripts/tooltip-sizes.py` is new and is committed for this, so the figures carry a command. It renders each prototype's composed `localised_description` out of the mirror transcript the way a client with NO locale entries of its own would (an alternatives table resolves to its raw fallback, because an undefined key is a failed alternative), and prints the whole size beside the library's own part, which is everything past the consumer's own reference.
+
+```sh
+python3 scripts/tooltip-sizes.py testdata/mirror/transcript.golden        # the table
+python3 scripts/tooltip-sizes.py testdata/mirror/transcript.golden -v     # and the text
+```
+
+Taken at `bb1b316` and at this commit, in characters, library part then whole:
+
+| setting | shape | before | after |
+|---|---|---|---|
+| `quench-ingredients` | ingredient text beside a dropdown | 850 of 886 | 411 of 447 |
+| `chain-ingredients` | ingredient text beside a dropdown | 812 of 847 | 373 of 408 |
+| `tips-packs` | pack text beside a cost dropdown | 762 of 790 | 322 of 350 |
+| `rivet-ingredients` | standalone ingredient text | 752 of 787 | 618 of 653 |
+| `chain-packs` | standalone pack text | 696 of 725 | 562 of 591 |
+| `quench-medium` | ingredient dropdown with a text beside it | 579 of 610 | 490 of 521 |
+| `chain-links` | ingredient dropdown with a text beside it | 522 of 551 | 433 of 462 |
+| `tips-research-tier` | cost dropdown | 133 of 169 | 133 of 169 |
+| `tips-count` | research number beside a dropdown | 80 of 108 | 104 of 132 |
+| `tips-seconds` | research number beside a dropdown | 77 of 107 | 101 of 131 |
+| `chain-count` | research number, no dropdown | 33 of 62 | 33 of 62 |
+
+The three shapes a consumer has most of lose about half. The two that GROW are decision 4's price and are the only line on those fields; the cost dropdown and the bare research number do not move at all, which is what says the round touched what it meant to.
+
+### What the round costs in the packaged module
+
+The block got shorter for the player and the module got slightly LONGER, because composing a line conditionally is more code than the constant it deleted is data. Both `notext` fixtures, built and packaged with one `fklua` (FkLua at `16508c8`), TinyGo 0.41.1 (`GOTOOLCHAIN=go1.26.6`), cargo 1.97.1, 2026-09-22, the BEFORE tree in a scratch worktree at `bb1b316` so both arms use the same binary and the same toolchain:
+
+| `notext` guest | `fk_data_module.lua` | lines |
+|---|---|---|
+| go | 3,044,045 to 3,049,700 (+5,655) | 77,326 to 77,440 (+114) |
+| rust | 2,609,038 to 2,620,255 (+11,217) | 63,798 to 64,079 (+281) |
+
+The module column is not path sensitive, which is why it is quoted and the wasm column is not: the two arms were built at different paths. The AFTER pair is what `README.md` now carries, with the head and the date beside it; it is not comparable with the pair recorded for `01d640a`, because the `fklua` head and the Go toolchain both moved between them, which is why that paragraph says a packaged size is a figure for the head it was taken at.
+
+`README.md`'s string-data figure goes to **633 bytes**, and it is stated with its constituents because the 705 it replaces cannot be re-derived from the constants: summing the same enumeration over the pre-round constants gives 744, not 705, so the earlier accounting is not reproducible and is not adjusted by 95. The 633 is the sum of these literals, which is a list anyone can re-add: the format line's two pieces (47 and 12), the ingredient-only `none` clause (70), the fallback line (109), the preset head (12), the switch lines (45 and 40 around the word, and 86 for the standalone arm; the dropdown's 13 and 47), the range-line literals (39, 53 and 1 beside a dropdown; 21, 4 and 1 without one) and the frame that holds them (`\ndefault: ` at 10 and `mod-setting-description` at 23).
+
+### The three ladder lines did not move
+
+`ingredientLadderLine` 268, `packsLadderLine` 269, `dropdownLadderLine` 256, re-measured. CLAUDE.md's gate comment explaining why the SETTINGS dump is not walked for the 200-byte element ceiling rests on those three numbers and stands as written; it gains the date it was re-taken.
+
+### The red proofs
+
+Fourteen, seven per half for the unit suites plus four against the two gates. Every one was taken, the failure text read, and the break reverted from a file copy.
+
+| What was broken | What went red |
+|---|---|
+| Go `settingDescriptions` passes `true` for the ladder flag (the line back on every text setting) | 3 Go tests. `TestTheLadderLineSitsUnderTheListItIsAbout`: `the text setting beside the dropdown carries the ladder line: ["", ["?", ["mod-setting-description.steelworks-quench-ingredients"], ...`, plus the two composed-prototype goldens |
+| Rust `plan_settings` passes `true` for the same flag | 2 Rust tests. `the_ladder_line_sits_under_the_list_it_is_about`: `the text setting beside the dropdown carries the ladder line` |
+| Go `composedTextLinesMissing` asks for the ladder line unconditionally | 2 Go tests. `the real composition beside a dropdown reported [the library composes no line about a name in the list this game does not have ...]`, and `TestCheckLocaleRequiresADropdownDescriptionBesideAText` with it |
+| Rust `composed_text_lines_missing` the same | 3 Rust tests including `check_locale_accepts_a_complete_customizer_file`; `left: ["the library composes no line about a name in the list this game does not have ..."] right: []` |
+| Go guard never asks for the ladder line | `TestComposedTextLinesMissingGuardsTheComposedLines`, three assertions: `got: <nothing> want: the library composes no line about a name in the list this game does not have ...` |
+| Rust guard never asks for it | `composed_text_lines_missing_guards_the_composed_lines`: `left: [] right: ["the library composes no line about a name in the list this game does not have ..."]` |
+| `ingredientPresetHead` back to `"\n  type: "` (Go) | 3 Go tests. `got: "\n  type: " want: "\n  to type: "` |
+| `INGREDIENT_PRESET_HEAD` back to `"\n  type: "` (Rust) | 3 Rust tests. `left: "\n  type: " right: "\n  to type: "` |
+| `researchRangeLine`'s dropdown arm back to the old sentence (Go) | `TestTheResearchNumberSentencesAreTheStatedOnes`: `got: "\nA whole number from 0 to 100000. While it is 0 the option chosen above decides."` |
+| `research_range_line`'s dropdown arm the same (Rust) | `the_research_number_sentences_are_the_stated_ones`: `steelworks-tips-count does not carry the stated sentence` |
+| the wrap line pushed back into `textDescription` and `text_description`, both halves | MIRROR: `the text setting's composed description is not in the transcript`, `the packs setting's composed description is not in the transcript`, `a text setting beside a dropdown does not say which option decides`, and the new negative `a composed description still carries the list-wrap line`. IN-GAME: `no composed description carries the list-wrap line (the dump says false)` and both golden rows |
+| the ladder flag forced `true` in both halves | MIRROR: `the text setting fkrecipes-example-quench-ingredients carries the ladder line the dropdown beside it already carries` and the same for `chain-ingredients`. IN-GAME: `a text setting beside a dropdown carries no ladder line (the dump says false)` and both golden rows |
+
+The two GATE proofs are the ones that matter for the round's shape, because the composition moved in two directions at once and a suite pin alone cannot tell "the line is gone" from "the line moved to the other field": the mirror and the engine both assert the negative per setting NAME, so a line that reappeared anywhere is named by the field it reappeared on.
+
+### Gates
+
+Every gate in CLAUDE.md's Gates block, exit codes read directly. `gofmt -l .` prints nothing; `go vet ./...`, `go test ./...`, `go test -race ./...`, `go/examples/notext` `go vet .` all 0; `cargo fmt --check`, `cargo test` (258 lib tests and 2 integration), `RUSTFLAGS=-Dwarnings cargo clippy --workspace --all-targets`, `cargo build --target wasm32-unknown-unknown --workspace` all 0; `scripts/run-mirror.sh` prints `run-mirror: OK`; `scripts/run-ingame.sh` prints `run-ingame: OK` on `Version: 2.0.77 (build 84539, mac-arm64, steam)`, re-asked, both rows matching the recaptured golden. The repository dash grep prints only `agents/docs-style.md`, which quotes the characters it bans.
+
+**ONE ENVIRONMENTAL NOTE, because a gate that cannot run reads like a gate that passed.** TinyGo 0.41.1 accepts Go 1.19 through 1.26 and the Go on this machine is 1.27.1, so `scripts/run-mirror.sh` refuses at `requires go version 1.19 through 1.26, got go1.27` with `run-mirror: the Go guest did not build`. It refuses loudly, which is the convention working. The fix is `GOTOOLCHAIN=go1.26.6` in front of the two gate scripts, which makes the `go` command re-exec the pinned toolchain and costs one download the first time; every mirror and in-game run in this round was taken that way, and it is the same pin the README's own size figures name.
+
+### The 2.1.17 golden rows
+
+No 2.1.17 binary is on this machine and every composed setting description moved, so those two rows would otherwise carry a settings hash this library no longer produces. Their settings hash is set to the 2.0.77 capture's, on the golden's own documented property that all four rows share one (a setting prototype is this library's own and no engine has moved one), and `testdata/ingame/dump-sha256.txt` carries a dated paragraph saying the value is DERIVED and not captured, so a 2.1 machine confirms or refutes it by running the gate. Their DATA hashes stand as recorded, because nothing in this round touches the data stage.
+
+### What is owed
+
+Phase B: `Describes`, a per-choice description on a cost preset, and `DescribeSetting` on any setting. None of it is in this round and nothing here anticipates it.

@@ -45,8 +45,19 @@
 # different DLC produces a different dump for a mod that is perfectly fine.
 # A mismatch here is ENVIRONMENTAL and reports SKIPPED, not FAILED.
 #
+# THE 2.1.17 ROWS' SETTINGS HASH IS DERIVED AND NOT CAPTURED (2026-09-22). No
+# 2.1.17 binary is on this machine, and this round moved every composed setting
+# description, so those two rows would otherwise carry a hash this library no
+# longer produces. What is written there is the 2.0.77 capture's settings hash,
+# on the golden's own documented property that all four rows share one: a
+# setting prototype is this library's own and no engine has moved one. Their
+# DATA hashes stand as recorded, because nothing in this round touches the data
+# stage. A 2.1 machine confirms or refutes the derivation loudly, by running
+# the gate: a mismatch there is a failure and not a skip.
+#
 # Capture both rows with: scripts/run-ingame.sh --update
-2.0.77 default e824cd8302c00fd07c3c3416ad8d9a5eea5612bce5ee455f1cf9669eee1685cd 21b4a68cac3386ae3ff7ccca766da6a581ba1829d3f4a87ddb08a8f3603293cc base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
-2.0.77 flipped 1cd61e0bdf9de34e2e76c9d74103a33636a82d95d6b4fb6584ca78b810aa1644 21b4a68cac3386ae3ff7ccca766da6a581ba1829d3f4a87ddb08a8f3603293cc base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
-2.1.17 default 91652e2bba65b7c0d1a123ba91d9780f42b995c0b4e84408ff0f2dce3c7edc3b 21b4a68cac3386ae3ff7ccca766da6a581ba1829d3f4a87ddb08a8f3603293cc base@2.1.17 core@0.0.0 elevated-rails@2.1.17 fkrecipes-example@0.1.0 quality@2.1.17 recycler@2.1.17 space-age@2.1.17
-2.1.17 flipped 83c45b19038a8cc140dfc19b381ffabb94159084ec24812eadb04fbf662451db 21b4a68cac3386ae3ff7ccca766da6a581ba1829d3f4a87ddb08a8f3603293cc base@2.1.17 core@0.0.0 elevated-rails@2.1.17 fkrecipes-example@0.1.0 quality@2.1.17 recycler@2.1.17 space-age@2.1.17
+
+2.0.77 default e824cd8302c00fd07c3c3416ad8d9a5eea5612bce5ee455f1cf9669eee1685cd 867cb11f365584dc2e90971779333b16f1b5fb4d9d9dddaeb37f2dc8787e8d6a base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
+2.0.77 flipped 1cd61e0bdf9de34e2e76c9d74103a33636a82d95d6b4fb6584ca78b810aa1644 867cb11f365584dc2e90971779333b16f1b5fb4d9d9dddaeb37f2dc8787e8d6a base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
+2.1.17 default 91652e2bba65b7c0d1a123ba91d9780f42b995c0b4e84408ff0f2dce3c7edc3b 867cb11f365584dc2e90971779333b16f1b5fb4d9d9dddaeb37f2dc8787e8d6a base@2.1.17 core@0.0.0 elevated-rails@2.1.17 fkrecipes-example@0.1.0 quality@2.1.17 recycler@2.1.17 space-age@2.1.17
+2.1.17 flipped 83c45b19038a8cc140dfc19b381ffabb94159084ec24812eadb04fbf662451db 867cb11f365584dc2e90971779333b16f1b5fb4d9d9dddaeb37f2dc8787e8d6a base@2.1.17 core@0.0.0 elevated-rails@2.1.17 fkrecipes-example@0.1.0 quality@2.1.17 recycler@2.1.17 space-age@2.1.17

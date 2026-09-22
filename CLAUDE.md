@@ -148,8 +148,10 @@ scripts/run-ingame.sh         # the engine gate: both packaged examples under a 
                               # engine's 200-byte ceiling. The SETTINGS dump is deliberately not
                               # walked for that: a setting prototype is exempt (measured to 5000
                               # bytes), and the three ladder lines this library composes onto a
-                              # setting's description are 256, 268 and 269 bytes, so walking it
-                              # would enforce a rule the engine does not have.
+                              # setting's description are 256, 268 and 269 bytes, re-measured
+                              # 2026-09-22 and unmoved by the round that shortened every other
+                              # composed line, so walking it would enforce a rule the engine does
+                              # not have.
                               # A mod-set mismatch reports
                               # SKIPPED and exits 0 (an environmental difference, the FkLua
                               # convention); --strict or FKRECIPES_STRICT=1 makes it exit 1 for a CI

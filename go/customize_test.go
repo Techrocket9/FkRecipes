@@ -15,11 +15,16 @@ import (
 // is held up to the light here is the BINDING: which setting a recipe reads,
 // what the settings screen shows, and which of the three text paths applies.
 
-// The five lines this library composes onto EVERY text setting's description,
-// after the default list: that a list too long for the tooltip is still one
-// list, what a name this game does not have costs the list, what to write and
-// how much of it, which field decides while this one says the reserved word,
-// and what a text it cannot use costs.
+// The lines this library composes onto a text setting's description, after the
+// default list: what a name this game does not have costs the list, on the
+// standalone shape alone; what to write and how much of it; which field decides
+// while this one holds the reserved word; and what a text it cannot use costs.
+//
+// THE LADDER LINE IS NOT ON EVERY TEXT SETTING. Beside a dropdown the ladder is
+// disclosed on the dropdown's own description, over the presets a player is
+// choosing between, so wantTextTail and wantPacksTail carry it (they are the
+// standalone shape, which is what wantSwitchOwn says) and the tails built
+// around wantSwitchBy do not.
 //
 // THE FORMAT LINE IS TWO SENTENCES ON AN INGREDIENT SETTING AND ONE ON A PACKS
 // SETTING. The word none empties an ingredient list; a pack list refuses it
@@ -32,8 +37,6 @@ import (
 // bytes are the contract, the Rust twin carries the same ones, and the mirror
 // compares the two transcripts.
 const (
-	wantWrap = `, "` + "\n" +
-		`A list too long for one line continues on the next; the continuation is part of the same list."`
 	// The ladder line, in each of its three vocabularies: an ingredient text
 	// setting's, a packs text setting's, and an ingredient dropdown's.
 	wantTextLadder = `, "` + "\n" +
@@ -43,25 +46,25 @@ const (
 	wantDropdownLadder = `, "` + "\n" +
 		`Where an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown."`
 	wantPacksFormat = `, "` + "\n" +
-		`Write internal names, as the default line above does, in at most 2000 characters."`
+		`Internal names, as on the default line, up to 2000 characters."`
 	wantTextFormat = `, "` + "\n" +
-		`Write internal names, as the default line above does, in at most 2000 characters. The word none empties the list, so the recipe costs nothing to craft."`
+		`Internal names, as on the default line, up to 2000 characters. The word none empties the list, so the recipe costs nothing to craft."`
 	wantTextFallback = `, "` + "\n" +
-		`A text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway."`
+		`Text this mod cannot use is set aside as though it said default; the reason is in the log or the load error."`
 	// The switch line a text setting with no dropdown beside it carries.
-	wantSwitchOwn = `, "` + "\n" + `While this says default this mod's own list applies."`
+	wantSwitchOwn = `, "` + "\n" + `Leave this as default and this mod's own list applies; anything else applies instead."`
 	// wantTextTail is the whole tail of the commonest shape, an INGREDIENT text
 	// setting that is the only source its recipe has, and wantPacksTail its
 	// packs twin.
-	wantTextTail  = wantWrap + wantTextLadder + wantTextFormat + wantSwitchOwn + wantTextFallback
-	wantPacksTail = wantWrap + wantPacksLadder + wantPacksFormat + wantSwitchOwn + wantTextFallback
+	wantTextTail  = wantTextLadder + wantTextFormat + wantSwitchOwn + wantTextFallback
+	wantPacksTail = wantPacksLadder + wantPacksFormat + wantSwitchOwn + wantTextFallback
 )
 
 // wantSwitchBy is the switch line a text setting beside a dropdown carries, and
 // where says which way the settings screen sorts the two.
 func wantSwitchBy(where string) string {
-	return `, "` + "\n" + `While this says default the option chosen ` + where +
-		` applies; anything else applies instead of it."`
+	return `, "` + "\n" + `Leave this as default and the option chosen ` + where +
+		` decides; anything else applies instead."`
 }
 
 // wantDropdownSwitch is the sentence appended to a dropdown that has a text
@@ -189,13 +192,13 @@ func TestPlanSettingsComposesADropdownDescription(t *testing.T) {
 		`extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup",` +
 			` default_value="water", order="aa", allowed_values=["water", "oil"],` +
 			` localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"],` +
-			` ["", "` + "\n" + `", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "` + "\n" + `  type: 2 steel-plate, 10 [fluid=water]"],` +
-			` ["", "` + "\n" + `", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "` + "\n" + `  type: 2 steel-plate, 0.5 [fluid=lubricant]"]` +
-			wantWrap + wantDropdownLadder + wantDropdownSwitch("below") + `]}`,
+			` ["", "` + "\n" + `", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "` + "\n" + `  to type: 2 steel-plate, 10 [fluid=water]"],` +
+			` ["", "` + "\n" + `", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "` + "\n" + `  to type: 2 steel-plate, 0.5 [fluid=lubricant]"]` +
+			wantDropdownLadder + wantDropdownSwitch("below") + `]}`,
 		`extend {type="string-setting", name="steelworks-quench-ingredients", setting_type="startup",` +
 			` default_value="default", order="ab", auto_trim=true,` +
 			` localised_description=["", ["?", ["mod-setting-description.steelworks-quench-ingredients"], "steelworks-quench-ingredients"], "` + "\n" + `default: 2 steel-plate"` +
-			wantWrap + wantTextLadder + wantTextFormat + wantSwitchBy("above") + wantTextFallback + `]}`,
+			wantTextFormat + wantSwitchBy("above") + wantTextFallback + `]}`,
 	})
 }
 
@@ -283,14 +286,14 @@ func TestTheSwitchLinesFollowTheEmittedOrder(t *testing.T) {
 		`extend {type="string-setting", name="steelworks-quench-ingredients", setting_type="startup",` +
 			` default_value="default", order="aa", auto_trim=true,` +
 			` localised_description=["", ["?", ["mod-setting-description.steelworks-quench-ingredients"], "steelworks-quench-ingredients"], "` + "\n" +
-			`default: 2 steel-plate"` + wantWrap + wantTextLadder + wantTextFormat + wantSwitchBy("below") + wantTextFallback + `]}`,
+			`default: 2 steel-plate"` + wantTextFormat + wantSwitchBy("below") + wantTextFallback + `]}`,
 		`extend {type="string-setting", name="steelworks-quench-medium", setting_type="startup",` +
 			` default_value="water", order="z", allowed_values=["water", "oil"],` +
 			` localised_description=["", ["?", ["mod-setting-description.steelworks-quench-medium"], "steelworks-quench-medium"],` +
 			` ["", "` + "\n" + `", ["?", ["string-mod-setting.steelworks-quench-medium-water"], "water"], "` + "\n" +
-			`  type: 2 steel-plate"],` +
+			`  to type: 2 steel-plate"],` +
 			` ["", "` + "\n" + `", ["?", ["string-mod-setting.steelworks-quench-medium-oil"], "oil"], "` + "\n" +
-			`  type: 3 steel-plate"]` + wantWrap + wantDropdownLadder + wantDropdownSwitch("above") + `]}`,
+			`  to type: 3 steel-plate"]` + wantDropdownLadder + wantDropdownSwitch("above") + `]}`,
 	})
 }
 
@@ -404,19 +407,19 @@ func TestCostDropdownDescriptionNestsPastNineteenPresets(t *testing.T) {
 	}
 }
 
-// AN INGREDIENT DROPDOWN NESTS TWO PRESETS EARLIER THAN A COST ONE, and those
-// two presets are the whole of what the wrap line and the ladder line cost.
+// AN INGREDIENT DROPDOWN NESTS ONE PRESET EARLIER THAN A COST ONE, and that
+// preset is the whole of what the ladder line costs.
 //
-// The top table holds the consumer's key, the preset lines, the wrap line, the
-// ladder line and the switch line, so sixteen presets fill the measured twenty
-// and the seventeenth turns the level into groups of nineteen. A COST dropdown
-// carries neither the wrap line nor the ladder line (its presets are prose in
-// one vocabulary, with nothing in them to copy and no rendered list to shorten)
-// and still fits eighteen, which is what the test above it pins.
+// The top table holds the consumer's key, the preset lines, the ladder line and
+// the switch line, so seventeen presets fill the measured twenty and the
+// eighteenth turns the level into groups of nineteen. A COST dropdown carries
+// no ladder line at all (its presets are prose in one vocabulary, with nothing
+// in them to copy and no rendered list to shorten) and fits eighteen, which is
+// what the test above it pins.
 //
 // IT IS THE GO TWIN of rust/src/tests/customize.rs's
-// an_ingredient_description_nests_past_sixteen_presets.
-func TestIngredientDropdownDescriptionNestsPastSixteenPresets(t *testing.T) {
+// an_ingredient_description_nests_past_seventeen_presets.
+func TestIngredientDropdownDescriptionNestsPastSeventeenPresets(t *testing.T) {
 	composed := func(presets int) Value {
 		t.Helper()
 		values := make([]string, 0, presets)
@@ -448,27 +451,26 @@ func TestIngredientDropdownDescriptionNestsPastSixteenPresets(t *testing.T) {
 		return v
 	}
 
-	// Sixteen: the key plus sixteen lines plus the wrap line plus the ladder
-	// line plus the switch line is twenty parameters, the measured ceiling,
-	// and nothing nests.
-	flat := composed(16)
+	// Seventeen: the key plus seventeen lines plus the ladder line plus the
+	// switch line is twenty parameters, the measured ceiling, and nothing
+	// nests.
+	flat := composed(17)
 	if flat.Kind != KindArr || len(flat.Arr) != maxLocalisedParams+1 {
-		t.Fatalf("sixteen presets did not stay flat: %s", renderValue(flat))
+		t.Fatalf("seventeen presets did not stay flat: %s", renderValue(flat))
 	}
-	// THE THREE TRAILING LINES IN THE ORDER THE DOC COMMENTS CLAIM: the wrap
-	// line under the last list, the ladder line under it, and the switch line
-	// last. A ladder line wedged between the last preset and the wrap line
-	// would leave listWrapLine pointing at prose rather than at a list.
-	tail := flat.Arr[len(flat.Arr)-3:]
-	for i, want := range []string{listWrapLine, dropdownLadderLine, dropdownSwitchLine("below")} {
+	// THE TWO TRAILING LINES IN THE ORDER THE DOC COMMENTS CLAIM: the ladder
+	// line under the last list, and the switch line last. A ladder line wedged
+	// between two presets would point at a list that is not the last one.
+	tail := flat.Arr[len(flat.Arr)-2:]
+	for i, want := range []string{dropdownLadderLine, dropdownSwitchLine("below")} {
 		if got := tail[i]; got.Kind != KindStr || got.Str != want {
 			t.Errorf("trailing parameter %d is %s, want %q", i, renderValue(got), want)
 		}
 	}
 
-	// Seventeen: the level keeps the first nineteen parameters and hands the
+	// Eighteen: the level keeps the first nineteen parameters and hands the
 	// two last lines to a nested group in the twentieth slot.
-	nested := composed(17)
+	nested := composed(18)
 	if nested.Kind != KindArr || len(nested.Arr) != maxLocalisedParams+1 {
 		t.Fatalf("the nested form is not one level wide: %s", renderValue(nested))
 	}
@@ -484,8 +486,8 @@ func TestIngredientDropdownDescriptionNestsPastSixteenPresets(t *testing.T) {
 	}
 
 	// And two presets further, the group holds a preset LINE as well, which is
-	// what says the fill keeps going rather than stopping at the three lines.
-	deeper := composed(19)
+	// what says the fill keeps going rather than stopping at the two lines.
+	deeper := composed(20)
 	group = deeper.Arr[maxLocalisedParams]
 	if group.Kind != KindArr || len(group.Arr) != 5 {
 		t.Fatalf("the nested group is %s, want five elements", renderValue(group))
@@ -2379,37 +2381,56 @@ func TestCustomResearchCostCarriesNoMaxLevel(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // THE DRIFT GUARD OVER WHAT THE LIBRARY ITSELF COMPOSES. The consumer's entry
-// is checked above; these five lines are this library's, so no locale file can
-// put one back and no plan can leave one out. What the rule can see is a
+// is checked above; these lines are this library's, so no locale file can put
+// one back and no plan can leave one out. What the rule can see is a
 // composition that stopped carrying a line, which is why the composition is
 // what it is handed.
 //
 // THE SENTENCE NAMES THE LIBRARY AND NOT A SETTING, because the rule's input
-// does not vary with the setting in any way the rule reads: two lines are
-// constants, the other three are the switch line and the two the KIND decides,
-// the ladder line and the format line, all of which the composition was built
-// with and which are handed in beside it, and the only per-setting part of a
-// text description is the consumer's key, which the rule does not look at. One
+// does not vary with the setting in any way the rule reads: one line is a
+// constant, the others are the switch line and the two the KIND decides, the
+// ladder line and the format line, all of which the composition was built with
+// and which are handed in beside it, and the only per-setting part of a text
+// description is the consumer's key, which the rule does not look at. One
 // defect is therefore one finding.
+//
+// THE LADDER FLAG IS THE FOURTH INPUT AND BOTH OF ITS ARMS ARE WALKED HERE.
+// A standalone text setting carries the ladder line and the rule looks for it;
+// one beside a dropdown does not, and a rule that looked for it anyway would
+// report a defect on every plan the customizer was designed for.
 //
 // THE HEALTHY PATH FIRST, so a rule that fired on everything would be caught
 // here rather than in a golden somewhere: the real composition reports
 // nothing.
 func TestComposedTextLinesMissingGuardsTheComposedLines(t *testing.T) {
 	const full = "steelworks-axe-ingredients"
-	const switchLine = "\nWhile this says default this mod's own list applies."
-	whole := textDescription(full, "1 steel-plate", switchLine, true)
-	if got := composedTextLinesMissing(whole, switchLine, true); len(got) != 0 {
+	const switchLine = "\nLeave this as default and this mod's own list applies; anything else applies instead."
+	whole := textDescription(full, "1 steel-plate", switchLine, true, true)
+	if got := composedTextLinesMissing(whole, switchLine, true, true); len(got) != 0 {
 		t.Fatalf("the real composition reported %v", got)
 	}
 	// AND THE PACKS COMPOSITION IS CLEAN UNDER THE PACKS RULE. The ladder line
-	// and the format line are the two lines of the five whose bytes depend on
-	// the kind, so a rule asked about the wrong kind reports a healthy
-	// description as broken.
-	packs := textDescription("steelworks-axe-packs", "1 automation-science-pack", switchLine, false)
-	if got := composedTextLinesMissing(packs, switchLine, false); len(got) != 0 {
+	// and the format line are the two lines whose bytes depend on the kind, so
+	// a rule asked about the wrong kind reports a healthy description as
+	// broken.
+	packs := textDescription("steelworks-axe-packs", "1 automation-science-pack", switchLine, false, true)
+	if got := composedTextLinesMissing(packs, switchLine, false, true); len(got) != 0 {
 		t.Fatalf("the real packs composition reported %v", got)
 	}
+	// AND THE COMPOSITION BESIDE A DROPDOWN IS CLEAN UNDER THE RULE THAT KNOWS
+	// IT HAS NO LADDER LINE. This is the shape the customizer was designed for,
+	// so a guard that got this wrong would fire on the commonest plan there is.
+	const besideLine = "\nLeave this as default and the option chosen above decides; anything else applies instead."
+	beside := textDescription(full, "1 steel-plate", besideLine, true, false)
+	if got := composedTextLinesMissing(beside, besideLine, true, false); len(got) != 0 {
+		t.Fatalf("the real composition beside a dropdown reported %v", got)
+	}
+	// AND THE SAME COMPOSITION UNDER THE OTHER ARM IS NOT CLEAN, which is what
+	// says the flag is read at all: a rule told to expect a ladder line over a
+	// description that correctly has none reports exactly that line.
+	assertFindings(t, composedTextLinesMissing(beside, besideLine, true, true), []string{
+		"the library composes no line about a name in the list this game does not have onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
+	})
 
 	// The same composition with one line taken out of it, which is the only
 	// way to reach the finding: nothing a consumer declares composes a
@@ -2424,34 +2445,30 @@ func TestComposedTextLinesMissingGuardsTheComposedLines(t *testing.T) {
 		}
 		return Arr(out...)
 	}
-	assertFindings(t, composedTextLinesMissing(without(listWrapLine), switchLine, true), []string{
-		"the library composes no line about a list that continues on the next line onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
-	})
-	assertFindings(t, composedTextLinesMissing(without(textLadderLine(true)), switchLine, true), []string{
+	assertFindings(t, composedTextLinesMissing(without(textLadderLine(true)), switchLine, true, true), []string{
 		"the library composes no line about a name in the list this game does not have onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
 	})
-	assertFindings(t, composedTextLinesMissing(without(textFormatLine(true)), switchLine, true), []string{
+	assertFindings(t, composedTextLinesMissing(without(textFormatLine(true)), switchLine, true, true), []string{
 		"the library composes no line about the format and the length limit onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
 	})
-	assertFindings(t, composedTextLinesMissing(without(switchLine), switchLine, true), []string{
+	assertFindings(t, composedTextLinesMissing(without(switchLine), switchLine, true, true), []string{
 		"the library composes no line about which field decides while the text says default onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
 	})
-	assertFindings(t, composedTextLinesMissing(without(textFallbackLine), switchLine, true), []string{
+	assertFindings(t, composedTextLinesMissing(without(textFallbackLine), switchLine, true, true), []string{
 		"the library composes no line about what happens to a text this mod cannot use onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
 	})
 	// THE LADDER LINE AND THE FORMAT LINE ARE PER KIND, and the rule asked
 	// about the wrong kind sees two lines it does not recognise: an ingredient
 	// composition read as a packs one is missing the packs ladder line and the
 	// packs format line, exactly as if both had been deleted.
-	assertFindings(t, composedTextLinesMissing(whole, switchLine, false), []string{
+	assertFindings(t, composedTextLinesMissing(whole, switchLine, false, true), []string{
 		"the library composes no line about a name in the list this game does not have onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
 		"the library composes no line about the format and the length limit onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
 	})
-	// All five gone: all five reported, in the order the lines sit in, which is
+	// All four gone: all four reported, in the order the lines sit in, which is
 	// the order every other rule here reports in.
 	stripped := Arr(Str(""), localeRef("mod-setting-description", full, full))
-	assertFindings(t, composedTextLinesMissing(stripped, switchLine, true), []string{
-		"the library composes no line about a list that continues on the next line onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
+	assertFindings(t, composedTextLinesMissing(stripped, switchLine, true, true), []string{
 		"the library composes no line about a name in the list this game does not have onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
 		"the library composes no line about the format and the length limit onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
 		"the library composes no line about which field decides while the text says default onto a text setting's description; a text setting's description carries one, so this is a defect in fkrecipes and not in this locale file",
@@ -2472,21 +2489,21 @@ func TestComposedTextLinesMissingGuardsTheComposedLines(t *testing.T) {
 func TestTheDriftGuardInspectsTheFirstTextSettingOnly(t *testing.T) {
 	lib := New()
 	lib.BoolSetting("hint", true)
-	if _, _, _, ok := lib.guardedTextDescription("steelworks-"); ok {
+	if _, _, _, _, ok := lib.guardedTextDescription("steelworks-"); ok {
 		t.Fatal("a plan with no text setting handed the guard a composition")
 	}
 
 	axe := lib.Item("steel-axe", ItemSpec{})
 	lib.IngredientsSetting("axe-ingredients", []Ingredient{IngredientOf(axe, 1)})
 	lib.PacksSetting("axe-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
-	desc, switchLine, ingredients, ok := lib.guardedTextDescription("steelworks-")
+	desc, switchLine, ingredients, ladder, ok := lib.guardedTextDescription("steelworks-")
 	if !ok {
 		t.Fatal("a plan with two text settings handed the guard nothing")
 	}
 	// The FIRST one's, and with the list left out: the packs setting declared
 	// after it is not what the guard reads, and neither is any rendering.
-	const own = "\nWhile this says default this mod's own list applies."
-	want := renderValue(textDescription("steelworks-axe-ingredients", "", own, true))
+	const own = "\nLeave this as default and this mod's own list applies; anything else applies instead."
+	want := renderValue(textDescription("steelworks-axe-ingredients", "", own, true, true))
 	if got := renderValue(desc); got != want {
 		t.Errorf("\n got: %s\nwant: %s", got, want)
 	}
@@ -2500,6 +2517,131 @@ func TestTheDriftGuardInspectsTheFirstTextSettingOnly(t *testing.T) {
 	if !ingredients {
 		t.Error("the guard was told the first text setting is not an ingredient list")
 	}
+	// AND SO DOES THE LADDER FLAG. This plan's text setting has no dropdown
+	// beside it, so it carries the ladder line and the rule must look for it.
+	if !ladder {
+		t.Error("the guard was told a standalone text setting carries no ladder line")
+	}
+
+	// AND THE OTHER ARM, off a real plan: a text setting with a dropdown beside
+	// it hands the guard a composition with no ladder line in it, and the flag
+	// that says so. Deriving that from the switch line's wording instead would
+	// be a second spelling of textSwitchDropdown.
+	beside := textBesideDropdownPlan()
+	desc, switchLine, ingredients, ladder, ok = beside.guardedTextDescription("steelworks-")
+	if !ok {
+		t.Fatal("a plan with a text setting beside a dropdown handed the guard nothing")
+	}
+	if ladder {
+		t.Error("the guard was told a text setting beside a dropdown carries the ladder line")
+	}
+	if !ingredients {
+		t.Error("the guard was told the text setting beside the dropdown is not an ingredient list")
+	}
+	if localisedCarries(desc, textLadderLine(true)) {
+		t.Errorf("the composition handed to the guard carries the ladder line: %s", renderValue(desc))
+	}
+	if got := renderValue(desc); got != renderValue(
+		textDescription("steelworks-quench-ingredients", "", switchLine, true, false)) {
+		t.Errorf("the guard was handed %s", got)
+	}
+}
+
+// THE RESEARCH NUMBER'S TWO SENTENCES, BYTE FOR BYTE, and they are here
+// because nothing else in this half pins the arm beside a dropdown: the
+// prototype goldens above carry a research cost with no CostBy, and the arm a
+// player meets most often is the other one.
+//
+// THE SENTENCE BESIDE A DROPDOWN LEADS WITH THE SENTINEL, in textSwitchLine's
+// own shape: 0 there is not the bottom of a range a player might pick, it is
+// the way this field says "not customised", and a sentence that opened with the
+// range said the opposite. Without a dropdown there is no sentinel and the
+// sentence is the range alone.
+//
+// THE NUMBERS COME OUT OF THE LANGUAGE'S AMOUNT FORMATTER, which the corpus
+// pins byte for byte across the two halves; the Rust twin carries the same
+// bytes and the mirror compares the two transcripts.
+func TestTheResearchNumberSentencesAreTheStatedOnes(t *testing.T) {
+	// BESIDE A DROPDOWN, which is what CostBy makes this.
+	lib := New()
+	tier := lib.DropdownSettingNeedingLocale("tips-tier", "cheap", []string{"cheap", "dear"})
+	packs := lib.PacksSetting("tips-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+	count := lib.IntSetting("tips-count", 0, Between(0, 100000))
+	seconds := lib.IntSetting("tips-seconds", 0, Between(0, 600))
+	lib.Technology("hardened-tips", TechSpec{
+		CostBy: &CostChoices{
+			Setting:  tier,
+			Choices:  []CostChoice{{Value: "cheap"}, {Value: "dear"}},
+			Fallback: UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+		},
+		CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
+	})
+	ops, err := lib.PlanSettings(settingsWorld())
+	assertNoError(t, err)
+	want := map[string]string{
+		"steelworks-tips-count":   "\nLeave this at 0 and the option chosen above supplies the number; otherwise a whole number up to 100000.",
+		"steelworks-tips-seconds": "\nLeave this at 0 and the option chosen above supplies the number; otherwise a whole number up to 600.",
+	}
+	seen := 0
+	for _, op := range ops {
+		name, ok := field(op.Proto, "name")
+		if !ok {
+			continue
+		}
+		w, wanted := want[name.Str]
+		if !wanted {
+			continue
+		}
+		seen++
+		desc, ok := field(op.Proto, "localised_description")
+		if !ok {
+			t.Fatalf("%s carries no composed description", name.Str)
+		}
+		if got := desc.Arr[2]; got.Kind != KindStr || got.Str != w {
+			t.Errorf("%s:\n got: %s\nwant: %q", name.Str, renderValue(got), w)
+		}
+	}
+	if seen != len(want) {
+		t.Fatalf("the plan emitted %d of the %d research numbers", seen, len(want))
+	}
+
+	// AND WITH NO DROPDOWN THE SENTENCE IS THE RANGE ALONE, both bounds of it,
+	// because there is no sentinel to explain and the minimum is a real floor.
+	bare := New()
+	barePacks := bare.PacksSetting("tips-packs", []Pack{{Name: "automation-science-pack", Amount: 1}})
+	bareCount := bare.IntSetting("tips-count", 30, Between(1, 100000))
+	bareSeconds := bare.IntSetting("tips-seconds", 15, Between(1, 600))
+	bare.Technology("hardened-tips", TechSpec{
+		CostFrom: &CustomCost{Packs: barePacks, Count: bareCount, Seconds: bareSeconds},
+	})
+	ops, err = bare.PlanSettings(settingsWorld())
+	assertNoError(t, err)
+	want = map[string]string{
+		"steelworks-tips-count":   "\nA whole number from 1 to 100000.",
+		"steelworks-tips-seconds": "\nA whole number from 1 to 600.",
+	}
+	seen = 0
+	for _, op := range ops {
+		name, ok := field(op.Proto, "name")
+		if !ok {
+			continue
+		}
+		w, wanted := want[name.Str]
+		if !wanted {
+			continue
+		}
+		seen++
+		desc, ok := field(op.Proto, "localised_description")
+		if !ok {
+			t.Fatalf("%s carries no composed description", name.Str)
+		}
+		if got := desc.Arr[2]; got.Kind != KindStr || got.Str != w {
+			t.Errorf("%s:\n got: %s\nwant: %q", name.Str, renderValue(got), w)
+		}
+	}
+	if seen != len(want) {
+		t.Fatalf("the plan emitted %d of the %d research numbers", seen, len(want))
+	}
 }
 
 // THE COMPOSED LINES, BYTE FOR BYTE, and the number in the first one comes from
@@ -2511,26 +2653,31 @@ func TestTheComposedTextLinesAreTheStatedOnes(t *testing.T) {
 		t.Fatalf("maxListChars is %d; the sentence below and both halves' docs say 2000", maxListChars)
 	}
 	if got, want := textFormatLine(false),
-		"\nWrite internal names, as the default line above does, in at most 2000 characters."; got != want {
+		"\nInternal names, as on the default line, up to 2000 characters."; got != want {
 		t.Errorf("\n got: %q\nwant: %q", got, want)
 	}
 	// THE WORD none ON AN INGREDIENT LIST AND NOWHERE ELSE. A packs list
 	// refuses it, so the clause above is the whole packs sentence and this is
 	// the whole ingredient one.
 	if got, want := textFormatLine(true),
-		"\nWrite internal names, as the default line above does, in at most 2000 characters. The word none empties the list, so the recipe costs nothing to craft."; got != want {
+		"\nInternal names, as on the default line, up to 2000 characters. The word none empties the list, so the recipe costs nothing to craft."; got != want {
 		t.Errorf("\n got: %q\nwant: %q", got, want)
 	}
 	if strings.Contains(textFormatLine(false), "none") {
 		t.Errorf("a packs setting's format line names the word none: %q", textFormatLine(false))
 	}
-	if got, want := listWrapLine,
-		"\nA list too long for one line continues on the next; the continuation is part of the same list."; got != want {
+	if got, want := textFallbackLine,
+		"\nText this mod cannot use is set aside as though it said default; the reason is in the log or the load error."; got != want {
 		t.Errorf("\n got: %q\nwant: %q", got, want)
 	}
-	if got, want := textFallbackLine,
-		"\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway."; got != want {
-		t.Errorf("\n got: %q\nwant: %q", got, want)
+	// BOTH PLACES THE REASON CAN BE, which is the narrow claim this line is
+	// allowed to make: on a refused load the accumulated log ops never reach
+	// the host, so the load error is the only place it can be, and naming one
+	// of the two would be false half the time.
+	for _, where := range []string{"log", "load error"} {
+		if !strings.Contains(textFallbackLine, where) {
+			t.Errorf("the fallback line does not name the %s: %q", where, textFallbackLine)
+		}
 	}
 	// THE LADDER, IN ITS THREE VOCABULARIES, and every one of them carries ALL
 	// THREE clauses: the next name the entry offers where there is one, the
@@ -2561,36 +2708,39 @@ func TestTheComposedTextLinesAreTheStatedOnes(t *testing.T) {
 	if !strings.Contains(textLadderLine(false), "science pack") {
 		t.Errorf("a packs setting's ladder line names no science pack: %q", textLadderLine(false))
 	}
-	// A LINE, NOT A SEPARATOR, and the word a player acts on opens it. The
-	// dropdown label beside this is the consumer's prose and the client
+	// A LINE, NOT A SEPARATOR, and the instruction a player acts on opens it.
+	// The dropdown label beside this is the consumer's prose and the client
 	// truncates it at about 37 characters; the internal names are on their own
-	// line so the copyable half of the tooltip is never the truncated half.
-	if got, want := ingredientPresetHead, "\n  type: "; got != want {
+	// line so the copyable half of the tooltip is never the truncated half. The
+	// words are "to type" rather than "type", which alone reads as the noun.
+	if got, want := ingredientPresetHead, "\n  to type: "; got != want {
 		t.Errorf("\n got: %q\nwant: %q", got, want)
 	}
 }
 
-// THE ORDER OF THE THREE LINES ABOUT THE RENDERED LIST, in both compositions
-// that carry them, because the order is what makes two of the doc comments
-// true rather than a preference.
+// WHERE THE LADDER LINE SITS, in both compositions that carry it, and that the
+// composition which does not carry it does not.
 //
-// listWrapLine NAMES A RELATIONSHIP ("the continuation is part of the same
-// list"), so the line directly above it has to be a rendered list; a ladder
-// sentence wedged between the last list and the wrap line would leave that
-// sentence pointing at prose. And textFormatLine says "as the default line
-// above does", which is true three lines up and would stop being true if the
-// ladder line were moved above the default line instead. So the order is the
-// list, the wrap line, the ladder line, in both places, and a reordering that
-// keeps every line is caught here and nowhere else: every other assertion in
-// this file compares whole transcripts built from the same constants and would
-// move with the source.
-func TestTheLadderLineSitsUnderTheWrapLine(t *testing.T) {
-	// The TEXT composition: default line, wrap line, ladder line, format line.
+// THE LINE IS ABOUT THE LIST DIRECTLY ABOVE IT, which is what makes its
+// placement a property rather than a preference: on a standalone text setting
+// that list is the DEFAULT LINE, and on an ingredient dropdown it is the last
+// PRESET LINE. And textFormatLine says "as on the default line", which is true
+// one line down and would stop being true if the ladder line were moved above
+// the default line instead.
+//
+// THE NEGATIVE ARM IS THE OTHER HALF OF THE SAME RULE. A text setting beside a
+// dropdown carries NO ladder line, because the lists a player chooses between
+// are that dropdown's presets and dropdownLadderLine discloses the ladder
+// there; a composition that carried both would say one thing twice on one
+// screen. Every other assertion in this file compares whole transcripts built
+// from the same constants and would move with the source, so a reordering or a
+// duplication that keeps every line is caught here and nowhere else.
+func TestTheLadderLineSitsUnderTheListItIsAbout(t *testing.T) {
+	// The STANDALONE TEXT composition: default line, ladder line, format line.
 	for _, ingredients := range []bool{true, false} {
-		desc := textDescription("steelworks-axe-parts", "1 iron-plate", "\nswitch", ingredients)
+		desc := textDescription("steelworks-axe-parts", "1 iron-plate", "\nswitch", ingredients, true)
 		want := []string{
 			"\ndefault: 1 iron-plate",
-			listWrapLine,
 			textLadderLine(ingredients),
 			textFormatLine(ingredients),
 		}
@@ -2600,10 +2750,21 @@ func TestTheLadderLineSitsUnderTheWrapLine(t *testing.T) {
 					ingredients, 2+i, renderValue(got), w)
 			}
 		}
+		// BESIDE A DROPDOWN: the format line follows the default line with
+		// nothing between them, and the ladder line is nowhere in the table.
+		beside := textDescription("steelworks-axe-parts", "1 iron-plate", "\nswitch", ingredients, false)
+		if got, w := beside.Arr[3], textFormatLine(ingredients); got.Kind != KindStr || got.Str != w {
+			t.Errorf("ingredients=%v: the line under the default line is %s, want the format line %q",
+				ingredients, renderValue(got), w)
+		}
+		if localisedCarries(beside, textLadderLine(ingredients)) {
+			t.Errorf("ingredients=%v: a text setting beside a dropdown carries the ladder line: %s",
+				ingredients, renderValue(beside))
+		}
 	}
 
-	// The DROPDOWN composition: the last preset line, the wrap line, the
-	// ladder line, the switch line.
+	// The DROPDOWN composition: the last preset line, the ladder line, the
+	// switch line.
 	lib := New()
 	medium := lib.DropdownSettingNeedingLocale("quench-medium", "water", []string{"water", "oil"})
 	quench := lib.IngredientsSetting("quench-ingredients", []Ingredient{IngredientNamed(2, "steel-plate")})
@@ -2625,15 +2786,24 @@ func TestTheLadderLineSitsUnderTheWrapLine(t *testing.T) {
 		t.Fatal("the dropdown carries no composed description")
 	}
 	n := len(desc.Arr)
-	// The preset line before the three: a table, not a string, which is what
-	// says the wrap line still sits directly under a rendered list.
-	if got := desc.Arr[n-4]; got.Kind != KindArr {
-		t.Errorf("the parameter above the wrap line is %s, want a preset line", renderValue(got))
+	// The preset line before the two: a table, not a string, which is what
+	// says the ladder line still sits directly under a rendered list.
+	if got := desc.Arr[n-3]; got.Kind != KindArr {
+		t.Errorf("the parameter above the ladder line is %s, want a preset line", renderValue(got))
 	}
-	for i, w := range []string{listWrapLine, dropdownLadderLine, dropdownSwitchLine("below")} {
-		if got := desc.Arr[n-3+i]; got.Kind != KindStr || got.Str != w {
+	for i, w := range []string{dropdownLadderLine, dropdownSwitchLine("below")} {
+		if got := desc.Arr[n-2+i]; got.Kind != KindStr || got.Str != w {
 			t.Errorf("trailing parameter %d is %s, want %q", i, renderValue(got), w)
 		}
+	}
+	// AND THE TEXT SETTING BESIDE IT SAYS NOTHING ABOUT A LADDER, which is the
+	// same rule read off a real plan rather than off a hand-built composition.
+	text, ok := field(ops[1].Proto, "localised_description")
+	if !ok {
+		t.Fatal("the text setting carries no composed description")
+	}
+	if localisedCarries(text, textLadderLine(true)) {
+		t.Errorf("the text setting beside the dropdown carries the ladder line: %s", renderValue(text))
 	}
 }
 

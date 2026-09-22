@@ -270,24 +270,27 @@ grep -q '"auto_trim"=true,"default_value"="default"' "$T" ||
 if grep -q '"auto_trim"=true,"default_value"="1 iron-plate"' "$T"; then
   fail "a text setting's default is a rendered list rather than the word default"
 fi
-# THE WHOLE TEXT DESCRIPTION, all seven parameters, because the five lines after
-# the list are the ones a player has nowhere else to read: that a list too long
-# for the tooltip is still one list, that the list the game builds from it can
-# be shorter than the list shown, the ceiling the parser enforces, which of the
-# two fields is deciding, and what a text this library cannot use costs them. The prototype declares no maximum length of its
+# THE WHOLE TEXT DESCRIPTION, all six parameters, because the four lines after
+# the list are the ones a player has nowhere else to read: that the list the
+# game builds from it can be shorter than the list shown, the ceiling the parser
+# enforces, which of the two fields is deciding, and what a text this library
+# cannot use costs them. The prototype declares no maximum length of its
 # own (the engine would store 98000 characters), so the sentence IS the limit as
 # far as the screen goes; and the settings screen has no conditional visibility
 # at all (measured), so the switch line is the only place the pairing is stated.
-grep -qF '{1="",2={1="?",2={1="mod-setting-description.fkrecipes-example-rivet-ingredients"},3="fkrecipes-example-rivet-ingredients"},3="\ndefault: 1 iron-plate",4="\nA list too long for one line continues on the next; the continuation is part of the same list.",5="\nWhere a list this mod chose names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown.",6="\nWrite internal names, as the default line above does, in at most 2000 characters. The word none empties the list, so the recipe costs nothing to craft.",7="\nWhile this says default this mod'"'"'s own list applies.",8="\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway."}' "$T" ||
+# THIS IS THE STANDALONE SHAPE, which is what carries the ladder line: beside a
+# dropdown it is the dropdown that renders the lists, and the check further
+# down says the text setting there carries no ladder line at all.
+grep -qF '{1="",2={1="?",2={1="mod-setting-description.fkrecipes-example-rivet-ingredients"},3="fkrecipes-example-rivet-ingredients"},3="\ndefault: 1 iron-plate",4="\nWhere a list this mod chose names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown.",5="\nInternal names, as on the default line, up to 2000 characters. The word none empties the list, so the recipe costs nothing to craft.",6="\nLeave this as default and this mod'"'"'s own list applies; anything else applies instead.",7="\nText this mod cannot use is set aside as though it said default; the reason is in the log or the load error."}' "$T" ||
   fail "the text setting's composed description is not in the transcript"
-# AND THE PACKS TWIN, WHOLE, which is the same seven parameters with TWO
+# AND THE PACKS TWIN, WHOLE, which is the same six parameters with TWO
 # differences: its format line stops at the ceiling and does not name the word
 # none, and its ladder line is in the packs vocabulary. A packs list REFUSES none ("research takes at least one science pack"),
 # so a description naming it there would be telling a player to type a word this
 # library turns down. The two greps below say the same thing negatively, per
 # packs setting, so a clause that leaked would be caught even if this whole
 # pin were re-recorded around it.
-grep -qF '{1="",2={1="?",2={1="mod-setting-description.fkrecipes-example-chain-packs"},3="fkrecipes-example-chain-packs"},3="\ndefault: 1 automation-science-pack",4="\nA list too long for one line continues on the next; the continuation is part of the same list.",5="\nWhere a list this mod chose names a science pack your mods do not have, the next name it offers is used instead; a pack it offers nothing for is left out, and two that land on one pack have their amounts added, so the research can take fewer packs than the list shows.",6="\nWrite internal names, as the default line above does, in at most 2000 characters.",7="\nWhile this says default this mod'"'"'s own list applies.",8="\nA text this mod cannot use is set aside and the field behaves as though it said default; the reason is in the log, or in the load error if the load stops anyway."}' "$T" ||
+grep -qF '{1="",2={1="?",2={1="mod-setting-description.fkrecipes-example-chain-packs"},3="fkrecipes-example-chain-packs"},3="\ndefault: 1 automation-science-pack",4="\nWhere a list this mod chose names a science pack your mods do not have, the next name it offers is used instead; a pack it offers nothing for is left out, and two that land on one pack have their amounts added, so the research can take fewer packs than the list shows.",5="\nInternal names, as on the default line, up to 2000 characters.",6="\nLeave this as default and this mod'"'"'s own list applies; anything else applies instead.",7="\nText this mod cannot use is set aside as though it said default; the reason is in the log or the load error."}' "$T" ||
   fail "the packs setting's composed description is not in the transcript"
 for packs in fkrecipes-example-chain-packs fkrecipes-example-tips-packs; do
   if grep '^TRANSCRIPT extend' "$T" | grep -F "\"name\"=\"$packs\"" | grep -qF 'The word none'; then
@@ -311,7 +314,7 @@ done
 # AND THE OTHER SWITCH LINE, on a text setting that HAS a dropdown beside it:
 # the sentence names which way the settings screen sorts the two rather than
 # guessing at a declaration order the consumer is free to choose.
-grep -qF '7="\nWhile this says default the option chosen above applies; anything else applies instead of it."' "$T" ||
+grep -qF '5="\nLeave this as default and the option chosen above decides; anything else applies instead."' "$T" ||
   fail "a text setting beside a dropdown does not say which option decides"
 # AND ITS TWIN ON THE DROPDOWN, which is the half the player reads while they
 # are looking at the picker rather than at the text field.
@@ -320,7 +323,7 @@ grep -qF '"\nThe setting below applies instead while it does not say default."' 
 # A RESEARCH NUMBER STATES ITS RANGE, and beside a research dropdown it states
 # what 0 means: both sentences, because a number with no ceiling and a 0 that
 # silently defers are two different things nobody can guess from the screen.
-grep -qF '3="\nA whole number from 0 to 100000. While it is 0 the option chosen above decides."' "$T" ||
+grep -qF '3="\nLeave this at 0 and the option chosen above supplies the number; otherwise a whole number up to 100000."' "$T" ||
   fail "a research number beside a dropdown does not say what 0 means"
 grep -qF '3="\nA whole number from 1 to 600."' "$T" ||
   fail "a research number with no dropdown does not state its range"
@@ -329,22 +332,16 @@ grep -qF '3="\nA whole number from 1 to 600."' "$T" ||
 # about 37 characters; the internal names the field beside it takes are on
 # their own line, under the word a player acts on, so the copyable half is
 # never the truncated half.
-grep -qF '{1="",2="\n",3={1="?",2={1="string-mod-setting.fkrecipes-example-chain-links-long"},3="long"},4="\n  type: 8 fkrecipes-example-steel-rivet, 1 steel-plate"}' "$T" ||
+grep -qF '{1="",2="\n",3={1="?",2={1="string-mod-setting.fkrecipes-example-chain-links-long"},3="long"},4="\n  to type: 8 fkrecipes-example-steel-rivet, 1 steel-plate"}' "$T" ||
   fail "the dropdown's composed preset line is not in the transcript"
 if grep -qF '4=": 8 fkrecipes-example-steel-rivet, 1 steel-plate"' "$T"; then
   fail "an ingredient preset line still joins the two vocabularies with a colon"
 fi
-# AND THE WRAP IS DISCLOSED WHERE THE WRAPPED LIST IS. The engine breaks a line
-# too long for the tooltip and starts the continuation at the LEFT MARGIN
-# (measured on the client), so it reads as a line of its own and a player who
-# copies what looks like a whole line loses the last ingredient. The wrap is the
-# engine's; saying that the continuation belongs to the line above it is what a
-# composition can do, and it says "the continuation" rather than "both lines"
-# because a list that runs to the 2000-character ceiling can wrap more than once
-# and the label above a preset's list is not a list at all.
-# It sits between the last preset and the LADDER line, which is what this pins.
-grep -qF '5="\nA list too long for one line continues on the next; the continuation is part of the same list.",6="\nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown.",7="\nThe setting below applies instead while it does not say default."' "$T" ||
-  fail "an ingredient dropdown does not disclose that a list may continue on the next line"
+# AND THE LADDER SITS BETWEEN THE LAST PRESET AND THE SWITCH LINE, which is
+# where it belongs: the line is about the lists directly above it, so a sentence
+# wedged between two presets would point at a list that is not the last one.
+grep -qF '5="\nWhere an option names something your mods do not have, the next name it offers is used instead; an entry it offers nothing for is left out, and two that land on one name have their amounts added, so what you craft can be a shorter list than the one shown.",6="\nThe setting below applies instead while it does not say default."' "$T" ||
+  fail "an ingredient dropdown's ladder line does not sit under its last preset"
 # AND THE LADDER IS DISCLOSED BY THIS LIBRARY RATHER THAN BY THE CONSUMER. A
 # resolve-or-drop ladder gets no note on the emitted recipe, deliberately,
 # because it is the advertised contract; until this line existed the only text
@@ -373,14 +370,25 @@ for ing in fkrecipes-example-rivet-ingredients fkrecipes-example-quench-ingredie
     fail "the ingredient setting $ing carries the packs vocabulary of the ladder line"
   fi
 done
-# AND NOT ON A COST DROPDOWN, whose preset is a localised label followed by a
-# localised technology name: one vocabulary, prose throughout, nothing in it to
-# copy. A sentence there would be about a hazard that preset does not carry.
-if grep '^TRANSCRIPT extend' "$T" | grep -F '"name"="fkrecipes-example-tips-research-tier"' | grep -qF 'A list too long'; then
-  fail "a cost dropdown carries the list-wrap line, which is about a list it does not render"
+# AND NOT ON A TEXT SETTING WITH A DROPDOWN BESIDE IT, which is where the line
+# moved FROM: the lists a player there is choosing between are the dropdown's
+# presets, so the dropdown's own row is where the ladder is disclosed and a
+# second copy on the text field would say one thing twice on one screen.
+for beside in fkrecipes-example-quench-ingredients fkrecipes-example-chain-ingredients; do
+  if grep '^TRANSCRIPT extend' "$T" | grep -F "\"name\"=\"$beside\"" | grep -qF 'the next name it offers'; then
+    fail "the text setting $beside carries the ladder line the dropdown beside it already carries"
+  fi
+done
+# AND THE LINE ABOUT A WRAPPED LIST IS GONE FROM EVERY COMPOSITION. It said the
+# one thing about a rendered line a player cannot see, and it said it on every
+# text setting and every ingredient dropdown of every consumer; what it
+# disclosed is documented for AUTHORS in docs/usage.md instead.
+if grep -qF 'A list too long for one line continues' "$T"; then
+  fail "a composed description still carries the list-wrap line"
 fi
-# AND NEITHER DOES IT CARRY THE LADDER LINE, for the same reason: there is no
-# rendered list of internal names on those preset lines for a ladder to shorten.
+# AND A COST DROPDOWN CARRIES NO LADDER LINE, because its preset is a localised
+# label followed by a localised technology name: one vocabulary, prose
+# throughout, and no rendered list of internal names for a ladder to shorten.
 if grep '^TRANSCRIPT extend' "$T" | grep -F '"name"="fkrecipes-example-tips-research-tier"' | grep -qF 'the next name it offers'; then
   fail "a cost dropdown carries the ladder line, which is about a list it does not render"
 fi
