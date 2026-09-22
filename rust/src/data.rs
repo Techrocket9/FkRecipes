@@ -2208,8 +2208,8 @@ pub(crate) fn with_destruction(note: String, destroys_inputs: bool) -> String {
 /// SETTINGS SCREEN is where that contract is disclosed: `DROPDOWN_LADDER_LINE`
 /// on an ingredient dropdown's composed description and `text_ladder_line` on a
 /// text setting's, both composed by this library. Between them they reach every
-/// plan that renders a list and reach it exactly once, which is what the
-/// exclusion needs: `text_ladder_line` is composed on every text setting except
+/// plan that renders a list onto a setting and reach it exactly once, which is
+/// what the exclusion needs: `text_ladder_line` is composed on every text setting except
 /// one sitting beside an ingredient dropdown, and that dropdown carries the
 /// line itself. A ladder that leaves it with
 /// NOTHING is not that contract and carries [`ingredientless_note`], because "a

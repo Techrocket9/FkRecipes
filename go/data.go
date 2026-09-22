@@ -956,7 +956,8 @@ func withDestruction(note string, destroysInputs bool) string {
 // SETTINGS SCREEN is where that contract is disclosed: dropdownLadderLine on an
 // ingredient dropdown's composed description and textLadderLine on a text
 // setting's, both composed by this library. Between them they reach every plan
-// that renders a list and reach it exactly once, which is what the exclusion
+// that renders a list onto a setting and reach it exactly once, which is what
+// the exclusion
 // needs: textLadderLine is composed on every text setting except one sitting
 // beside an ingredient dropdown, and that dropdown carries the line itself.
 // A ladder that leaves it with
