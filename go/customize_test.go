@@ -4010,3 +4010,274 @@ func TestEveryComposedLocaleReferenceIsWrapped(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Describes: which declaration a shared dropdown shows.
+// ---------------------------------------------------------------------------
+
+// sharedDropdownPlan is the one plan shape Describes exists for, under legacy
+// names because that is the shape a migrating consumer has: ONE dropdown named
+// by two recipes (the first with an ingredient text beside it, the second
+// preset-only) and by one technology (CostBy beside a CostFrom with a packs
+// text and two ints).
+//
+// marked picks which declaration carries Describes: "recipe", "tech", or ""
+// for neither, which is the positional rule every plan written before the
+// field keeps.
+func sharedDropdownPlan(marked string) *Lib {
+	lib := New()
+	tier := lib.LegacyDropdownSettingNeedingLocale("wb-tier", "mid", []string{"early", "mid"}, "c")
+	parts := lib.LegacyIngredientsSetting("wb-parts", []Ingredient{IngredientNamed(2, "steel-plate")}, "d")
+	packs := lib.LegacyPacksSetting("wb-packs", []Pack{{Name: "automation-science-pack", Amount: 1}}, "e")
+	count := lib.LegacyIntSetting("wb-count", 0, Between(0, 100000), "f")
+	seconds := lib.LegacyIntSetting("wb-seconds", 0, Between(0, 600), "g")
+	frame := lib.Item("scaffold-frame", ItemSpec{})
+	scaffold := lib.Item("scaffold", ItemSpec{})
+	lib.Recipe(scaffold, RecipeSpec{
+		IngredientsBy: &IngredientChoices{
+			Setting: tier,
+			Choices: []IngredientChoice{
+				{Value: "early", Ingredients: []Ingredient{IngredientNamed(2, "steel-plate")}},
+				{Value: "mid", Ingredients: []Ingredient{IngredientNamed(4, "steel-plate")}},
+			},
+			Describes: marked == "recipe",
+		},
+		IngredientsFrom: parts,
+	})
+	lib.Recipe(frame, RecipeSpec{
+		IngredientsBy: &IngredientChoices{
+			Setting: tier,
+			Choices: []IngredientChoice{
+				{Value: "early", Ingredients: []Ingredient{IngredientNamed(1, "iron-plate")}},
+				{Value: "mid", Ingredients: []Ingredient{IngredientNamed(3, "iron-plate")}},
+			},
+		},
+	})
+	lib.Technology("wb-tech", TechSpec{
+		CostBy: &CostChoices{
+			Setting: tier,
+			Choices: []CostChoice{
+				{Value: "early", Sources: []string{"logistics"}},
+				{Value: "mid", Sources: []string{"mining-productivity-4"}},
+			},
+			Fallback:  UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+			Describes: marked == "tech",
+		},
+		CostFrom: &CustomCost{Packs: packs, Count: count, Seconds: seconds},
+	})
+	return lib
+}
+
+// describedSettings renders every composed description in a plan, keyed by the
+// emitted setting name, so two plans can be compared whole rather than line by
+// line.
+func describedSettings(t *testing.T, lib *Lib) map[string]string {
+	t.Helper()
+	ops, err := lib.PlanSettings(settingsWorld())
+	assertNoError(t, err)
+	out := map[string]string{}
+	for _, op := range ops {
+		name, ok := field(op.Proto, "name")
+		if !ok {
+			continue
+		}
+		if desc, ok := field(op.Proto, "localised_description"); ok {
+			out[name.Str] = renderValue(desc)
+		}
+	}
+	return out
+}
+
+// TWO MARKED DECLARATIONS OVER ONE DROPDOWN ARE REFUSED, because a setting
+// carries one localised_description and the whole of what Describes says is
+// which one it is.
+func TestDescribesRefusesTwoMarkedDeclarationsOverOneDropdown(t *testing.T) {
+	lib := sharedDropdownPlan("recipe")
+	lib.techs[0].spec.CostBy.Describes = true
+	want := "fkrecipes: the setting wb-tier is described by more than one declaration; a dropdown shows one declaration's presets, so mark exactly one of them with Describes"
+	if _, err := lib.PlanSettings(settingsWorld()); err == nil || err.Error() != want {
+		t.Errorf("PlanSettings: got %v, want %q", err, want)
+	}
+	if _, err := lib.PlanData(customWorld()); err == nil || err.Error() != want {
+		t.Errorf("PlanData: got %v, want %q", err, want)
+	}
+}
+
+// A MARKED DECLARATION THAT COMPOSES NOTHING IS REFUSED, and a CostBy with no
+// CostFrom beside it is the only shape that can be one: accepting it would
+// leave the dropdown with an empty description while the recipe beside it
+// could have described it, silently.
+func TestDescribesRefusesAMarkedCostByWithNoCostFrom(t *testing.T) {
+	lib := New()
+	tier := lib.LegacyDropdownSettingNeedingLocale("wb-tier", "mid", []string{"early", "mid"}, "c")
+	parts := lib.LegacyIngredientsSetting("wb-parts", []Ingredient{IngredientNamed(2, "steel-plate")}, "d")
+	scaffold := lib.Item("scaffold", ItemSpec{})
+	lib.Recipe(scaffold, RecipeSpec{
+		IngredientsBy: &IngredientChoices{
+			Setting: tier,
+			Choices: []IngredientChoice{
+				{Value: "early", Ingredients: []Ingredient{IngredientNamed(2, "steel-plate")}},
+				{Value: "mid", Ingredients: []Ingredient{IngredientNamed(4, "steel-plate")}},
+			},
+		},
+		IngredientsFrom: parts,
+	})
+	lib.Technology("wb-tech", TechSpec{
+		CostBy: &CostChoices{
+			Setting: tier,
+			Choices: []CostChoice{
+				{Value: "early", Sources: []string{"logistics"}},
+				{Value: "mid", Sources: []string{"mining-productivity-4"}},
+			},
+			Fallback:  UnitSpec{Count: 200, Seconds: 30, Packs: []Pack{{Name: "automation-science-pack", Amount: 1}}},
+			Describes: true,
+		},
+	})
+	want := "fkrecipes: the technology wb-tech is marked with Describes on the setting wb-tier, but a CostBy with no CostFrom composes nothing onto a dropdown"
+	if _, err := lib.PlanSettings(settingsWorld()); err == nil || err.Error() != want {
+		t.Errorf("PlanSettings: got %v, want %q", err, want)
+	}
+	// AND A RECIPE'S IngredientsBy MAY DESCRIBE WITH NO TEXT SETTING BESIDE
+	// IT, because it composes the ladder line, which is something.
+	bare := New()
+	only := bare.LegacyDropdownSettingNeedingLocale("wb-only", "mid", []string{"early", "mid"}, "c")
+	plate := bare.Item("plate", ItemSpec{})
+	bare.Recipe(plate, RecipeSpec{
+		IngredientsBy: &IngredientChoices{
+			Setting: only,
+			Choices: []IngredientChoice{
+				{Value: "early", Ingredients: []Ingredient{IngredientNamed(2, "steel-plate")}},
+				{Value: "mid", Ingredients: []Ingredient{IngredientNamed(4, "steel-plate")}},
+			},
+			Describes: true,
+		},
+	})
+	if _, err := bare.PlanSettings(settingsWorld()); err != nil {
+		t.Errorf("a marked IngredientsBy with no text setting beside it was refused: %v", err)
+	}
+}
+
+// MARKING THE ONLY DECLARATION THAT NAMES A DROPDOWN IS ACCEPTED AND INERT: a
+// plan that grows a second declaration later still says which one describes,
+// and until it does nothing about the composition moves.
+func TestDescribesOnTheOnlyDeclarationChangesNothing(t *testing.T) {
+	plain := textBesideDropdownPlan()
+	marked := textBesideDropdownPlan()
+	marked.recipes[0].spec.IngredientsBy.Describes = true
+	assertSameDescriptions(t, describedSettings(t, plain), describedSettings(t, marked),
+		"marking the only declaration")
+}
+
+// THE MARKED DECLARATION IS THE ONE THE DROPDOWN SHOWS, and every reader of
+// that answer moves with it: the composition, the ladder predicate on both
+// text settings beside it, the locale obligation and the advisory walk.
+func TestDescribesMovesASharedDropdownToTheMarkedDeclaration(t *testing.T) {
+	lib := sharedDropdownPlan("recipe")
+	desc := describedSettings(t, lib)
+
+	drop, ok := desc["wb-tier"]
+	if !ok {
+		t.Fatal("the shared dropdown carries no composed description")
+	}
+	// THE RECIPE'S PRESETS, as to-type lines, and the recipe's is the one that
+	// renders 2 and 4 steel-plate; the second recipe's iron and the
+	// technology's cost lines must not be there.
+	for _, want := range []string{
+		ingredientPresetHead + "2 steel-plate",
+		ingredientPresetHead + "4 steel-plate",
+		dropdownLadderLine,
+		// THE SWITCH LINE NAMES THE DESCRIBED DECLARATION'S TEXT, which is the
+		// recipe's ingredient text at order d, below the dropdown at c.
+		dropdownSwitchLine("below"),
+	} {
+		if !strings.Contains(drop, want) {
+			t.Errorf("the shared dropdown does not carry %q: %s", want, drop)
+		}
+	}
+	for _, unwanted := range []string{": cost of ", "iron-plate"} {
+		if strings.Contains(drop, unwanted) {
+			t.Errorf("the shared dropdown carries %q, which belongs to a declaration that does not describe it: %s",
+				unwanted, drop)
+		}
+	}
+
+	// THE INGREDIENT TEXT DROPS ITS OWN LADDER LINE, because the dropdown
+	// beside it now says the same thing in the same vocabulary.
+	if strings.Contains(desc["wb-parts"], ingredientLadderLine) {
+		t.Errorf("the ingredient text beside a dropdown that composes the ladder line carries it too: %s", desc["wb-parts"])
+	}
+	// AND THE PACKS TEXT BESIDE THE SAME DROPDOWN KEEPS ITS OWN, because the
+	// sentence on the dropdown is about a list of ingredients it shows and
+	// says nothing about a research taking fewer packs. That is decision 10's
+	// pair and the whole reason the exclusion is by vocabulary.
+	if !strings.Contains(desc["wb-packs"], packsLadderLine) {
+		t.Errorf("the packs text beside the described dropdown lost its ladder line: %s", desc["wb-packs"])
+	}
+
+	// THE LOCALE OBLIGATION MOVES WITH THE COMPOSITION: the dropdown shows a
+	// preset list now, so its own entry is required and the sentence says
+	// which thing an absent entry costs.
+	cfg := `[mod-setting-name]
+wb-tier=Tier
+wb-parts=Parts
+wb-packs=Packs
+wb-count=Count
+wb-seconds=Seconds
+
+[mod-setting-description]
+wb-parts=What the scaffolding is made of.
+wb-packs=What the research is priced in.
+wb-count=How many units.
+wb-seconds=How long a unit takes.
+
+[string-mod-setting]
+wb-tier-early=Early
+wb-tier-mid=Mid
+`
+	assertFindings(t, lib.CheckLocale("wb", cfg), []string{
+		"the dropdown setting wb-tier has no [mod-setting-description] entry, and the library composes its preset list onto that entry",
+	})
+	assertFindings(t, lib.CheckLocale("wb", cfg+"\n[mod-setting-description]\nwb-tier=Which tier the mod is built around.\n"), nil)
+
+	// AND THE ADVISORY WALK NAMES NO KEY FOR IT, because no cost preset line
+	// is composed anywhere in this plan: the technology-name keys belong to
+	// lines the recipe's presets displaced.
+	if got := lib.CheckLocaleAdvisories("wb"); len(got) != 0 {
+		t.Errorf("CheckLocaleAdvisories names a key for a dropdown that shows no cost preset: %v", got)
+	}
+}
+
+// DESCRIBES ON THE TECHNOLOGY IS THE POSITIONAL DEFAULT WRITTEN DOWN, which is
+// what makes the field safe to add to a plan that already relies on the rule:
+// the technology is what the last-writer walk already chose.
+func TestDescribesOnTheTechnologyComposesTheUnmarkedAnswer(t *testing.T) {
+	assertSameDescriptions(t, describedSettings(t, sharedDropdownPlan("")),
+		describedSettings(t, sharedDropdownPlan("tech")), "Describes on the technology")
+}
+
+// THE UNMARKED RIG COMPOSES WHAT IT ALWAYS COMPOSED, pinned byte for byte
+// against the output of the commit before Describes existed, because the whole
+// promise of the field is that a plan which does not use it does not move. The
+// literals were taken from that commit in a worktree and not from this one.
+func TestTheUnmarkedSharedDropdownComposesWhatItAlwaysDid(t *testing.T) {
+	want := map[string]string{
+		"wb-tier":    `["", ["?", ["mod-setting-description.wb-tier"], "wb-tier"], ["", "` + "\n" + `", ["?", ["string-mod-setting.wb-tier-early"], "early"], ": cost of ", ["?", ["technology-name.logistics"], "logistics"]], ["", "` + "\n" + `", ["?", ["string-mod-setting.wb-tier-mid"], "mid"], ": cost of ", ["?", ["technology-name.mining-productivity-4"], "mining-productivity-4"]], "` + "\n" + `The setting below applies instead while it does not say default."]`,
+		"wb-parts":   `["", ["?", ["mod-setting-description.wb-parts"], "wb-parts"], "` + "\n" + `default: 2 steel-plate", "` + "\n" + `An entry your mods lack takes the mod's next name for it or is left out; two landing on one name are added, so what you craft can be shorter than shown.", "` + "\n" + `Internal names, as on the default line, up to 2000 characters. The word none empties the list, so the recipe costs nothing to craft.", "` + "\n" + `Leave this as default and the option chosen above decides; anything else applies instead.", "` + "\n" + `Text this mod cannot use is set aside as though it said default; the reason is in the log or the load error."]`,
+		"wb-packs":   `["", ["?", ["mod-setting-description.wb-packs"], "wb-packs"], "` + "\n" + `default: 1 automation-science-pack", "` + "\n" + `A pack your mods lack takes the mod's next name for it or is left out; two landing on one pack are added, so the research can take fewer packs than shown.", "` + "\n" + `Internal names, as on the default line, up to 2000 characters.", "` + "\n" + `Leave this as default and the option chosen above decides; anything else applies instead.", "` + "\n" + `Text this mod cannot use is set aside as though it said default; the reason is in the log or the load error."]`,
+		"wb-count":   `["", ["?", ["mod-setting-description.wb-count"], "wb-count"], "` + "\n" + `Leave this at 0 and the option chosen above supplies the number; otherwise a whole number up to 100000."]`,
+		"wb-seconds": `["", ["?", ["mod-setting-description.wb-seconds"], "wb-seconds"], "` + "\n" + `Leave this at 0 and the option chosen above supplies the number; otherwise a whole number up to 600."]`,
+	}
+	assertSameDescriptions(t, want, describedSettings(t, sharedDropdownPlan("")), "the unmarked rig")
+}
+
+func assertSameDescriptions(t *testing.T, want, got map[string]string, what string) {
+	t.Helper()
+	if len(want) != len(got) {
+		t.Fatalf("%s: %d composed descriptions, want %d", what, len(got), len(want))
+	}
+	for name, w := range want {
+		if got[name] != w {
+			t.Errorf("%s: %s composes\n got %s\nwant %s", what, name, got[name], w)
+		}
+	}
+}

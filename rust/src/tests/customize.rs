@@ -34,6 +34,7 @@ fn wrapped(key: &str, raw: &str) -> Value {
 /// shape.
 fn cheap_tier(setting: crate::plan::DropdownSettingRef) -> crate::plan::CostChoices {
     crate::plan::CostChoices {
+        describes: false,
         setting,
         choices: vec![crate::plan::CostChoice {
             value: "a".into(),
@@ -452,6 +453,7 @@ fn the_ladder_line_sits_under_the_list_it_is_about() {
         plate,
         RecipeSpec {
             ingredients_by: Some(IngredientChoices {
+                describes: false,
                 setting: medium,
                 choices: vec![
                     IngredientChoice {
@@ -612,6 +614,7 @@ fn shared_dropdown() -> Result<alloc::vec::Vec<crate::op::Op>, String> {
         plate,
         RecipeSpec {
             ingredients_by: Some(IngredientChoices {
+                describes: false,
                 setting: medium,
                 choices: alloc::vec![
                     IngredientChoice {
@@ -632,6 +635,7 @@ fn shared_dropdown() -> Result<alloc::vec::Vec<crate::op::Op>, String> {
         "shared-tech",
         TechSpec {
             cost_by: Some(CostChoices {
+                describes: false,
                 setting: medium,
                 choices: alloc::vec![
                     CostChoice {
@@ -683,6 +687,7 @@ fn packs_beside_cost_dropdown() -> Result<alloc::vec::Vec<crate::op::Op>, String
         "hardened-tips",
         TechSpec {
             cost_by: Some(CostChoices {
+                describes: false,
                 setting: tier,
                 choices: alloc::vec![
                     CostChoice {
@@ -733,6 +738,7 @@ fn plan_settings_composes_a_dropdown_with_a_custom_arm() {
         RecipeSpec {
             category: "crafting-with-fluid".into(),
             ingredients_by: Some(IngredientChoices {
+                describes: false,
                 setting: medium,
                 choices: vec![
                     IngredientChoice {
@@ -782,6 +788,7 @@ fn a_bare_ingredient_dropdown_composes_the_ladder_line_alone() {
         plate,
         RecipeSpec {
             ingredients_by: Some(IngredientChoices {
+                describes: false,
                 setting: medium,
                 choices: vec![
                     IngredientChoice {
@@ -851,6 +858,7 @@ fn the_switch_lines_follow_the_emitted_order() {
         plate,
         RecipeSpec {
             ingredients_by: Some(IngredientChoices {
+                describes: false,
                 setting: medium,
                 choices: vec![
                     IngredientChoice {
@@ -904,6 +912,7 @@ fn plan_settings_composes_a_cost_dropdown_with_a_custom_arm() {
         "hardened-tips",
         TechSpec {
             cost_by: Some(crate::plan::CostChoices {
+                describes: false,
                 setting: tier,
                 choices: vec![
                     crate::plan::CostChoice {
@@ -954,6 +963,7 @@ fn a_cost_preset_with_no_source_reads_as_the_fallback() {
         "hardened-tips",
         TechSpec {
             cost_by: Some(crate::plan::CostChoices {
+                describes: false,
                 setting: tier,
                 choices: vec![crate::plan::CostChoice {
                     value: "cheap".into(),
@@ -1014,6 +1024,7 @@ fn a_cost_preset_names_its_source_by_its_localised_name() {
         "hardened-tips",
         TechSpec {
             cost_by: Some(crate::plan::CostChoices {
+                describes: false,
                 setting: tier,
                 choices: vec![
                     crate::plan::CostChoice {
@@ -1126,6 +1137,7 @@ fn an_ingredient_description_nests_past_seventeen_presets() {
             plate,
             RecipeSpec {
                 ingredients_by: Some(IngredientChoices {
+                    describes: false,
                     setting,
                     choices: (0..presets)
                         .map(|i| IngredientChoice {
@@ -1233,6 +1245,7 @@ fn a_cost_dropdown_description_nests_past_nineteen_presets() {
             "hardened-tips",
             TechSpec {
                 cost_by: Some(crate::plan::CostChoices {
+                    describes: false,
                     setting,
                     choices: (0..presets)
                         .map(|i| crate::plan::CostChoice {
@@ -2055,7 +2068,7 @@ fn customizer_refusals() {
                 l.recipe(
                     plate,
                     RecipeSpec {
-                        ingredients_by: Some(IngredientChoices {
+                        ingredients_by: Some(IngredientChoices { describes: false,
                             setting: medium,
                             choices: vec![IngredientChoice {
                                 value: "water".into(),
@@ -2106,7 +2119,7 @@ fn customizer_refusals() {
                     l.ingredients_setting("first", vec![Ingredient::named(1, "iron-plate", &[])]);
                 let second =
                     l.ingredients_setting("second", vec![Ingredient::named(2, "iron-plate", &[])]);
-                let arm = || IngredientChoices {
+                let arm = || IngredientChoices { describes: false,
                     setting: medium,
                     choices: vec![IngredientChoice {
                         value: "water".into(),
@@ -2333,6 +2346,7 @@ fn a_dropdown_whose_choices_cover_custom_needs_no_arm() {
         rivet,
         RecipeSpec {
             ingredients_by: Some(IngredientChoices {
+                describes: false,
                 setting: medium,
                 choices: vec![
                     IngredientChoice {
@@ -2353,6 +2367,7 @@ fn a_dropdown_whose_choices_cover_custom_needs_no_arm() {
         "hardened-tips",
         TechSpec {
             cost_by: Some(crate::plan::CostChoices {
+                describes: false,
                 setting: tier,
                 choices: vec![
                     crate::plan::CostChoice {
@@ -2396,6 +2411,7 @@ fn a_stepped_past_recipe_composes_no_description() {
         RecipeSpec {
             ingredients: vec![Ingredient::named(1, "iron-plate", &[])],
             ingredients_by: Some(IngredientChoices {
+                describes: false,
                 setting: medium,
                 choices: vec![IngredientChoice {
                     value: "water".into(),
@@ -2628,6 +2644,7 @@ fn a_plan_installs_only_the_tables_its_settings_need() {
         "bbb-balancer-part",
         RecipeSpec {
             ingredients_by: Some(IngredientChoices {
+                describes: false,
                 setting: cost,
                 choices: vec![IngredientChoice {
                     value: "vanilla".into(),
@@ -2939,6 +2956,7 @@ fn quench_plan() -> Lib {
         RecipeSpec {
             category: "crafting-with-fluid".into(),
             ingredients_by: Some(IngredientChoices {
+                describes: false,
                 setting: medium,
                 choices: vec![
                     IngredientChoice {
@@ -3041,6 +3059,7 @@ fn tips_plan() -> Lib {
         "hardened-tips",
         TechSpec {
             cost_by: Some(crate::plan::CostChoices {
+                describes: false,
                 setting: tier,
                 choices: vec![
                     crate::plan::CostChoice {
@@ -3751,6 +3770,7 @@ fn a_carried_refusal_is_reported_before_the_checks_behind_it() {
             RecipeSpec {
                 name: "steel-axe-forging".into(),
                 ingredients_by: Some(IngredientChoices {
+                    describes: false,
                     setting: style,
                     choices: vec![
                         IngredientChoice {
@@ -3963,6 +3983,7 @@ fn a_custom_arms_declared_fluid_is_legal_where_the_recipe_takes_one() {
         RecipeSpec {
             category: "crafting-with-fluid".into(),
             ingredients_by: Some(IngredientChoices {
+                describes: false,
                 setting: medium,
                 choices: vec![IngredientChoice {
                     value: "water".into(),
@@ -4590,6 +4611,7 @@ fn every_composed_shape() -> Lib {
         plate,
         RecipeSpec {
             ingredients_by: Some(IngredientChoices {
+                describes: false,
                 setting: medium,
                 choices: vec![
                     IngredientChoice {
@@ -4616,6 +4638,7 @@ fn every_composed_shape() -> Lib {
         "hardened-tips",
         TechSpec {
             cost_by: Some(crate::plan::CostChoices {
+                describes: false,
                 setting: tier,
                 choices: vec![crate::plan::CostChoice {
                     value: "projectile".into(),
@@ -4794,4 +4817,429 @@ fn op_values(op: &crate::op::Op) -> Vec<&Value> {
         crate::op::Op::Set(_, value) => vec![value],
         crate::op::Op::Log(_) => Vec::new(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// `describes`: which declaration a shared dropdown shows.
+// ---------------------------------------------------------------------------
+
+/// The one plan shape `describes` exists for, under legacy names because that
+/// is the shape a migrating consumer has: ONE dropdown named by two recipes
+/// (the first with an ingredient text beside it, the second preset-only) and by
+/// one technology (`cost_by` beside a `cost_from` with a packs text and two
+/// ints).
+///
+/// `marked` picks which declaration carries `describes`: `"recipe"`, `"tech"`,
+/// or `""` for neither, which is the positional rule every plan written before
+/// the field keeps.
+fn shared_dropdown_plan(marked: &str) -> Lib {
+    use crate::plan::{CostChoice, CostChoices, UnitSpec};
+
+    let mut lib = Lib::new();
+    let tier = lib.legacy_dropdown_setting_needing_locale("wb-tier", "mid", &["early", "mid"], "c");
+    let parts = lib.legacy_ingredients_setting(
+        "wb-parts",
+        alloc::vec![Ingredient::named(2, "steel-plate", &[])],
+        "d",
+    );
+    let packs = lib.legacy_packs_setting(
+        "wb-packs",
+        alloc::vec![Pack::named(1, "automation-science-pack", &[])],
+        "e",
+    );
+    let count = lib.legacy_int_setting("wb-count", 0, NumericSpec::between(0.0, 100000.0), "f");
+    let seconds = lib.legacy_int_setting("wb-seconds", 0, NumericSpec::between(0.0, 600.0), "g");
+    let frame = lib.item("scaffold-frame", ItemSpec::default());
+    let scaffold = lib.item("scaffold", ItemSpec::default());
+    lib.recipe(
+        scaffold,
+        RecipeSpec {
+            ingredients_by: Some(IngredientChoices {
+                describes: marked == "recipe",
+                setting: tier,
+                choices: alloc::vec![
+                    IngredientChoice {
+                        value: "early".into(),
+                        ingredients: alloc::vec![Ingredient::named(2, "steel-plate", &[])],
+                    },
+                    IngredientChoice {
+                        value: "mid".into(),
+                        ingredients: alloc::vec![Ingredient::named(4, "steel-plate", &[])],
+                    },
+                ],
+            }),
+            ingredients_from: Some(parts),
+            ..Default::default()
+        },
+    );
+    lib.recipe(
+        frame,
+        RecipeSpec {
+            ingredients_by: Some(IngredientChoices {
+                describes: false,
+                setting: tier,
+                choices: alloc::vec![
+                    IngredientChoice {
+                        value: "early".into(),
+                        ingredients: alloc::vec![Ingredient::named(1, "iron-plate", &[])],
+                    },
+                    IngredientChoice {
+                        value: "mid".into(),
+                        ingredients: alloc::vec![Ingredient::named(3, "iron-plate", &[])],
+                    },
+                ],
+            }),
+            ..Default::default()
+        },
+    );
+    lib.technology(
+        "wb-tech",
+        TechSpec {
+            cost_by: Some(CostChoices {
+                describes: marked == "tech",
+                setting: tier,
+                choices: alloc::vec![
+                    CostChoice {
+                        value: String::from("early"),
+                        sources: alloc::vec![String::from("logistics")],
+                    },
+                    CostChoice {
+                        value: String::from("mid"),
+                        sources: alloc::vec![String::from("mining-productivity-4")],
+                    },
+                ],
+                fallback: UnitSpec {
+                    count: 200,
+                    seconds: 30.0,
+                    packs: alloc::vec![Pack::named(1, "automation-science-pack", &[])],
+                },
+            }),
+            cost_from: Some(CustomCost {
+                packs,
+                count,
+                seconds,
+            }),
+            ..Default::default()
+        },
+    );
+    lib
+}
+
+/// Every composed description in a plan, rendered and keyed by emitted setting
+/// name, so two plans can be compared whole rather than line by line.
+fn described_settings(lib: &Lib) -> alloc::vec::Vec<(String, String)> {
+    let ops = lib.plan_settings(&settings_world()).expect("plan refused");
+    let mut out = alloc::vec::Vec::new();
+    for op in &ops {
+        let crate::op::Op::Extend(proto) = op else {
+            continue;
+        };
+        let Some(Value::Str(name)) = field(proto, "name") else {
+            continue;
+        };
+        if let Some(desc) = field(proto, "localised_description") {
+            out.push((name, render_value(&desc)));
+        }
+    }
+    out
+}
+
+/// TWO MARKED DECLARATIONS OVER ONE DROPDOWN ARE REFUSED, because a setting
+/// carries one `localised_description` and the whole of what `describes` says
+/// is which one it is.
+#[test]
+fn describes_refuses_two_marked_declarations_over_one_dropdown() {
+    let mut lib = shared_dropdown_plan("recipe");
+    lib.techs[0]
+        .spec
+        .cost_by
+        .as_mut()
+        .expect("the rig has a cost dropdown")
+        .describes = true;
+    let want = "fkrecipes: the setting wb-tier is described by more than one declaration; a dropdown shows one declaration's presets, so mark exactly one of them with Describes";
+    assert_eq!(
+        lib.plan_settings(&settings_world()).unwrap_err(),
+        want,
+        "plan_settings"
+    );
+    assert_eq!(lib.plan_data(&base_world()).unwrap_err(), want, "plan_data");
+}
+
+/// A MARKED DECLARATION THAT COMPOSES NOTHING IS REFUSED, and a `cost_by` with
+/// no `cost_from` beside it is the only shape that can be one: accepting it
+/// would leave the dropdown with an empty description while the recipe beside
+/// it could have described it, silently.
+#[test]
+fn describes_refuses_a_marked_cost_by_with_no_cost_from() {
+    use crate::plan::{CostChoice, CostChoices, UnitSpec};
+
+    let mut lib = Lib::new();
+    let tier = lib.legacy_dropdown_setting_needing_locale("wb-tier", "mid", &["early", "mid"], "c");
+    let parts = lib.legacy_ingredients_setting(
+        "wb-parts",
+        alloc::vec![Ingredient::named(2, "steel-plate", &[])],
+        "d",
+    );
+    let scaffold = lib.item("scaffold", ItemSpec::default());
+    lib.recipe(
+        scaffold,
+        RecipeSpec {
+            ingredients_by: Some(IngredientChoices {
+                describes: false,
+                setting: tier,
+                choices: alloc::vec![IngredientChoice {
+                    value: "early".into(),
+                    ingredients: alloc::vec![Ingredient::named(2, "steel-plate", &[])],
+                }],
+            }),
+            ingredients_from: Some(parts),
+            ..Default::default()
+        },
+    );
+    lib.technology(
+        "wb-tech",
+        TechSpec {
+            cost_by: Some(CostChoices {
+                describes: true,
+                setting: tier,
+                choices: alloc::vec![CostChoice {
+                    value: String::from("early"),
+                    sources: alloc::vec![String::from("logistics")],
+                }],
+                fallback: UnitSpec {
+                    count: 200,
+                    seconds: 30.0,
+                    packs: alloc::vec![Pack::named(1, "automation-science-pack", &[])],
+                },
+            }),
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        lib.plan_settings(&settings_world()).unwrap_err(),
+        "fkrecipes: the technology wb-tech is marked with Describes on the setting wb-tier, but a CostBy with no CostFrom composes nothing onto a dropdown"
+    );
+
+    // AND A RECIPE'S `ingredients_by` MAY DESCRIBE WITH NO TEXT SETTING BESIDE
+    // IT, because it composes the ladder line, which is something.
+    let mut bare = Lib::new();
+    let only =
+        bare.legacy_dropdown_setting_needing_locale("wb-only", "mid", &["early", "mid"], "c");
+    let plate = bare.item("plate", ItemSpec::default());
+    bare.recipe(
+        plate,
+        RecipeSpec {
+            ingredients_by: Some(IngredientChoices {
+                describes: true,
+                setting: only,
+                choices: alloc::vec![IngredientChoice {
+                    value: "early".into(),
+                    ingredients: alloc::vec![Ingredient::named(2, "steel-plate", &[])],
+                }],
+            }),
+            ..Default::default()
+        },
+    );
+    assert!(
+        bare.plan_settings(&settings_world()).is_ok(),
+        "a marked ingredients_by with no text setting beside it was refused"
+    );
+}
+
+/// MARKING THE ONLY DECLARATION THAT NAMES A DROPDOWN IS ACCEPTED AND INERT: a
+/// plan that grows a second declaration later still says which one describes,
+/// and until it does nothing about the composition moves.
+#[test]
+fn describes_on_the_only_declaration_changes_nothing() {
+    let only_declaration = |marked: bool| -> Lib {
+        let mut lib = Lib::new();
+        let medium =
+            lib.dropdown_setting_needing_locale("quench-medium", "water", &["water", "oil"]);
+        let text = lib.ingredients_setting(
+            "quench-ingredients",
+            alloc::vec![Ingredient::named(2, "steel-plate", &[])],
+        );
+        let plate = lib.item("hardened-plate", ItemSpec::default());
+        lib.recipe(
+            plate,
+            RecipeSpec {
+                ingredients_by: Some(IngredientChoices {
+                    describes: marked,
+                    setting: medium,
+                    choices: alloc::vec![
+                        IngredientChoice {
+                            value: "water".into(),
+                            ingredients: alloc::vec![Ingredient::named(2, "steel-plate", &[])],
+                        },
+                        IngredientChoice {
+                            value: "oil".into(),
+                            ingredients: alloc::vec![Ingredient::named(3, "steel-plate", &[])],
+                        },
+                    ],
+                }),
+                ingredients_from: Some(text),
+                ..Default::default()
+            },
+        );
+        lib
+    };
+    assert_eq!(
+        described_settings(&only_declaration(false)),
+        described_settings(&only_declaration(true))
+    );
+}
+
+/// THE MARKED DECLARATION IS THE ONE THE DROPDOWN SHOWS, and every reader of
+/// that answer moves with it: the composition, the ladder predicate on both
+/// text settings beside it, the locale obligation and the advisory walk.
+#[test]
+fn describes_moves_a_shared_dropdown_to_the_marked_declaration() {
+    use crate::settings::{text_ladder_line, DROPDOWN_LADDER_LINE, INGREDIENT_PRESET_HEAD};
+
+    let lib = shared_dropdown_plan("recipe");
+    let desc = described_settings(&lib);
+    let at = |name: &str| -> String {
+        desc.iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, d)| d.clone())
+            .unwrap_or_else(|| panic!("{} carries no composed description", name))
+    };
+
+    // THE RECIPE'S PRESETS, as to-type lines, and the recipe's is the one that
+    // renders 2 and 4 steel-plate; the second recipe's iron and the
+    // technology's cost lines must not be there.
+    let drop = at("wb-tier");
+    for want in [
+        &alloc::format!("{}2 steel-plate", INGREDIENT_PRESET_HEAD),
+        &alloc::format!("{}4 steel-plate", INGREDIENT_PRESET_HEAD),
+        DROPDOWN_LADDER_LINE,
+        // THE SWITCH LINE NAMES THE DESCRIBED DECLARATION'S TEXT, which is the
+        // recipe's ingredient text at order d, below the dropdown at c.
+        "\nThe setting below applies instead while it does not say default.",
+    ] {
+        assert!(
+            drop.contains(want),
+            "the shared dropdown does not carry {:?}: {}",
+            want,
+            drop
+        );
+    }
+    for unwanted in [": cost of ", "iron-plate"] {
+        assert!(
+            !drop.contains(unwanted),
+            "the shared dropdown carries {:?}, which belongs to a declaration that does not describe it: {}",
+            unwanted,
+            drop
+        );
+    }
+
+    // THE INGREDIENT TEXT DROPS ITS OWN LADDER LINE, because the dropdown
+    // beside it now says the same thing in the same vocabulary.
+    assert!(
+        !at("wb-parts").contains(text_ladder_line(true)),
+        "the ingredient text beside a dropdown that composes the ladder line carries it too: {}",
+        at("wb-parts")
+    );
+    // AND THE PACKS TEXT BESIDE THE SAME DROPDOWN KEEPS ITS OWN, because the
+    // sentence on the dropdown is about a list of ingredients it shows and says
+    // nothing about a research taking fewer packs. That is decision 10's pair
+    // and the whole reason the exclusion is by vocabulary.
+    assert!(
+        at("wb-packs").contains(text_ladder_line(false)),
+        "the packs text beside the described dropdown lost its ladder line: {}",
+        at("wb-packs")
+    );
+
+    // THE LOCALE OBLIGATION MOVES WITH THE COMPOSITION: the dropdown shows a
+    // preset list now, so its own entry is required and the sentence says which
+    // thing an absent entry costs.
+    let cfg = "[mod-setting-name]\nwb-tier=Tier\nwb-parts=Parts\nwb-packs=Packs\nwb-count=Count\nwb-seconds=Seconds\n\n[mod-setting-description]\nwb-parts=What the scaffolding is made of.\nwb-packs=What the research is priced in.\nwb-count=How many units.\nwb-seconds=How long a unit takes.\n\n[string-mod-setting]\nwb-tier-early=Early\nwb-tier-mid=Mid\n";
+    assert_eq!(
+        lib.check_locale("wb", cfg),
+        ["the dropdown setting wb-tier has no [mod-setting-description] entry, and the library composes its preset list onto that entry"]
+    );
+    let full = alloc::format!(
+        "{}\n[mod-setting-description]\nwb-tier=Which tier the mod is built around.\n",
+        cfg
+    );
+    assert_eq!(
+        lib.check_locale("wb", &full),
+        Vec::<alloc::string::String>::new()
+    );
+
+    // AND THE ADVISORY WALK NAMES NO KEY FOR IT, because no cost preset line is
+    // composed anywhere in this plan: the technology-name keys belong to lines
+    // the recipe's presets displaced.
+    assert_eq!(
+        lib.check_locale_advisories("wb"),
+        Vec::<alloc::string::String>::new()
+    );
+}
+
+/// `describes` ON THE TECHNOLOGY IS THE POSITIONAL DEFAULT WRITTEN DOWN, which
+/// is what makes the field safe to add to a plan that already relies on the
+/// rule: the technology is what the last-writer walk already chose.
+#[test]
+fn describes_on_the_technology_composes_the_unmarked_answer() {
+    assert_eq!(
+        described_settings(&shared_dropdown_plan("")),
+        described_settings(&shared_dropdown_plan("tech"))
+    );
+}
+
+/// THE UNMARKED RIG COMPOSES WHAT IT ALWAYS COMPOSED, pinned byte for byte
+/// against the output of the commit before `describes` existed, because the
+/// whole promise of the field is that a plan which does not use it does not
+/// move. The literals were taken from that commit in a worktree and not from
+/// this one.
+#[test]
+fn the_unmarked_shared_dropdown_composes_what_it_always_did() {
+    let want: alloc::vec::Vec<(String, String)> = alloc::vec![
+        (
+            String::from("wb-tier"),
+            String::from(
+                r#"["", ["?", ["mod-setting-description.wb-tier"], "wb-tier"], ["", "
+", ["?", ["string-mod-setting.wb-tier-early"], "early"], ": cost of ", ["?", ["technology-name.logistics"], "logistics"]], ["", "
+", ["?", ["string-mod-setting.wb-tier-mid"], "mid"], ": cost of ", ["?", ["technology-name.mining-productivity-4"], "mining-productivity-4"]], "
+The setting below applies instead while it does not say default."]"#
+            )
+        ),
+        (
+            String::from("wb-parts"),
+            String::from(
+                r#"["", ["?", ["mod-setting-description.wb-parts"], "wb-parts"], "
+default: 2 steel-plate", "
+An entry your mods lack takes the mod's next name for it or is left out; two landing on one name are added, so what you craft can be shorter than shown.", "
+Internal names, as on the default line, up to 2000 characters. The word none empties the list, so the recipe costs nothing to craft.", "
+Leave this as default and the option chosen above decides; anything else applies instead.", "
+Text this mod cannot use is set aside as though it said default; the reason is in the log or the load error."]"#
+            )
+        ),
+        (
+            String::from("wb-packs"),
+            String::from(
+                r#"["", ["?", ["mod-setting-description.wb-packs"], "wb-packs"], "
+default: 1 automation-science-pack", "
+A pack your mods lack takes the mod's next name for it or is left out; two landing on one pack are added, so the research can take fewer packs than shown.", "
+Internal names, as on the default line, up to 2000 characters.", "
+Leave this as default and the option chosen above decides; anything else applies instead.", "
+Text this mod cannot use is set aside as though it said default; the reason is in the log or the load error."]"#
+            )
+        ),
+        (
+            String::from("wb-count"),
+            String::from(
+                r#"["", ["?", ["mod-setting-description.wb-count"], "wb-count"], "
+Leave this at 0 and the option chosen above supplies the number; otherwise a whole number up to 100000."]"#
+            )
+        ),
+        (
+            String::from("wb-seconds"),
+            String::from(
+                r#"["", ["?", ["mod-setting-description.wb-seconds"], "wb-seconds"], "
+Leave this at 0 and the option chosen above supplies the number; otherwise a whole number up to 600."]"#
+            )
+        ),
+    ];
+    assert_eq!(described_settings(&shared_dropdown_plan("")), want);
 }

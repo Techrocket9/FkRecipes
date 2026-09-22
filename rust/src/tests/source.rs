@@ -1458,7 +1458,7 @@ const REFUSAL_CLASSES: &[RefusalClass] = &[
         class: CLASS_DECLARATION,
         except: "",
         sites: &[],
-        n: 9,
+        n: 11,
         why: "the declared bindings",
     },
     RefusalClass {

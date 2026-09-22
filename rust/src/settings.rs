@@ -402,6 +402,10 @@ impl Lib {
         // order rather than whichever walk noticed first.
         let mut armed_by_recipe = alloc::vec![0usize; self.settings.len()];
         let mut armed_by_tech = alloc::vec![0usize; self.settings.len()];
+        // AND ONE DROPDOWN SHOWS ONE DECLARATION'S PRESETS, which is what
+        // `describes` says out loud. Counted in the same two walks and refused
+        // after both of them, for the reason the two above are.
+        let mut described = alloc::vec![0usize; self.settings.len()];
 
         for r in &self.recipes {
             let who = format!("the recipe {}", r.name);
@@ -436,6 +440,9 @@ impl Lib {
             }
             if r.spec.ingredients_from.is_some() {
                 armed_by_recipe[by.setting.index - 1] += 1;
+            }
+            if by.describes {
+                described[by.setting.index - 1] += 1;
             }
             // The presets are RENDERED into the dropdown's description at the
             // settings stage, so they have to be renderable there. The data
@@ -474,15 +481,49 @@ impl Lib {
                 };
                 self.validate_custom_cost(at, &who, cc, has_tier)?;
             }
+            let by = match &t.spec.cost_by {
+                Some(by) if by.describes => by,
+                _ => continue,
+            };
+            // A MARKED DECLARATION THAT COMPOSES NOTHING IS REFUSED, because
+            // accepting it would hand the dropdown an empty description while
+            // another declaration could have described it, silently. A
+            // `CostBy` with no `CostFrom` beside it is the only shape that can
+            // do it: a cost preset line names a technology and the switch line
+            // names the pack setting, so with no `CostFrom` there is no
+            // language and no field to name and nothing is composed at all. A
+            // recipe's `IngredientsBy` always composes the ladder line, which
+            // is something, so it may describe whether or not a text setting
+            // sits beside it.
+            //
+            // IT ASKS FOR `CostFrom` RATHER THAN
+            // `cost_dropdown_composes_preset_lines`, and that is the
+            // sentence's doing: the predicate is also false when `CostFrom`
+            // names a packs setting this plan never declared, and
+            // `validate_custom_cost` above has already refused that with the
+            // sentence an author reads best.
+            if t.spec.cost_from.is_none() {
+                return Err(format!(
+                    "{}the technology {} is marked with Describes on the setting {}, but a CostBy with no CostFrom composes nothing onto a dropdown",
+                    at,
+                    t.name,
+                    self.settings[by.setting.index - 1].emitted_name(prefix)
+                ));
+            }
+            described[by.setting.index - 1] += 1;
         }
 
         // The composed description is ONE declaration's presets, so two of
         // them reaching one dropdown is a settings screen showing a list that
         // belongs to the other declaration. The two counts are separate
         // because the sentence names what the author wrote; a dropdown armed
-        // by one recipe AND one technology is not refused here, and the
-        // technology's description is the one that lands, because
-        // `setting_descriptions` walks recipes first.
+        // by one recipe AND one technology is not refused here, and which of
+        // the two describes it is `composed_dropdown_presets`' answer: the
+        // marked one, or the technology's where neither is marked, because
+        // that walk runs second.
+        //
+        // AND TWO MARKED DECLARATIONS ARE THE ONE SHAPE THAT HAS NO ANSWER,
+        // which is what the third sentence refuses.
         //
         // IT RUNS AFTER BOTH WALKS, so on a plan with two problems the arm's
         // own sentence wins: an ill formed arm is refused where it is walked,
@@ -498,6 +539,13 @@ impl Lib {
             if armed_by_tech[i] > 1 {
                 return Err(format!(
                     "{}the setting {} takes a text setting from more than one technology; one dropdown composes one description",
+                    at,
+                    s.emitted_name(prefix)
+                ));
+            }
+            if described[i] > 1 {
+                return Err(format!(
+                    "{}the setting {} is described by more than one declaration; a dropdown shows one declaration's presets, so mark exactly one of them with Describes",
                     at,
                     s.emitted_name(prefix)
                 ));
@@ -739,14 +787,27 @@ impl Lib {
     /// lacks a name, and that is true whether or not anybody can type over
     /// them. See [`DROPDOWN_LADDER_LINE`].
     ///
-    /// RECIPES THEN TECHNOLOGIES, in declaration order, and the LAST one wins.
-    /// Two recipes cannot reach one dropdown, and neither can two
-    /// technologies: both are refused at plan validation. What remains is a
-    /// dropdown a recipe and a technology both put a text setting beside,
-    /// which the two text settings' own "read by exactly one" rule does not
-    /// forbid; the technology's presets are the ones composed.
+    /// `describes` WINS, AND WITHOUT IT THE RULE IS POSITIONAL: recipes then
+    /// technologies, in declaration order, with the LAST one winning, which is
+    /// what a plan that never sets the field keeps. Two recipes cannot put a
+    /// text setting on one dropdown, and neither can two technologies: both
+    /// are refused at plan validation. What remains is a dropdown a recipe and
+    /// a technology both name, which the two text settings' own "read by
+    /// exactly one" rule does not forbid; the technology's presets are the ones
+    /// composed unless the recipe says otherwise.
+    ///
+    /// IT IS THE ONE PLACE THE WINNER IS CHOSEN, and every reader asks it: this
+    /// module composes from it, `dropdown_composes_ladder_line` is a test on
+    /// its kind, the locale checker turns it into an obligation, and
+    /// `composed_game_key_advisories` walks the cost arm's keys.
+    ///
+    /// IT IS TOTAL. Two marked declarations over one dropdown are refused by
+    /// `validate_bindings`, and among marked ones the last still wins here, so
+    /// the locale checker, which validates nothing, gets an answer rather than
+    /// a panic.
     pub(crate) fn composed_dropdown_presets(&self, index: usize) -> Option<Presets<'_>> {
         let mut found = None;
+        let mut marked = false;
         for r in &self.recipes {
             let by = match &r.spec.ingredients_by {
                 Some(by) => by,
@@ -755,13 +816,15 @@ impl Lib {
             if !r.spec.ingredients.is_empty() || !self.valid_dropdown_setting(by.setting) {
                 continue;
             }
+            if by.setting.index != index || (marked && !by.describes) {
+                continue;
+            }
             let text = match r.spec.ingredients_from {
                 Some(h) if self.valid_ingredients_setting(h) => Some(h.index),
                 _ => None,
             };
-            if by.setting.index == index {
-                found = Some(Presets::Ingredients(&by.choices, text));
-            }
+            found = Some(Presets::Ingredients(&by.choices, text));
+            marked = marked || by.describes;
         }
         for t in &self.techs {
             if !self.cost_dropdown_composes_preset_lines(&t.spec) {
@@ -773,9 +836,11 @@ impl Lib {
                 .as_ref()
                 .expect("the predicate saw a dropdown");
             let cc = t.spec.cost_from.as_ref().expect("the predicate saw a cost");
-            if by.setting.index == index {
-                found = Some(Presets::Cost(&by.choices, cc.packs.index));
+            if by.setting.index != index || (marked && !by.describes) {
+                continue;
             }
+            found = Some(Presets::Cost(&by.choices, cc.packs.index));
+            marked = marked || by.describes;
         }
         found
     }
@@ -890,17 +955,28 @@ impl Lib {
     /// composed, so the emitted description and the guard cannot disagree about
     /// which shape they are looking at.
     ///
-    /// THE RULE IS "UNLESS SOMETHING BESIDE IT ALREADY SAYS SO", which is
-    /// narrower than "unless a dropdown sits beside it". An INGREDIENT dropdown
-    /// carries [`DROPDOWN_LADDER_LINE`] over the presets a player is choosing
-    /// between, so a second copy on the text field would say one thing twice on
-    /// one screen. A COST dropdown carries no ladder line at all, because its
-    /// presets render no list of internal names, so a packs text beside one is
-    /// the only field on that screen where the ladder can be disclosed and it
-    /// keeps the line. Under the earlier rule, "no dropdown beside it", that
-    /// pair said nothing about the ladder anywhere a player looks, and the log
-    /// is not a disclosure.
+    /// THE EXCLUSION IS BY VOCABULARY, which is narrower than "unless a
+    /// dropdown sits beside it" and narrower again than "unless the dropdown
+    /// beside it composes a ladder line". There is exactly ONE dropdown
+    /// sentence, [`DROPDOWN_LADDER_LINE`], and it is in the INGREDIENT
+    /// vocabulary: it talks about an entry and about what an option crafts. So
+    /// an ingredient text beside a dropdown that composes it drops its own
+    /// copy, because the two would say one thing twice on one screen; a PACKS
+    /// text never drops it, whatever the dropdown beside it shows, because no
+    /// dropdown composes the packs sentence and the ingredient one says nothing
+    /// about a research taking fewer packs.
+    ///
+    /// THE PAIR THAT MAKES THE DIFFERENCE VISIBLE is a dropdown a recipe and a
+    /// technology both name. Where the recipe describes it, the dropdown
+    /// carries the ingredient sentence over the recipe's presets, the recipe's
+    /// ingredient text drops its line, and the packs text beside the same
+    /// dropdown KEEPS its packs line. Under the earlier rule, "no dropdown
+    /// beside it", a packs text beside a `CostBy` tier said nothing about the
+    /// ladder anywhere a player looks, and the log is not a disclosure.
     pub(crate) fn text_carries_ladder_line(&self, i: usize) -> bool {
+        if self.settings[i].kind == SettingKind::Packs {
+            return true;
+        }
         match self.text_switch_dropdown(i) {
             Some(d) => !self.dropdown_composes_ladder_line(d),
             None => true,
@@ -910,40 +986,18 @@ impl Lib {
     /// Whether `plan_settings` puts [`DROPDOWN_LADDER_LINE`] onto the dropdown
     /// setting at `d`.
     ///
-    /// IT IS THE COMPOSING WALK'S OWN SHAPE, recipes then technologies with the
-    /// last writer winning, rather than "is this an ingredient dropdown". The
-    /// two are the same answer on every plan but one, and that one is written
-    /// down in `composed_dropdown_presets`: a recipe and a technology may both
-    /// name one dropdown, nothing refuses it, and the technology's cost presets
-    /// are what land there because that walk runs second. Asking the shape
-    /// rather than the kind is what keeps the text setting beside such a
-    /// dropdown carrying the ladder, which is correct, because the dropdown it
-    /// sits beside came out with no ladder line on it.
+    /// IT IS A TEST ON `composed_dropdown_presets`' OWN ANSWER and not a second
+    /// walk. Both arms of the ingredient shape push the line, the bare one and
+    /// the one with a text setting beside it, and the cost shape pushes none,
+    /// so the kind is the whole of the question. Spelling the walk again is
+    /// what a rule with a `describes` branch in it cannot survive: the copy
+    /// would answer for the positional rule while the composition answered for
+    /// the marked one.
     pub(crate) fn dropdown_composes_ladder_line(&self, d: usize) -> bool {
-        let mut composes = false;
-        for r in &self.recipes {
-            // EXACTLY `composed_dropdown_presets`' OWN CONDITION for composing
-            // onto this dropdown, and both of its arms: the bare arm and the
-            // arm with a text setting beside it push the line alike.
-            if let Some(by) = &r.spec.ingredients_by {
-                if r.spec.ingredients.is_empty()
-                    && self.valid_dropdown_setting(by.setting)
-                    && by.setting.index - 1 == d
-                {
-                    composes = true;
-                }
-            }
-        }
-        for t in &self.techs {
-            if self.cost_dropdown_composes_preset_lines(&t.spec) {
-                if let Some(by) = &t.spec.cost_by {
-                    if by.setting.index - 1 == d {
-                        composes = false;
-                    }
-                }
-            }
-        }
-        composes
+        matches!(
+            self.composed_dropdown_presets(d + 1),
+            Some(Presets::Ingredients(..))
+        )
     }
 
     /// The settings a `CustomCost` prices a research with, and which dropdown

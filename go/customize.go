@@ -261,6 +261,10 @@ func (l *Lib) validateBindings(prefix string) error {
 	// first.
 	armedByRecipe := make([]int, len(l.settings))
 	armedByTech := make([]int, len(l.settings))
+	// AND ONE DROPDOWN SHOWS ONE DECLARATION'S PRESETS, which is what
+	// Describes says out loud. Counted in the same two walks and refused after
+	// both of them, for the reason the two above are.
+	described := make([]int, len(l.settings))
 
 	for _, r := range l.recipes {
 		who := "the recipe " + r.name
@@ -283,6 +287,9 @@ func (l *Lib) validateBindings(prefix string) error {
 		}
 		if r.spec.IngredientsFrom.index != 0 {
 			armedByRecipe[by.Setting.index-1]++
+		}
+		if by.Describes {
+			described[by.Setting.index-1]++
 		}
 		// The presets are RENDERED into the dropdown's description at the
 		// settings stage, so they have to be renderable there. The data
@@ -318,14 +325,42 @@ func (l *Lib) validateBindings(prefix string) error {
 				return err
 			}
 		}
+		if by == nil || !by.Describes {
+			continue
+		}
+		// A MARKED DECLARATION THAT COMPOSES NOTHING IS REFUSED, because
+		// accepting it would hand the dropdown an empty description while
+		// another declaration could have described it, silently. A CostBy with
+		// no CostFrom beside it is the only shape that can do it: a cost
+		// preset line names a technology and the switch line names the pack
+		// setting, so with no CostFrom there is no language and no field to
+		// name and nothing is composed at all. A recipe's IngredientsBy always
+		// composes the ladder line, which is something, so it may describe
+		// whether or not a text setting sits beside it.
+		//
+		// IT ASKS FOR CostFrom RATHER THAN costDropdownComposesPresetLines,
+		// and that is the sentence's doing: the predicate is also false when
+		// CostFrom names a packs setting this plan never declared, and
+		// validateCustomCost above has already refused that with the sentence
+		// an author reads best.
+		if t.spec.CostFrom == nil {
+			return errors.New(at + "the technology " + t.name + " is marked with Describes on the setting " +
+				l.settings[by.Setting.index-1].emittedName(prefix) +
+				", but a CostBy with no CostFrom composes nothing onto a dropdown")
+		}
+		described[by.Setting.index-1]++
 	}
 
 	// The composed description is ONE declaration's presets, so two of them
 	// reaching one dropdown is a settings screen showing a list that belongs to
 	// the other declaration. The two counts are separate because the sentence
 	// names what the author wrote; a dropdown armed by one recipe AND one
-	// technology is not refused here, and the technology's description is the
-	// one that lands, because settingDescriptions walks recipes first.
+	// technology is not refused here, and which of the two describes it is
+	// composedDropdownPresets' answer: the marked one, or the technology's
+	// where neither is marked, because that walk runs second.
+	//
+	// AND TWO MARKED DECLARATIONS ARE THE ONE SHAPE THAT HAS NO ANSWER, which
+	// is what the third sentence refuses.
 	for i, s := range l.settings {
 		full := s.emittedName(prefix)
 		if armedByRecipe[i] > 1 {
@@ -335,6 +370,10 @@ func (l *Lib) validateBindings(prefix string) error {
 		if armedByTech[i] > 1 {
 			return errors.New(at + "the setting " + full +
 				" takes a text setting from more than one technology; one dropdown composes one description")
+		}
+		if described[i] > 1 {
+			return errors.New(at + "the setting " + full +
+				" is described by more than one declaration; a dropdown shows one declaration's presets, so mark exactly one of them with Describes")
 		}
 	}
 
@@ -631,26 +670,115 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		out[i] = textDescription(s.emittedName(prefix), l.lang.render(entries),
 			l.textSwitchLine(i), s.kind == settingIngredients, l.textCarriesLadderLine(i))
 	}
-	// Recipes then technologies, in declaration order, which is the order a
-	// dropdown's own description is built in when two declarations put a text
-	// setting beside one dropdown. validateBindings refuses two recipes and two
-	// technologies over one dropdown, each with its own sentence; what it does
-	// NOT refuse is one recipe and one technology reaching the same one, and
-	// there the technology's preset list is the one that lands, because this
-	// walk runs second. That is a plan nobody has written and a sentence nobody
-	// has agreed on, so it is written down here rather than answered on a guess.
+	// WHICH DECLARATION DESCRIBES A DROPDOWN IS composedDropdownPresets' OWN
+	// ANSWER and is asked here rather than decided here, which is what keeps
+	// the composition, the ladder predicate, the locale obligation and the
+	// advisory walk from disagreeing about who describes.
+	for i := range l.settings {
+		if p := l.composedDropdownPresets(i + 1); p != nil {
+			out[i] = l.dropdownDescription(prefix, i, p)
+		}
+	}
+	return out
+}
+
+// presetsKind says which of the two shapes a dropdown's composed description
+// is built from.
+type presetsKind uint8
+
+const (
+	presetsIngredients presetsKind = iota
+	presetsCost
+)
+
+// composedPresets is what a dropdown composes its description from, and which
+// text setting sits beside it: a 1-BASED index, the shape every handle in this
+// library carries, with 0 meaning none.
+//
+// THE INGREDIENT ARM'S INDEX IS OPTIONAL AND THE COST ARM'S IS NOT. An
+// ingredient dropdown with no text setting beside it still composes one line,
+// the ladder; a cost dropdown with no pack setting beside it composes nothing
+// at all and never reaches here, because costDropdownComposesPresetLines is
+// what lets it through.
+type composedPresets struct {
+	kind        presetsKind
+	ingredients []IngredientChoice
+	cost        []CostChoice
+	text        int
+}
+
+// composedDropdownPresets answers which declaration composes onto the dropdown
+// setting at index (1-BASED), and what it composes: nil where nothing does.
+//
+// IT IS THE ONE PLACE THE WINNER IS CHOSEN, and every reader asks it:
+// settingDescriptions composes from it, dropdownComposesLadderLine is a test on
+// its kind, dropdownsWithComposedDescription turns it into a locale obligation,
+// and composedGameKeyAdvisories walks the cost arm's keys. The Go half spelled
+// that walk three times before Describes arrived; with a rule that has grown a
+// branch, three spellings are three rules.
+//
+// Describes WINS, AND WITHOUT IT THE RULE IS POSITIONAL. Recipes then
+// technologies, in declaration order, with the last writer winning, which is
+// exactly what a plan that never sets the field keeps. A marked declaration
+// takes it instead, and among marked ones the last still wins, so this function
+// is TOTAL: two marked declarations over one dropdown are refused by
+// validateBindings, and the locale checker, which validates nothing, still gets
+// an answer rather than a panic.
+//
+// IT STEPS PAST EXACTLY WHAT validateBindings STEPS PAST, len(Ingredients) and
+// all: a recipe it stepped past is one whose choices it never validated, and
+// rendering an unvalidated choice would dereference an item handle nothing
+// proved. The data planner refuses that plan by name; this one says nothing
+// about it.
+func (l *Lib) composedDropdownPresets(index int) *composedPresets {
+	var found *composedPresets
+	marked := false
 	for _, r := range l.recipes {
 		by := r.spec.IngredientsBy
-		// EXACTLY THE CONDITION validateBindings CHECKED UNDER, len(Ingredients)
-		// and all: a recipe it stepped past is one whose choices it never
-		// validated, and rendering an unvalidated choice would dereference an
-		// item handle nothing proved. The data planner refuses that plan by
-		// name; this one just says nothing about it.
 		if by == nil || len(r.spec.Ingredients) > 0 || !l.validDropdownSetting(by.Setting) {
 			continue
 		}
-		i := by.Setting.index - 1
-		full := l.settings[i].emittedName(prefix)
+		if by.Setting.index != index || (marked && !by.Describes) {
+			continue
+		}
+		text := 0
+		if l.validIngredientsSetting(r.spec.IngredientsFrom) {
+			text = r.spec.IngredientsFrom.index
+		}
+		found = &composedPresets{kind: presetsIngredients, ingredients: by.Choices, text: text}
+		marked = marked || by.Describes
+	}
+	for _, t := range l.techs {
+		if !l.costDropdownComposesPresetLines(&t.spec) {
+			continue
+		}
+		by := t.spec.CostBy
+		if by.Setting.index != index || (marked && !by.Describes) {
+			continue
+		}
+		found = &composedPresets{kind: presetsCost, cost: by.Choices, text: t.spec.CostFrom.Packs.index}
+		marked = marked || by.Describes
+	}
+	return found
+}
+
+// dropdownDescription is the whole localised_description a composed dropdown is
+// emitted with: the consumer's own entry, the presets written out, and the line
+// naming the text setting beside it.
+//
+// THE SWITCH LINE NAMES THE DESCRIBED DECLARATION'S TEXT SETTING AND ONLY
+// THAT ONE, which is a narrowing stated rather than hidden. A shared dropdown
+// can have two text settings overriding it, an ingredient text on the recipe
+// and a packs text on the technology; this line names the one whose declaration
+// describes. The pairing is still stated from the other side, because every
+// text setting's own switch line names the dropdown it defers to whether or not
+// its declaration describes.
+func (l *Lib) dropdownDescription(prefix string, i int, p *composedPresets) Value {
+	full := l.settings[i].emittedName(prefix)
+	params := make([]Value, 0, len(p.ingredients)+len(p.cost)+3)
+	params = append(params, localeRef("mod-setting-description", full, full))
+	switch p.kind {
+	case presetsIngredients:
 		// A DROPDOWN WITH NO TEXT SETTING BESIDE IT COMPOSES THE LADDER LINE
 		// AND NOTHING ELSE. There is no preset to read out, because rendering
 		// one needs a language and only IngredientsSetting installs one, and
@@ -665,19 +793,13 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		// with no text setting still links no parser, no renderer, no amount
 		// formatter and no custom-cost resolver: see go/examples/notext, which
 		// is that plan and is measured.
-		if !l.validIngredientsSetting(r.spec.IngredientsFrom) {
-			out[i] = localisedGroup([]Value{
-				localeRef("mod-setting-description", full, full),
-				Str(dropdownLadderLine),
-			})
-			continue
+		if p.text == 0 {
+			return localisedGroup(append(params, Str(dropdownLadderLine)))
 		}
-		params := make([]Value, 0, len(by.Choices)+2)
-		params = append(params, localeRef("mod-setting-description", full, full))
 		// THE TEXT SETTING IS WHAT GUARANTEES THE LANGUAGE. It is an
 		// IngredientsSettingRef, which only IngredientsSetting issues, and that
 		// constructor installs the renderer.
-		for _, c := range by.Choices {
+		for _, c := range p.ingredients {
 			params = append(params, presetLine(full, c.Value,
 				Str(ingredientPresetHead+l.lang.render(l.declaredIngredientEntries(prefix, c.Ingredients)))))
 		}
@@ -685,26 +807,15 @@ func (l *Lib) settingDescriptions(prefix string) []Value {
 		// NOT SAY: a preset is what the author wrote, and what the game builds
 		// from it is what this mod set could resolve. See dropdownLadderLine.
 		params = append(params, Str(dropdownLadderLine))
-		params = append(params, Str(dropdownSwitchLine(l.relativeOrder(i, r.spec.IngredientsFrom.index-1))))
-		out[i] = localisedGroup(params)
-	}
-	for _, t := range l.techs {
-		if !l.costDropdownComposesPresetLines(&t.spec) {
-			continue
-		}
-		by := t.spec.CostBy
-		c := t.spec.CostFrom
-		i := by.Setting.index - 1
-		full := l.settings[i].emittedName(prefix)
-		params := make([]Value, 0, len(by.Choices)+2)
-		params = append(params, localeRef("mod-setting-description", full, full))
-		for _, c := range by.Choices {
+	case presetsCost:
+		for _, c := range p.cost {
 			params = append(params, presetLine(full, c.Value, costPresetTail(c)...))
 		}
-		params = append(params, Str(dropdownSwitchLine(l.relativeOrder(i, c.Packs.index-1))))
-		out[i] = localisedGroup(params)
 	}
-	return out
+	// THE SWITCH LINE LAST, because it is about the field beside this one
+	// rather than about any preset above it.
+	params = append(params, Str(dropdownSwitchLine(l.relativeOrder(i, p.text-1))))
+	return localisedGroup(params)
 }
 
 // costDropdownComposesPresetLines is the ONE SPELLING of "this technology's
@@ -803,16 +914,27 @@ func (l *Lib) textSwitchDropdown(i int) int {
 // was composed, so the emitted description and the guard cannot disagree about
 // which shape they are looking at.
 //
-// THE RULE IS "UNLESS SOMETHING BESIDE IT ALREADY SAYS SO", which is narrower
-// than "unless a dropdown sits beside it". An INGREDIENT dropdown carries
-// dropdownLadderLine over the presets a player is choosing between, so a second
-// copy on the text field would say one thing twice on one screen. A COST
-// dropdown carries no ladder line at all, because its presets render no list of
-// internal names, so a packs text beside one is the only field on that screen
-// where the ladder can be disclosed and it keeps the line. Under the earlier
-// rule, "no dropdown beside it", that pair said nothing about the ladder
-// anywhere a player looks, and the log is not a disclosure.
+// THE EXCLUSION IS BY VOCABULARY, which is narrower than "unless a dropdown
+// sits beside it" and narrower again than "unless the dropdown beside it
+// composes a ladder line". There is exactly ONE dropdown sentence,
+// dropdownLadderLine, and it is in the INGREDIENT vocabulary: it talks about an
+// entry and about what an option crafts. So an ingredient text beside a
+// dropdown that composes it drops its own copy, because the two would say one
+// thing twice on one screen; a PACKS text never drops it, whatever the dropdown
+// beside it shows, because no dropdown composes the packs sentence and the
+// ingredient one says nothing about a research taking fewer packs.
+//
+// THE PAIR THAT MAKES THE DIFFERENCE VISIBLE is a dropdown a recipe and a
+// technology both name. Where the recipe describes it, the dropdown carries the
+// ingredient sentence over the recipe's presets, the recipe's ingredient text
+// drops its line, and the packs text beside the same dropdown KEEPS its packs
+// line. Under the earlier rule, "no dropdown beside it", a packs text beside a
+// CostBy tier said nothing about the ladder anywhere a player looks, and the
+// log is not a disclosure.
 func (l *Lib) textCarriesLadderLine(i int) bool {
+	if l.settings[i].kind == settingPacks {
+		return true
+	}
 	d := l.textSwitchDropdown(i)
 	return d < 0 || !l.dropdownComposesLadderLine(d)
 }
@@ -820,35 +942,15 @@ func (l *Lib) textCarriesLadderLine(i int) bool {
 // dropdownComposesLadderLine answers whether settingDescriptions puts
 // dropdownLadderLine onto the dropdown setting at d.
 //
-// IT IS THE COMPOSING WALK'S OWN SHAPE, recipes then technologies with the last
-// writer winning, rather than "is this an ingredient dropdown". The two are the
-// same answer on every plan but one, and that one is written down in
-// settingDescriptions: a recipe and a technology may both name one dropdown,
-// nothing refuses it, and the technology's cost presets are what land there
-// because that walk runs second. Asking the shape rather than the kind is what
-// keeps the text setting beside such a dropdown carrying the ladder, which is
-// correct, because the dropdown it sits beside came out with no ladder line on
-// it.
+// IT IS A TEST ON composedDropdownPresets' OWN ANSWER and not a second walk.
+// Both arms of the ingredient shape push the line, the bare one and the one
+// with a text setting beside it, and the cost shape pushes none, so the kind is
+// the whole of the question. Spelling the walk again is what a rule with a
+// Describes branch in it cannot survive: the copy would answer for the
+// positional rule while the composition answered for the marked one.
 func (l *Lib) dropdownComposesLadderLine(d int) bool {
-	composes := false
-	for _, r := range l.recipes {
-		by := r.spec.IngredientsBy
-		// EXACTLY settingDescriptions' OWN CONDITION for composing onto this
-		// dropdown, and both of its arms: the bare arm and the arm with a text
-		// setting beside it push dropdownLadderLine alike.
-		if by == nil || len(r.spec.Ingredients) > 0 || !l.validDropdownSetting(by.Setting) {
-			continue
-		}
-		if by.Setting.index-1 == d {
-			composes = true
-		}
-	}
-	for _, t := range l.techs {
-		if l.costDropdownComposesPresetLines(&t.spec) && t.spec.CostBy.Setting.index-1 == d {
-			composes = false
-		}
-	}
-	return composes
+	p := l.composedDropdownPresets(d + 1)
+	return p != nil && p.kind == presetsIngredients
 }
 
 // researchNumber is what a research count or time setting composes from: that

@@ -568,6 +568,7 @@ fn quench_plan(choices: Vec<IngredientChoice>) -> Lib {
         plate,
         RecipeSpec {
             ingredients_by: Some(IngredientChoices {
+                describes: false,
                 setting: medium,
                 choices,
             }),
@@ -708,6 +709,7 @@ fn tier_plan_priced(choices: Vec<CostChoice>, packs: Vec<Pack>) -> Lib {
         "hardened-tips",
         TechSpec {
             cost_by: Some(CostChoices {
+                describes: false,
                 setting: tier,
                 choices,
                 fallback: UnitSpec {
@@ -962,7 +964,7 @@ fn choice_refusals() {
                     plate,
                     RecipeSpec {
                         ingredients: vec![Ingredient::named(1, "steel-plate", &[])],
-                        ingredients_by: Some(IngredientChoices {
+                        ingredients_by: Some(IngredientChoices { describes: false,
                             setting: medium,
                             choices: vec![IngredientChoice {
                                 value: "water".into(),
@@ -988,7 +990,7 @@ fn choice_refusals() {
                 l.recipe(
                     plate,
                     RecipeSpec {
-                        ingredients_by: Some(IngredientChoices {
+                        ingredients_by: Some(IngredientChoices { describes: false,
                             setting: stray,
                             choices: vec![IngredientChoice {
                                 value: "water".into(),
@@ -1010,7 +1012,7 @@ fn choice_refusals() {
                 l.recipe(
                     plate,
                     RecipeSpec {
-                        ingredients_by: Some(IngredientChoices {
+                        ingredients_by: Some(IngredientChoices { describes: false,
                             setting: medium,
                             choices: vec![
                                 IngredientChoice {
@@ -1038,7 +1040,7 @@ fn choice_refusals() {
                 l.recipe(
                     plate,
                     RecipeSpec {
-                        ingredients_by: Some(IngredientChoices {
+                        ingredients_by: Some(IngredientChoices { describes: false,
                             setting: medium,
                             choices: vec![IngredientChoice {
                                 value: "water".into(),
@@ -1060,7 +1062,7 @@ fn choice_refusals() {
                 l.recipe(
                     plate,
                     RecipeSpec {
-                        ingredients_by: Some(IngredientChoices {
+                        ingredients_by: Some(IngredientChoices { describes: false,
                             setting: medium,
                             choices: vec![
                                 IngredientChoice {
@@ -1088,7 +1090,7 @@ fn choice_refusals() {
                 l.recipe(
                     plate,
                     RecipeSpec {
-                        ingredients_by: Some(IngredientChoices {
+                        ingredients_by: Some(IngredientChoices { describes: false,
                             setting: medium,
                             choices: vec![IngredientChoice {
                                 value: "water".into(),
@@ -1113,7 +1115,7 @@ fn choice_refusals() {
                     "hardened-tips",
                     TechSpec {
                         after: "steel-processing".into(),
-                        cost_by: Some(CostChoices {
+                        cost_by: Some(CostChoices { describes: false,
                             setting: tier,
                             choices: vec![cost_choice("logistics", &[])],
                             fallback: UnitSpec {
@@ -1146,7 +1148,7 @@ fn choice_refusals() {
                 l.technology(
                     "hardened-tips",
                     TechSpec {
-                        cost_by: Some(CostChoices {
+                        cost_by: Some(CostChoices { describes: false,
                             setting: stray,
                             choices: vec![cost_choice("logistics", &[])],
                             fallback: UnitSpec {
@@ -1172,7 +1174,7 @@ fn choice_refusals() {
                 l.technology(
                     "hardened-tips",
                     TechSpec {
-                        cost_by: Some(CostChoices {
+                        cost_by: Some(CostChoices { describes: false,
                             setting: tier,
                             choices: vec![cost_choice("military", &[])],
                             fallback: UnitSpec {
@@ -1200,7 +1202,7 @@ fn choice_refusals() {
                 l.technology(
                     "hardened-tips",
                     TechSpec {
-                        cost_by: Some(CostChoices {
+                        cost_by: Some(CostChoices { describes: false,
                             setting: tier,
                             choices: vec![cost_choice("logistics", &[])],
                             fallback: UnitSpec {
@@ -1254,6 +1256,7 @@ fn choices_do_not_alias_the_caller_vectors() {
         plate,
         RecipeSpec {
             ingredients_by: Some(IngredientChoices {
+                describes: false,
                 setting: medium,
                 choices: choices.clone(),
             }),
@@ -1284,6 +1287,7 @@ fn a_tier_whose_copied_unit_drops_one_pack_keeps_the_rest() {
         "steel-axes",
         TechSpec {
             cost_by: Some(CostChoices {
+                describes: false,
                 setting: tier,
                 choices: vec![cost_choice("mid", &["logistics-2"])],
                 fallback: UnitSpec {
@@ -1329,6 +1333,7 @@ fn a_tier_whose_copied_unit_loses_every_pack_takes_the_declared_fallback() {
         "steel-axes",
         TechSpec {
             cost_by: Some(CostChoices {
+                describes: false,
                 setting: tier,
                 choices: vec![cost_choice("early", &["steel-processing"])],
                 fallback: UnitSpec {
@@ -1386,6 +1391,7 @@ fn a_tier_whose_sources_carry_no_cost_says_so_on_the_technology() {
         "balancer",
         TechSpec {
             cost_by: Some(CostChoices {
+                describes: false,
                 setting: tier,
                 choices: vec![cost_choice("logistics", &["logistics", "logistics-2"])],
                 fallback: UnitSpec {
@@ -1444,6 +1450,7 @@ fn a_tier_whose_only_source_carries_an_unusable_cost_says_so_too() {
         "balancer",
         TechSpec {
             cost_by: Some(CostChoices {
+                describes: false,
                 setting: tier,
                 choices: vec![cost_choice("logistics", &["steel-processing"])],
                 fallback: UnitSpec {
@@ -1495,6 +1502,7 @@ fn an_unpriced_tier_yields_the_slot_to_the_packless_note() {
         "balancer",
         TechSpec {
             cost_by: Some(CostChoices {
+                describes: false,
                 setting: tier,
                 choices: vec![cost_choice("logistics", &["logistics", "logistics-2"])],
                 fallback: UnitSpec {
@@ -1563,6 +1571,7 @@ fn a_typed_pack_list_takes_back_the_tiers_packless_sentence() {
             "steel-axes",
             TechSpec {
                 cost_by: Some(CostChoices {
+                    describes: false,
                     setting: tier,
                     choices: vec![cost_choice("early", &["steel-processing"])],
                     fallback: UnitSpec {
@@ -1652,6 +1661,7 @@ fn a_typed_pack_list_takes_back_the_unpriced_tier_sentence() {
             "steel-axes",
             TechSpec {
                 cost_by: Some(CostChoices {
+                    describes: false,
                     setting: tier,
                     choices: vec![cost_choice("early", &["steel-processing"])],
                     fallback: UnitSpec {
@@ -1728,6 +1738,7 @@ fn a_fallback_that_keeps_no_pack_is_emitted_empty() {
         "hardened-tips",
         TechSpec {
             cost_by: Some(CostChoices {
+                describes: false,
                 setting: tier,
                 choices: vec![cost_choice("logistics", &[])],
                 fallback: UnitSpec {
@@ -1784,6 +1795,7 @@ fn a_tier_whose_source_pack_list_is_unreadable_falls_back_to_the_declared_cost()
         "steel-axes",
         TechSpec {
             cost_by: Some(CostChoices {
+                describes: false,
                 setting: tier,
                 choices: vec![cost_choice("early", &["steel-processing"])],
                 fallback: UnitSpec {
@@ -1830,6 +1842,7 @@ fn a_typed_pack_list_takes_back_the_packless_pair_as_well() {
             "steel-axes",
             TechSpec {
                 cost_by: Some(CostChoices {
+                    describes: false,
                     setting: tier,
                     choices: vec![cost_choice("early", &["steel-processing"])],
                     fallback: UnitSpec {
@@ -1914,6 +1927,7 @@ fn a_typed_pack_list_takes_back_a_clamp_the_tier_arm_left_behind() {
             "steel-axes",
             TechSpec {
                 cost_by: Some(CostChoices {
+                    describes: false,
                     setting: tier,
                     choices: vec![cost_choice("early", &["steel-processing"])],
                     fallback: UnitSpec {
@@ -2011,6 +2025,7 @@ fn the_packless_retraction_is_keyed_on_the_declaration_and_not_the_name() {
         "steel-axes",
         TechSpec {
             cost_by: Some(CostChoices {
+                describes: false,
                 setting: tier,
                 choices: vec![cost_choice("early", &["steel-processing"])],
                 fallback: UnitSpec {
@@ -2067,6 +2082,7 @@ fn a_tier_whose_fallback_is_also_unpayable_is_emitted_empty() {
         "steel-axes",
         TechSpec {
             cost_by: Some(CostChoices {
+                describes: false,
                 setting: tier,
                 choices: vec![cost_choice("early", &["steel-processing"])],
                 fallback: UnitSpec {
@@ -2111,6 +2127,7 @@ fn a_pack_asked_about_twice_is_named_once() {
         "steel-axes",
         TechSpec {
             cost_by: Some(CostChoices {
+                describes: false,
                 setting: tier,
                 choices: vec![cost_choice("early", &["steel-processing"])],
                 fallback: UnitSpec {
@@ -2176,6 +2193,7 @@ fn the_packless_names_keep_first_seen_order() {
         "steel-axes",
         TechSpec {
             cost_by: Some(CostChoices {
+                describes: false,
                 setting: tier,
                 choices: vec![cost_choice("early", &["steel-processing"])],
                 fallback: UnitSpec {

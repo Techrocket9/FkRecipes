@@ -476,6 +476,7 @@ fn worst_case_plan() -> (Lib, FixtureWorld) {
             TechSpec {
                 description: described_prose(describe, &fixture_prose(400)),
                 cost_by: Some(CostChoices {
+                    describes: false,
                     setting: tier,
                     choices: alloc::vec![CostChoice {
                         value: String::from("early"),
@@ -511,6 +512,7 @@ fn worst_case_plan() -> (Lib, FixtureWorld) {
             TechSpec {
                 description: described_prose(describe, &fixture_prose(400)),
                 cost_by: Some(CostChoices {
+                    describes: false,
                     setting: tier,
                     choices: alloc::vec![CostChoice {
                         value: String::from("early"),
@@ -574,6 +576,7 @@ fn worst_case_plan() -> (Lib, FixtureWorld) {
             TechSpec {
                 description: described_prose(describe, &fixture_prose(400)),
                 cost_by: Some(CostChoices {
+                    describes: false,
                     setting: tier,
                     choices: alloc::vec![CostChoice {
                         value: String::from("early"),

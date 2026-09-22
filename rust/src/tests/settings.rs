@@ -423,6 +423,7 @@ fn refusals_compose_without_their_own_stage() {
                     axe,
                     RecipeSpec {
                         ingredients_by: Some(IngredientChoices {
+                            describes: false,
                             setting: style,
                             choices: vec![
                                 IngredientChoice {

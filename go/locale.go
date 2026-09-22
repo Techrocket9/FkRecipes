@@ -329,22 +329,27 @@ func (l *Lib) CheckLocaleAdvisories(modName string) []string {
 // sentence per locale key the composition references from outside this mod's
 // prefix, which today is exactly technology-name.<source>.
 //
-// THE ORDER IS THE COMPOSITION'S, technology by technology in declaration
-// order and choice by choice within one, and it steps past exactly what
-// settingDescriptions steps past, because it asks the same function:
-// costDropdownComposesPresetLines is the composition's own condition and the
-// only spelling of it. One dropdown naming one key twice says the same
-// sentence twice, so it is said once.
+// THE ORDER IS THE COMPOSITION'S, setting by setting in declaration order and
+// choice by choice within one, and it steps past exactly what the composition
+// steps past, because it asks the same function: composedDropdownPresets is
+// where a dropdown's presets are chosen, Describes and all, and it is the only
+// spelling of that. One dropdown naming one key twice says the same sentence
+// twice, so it is said once.
+//
+// THE ORDER MOVED FROM TECHNOLOGY ORDER TO SETTING ORDER WITH THAT, and the two
+// differ only on a plan with two cost dropdowns declared in one order and
+// described by technologies declared in another. Setting order is the right one
+// of the two, because what each advisory is about is a setting.
 func (l *Lib) composedGameKeyAdvisories(prefix string) []string {
 	var out []string
 	var seen []string
-	for _, t := range l.techs {
-		if !l.costDropdownComposesPresetLines(&t.spec) {
+	for i, s := range l.settings {
+		p := l.composedDropdownPresets(i + 1)
+		if p == nil || p.kind != presetsCost {
 			continue
 		}
-		by := t.spec.CostBy
-		full := l.settings[by.Setting.index-1].emittedName(prefix)
-		for _, choice := range by.Choices {
+		full := s.emittedName(prefix)
+		for _, choice := range p.cost {
 			if len(choice.Sources) == 0 {
 				continue
 			}
@@ -607,33 +612,20 @@ const (
 // sentence when the entry is absent. That is a NEW OBLIGATION on a consumer
 // shipping a bare ingredient dropdown and docs/migration.md names it.
 //
-// A handle this plan never issued is SKIPPED rather than followed, exactly as
-// every other walk over the plan skips one: the checker reports on locale, and
-// a declaration mistake is the planner's to refuse.
-//
-// IT STEPS PAST EXACTLY WHAT THE COMPOSITION STEPS PAST, len(Ingredients) and
-// all: a recipe that names Ingredients beside IngredientsBy is one the settings
-// planner composes nothing for, so demanding a description for its dropdown
-// would be a finding about a string the mod never emits. settingDescriptions is
-// the condition this mirrors, and on the technology side it does not mirror it
-// but SHARES it: costDropdownComposesPresetLines is the one spelling, read here,
-// there and by composedGameKeyAdvisories.
+// IT ASKS composedDropdownPresets RATHER THAN WALKING THE PLAN ITSELF, so the
+// obligation is about the description this library really emits: which
+// declaration describes a shared dropdown, Describes and all, is decided in
+// that one function and read here.
 func (l *Lib) dropdownsWithComposedDescription() []dropdownComposition {
 	marks := make([]dropdownComposition, len(l.settings))
-	for _, r := range l.recipes {
-		by := r.spec.IngredientsBy
-		if by == nil || len(r.spec.Ingredients) > 0 || !l.validDropdownSetting(by.Setting) {
-			continue
-		}
-		mark := composesLadderOnly
-		if l.validIngredientsSetting(r.spec.IngredientsFrom) {
-			mark = composesPresetLines
-		}
-		marks[by.Setting.index-1] = mark
-	}
-	for _, t := range l.techs {
-		if l.costDropdownComposesPresetLines(&t.spec) {
-			marks[t.spec.CostBy.Setting.index-1] = composesPresetLines
+	for i := range l.settings {
+		p := l.composedDropdownPresets(i + 1)
+		switch {
+		case p == nil:
+		case p.kind == presetsIngredients && p.text == 0:
+			marks[i] = composesLadderOnly
+		default:
+			marks[i] = composesPresetLines
 		}
 	}
 	return marks

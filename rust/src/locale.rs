@@ -383,25 +383,27 @@ impl Lib {
     /// outside this mod's prefix, which today is exactly
     /// `technology-name.<source>`.
     ///
-    /// THE ORDER IS THE COMPOSITION'S, technology by technology in declaration
-    /// order and choice by choice within one, and it steps past exactly what
-    /// `composed_dropdown_presets` steps past, because it asks the same function:
-    /// `cost_dropdown_composes_preset_lines` is the composition's own condition
-    /// and the only spelling of it. One dropdown naming one key twice says the
-    /// same sentence twice, so it is said once.
+    /// THE ORDER IS THE COMPOSITION'S, setting by setting in declaration order
+    /// and choice by choice within one, and it steps past exactly what the
+    /// composition steps past, because it asks the same function:
+    /// `composed_dropdown_presets` is where a dropdown's presets are chosen,
+    /// `describes` and all, and it is the only spelling of that. One dropdown
+    /// naming one key twice says the same sentence twice, so it is said once.
+    ///
+    /// THE ORDER MOVED FROM TECHNOLOGY ORDER TO SETTING ORDER WITH THAT, and
+    /// the two differ only on a plan with two cost dropdowns declared in one
+    /// order and described by technologies declared in another. Setting order
+    /// is the right one of the two, because what each advisory is about is a
+    /// setting.
     fn composed_game_key_advisories(&self, prefix: &str) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
-        for t in &self.techs {
-            if !self.cost_dropdown_composes_preset_lines(&t.spec) {
-                continue;
-            }
-            let by = t
-                .spec
-                .cost_by
-                .as_ref()
-                .expect("the predicate saw a dropdown");
-            let full = self.settings[by.setting.index - 1].emitted_name(prefix);
-            for choice in &by.choices {
+        for (i, s) in self.settings.iter().enumerate() {
+            let choices = match self.composed_dropdown_presets(i + 1) {
+                Some(Presets::Cost(choices, _)) => choices,
+                _ => continue,
+            };
+            let full = s.emitted_name(prefix);
+            for choice in choices {
                 let source = match choice.sources.first() {
                     Some(s) => s,
                     None => continue,
@@ -935,6 +937,7 @@ mod tests {
                 name: String::from("hardened-steel-plate-quenching"),
                 category: String::from("crafting-with-fluid"),
                 ingredients_by: Some(IngredientChoices {
+                    describes: false,
                     setting: medium,
                     choices: alloc::vec![
                         IngredientChoice {
@@ -956,6 +959,7 @@ mod tests {
             RecipeSpec {
                 name: String::from("steel-chain"),
                 ingredients_by: Some(IngredientChoices {
+                    describes: false,
                     setting: links,
                     choices: alloc::vec![
                         IngredientChoice {
@@ -977,6 +981,7 @@ mod tests {
             "hardened-tips",
             TechSpec {
                 cost_by: Some(CostChoices {
+                    describes: false,
                     setting: tier,
                     choices: alloc::vec![
                         CostChoice {
@@ -1167,6 +1172,7 @@ military-4=Military 4
             "hardened-tips",
             TechSpec {
                 cost_by: Some(CostChoices {
+                    describes: false,
                     setting: tier,
                     choices: sources
                         .iter()
@@ -1299,6 +1305,7 @@ military-4=Military 4
                 "hardened-tips",
                 TechSpec {
                     cost_by: Some(CostChoices {
+                        describes: false,
                         setting: tier,
                         choices: alloc::vec![
                             CostChoice {
@@ -1475,6 +1482,7 @@ fkrecipes-example-quench-medium-oil=Oil
             plate,
             RecipeSpec {
                 ingredients_by: Some(IngredientChoices {
+                    describes: false,
                     setting: medium,
                     choices: alloc::vec![
                         IngredientChoice {
@@ -1554,6 +1562,7 @@ fkrecipes-example-quench-medium-oil=Oil
                 // The declaration the data planner answers with "pick one".
                 ingredients: alloc::vec![Ingredient::named(2, "steel-plate", &[])],
                 ingredients_by: Some(IngredientChoices {
+                    describes: false,
                     setting: medium,
                     choices: alloc::vec![IngredientChoice {
                         value: String::from("water"),
@@ -1829,6 +1838,7 @@ fkrecipes-example-quench-medium-water=Water
             "hardened-tips",
             TechSpec {
                 cost_by: Some(CostChoices {
+                    describes: false,
                     setting: tier,
                     choices: alloc::vec![
                         CostChoice {

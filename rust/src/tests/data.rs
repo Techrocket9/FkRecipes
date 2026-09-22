@@ -521,6 +521,7 @@ fn a_recipe_whose_list_names_its_own_product_says_so() {
         plate,
         RecipeSpec {
             ingredients_by: Some(IngredientChoices {
+                describes: false,
                 setting: style,
                 choices: vec![IngredientChoice {
                     value: "plain".into(),
@@ -562,6 +563,7 @@ fn a_recipe_whose_list_names_its_own_product_says_so() {
         plate2,
         RecipeSpec {
             ingredients_by: Some(IngredientChoices {
+                describes: false,
                 setting: grade,
                 choices: vec![
                     IngredientChoice {
@@ -841,6 +843,7 @@ fn the_preset_fallback_resolves_twice_and_the_line_follows_the_second() {
         part,
         RecipeSpec {
             ingredients_by: Some(IngredientChoices {
+                describes: false,
                 setting: grade,
                 choices: vec![
                     // The DEFAULT plan is the one that names the product.
@@ -948,6 +951,7 @@ fn a_declared_list_naming_one_thing_twice_is_refused() {
         bp,
         RecipeSpec {
             ingredients_by: Some(IngredientChoices {
+                describes: false,
                 setting: bare_style,
                 choices: vec![IngredientChoice {
                     value: "vanilla".into(),
@@ -971,6 +975,7 @@ fn a_declared_list_naming_one_thing_twice_is_refused() {
             p,
             RecipeSpec {
                 ingredients_by: Some(IngredientChoices {
+                    describes: false,
                     setting: style,
                     choices: vec![IngredientChoice {
                         value: "vanilla".into(),
@@ -1150,6 +1155,7 @@ fn a_unit_naming_one_pack_twice_is_refused() {
         "steel-axes",
         TechSpec {
             cost_by: Some(crate::plan::CostChoices {
+                describes: false,
                 setting: tier,
                 choices: vec![crate::plan::CostChoice {
                     value: "cheap".into(),
@@ -1319,6 +1325,7 @@ fn plan_data_refuses_a_fluid_inside_a_choice_a_player_could_pick() {
         mix,
         RecipeSpec {
             ingredients_by: Some(IngredientChoices {
+                describes: false,
                 setting: medium,
                 choices: vec![
                     IngredientChoice {

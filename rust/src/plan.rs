@@ -366,6 +366,12 @@ pub struct IngredientChoice {
 pub struct IngredientChoices {
     pub setting: DropdownSettingRef,
     pub choices: Vec<IngredientChoice>,
+
+    /// Says this declaration is the one whose presets the dropdown shows,
+    /// where several declarations name one dropdown. See
+    /// [`CostChoices::describes`] for the whole rule; it is one rule and one
+    /// field written twice, because the two bindings are two types.
+    pub describes: bool,
 }
 
 /// A research cost the PLAYER writes: the science packs as an ingredient list
@@ -437,6 +443,26 @@ pub struct CostChoices {
     pub setting: DropdownSettingRef,
     pub choices: Vec<CostChoice>,
     pub fallback: UnitSpec,
+
+    /// Says this declaration is the one whose presets the dropdown shows.
+    ///
+    /// A DROPDOWN SHOWS ONE DECLARATION'S PRESETS, because a setting carries
+    /// one `localised_description`. Several declarations may name one
+    /// dropdown: two recipes with `ingredients_by`, or a recipe and a
+    /// technology. Where none of them is marked the rule is positional,
+    /// recipes then technologies in declaration order with the last writer
+    /// winning, which is what a plan that never sets this field keeps. Marking
+    /// one says so instead, and the settings composition, the ladder
+    /// predicate, the locale obligation and the game-key advisory all read the
+    /// same answer.
+    ///
+    /// TWO MARKED DECLARATIONS OVER ONE DROPDOWN ARE REFUSED, and so is a
+    /// marked `CostBy` with no `CostFrom` beside it, which composes nothing at
+    /// all and would hand the dropdown an empty description while another
+    /// declaration could have described it. Marking the only declaration that
+    /// names a dropdown is accepted and changes nothing: a plan that grows a
+    /// second declaration later still says which one describes.
+    pub describes: bool,
 }
 
 /// A generated recipe prototype.
