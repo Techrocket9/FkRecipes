@@ -10,7 +10,7 @@ Everything is validated before a prototype reaches the game, because the engine'
 
 Both halves implement the v1 surface and are mirrored: the same verbs, the same refusal text byte for byte, and the same emitted prototypes. The library has host tests in both languages, a harness that packages both example mods and compares their behaviour byte for byte, and a gate that runs both in a real Factorio and hashes the result against a committed golden.
 
-The current release is tagged: the Go module as `go/v0.1.1` (require `github.com/Techrocket9/fkrecipes/go v0.1.1`) and the Rust crate as `rust/v0.1.1` (a git dependency on this repository at that tag). v0.1.1 is the release to be on for Factorio 2.1: under v0.1.0 a recipe that declares a crafting category stops the load on that engine, and every research this library prices comes out free. The surface may still change before 1.0. The quickstart below shows the release form and the checkout form.
+The current release is tagged: the Go module as `go/v0.1.2` (require `github.com/Techrocket9/fkrecipes/go v0.1.2`) and the Rust crate as `rust/v0.1.2` (a git dependency on this repository at that tag). v0.1.2 is the settings-tooltip release: the text the library composes onto a text setting is about half what it was, an author can say which declaration a shared dropdown describes (`Describes`), what a cost preset's line says (`CostChoice.Display`), and can write a setting's description in the plan (`DescribeSetting`) instead of a locale entry; [Migrating a mod that already ships settings](docs/migration.md#taking-v012) says what a suite of yours sees. v0.1.1 is the first release to be on for Factorio 2.1: under v0.1.0 a recipe that declares a crafting category stops the load on that engine, and every research this library prices comes out free. The surface may still change before 1.0. The quickstart below shows the release form and the checkout form.
 
 ## Requirements
 
@@ -29,7 +29,7 @@ The Go half is the module `github.com/Techrocket9/fkrecipes/go`, rooted in this 
 ```
 require (
 	github.com/Techrocket9/fklua/guest/go v0.2.0
-	github.com/Techrocket9/fkrecipes/go v0.1.1
+	github.com/Techrocket9/fkrecipes/go v0.1.2
 )
 
 // Until a version is tagged, point the require at a checkout:
