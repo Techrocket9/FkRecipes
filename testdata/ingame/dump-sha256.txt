@@ -55,8 +55,14 @@
 # one. A 2.1 machine confirms or refutes the derivation loudly, by running the
 # gate: a mismatch there is a failure and not a skip.
 #
-# AND THEIR DATA HASHES ARE STALE, which is stated to the GATE and not only
-# here. The surface half's fixture adds three prototypes to the example guest,
+# A 2.1 MACHINE HAS SINCE CONFIRMED IT, at one remove (2026-11-05). The 2.1.24
+# capture below came out at d499e5e5..., the same settings hash, on a 2.1
+# engine. It is 2.1.24 and not 2.1.17, so it confirms the golden's property
+# that no engine moves a setting prototype rather than re-measuring the 2.1.17
+# rows themselves; the 2.1.17 binary is still gone.
+#
+# AND THE 2.1.17 ROWS' DATA HASHES ARE STALE, which is stated to the GATE and
+# not only here. The surface half's fixture adds three prototypes to the example guest,
 # two recipes and a technology, so the data dump moved on every engine and the
 # values below are the ones a 2.1.17 run produced BEFORE it. They are left as
 # recorded rather than derived, because nothing here can compute a data hash
@@ -71,11 +77,11 @@
 # cannot outlive the thing it was about; and --update drops an engine's markers
 # along with its rows, because recording them is what un-stales them.
 #
-# The 2.0.77 rows below are captured and current and carry no marker.
+# The 2.0.77 and 2.1.24 rows below are captured and current and carry no marker.
 #
 # AND --update WRITES THE ENGINE IT RAN ON LAST, so the 2.0.77 rows sit under
-# the 2.1.17 ones here. The order carries no meaning: the gate looks its own
-# engine up by the first field.
+# the 2.1.17 ones and the 2.1.24 rows, recorded last, sit at the bottom. The
+# order carries no meaning: the gate looks its own engine up by the first field.
 #
 # Capture both rows with: scripts/run-ingame.sh --update
 
@@ -86,3 +92,5 @@ stale 2.1.17 flipped recorded before the surface half added three prototypes to 
 2.1.17 flipped 83c45b19038a8cc140dfc19b381ffabb94159084ec24812eadb04fbf662451db d499e5e540e118850b0d61b49df8edb7d45d2df79768ba5af3a421e5af0c9cfd base@2.1.17 core@0.0.0 elevated-rails@2.1.17 fkrecipes-example@0.1.0 quality@2.1.17 recycler@2.1.17 space-age@2.1.17
 2.0.77 default 84bc940e912a8f830b0ca7c62a59fe76fadd3c9742f2f2e1f377d0f7ca86110b d499e5e540e118850b0d61b49df8edb7d45d2df79768ba5af3a421e5af0c9cfd base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
 2.0.77 flipped 2d17c1f56a46b3f53ccf9bbc51dd160415635dcf27b5819fa5a9fc50bafc8086 d499e5e540e118850b0d61b49df8edb7d45d2df79768ba5af3a421e5af0c9cfd base@2.0.77 core@0.0.0 elevated-rails@2.0.77 fkrecipes-example@0.1.0 quality@2.0.77 space-age@2.0.77
+2.1.24 default 39d2eb87794592f76f2744947e3fe0936496603af969523d4f7e008a7e352e99 d499e5e540e118850b0d61b49df8edb7d45d2df79768ba5af3a421e5af0c9cfd base@2.1.24 core@0.0.0 elevated-rails@2.1.24 fkrecipes-example@0.1.0 quality@2.1.24 recycler@2.1.24 space-age@2.1.24
+2.1.24 flipped 76a7b3afbf263402ccbf85d69dc943eb44d594fcf197a3bc5c206a898301fb43 d499e5e540e118850b0d61b49df8edb7d45d2df79768ba5af3a421e5af0c9cfd base@2.1.24 core@0.0.0 elevated-rails@2.1.24 fkrecipes-example@0.1.0 quality@2.1.24 recycler@2.1.24 space-age@2.1.24

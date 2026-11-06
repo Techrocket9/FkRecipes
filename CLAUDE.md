@@ -144,7 +144,8 @@ scripts/run-ingame.sh         # the engine gate: both packaged examples under a 
                               # when the table is absent, so a skip that failed to fire is a red
                               # arm rather than a vacuous green, and run-mirror.sh's 2.1 arm is
                               # where the 2.1 shape of the same degradation is covered.
-                              # About 50 seconds wall (measured at this commit). The two gates are
+                              # About 46 seconds wall on 2.1.24, where the demote arm skips
+                              # (`time -p`, 2026-11-05). The two gates are
                               # COMPLEMENTS field by field:
                               # where one types into a text the other leaves it alone and lets the
                               # dropdown decide, and the research cost overridden whole here is
@@ -202,9 +203,12 @@ go/                     the Go half: module github.com/Techrocket9/fkrecipes/go,
 rust/                   the Rust half: crate fkrecipes, workspace root. fkdata arrives as a git
                         dependency on https://github.com/Techrocket9/fklua, wasm-gated so the host
                         cargo test needs no wasm target; the [patch] one-source note is in Cargo.toml.
-                        Cargo.lock pins that repository at 9709989 (moved only by
+                        Cargo.lock pins that repository at cc50c87 (moved only by
                         `cargo update -p fkdata -p fk`, never by a replace or a patch), the same
-                        head the harness builds fklua from as of 2026-09-14. The pin and the
+                        head the harness builds fklua from as of 2026-11-05. The Go require stays
+                        on the newest TAG, v0.2.0, because a Go module follows tags and FkLua
+                        has cut none since; guest/go/fkdata has moved only in doc comments past
+                        it. The pin and the
                         harness CAN drift apart, because the lock pins the fkdata DEPENDENCY
                         this crate compiles against while run-mirror.sh and run-ingame.sh build
                         the `fklua` BINARY out of whatever the FKLUA_CHECKOUT sibling holds;
@@ -271,11 +275,14 @@ testdata/ingame/        the engine gate's per-engine golden (two tagged rows, de
                         flipped row installs) and flipped.golden.dat (the bytes
                         `fklua modsettings write` must produce for it, cmp'd on every run before
                         the engine is touched, so a codec change upstream fails here loudly and by
-                        name; the same --update re-records it and the hash rows). FOUR ROWS NOW,
-                        two engines: 2.0.77 recorded on the last day that binary was on this
-                        machine, and 2.1.17 recorded this round. The 2.0.77 rows CANNOT BE RE-RUN
-                        here and stand as recorded. All four share one settings hash, because a
-                        setting prototype is this library's own and no engine moved one
+                        name; the same --update re-records it and the hash rows). SIX ROWS NOW,
+                        three engines: 2.0.77 recorded on the last day that binary was on this
+                        machine, 2.1.17 recorded when Steam first moved to 2.1, and 2.1.24
+                        recorded 2026-11-05, the engine this machine runs today. The 2.0.77 and
+                        2.1.17 rows CANNOT BE RE-RUN here and stand as recorded (the 2.1.17 data
+                        hashes stale and marked so). All six share one settings hash, because a
+                        setting prototype is this library's own and no engine moved one; the
+                        2.1.24 capture reproduced the hash the 2.1.17 rows had DERIVED
 testdata/ingame/demote/ the demote arm's Lua-only fixture mod: info.json, data.lua (which moves
                         automation-science-pack from data.raw.tool to data.raw.item and keeps every
                         other field) and data-final-fixes.lua (which takes the demoted pack out of
